@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="/lsm-tree/logo.png" height="128">
+  <img src="/logo.png" height="128">
 </p>
 
-[![CI](https://github.com/fjall-rs/fjall/actions/workflows/test_lsmt.yml/badge.svg)](https://github.com/fjall-rs/fjall/actions/workflows/test_lsmt.yml)
+[![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/lsmt.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/lsmt.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
 ![MSRV](https://img.shields.io/badge/MSRV-1.74.0-blue)
@@ -48,3 +48,4 @@ All contributions are to be licensed as MIT OR Apache-2.0.
 ## Footnotes
 
 [1] https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html
+
