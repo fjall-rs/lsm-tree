@@ -272,13 +272,16 @@ impl Writer {
             self.tombstone_count += 1;
         }
 
-        #[cfg(feature = "bloom")]
-        self.bloom_hash_buffer
-            .push(BloomFilter::get_hash(&item.key));
-
         if Some(&item.key) != self.current_key.as_ref() {
             self.key_count += 1;
             self.current_key = Some(item.key.clone());
+
+            // IMPORTANT: Do not buffer *every* item's key
+            // because there may be multiple versions
+            // of the same key
+            #[cfg(feature = "bloom")]
+            self.bloom_hash_buffer
+                .push(BloomFilter::get_hash(&item.key));
         }
 
         let item_key = item.key.clone();
