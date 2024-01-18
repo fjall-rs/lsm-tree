@@ -120,6 +120,8 @@ impl BloomFilter {
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
+            // NOTE: should be in bounds because of modulo
+            #[allow(clippy::expect_used)]
             if !self.inner.get(idx as usize).expect("should be in bounds") {
                 return false;
             }

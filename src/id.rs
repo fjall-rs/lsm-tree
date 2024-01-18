@@ -12,6 +12,7 @@ fn to_base36(mut x: u32) -> String {
         x /= BASE_36_RADIX;
 
         result.push(std::char::from_digit(m, BASE_36_RADIX).expect("should be hex digit"));
+
         if x == 0 {
             break;
         }

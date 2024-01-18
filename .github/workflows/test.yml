@@ -1,7 +1,6 @@
 name: Tests
 
 on:
-  #  TODO: remove
   push:
     branches:
       - main

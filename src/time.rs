@@ -2,8 +2,8 @@
 pub fn unix_timestamp() -> std::time::Duration {
     let now = std::time::SystemTime::now();
 
-    // NOTE: Unwrap is trivial
-    #[allow(clippy::unwrap_used)]
+    // NOTE: Expect is trivial
+    #[allow(clippy::expect_used)]
     now.duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap()
+        .expect("time went backwards")
 }

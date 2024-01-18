@@ -17,7 +17,7 @@ pub const BLOOM_FILTER_FILE: &str = "bloom";
 /// Atomically rewrites a file
 pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Result<()> {
     let path = path.as_ref();
-    let folder = path.parent().expect("should have parent folder");
+    let folder = path.parent().expect("should have a parent");
 
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
     temp_file.write_all(content)?;
