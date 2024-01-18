@@ -236,14 +236,17 @@ impl Tree {
     #[must_use]
     pub fn approximate_len(&self) -> u64 {
         let memtable = self.active_memtable.read().expect("lock is poisoned");
-        let levels = self.levels.read().expect("lock is poisoned");
 
-        memtable.len() as u64
-            + levels
-                .get_all_segments_flattened()
-                .into_iter()
-                .map(|x| x.metadata.item_count)
-                .sum::<u64>()
+        let item_count_segments = self
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .get_all_segments_flattened()
+            .into_iter()
+            .map(|x| x.metadata.item_count)
+            .sum::<u64>();
+
+        memtable.len() as u64 + item_count_segments
     }
 
     /// Returns the approximate size of the active memtable in bytes.
