@@ -50,6 +50,7 @@ impl BitArray {
     }
 
     /// Gets the i-th byte
+    #[must_use]
     pub fn get(&self, idx: usize) -> bool {
         let byte_idx = idx / 8;
         let byte = self.0.get(byte_idx).expect("should be in bounds");
