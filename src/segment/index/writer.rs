@@ -36,8 +36,8 @@ pub struct Writer {
     index_writer: BufWriter<File>,
     block_size: u32,
     block_counter: u32,
-    block_chunk: DiskBlock<BlockHandle>,
-    index_chunk: DiskBlock<BlockHandle>,
+    block_chunk: Vec<BlockHandle>,
+    index_chunk: Vec<BlockHandle>,
 }
 
 impl Writer {
@@ -48,16 +48,6 @@ impl Writer {
         let index_writer = File::create(path.as_ref().join(TOP_LEVEL_INDEX_FILE))?;
         let index_writer = BufWriter::new(index_writer);
 
-        let block_chunk = DiskBlock {
-            items: vec![],
-            crc: 0,
-        };
-
-        let index_chunk = DiskBlock {
-            items: vec![],
-            crc: 0,
-        };
-
         Ok(Self {
             path: path.as_ref().into(),
             file_pos: 0,
@@ -65,18 +55,23 @@ impl Writer {
             index_writer,
             block_counter: 0,
             block_size,
-            block_chunk,
-            index_chunk,
+            block_chunk: Vec::with_capacity(1_000),
+            index_chunk: Vec::with_capacity(1_000),
         })
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
+        // Prepare block
+        let mut block = DiskBlock::<BlockHandle> {
+            items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
+                .into_boxed_slice(),
+            crc: 0,
+        };
+
         // Serialize block
         let mut bytes = Vec::with_capacity(u16::MAX.into());
-        self.block_chunk.crc = DiskBlock::<BlockHandle>::create_crc(&self.block_chunk.items)?;
-        self.block_chunk
-            .serialize(&mut bytes)
-            .expect("should serialize block");
+        block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
+        block.serialize(&mut bytes).expect("should serialize block");
 
         // Compress using LZ4
         let bytes = compress_prepend_size(&bytes);
@@ -88,22 +83,17 @@ impl Writer {
             .write_all(&bytes)?;
 
         // Expect is fine, because the chunk is not empty
-        let first = self
-            .block_chunk
-            .items
-            .first()
-            .expect("Chunk should not be empty");
+        let first = block.items.first().expect("Chunk should not be empty");
 
         let bytes_written = bytes.len();
 
-        self.index_chunk.items.push(BlockHandle {
+        self.index_chunk.push(BlockHandle {
             start_key: first.start_key.clone(),
             offset: self.file_pos,
             size: bytes_written as u32,
         });
 
         self.block_counter = 0;
-        self.block_chunk.items.clear();
         self.file_pos += bytes_written as u64;
 
         Ok(())
@@ -122,7 +112,7 @@ impl Writer {
             offset,
             size,
         };
-        self.block_chunk.items.push(reference);
+        self.block_chunk.push(reference);
 
         self.block_counter += block_handle_size;
 
@@ -146,14 +136,21 @@ impl Writer {
 
         log::trace!("Concatted index blocks onto blocks file");
 
-        for item in &mut self.index_chunk.items {
+        for item in &mut self.index_chunk {
             item.offset += block_file_size;
         }
 
+        // Prepare block
+        let mut block = DiskBlock::<BlockHandle> {
+            items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
+                .into_boxed_slice(),
+            crc: 0,
+        };
+
         // Serialize block
         let mut bytes = Vec::with_capacity(u16::MAX.into());
-        self.index_chunk.crc = DiskBlock::<BlockHandle>::create_crc(&self.index_chunk.items)?;
-        self.index_chunk
+        block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
+        block
             .serialize(&mut bytes)
             .expect("should serialize index block");
 
@@ -167,7 +164,7 @@ impl Writer {
         log::trace!(
             "Written top level index to {}, with {} pointers ({} bytes)",
             self.path.join(TOP_LEVEL_INDEX_FILE).display(),
-            self.index_chunk.items.len(),
+            block.items.len(),
             bytes.len(),
         );
 

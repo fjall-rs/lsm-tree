@@ -135,7 +135,7 @@ pub struct Writer {
 
     block_writer: BufWriter<File>,
     index_writer: IndexWriter,
-    chunk: ValueBlock,
+    chunk: Vec<Value>,
 
     pub block_count: usize,
     pub item_count: usize,
@@ -181,10 +181,7 @@ impl Writer {
 
         let index_writer = IndexWriter::new(&opts.path, opts.block_size)?;
 
-        let chunk = ValueBlock {
-            items: Vec::with_capacity(1_000),
-            crc: 0,
-        };
+        let chunk = Vec::with_capacity(10_000);
 
         Ok(Self {
             opts,
@@ -210,7 +207,7 @@ impl Writer {
             key_count: 0,
 
             #[cfg(feature = "bloom")]
-            bloom_hash_buffer: Vec::with_capacity(1_000),
+            bloom_hash_buffer: Vec::with_capacity(10_000),
         })
     }
 
@@ -218,23 +215,28 @@ impl Writer {
     ///
     /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`
     fn write_block(&mut self) -> crate::Result<()> {
-        debug_assert!(!self.chunk.items.is_empty());
+        debug_assert!(!self.chunk.is_empty());
 
         let uncompressed_chunk_size = self
             .chunk
-            .items
             .iter()
             .map(|item| item.size() as u64)
             .sum::<u64>();
 
         self.uncompressed_size += uncompressed_chunk_size;
 
+        // Prepare block
+        let mut block = ValueBlock {
+            items: std::mem::replace(&mut self.chunk, Vec::with_capacity(10_000))
+                .into_boxed_slice(),
+            crc: 0,
+        };
+        block.crc = ValueBlock::create_crc(&block.items)?;
+
         // Serialize block
         let mut bytes = Vec::with_capacity(u16::MAX.into());
-        self.chunk.crc = ValueBlock::create_crc(&self.chunk.items)?;
-        self.chunk
-            .serialize(&mut bytes)
-            .expect("should serialize block");
+
+        block.serialize(&mut bytes).expect("should serialize block");
 
         // Compress using LZ4
         let bytes = compress_prepend_size(&bytes);
@@ -248,16 +250,15 @@ impl Writer {
         let bytes_written = bytes.len() as u32;
 
         // Expect is fine, because the chunk is not empty
-        let first = self.chunk.items.first().expect("Chunk should not be empty");
+        let first = block.items.first().expect("Chunk should not be empty");
 
         self.index_writer
             .register_block(first.key.clone(), self.file_pos, bytes_written)?;
 
         // Adjust metadata
         self.file_pos += u64::from(bytes_written);
-        self.item_count += self.chunk.items.len();
+        self.item_count += block.items.len();
         self.block_count += 1;
-        self.chunk.items.clear();
 
         Ok(())
     }
@@ -288,7 +289,7 @@ impl Writer {
         let seqno = item.seqno;
 
         self.chunk_size += item.size();
-        self.chunk.items.push(item);
+        self.chunk.push(item);
 
         if self.chunk_size >= self.opts.block_size as usize {
             self.write_block()?;
@@ -313,7 +314,7 @@ impl Writer {
 
     /// Finishes the segment, making sure all data is written durably
     pub fn finish(&mut self) -> crate::Result<()> {
-        if !self.chunk.items.is_empty() {
+        if !self.chunk.is_empty() {
             self.write_block()?;
         }
 

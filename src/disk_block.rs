@@ -8,7 +8,7 @@ use std::io::{Cursor, Read, Write};
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[derive(Clone, Debug)]
 pub struct DiskBlock<T: Clone + Serializable + Deserializable> {
-    pub items: Vec<T>,
+    pub items: Box<[T]>,
     pub crc: u32,
 }
 
@@ -37,7 +37,7 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
 
 impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
     /// Calculates the CRC from a list of values
-    pub fn create_crc(items: &Vec<T>) -> crate::Result<u32> {
+    pub fn create_crc(items: &[T]) -> crate::Result<u32> {
         let mut hasher = crc32fast::Hasher::new();
 
         // NOTE: Truncation is okay and actually needed
@@ -73,7 +73,7 @@ impl<T: Clone + Serializable + Deserializable> Serializable for DiskBlock<T> {
         writer.write_all(&(self.items.len() as u32).to_be_bytes())?;
 
         // Serialize each value
-        for value in &self.items {
+        for value in self.items.iter() {
             value.serialize(writer)?;
         }
 
@@ -95,7 +95,10 @@ impl<T: Clone + Serializable + Deserializable> Deserializable for DiskBlock<T> {
             items.push(T::deserialize(reader)?);
         }
 
-        Ok(Self { items, crc })
+        Ok(Self {
+            items: items.into_boxed_slice(),
+            crc,
+        })
     }
 }
 
@@ -113,7 +116,10 @@ mod tests {
         let items = vec![item1.clone(), item2.clone()];
         let crc = DiskBlock::create_crc(&items)?;
 
-        let block = DiskBlock { items, crc };
+        let block = DiskBlock {
+            items: items.into_boxed_slice(),
+            crc,
+        };
 
         // Serialize to bytes
         let mut serialized = Vec::new();
@@ -141,7 +147,7 @@ mod tests {
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let block = DiskBlock {
-            items: vec![item1, item2],
+            items: [item1, item2].into(),
             crc: 12345,
         };
 

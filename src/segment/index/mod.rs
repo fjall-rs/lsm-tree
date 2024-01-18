@@ -314,7 +314,8 @@ impl BlockIndex {
 
         let mut tree = BTreeMap::new();
 
-        for item in index.items {
+        // TODO: https://github.com/rust-lang/rust/issues/59878
+        for item in index.items.into_vec() {
             tree.insert(
                 item.start_key,
                 BlockHandleBlockHandle {

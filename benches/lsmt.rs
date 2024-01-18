@@ -56,7 +56,10 @@ fn load_block_from_disk(c: &mut Criterion) {
                 }
             }
 
-            let mut block = ValueBlock { items, crc: 0 };
+            let mut block = ValueBlock {
+                items: items.into_boxed_slice(),
+                crc: 0,
+            };
             let mut file = tempfile::tempfile().unwrap();
 
             let mut bytes = Vec::with_capacity(u16::MAX.into());

@@ -85,7 +85,7 @@ impl Reader {
                     &self.segment_id,
                     key,
                 )? {
-                    let items = block.items.clone().into();
+                    let items = block.items.clone().to_vec().into();
                     self.blocks.insert(key.to_vec().into(), items);
 
                     Some(())
@@ -109,7 +109,8 @@ impl Reader {
 
             drop(file_guard);
 
-            self.blocks.insert(key.to_vec().into(), block.items.into());
+            self.blocks
+                .insert(key.to_vec().into(), block.items.to_vec().into());
 
             Ok(Some(()))
         } else {
