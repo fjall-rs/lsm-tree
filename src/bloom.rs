@@ -1,6 +1,6 @@
+use crate::bit_array::BitArray;
 use crate::serde::{Deserializable, Serializable};
 use crate::{DeserializeError, SerializeError};
-use bit_vec::BitVec;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use seahash::SeaHasher;
 use std::fs::File;
@@ -11,8 +11,8 @@ use std::path::Path;
 /// A basic bloom filter
 #[derive(Debug)]
 pub struct BloomFilter {
-    /// Raw bytes exposed as bit field
-    inner: BitVec,
+    /// Raw bytes exposed as bit array
+    inner: BitArray,
 
     /// Bit count
     m: usize,
@@ -25,7 +25,7 @@ impl Serializable for BloomFilter {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         writer.write_u64::<BigEndian>(self.m as u64)?;
         writer.write_u64::<BigEndian>(self.k as u64)?;
-        writer.write_all(&self.inner.to_bytes())?;
+        writer.write_all(self.inner.bytes())?;
         Ok(())
     }
 }
@@ -38,7 +38,7 @@ impl Deserializable for BloomFilter {
         let mut bytes = vec![0; m / 8];
         reader.read_exact(&mut bytes)?;
 
-        Ok(Self::from_raw(m, k, &bytes))
+        Ok(Self::from_raw(m, k, bytes.into_boxed_slice()))
     }
 }
 
@@ -58,9 +58,9 @@ impl BloomFilter {
         Self::deserialize(&mut reader)
     }
 
-    fn from_raw(m: usize, k: usize, bytes: &[u8]) -> Self {
+    fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
         Self {
-            inner: BitVec::from_bytes(bytes),
+            inner: BitArray::from_bytes(bytes),
             m,
             k,
         }
@@ -104,7 +104,7 @@ impl BloomFilter {
         let m = Self::calculate_m(item_count, fp_rate);
 
         Self {
-            inner: BitVec::from_elem(m, false),
+            inner: BitArray::with_capacity(m / 8),
             m,
             k,
         }
@@ -122,7 +122,7 @@ impl BloomFilter {
 
             // NOTE: should be in bounds because of modulo
             #[allow(clippy::expect_used)]
-            if !self.inner.get(idx as usize).expect("should be in bounds") {
+            if !self.inner.get(idx as usize) {
                 return false;
             }
 
