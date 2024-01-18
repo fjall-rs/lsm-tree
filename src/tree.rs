@@ -304,12 +304,6 @@ impl Tree {
         *memtable_lock = memtable;
     }
 
-    /// Free a sealed memtable
-    pub fn free_sealed_memtable(&self, id: &Arc<str>) {
-        let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
-        memtable_lock.remove(id);
-    }
-
     /// Adds a sealed memtables.
     ///
     /// May be used to restore the LSM-tree's in-memory state from some journals.
