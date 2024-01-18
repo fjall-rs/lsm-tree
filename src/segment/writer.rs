@@ -4,6 +4,7 @@ use crate::{
     id::generate_segment_id,
     segment::index::writer::Writer as IndexWriter,
     serde::Serializable,
+    time::unix_timestamp,
     value::{SeqNo, UserKey},
     Value,
 };
@@ -113,6 +114,13 @@ impl MultiWriter {
         if self.writer.item_count > 0 {
             let metadata = Metadata::from_writer(self.current_segment_id, self.writer)?;
             self.created_items.push(metadata);
+        }
+
+        let now = unix_timestamp();
+
+        // Set creation date of all segments to the same timestamp
+        for item in &mut self.created_items {
+            item.created_at = now.as_micros();
         }
 
         Ok(self.created_items)
