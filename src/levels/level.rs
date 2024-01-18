@@ -22,7 +22,7 @@ impl DerefMut for Level {
 
 impl Default for Level {
     fn default() -> Self {
-        Self(Vec::with_capacity(20))
+        Self(Vec::with_capacity(10))
     }
 }
 
