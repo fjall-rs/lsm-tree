@@ -1,4 +1,6 @@
-use crate::{descriptor_table::FileDescriptorTable, BlockCache, Tree};
+use crate::{
+    descriptor_table::FileDescriptorTable, segment::meta::CompressionType, BlockCache, Tree,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -12,6 +14,7 @@ enum TreeType {
 
 /// Tree configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[allow(clippy::module_name_repetitions)]
 pub struct PersistedConfig {
     /// Folder path
     pub path: PathBuf, // TODO: not needed, move to Config
@@ -31,6 +34,9 @@ pub struct PersistedConfig {
     pub level_ratio: u8,
 
     r#type: TreeType,
+
+    /// What type of compression is used
+    compression: CompressionType,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -43,6 +49,7 @@ impl Default for PersistedConfig {
             level_count: 7,
             level_ratio: 8,
             r#type: TreeType::Standard,
+            compression: CompressionType::Lz4,
         }
     }
 }
