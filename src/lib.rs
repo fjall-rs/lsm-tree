@@ -101,6 +101,10 @@ mod block_cache;
 #[cfg(feature = "bloom")]
 pub mod bloom;
 
+#[doc(hidden)]
+#[cfg(feature = "bloom")]
+pub mod bit_array;
+
 pub mod compaction;
 mod config;
 
