@@ -48,6 +48,7 @@ pub struct FileDescriptorTableInner {
     size: AtomicUsize,
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct FileDescriptorTable {
     inner: RwLock<FileDescriptorTableInner>,
     concurrency: usize,

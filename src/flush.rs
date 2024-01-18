@@ -38,6 +38,7 @@ pub struct Options {
 }
 
 /// Flushes a memtable, creating a segment in the given folder
+#[allow(clippy::module_name_repetitions)]
 #[doc(hidden)]
 pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     let segment_folder = opts.folder.join(&*opts.segment_id);
