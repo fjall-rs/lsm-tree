@@ -276,17 +276,12 @@ impl Writer {
             self.key_count += 1;
             self.current_key = Some(item.key.clone());
 
-            // NOTE: If the first version of the key is a tombstone,
-            // it definitely does not exist, so we don't need to
-            // consider it in the bloom filter
-            if !item.is_tombstone() {
-                // IMPORTANT: Do not buffer *every* item's key
-                // because there may be multiple versions
-                // of the same key
-                #[cfg(feature = "bloom")]
-                self.bloom_hash_buffer
-                    .push(BloomFilter::get_hash(&item.key));
-            }
+            // IMPORTANT: Do not buffer *every* item's key
+            // because there may be multiple versions
+            // of the same key
+            #[cfg(feature = "bloom")]
+            self.bloom_hash_buffer
+                .push(BloomFilter::get_hash(&item.key));
         }
 
         let item_key = item.key.clone();
