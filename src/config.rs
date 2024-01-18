@@ -129,6 +129,12 @@ impl Config {
     ///
     /// Defaults to 4 KiB (4096 bytes).
     ///
+    /// For point read heavy workloads (get) a sensible default is
+    /// somewhere between 1 - 8 KiB, depending on the average value size.
+    ///
+    /// For scan heavy workloads (range, prefix), use 16 - 64 KiB
+    /// which also increases compression efficiency.
+    ///
     /// # Panics
     ///
     /// Panics if the block size is smaller than 1 KiB (1024 bytes).
