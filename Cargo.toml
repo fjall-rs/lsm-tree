@@ -47,3 +47,4 @@ test-log = "0.2.14"
 name = "lsmt"
 harness = false
 path = "benches/lsmt.rs"
+required-features = ["bloom"]
