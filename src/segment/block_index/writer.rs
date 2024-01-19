@@ -2,10 +2,8 @@ use super::BlockHandle;
 use crate::{
     disk_block::DiskBlock,
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
-    serde::Serializable,
     value::UserKey,
 };
-use lz4_flex::compress_prepend_size;
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
@@ -71,12 +69,8 @@ impl Writer {
         };
 
         // Serialize block
-        let mut bytes = Vec::with_capacity(u16::MAX.into());
         block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
-        block.serialize(&mut bytes).expect("should serialize block");
-
-        // Compress using LZ4
-        let bytes = compress_prepend_size(&bytes);
+        let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file
         self.block_writer
@@ -150,14 +144,8 @@ impl Writer {
         };
 
         // Serialize block
-        let mut bytes = Vec::with_capacity(u16::MAX.into());
         block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
-        block
-            .serialize(&mut bytes)
-            .expect("should serialize index block");
-
-        // Compress using LZ4
-        let bytes = compress_prepend_size(&bytes);
+        let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file
         self.index_writer.write_all(&bytes)?;

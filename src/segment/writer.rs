@@ -3,12 +3,10 @@ use crate::{
     file::BLOCKS_FILE,
     id::generate_segment_id,
     segment::block_index::writer::Writer as IndexWriter,
-    serde::Serializable,
     time::unix_timestamp,
     value::{SeqNo, UserKey},
     Value,
 };
-use lz4_flex::compress_prepend_size;
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -231,15 +229,10 @@ impl Writer {
                 .into_boxed_slice(),
             crc: 0,
         };
-        block.crc = ValueBlock::create_crc(&block.items)?;
 
         // Serialize block
-        let mut bytes = Vec::with_capacity(u16::MAX.into());
-
-        block.serialize(&mut bytes).expect("should serialize block");
-
-        // Compress using LZ4
-        let bytes = compress_prepend_size(&bytes);
+        block.crc = ValueBlock::create_crc(&block.items)?;
+        let bytes = ValueBlock::to_bytes_compressed(&block);
 
         // Write to file
         self.block_writer.write_all(&bytes)?;

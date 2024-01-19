@@ -60,15 +60,14 @@ fn load_block_from_disk(c: &mut Criterion) {
                 items: items.into_boxed_slice(),
                 crc: 0,
             };
-            let mut file = tempfile::tempfile().unwrap();
 
-            let mut bytes = Vec::with_capacity(u16::MAX.into());
+            // Serialize block
             block.crc = ValueBlock::create_crc(&block.items).unwrap();
-            block.serialize(&mut bytes).unwrap();
-            let bytes = compress_prepend_size(&bytes);
-            file.write_all(&bytes).unwrap();
-
+            let bytes = ValueBlock::to_bytes(&block);
             let block_size_on_disk = bytes.len();
+
+            let mut file = tempfile::tempfile().unwrap();
+            file.write_all(&bytes).unwrap();
 
             b.iter(|| {
                 let loaded_block =

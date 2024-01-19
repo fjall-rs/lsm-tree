@@ -1,6 +1,9 @@
-use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
+use crate::{
+    segment::block_index::block_handle::BlockHandle,
+    serde::{Deserializable, DeserializeError, Serializable, SerializeError},
+};
 use byteorder::{BigEndian, ReadBytesExt};
-use lz4_flex::decompress_size_prepended;
+use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
 /// Contains the items of a block after decompressing & deserializing.
@@ -58,6 +61,15 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
     pub(crate) fn check_crc(&self, expected_crc: u32) -> crate::Result<bool> {
         let crc = Self::create_crc(&self.items)?;
         Ok(crc == expected_crc)
+    }
+
+    pub fn to_bytes_compressed(block: &Self) -> Vec<u8> {
+        // Serialize block
+        let mut bytes = Vec::with_capacity(u16::MAX.into());
+        block.serialize(&mut bytes).expect("should serialize block");
+
+        // Compress using LZ4
+        compress_prepend_size(&bytes)
     }
 }
 
