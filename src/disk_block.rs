@@ -1,7 +1,4 @@
-use crate::{
-    segment::block_index::block_handle::BlockHandle,
-    serde::{Deserializable, DeserializeError, Serializable, SerializeError},
-};
+use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
 use byteorder::{BigEndian, ReadBytesExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
