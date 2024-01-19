@@ -1,5 +1,5 @@
-use crate::segment::index::block_handle::BlockHandle;
-use crate::segment::{block::ValueBlock, index::BlockHandleBlock};
+use crate::segment::block_index::block_handle::BlockHandle;
+use crate::segment::{block::ValueBlock, block_index::BlockHandleBlock};
 use crate::{
     either::{
         Either,

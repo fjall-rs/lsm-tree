@@ -2,7 +2,7 @@ use super::{block::ValueBlock, meta::Metadata};
 use crate::{
     file::BLOCKS_FILE,
     id::generate_segment_id,
-    segment::index::writer::Writer as IndexWriter,
+    segment::block_index::writer::Writer as IndexWriter,
     serde::Serializable,
     time::unix_timestamp,
     value::{SeqNo, UserKey},
@@ -377,7 +377,7 @@ mod tests {
     use crate::value::ValueType;
     use crate::{
         block_cache::BlockCache,
-        segment::{index::BlockIndex, meta::Metadata, reader::Reader},
+        segment::{block_index::BlockIndex, meta::Metadata, reader::Reader},
         Value,
     };
     use std::sync::Arc;

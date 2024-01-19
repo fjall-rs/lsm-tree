@@ -1,4 +1,4 @@
-use super::{index::BlockIndex, range::Range};
+use super::{block_index::BlockIndex, range::Range};
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
 };
@@ -134,7 +134,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::BLOCKS_FILE,
         segment::{
-            index::BlockIndex,
+            block_index::BlockIndex,
             meta::Metadata,
             prefix::PrefixedReader,
             reader::Reader,

@@ -9,8 +9,6 @@ use crate::disk_block::DiskBlock;
 use crate::file::{BLOCKS_FILE, TOP_LEVEL_INDEX_FILE};
 use crate::value::UserKey;
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
 use top_level::{BlockHandleBlockHandle, TopLevelIndex};
@@ -52,6 +50,7 @@ impl BlockHandleBlockIndex {
 /// The index is only partially loaded into memory.
 ///
 /// See <https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html>
+#[allow(clippy::module_name_repetitions)]
 pub struct BlockIndex {
     descriptor_table: Arc<FileDescriptorTable>,
 
@@ -260,11 +259,10 @@ impl BlockIndex {
         let index_block_index = BlockHandleBlockIndex(block_cache);
 
         Self {
-            // path: Path::new(".").to_owned(),
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             segment_id,
             blocks: index_block_index,
-            top_level_index: TopLevelIndex::new(BTreeMap::default()),
+            top_level_index: TopLevelIndex::from_tree(BTreeMap::default()),
         }
     }
 
@@ -302,33 +300,13 @@ impl BlockIndex {
             path.as_ref().display()
         );
 
-        let file_size = std::fs::metadata(path.as_ref().join(TOP_LEVEL_INDEX_FILE))?.len();
-
-        let index = BlockHandleBlock::from_file_compressed(
-            &mut BufReader::new(File::open(path.as_ref().join(TOP_LEVEL_INDEX_FILE))?),
-            0,
-            file_size as u32,
-        )?;
-
-        debug_assert!(!index.items.is_empty());
-
-        let mut tree = BTreeMap::new();
-
-        // TODO: https://github.com/rust-lang/rust/issues/59878
-        for item in index.items.into_vec() {
-            tree.insert(
-                item.start_key,
-                BlockHandleBlockHandle {
-                    offset: item.offset,
-                    size: item.size,
-                },
-            );
-        }
+        let tli_path = path.as_ref().join(TOP_LEVEL_INDEX_FILE);
+        let top_level_index = TopLevelIndex::from_file(tli_path)?;
 
         Ok(Self {
             descriptor_table,
             segment_id,
-            top_level_index: TopLevelIndex::new(tree),
+            top_level_index,
             blocks: BlockHandleBlockIndex(block_cache),
         })
     }

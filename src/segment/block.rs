@@ -1,4 +1,4 @@
-use super::index::{block_handle::BlockHandle, BlockIndex};
+use super::block_index::{block_handle::BlockHandle, BlockIndex};
 use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
 use std::sync::Arc;
 

@@ -101,7 +101,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         levels::Levels,
-        segment::{index::BlockIndex, meta::Metadata, Segment},
+        segment::{block_index::BlockIndex, meta::Metadata, Segment},
         Config,
     };
     use std::sync::Arc;

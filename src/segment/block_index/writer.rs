@@ -12,6 +12,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// TODO: just buffer block index in memory, then append to blocks file, then write top-level index
+
 fn concat_files<P: AsRef<Path>>(src_path: P, dest_path: P) -> crate::Result<()> {
     let reader = File::open(src_path)?;
     let mut reader = BufReader::new(reader);

@@ -1,6 +1,6 @@
 use super::{
     block::{load_and_cache_block_by_item_key, ValueBlock},
-    index::BlockIndex,
+    block_index::BlockIndex,
 };
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
@@ -283,7 +283,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::BLOCKS_FILE,
         segment::{
-            index::BlockIndex,
+            block_index::BlockIndex,
             meta::Metadata,
             reader::Reader,
             writer::{Options, Writer},

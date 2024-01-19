@@ -7,7 +7,7 @@ use crate::{
     levels::Levels,
     memtable::MemTable,
     merge::MergeIterator,
-    segment::{index::BlockIndex, writer::MultiWriter, Segment},
+    segment::{block_index::BlockIndex, writer::MultiWriter, Segment},
     snapshot::SnapshotCounter, /* Tree, */
     stop_signal::StopSignal,
     BlockCache,

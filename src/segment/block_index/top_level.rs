@@ -1,12 +1,15 @@
 use crate::{
+    segment::block_index::BlockHandleBlock,
     serde::{Deserializable, Serializable},
     value::UserKey,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::BTreeMap,
-    io::{Read, Write},
+    fs::File,
+    io::{BufReader, Read, Write},
     ops::Bound::{Excluded, Unbounded},
+    path::Path,
     sync::Arc,
 };
 
@@ -74,10 +77,40 @@ pub struct TopLevelIndex {
 }
 
 impl TopLevelIndex {
-    /// Creates a new block index
+    /// Creates a top-level block index
     #[must_use]
-    pub fn new(data: BTreeMap<UserKey, BlockHandleBlockHandle>) -> Self {
+    pub fn from_tree(data: BTreeMap<UserKey, BlockHandleBlockHandle>) -> Self {
         Self { data }
+    }
+
+    /// Loads a top-level index from disk
+    pub fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+        let path = path.as_ref();
+
+        let file_size = std::fs::metadata(path)?.len();
+
+        let index = BlockHandleBlock::from_file_compressed(
+            &mut BufReader::new(File::open(path)?),
+            0,
+            file_size as u32,
+        )?;
+
+        debug_assert!(!index.items.is_empty());
+
+        let mut tree = BTreeMap::new();
+
+        // TODO: https://github.com/rust-lang/rust/issues/59878
+        for item in index.items.into_vec() {
+            tree.insert(
+                item.start_key,
+                BlockHandleBlockHandle {
+                    offset: item.offset,
+                    size: item.size,
+                },
+            );
+        }
+
+        Ok(Self::from_tree(tree))
     }
 
     /// Returns a handle to the first block that is not covered by the given prefix anymore

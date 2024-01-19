@@ -326,7 +326,7 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
-        segment::{index::BlockIndex, meta::Metadata, Segment},
+        segment::{block_index::BlockIndex, meta::Metadata, Segment},
         value::UserKey,
     };
     use std::sync::Arc;

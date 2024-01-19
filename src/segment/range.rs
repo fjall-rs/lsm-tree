@@ -1,4 +1,4 @@
-use super::index::BlockIndex;
+use super::block_index::BlockIndex;
 use super::reader::Reader;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -192,7 +192,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::BLOCKS_FILE,
         segment::{
-            index::BlockIndex,
+            block_index::BlockIndex,
             meta::Metadata,
             range::Range,
             writer::{Options, Writer},

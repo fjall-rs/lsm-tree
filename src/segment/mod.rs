@@ -1,5 +1,5 @@
 pub mod block;
-pub mod index;
+pub mod block_index;
 pub mod meta;
 pub mod prefix;
 pub mod range;
@@ -7,7 +7,7 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block::load_and_cache_by_block_handle, index::BlockIndex, meta::Metadata,
+    block::load_and_cache_by_block_handle, block_index::BlockIndex, meta::Metadata,
     prefix::PrefixedReader, range::Range, reader::Reader,
 };
 use crate::{
