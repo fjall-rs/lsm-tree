@@ -40,7 +40,7 @@ impl BitArray {
         &self.0
     }
 
-    /// Sets the i-th byte
+    /// Sets the i-th bit
     pub fn set(&mut self, idx: usize, val: bool) {
         let byte_idx = idx / 8;
         let byte = self.0.get_mut(byte_idx).expect("should be in bounds");
@@ -49,7 +49,7 @@ impl BitArray {
         *byte = set_bit(*byte, bit_idx, val);
     }
 
-    /// Gets the i-th byte
+    /// Gets the i-th bit
     #[must_use]
     pub fn get(&self, idx: usize) -> bool {
         let byte_idx = idx / 8;
