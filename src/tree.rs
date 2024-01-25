@@ -194,19 +194,18 @@ impl Tree {
             memtable: yanked_memtable,
             block_cache: self.block_cache.clone(),
             block_size: self.config.block_size,
-            folder: segment_folder,
+            folder: segment_folder.clone(),
             segment_id,
             descriptor_table: self.descriptor_table.clone(),
         })?;
         let segment = Arc::new(segment);
-        let result_path = segment.metadata.path.clone();
 
         // Once we have written the segment, we need to add it to the level manifest
         // and remove it from the sealed memtables
         self.register_segments(&[segment])?;
 
         log::debug!("flush: thread done");
-        Ok(Some(result_path))
+        Ok(Some(segment_folder))
     }
 
     /// Returns `true` if there are some segments that are being compacted.
@@ -812,6 +811,7 @@ impl Tree {
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
         let path = config.inner.path.clone();
+        log::trace!("Creating LSM-tree at {}", path.display());
 
         std::fs::create_dir_all(&path)?;
 
@@ -938,10 +938,8 @@ impl Tree {
                     descriptor_table.clone(),
                 )?;
 
-                descriptor_table.insert(
-                    segment.metadata.path.join(BLOCKS_FILE),
-                    segment.metadata.id.clone(),
-                );
+                descriptor_table
+                    .insert(segment_path.join(BLOCKS_FILE), segment.metadata.id.clone());
 
                 segments.push(Arc::new(segment));
                 log::debug!("Recovered segment from {}", segment_path.display());

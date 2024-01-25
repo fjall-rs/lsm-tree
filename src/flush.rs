@@ -85,7 +85,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     };
 
     opts.descriptor_table.insert(
-        created_segment.metadata.path.join(BLOCKS_FILE),
+        segment_folder.join(BLOCKS_FILE),
         created_segment.metadata.id.clone(),
     );
 

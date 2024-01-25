@@ -172,10 +172,11 @@ fn merge_segments(
         .into_iter()
         .map(|metadata| -> crate::Result<Segment> {
             let segment_id = metadata.id.clone();
-            let path = metadata.path.clone();
+
+            let segment_folder = segments_base_folder.join(&*segment_id);
 
             #[cfg(feature = "bloom")]
-            let bloom_filter = BloomFilter::from_file(path.join(BLOOM_FILTER_FILE))?;
+            let bloom_filter = BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?;
 
             Ok(Segment {
                 descriptor_table: opts.descriptor_table.clone(),
@@ -185,7 +186,7 @@ fn merge_segments(
                 block_index: BlockIndex::from_file(
                     segment_id,
                     opts.descriptor_table.clone(),
-                    path,
+                    segment_folder,
                     opts.block_cache.clone(),
                 )?
                 .into(),
@@ -202,8 +203,10 @@ fn merge_segments(
     for segment in created_segments {
         log::trace!("Persisting segment {}", segment.metadata.id);
 
+        let segment_folder = segments_base_folder.join(&*segment.metadata.id);
+
         opts.descriptor_table.insert(
-            segment.metadata.path.join(BLOCKS_FILE),
+            segment_folder.join(BLOCKS_FILE),
             segment.metadata.id.clone(),
         );
 
