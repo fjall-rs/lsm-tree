@@ -4,7 +4,7 @@ use test_log::test;
 
 #[test]
 fn block_cache() -> lsm_tree::Result<()> {
-    let block_cache = BlockCache::with_capacity_bytes(u64::MAX);
+    let block_cache = BlockCache::with_capacity_bytes(10 * 1_024 * 1_024);
 
     let items = (0..100)
         .map(|_| {

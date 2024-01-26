@@ -209,7 +209,7 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: Arc<str>, key_range: (UserKey, UserKey), size: u64) -> Arc<Segment> {
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(u64::MAX));
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),

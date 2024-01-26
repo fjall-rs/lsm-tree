@@ -298,8 +298,8 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)]
-    fn test_get_all() -> crate::Result<()> {
-        const ITEM_COUNT: u64 = 100_000;
+    fn reader_full_scan_bounded_memory() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 10_000_000;
 
         let folder = tempfile::tempdir()?.into_path();
 
@@ -333,7 +333,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(metadata.path.join(BLOCKS_FILE), metadata.id.clone());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(u64::MAX));
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
             metadata.id.clone(),
             table.clone(),
@@ -355,9 +355,29 @@ mod tests {
         for key in (0u64..ITEM_COUNT).map(u64::to_be_bytes) {
             let item = iter.next().expect("item should exist")?;
             assert_eq!(key, &*item.key);
+            assert!(iter.blocks.len() <= 1);
+            assert!(iter.blocks.capacity() <= 5);
         }
 
         log::info!("Getting every item in reverse");
+
+        let mut iter = Reader::new(
+            table.clone(),
+            metadata.id.clone(),
+            Some(Arc::clone(&block_cache)),
+            Arc::clone(&block_index),
+            None,
+            None,
+        );
+
+        for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
+            let item = iter.next_back().expect("item should exist")?;
+            assert_eq!(key, &*item.key);
+            assert!(iter.blocks.len() <= 1);
+            assert!(iter.blocks.capacity() <= 5);
+        }
+
+        log::info!("Getting every item ping pong");
 
         let mut iter = Reader::new(
             table,
@@ -368,9 +388,15 @@ mod tests {
             None,
         );
 
-        for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
-            let item = iter.next_back().expect("item should exist")?;
-            assert_eq!(key, &*item.key);
+        for i in 0u64..ITEM_COUNT {
+            if i % 2 == 0 {
+                iter.next().expect("item should exist")?
+            } else {
+                iter.next_back().expect("item should exist")?
+            };
+
+            assert!(iter.blocks.len() <= 2);
+            assert!(iter.blocks.capacity() <= 5);
         }
 
         Ok(())

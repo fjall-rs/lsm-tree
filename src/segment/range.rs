@@ -244,7 +244,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(metadata.path.join(BLOCKS_FILE), metadata.id.clone());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(u64::MAX));
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
             metadata.id.clone(),
             table.clone(),
@@ -442,7 +442,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(metadata.path.join(BLOCKS_FILE), metadata.id.clone());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(u64::MAX));
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
             metadata.id.clone(),
             table.clone(),
