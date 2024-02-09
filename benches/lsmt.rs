@@ -1,7 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{bloom::BloomFilter, segment::block::ValueBlock, serde::Serializable, Value};
-use lz4_flex::compress_prepend_size;
-use std::io::Write;
+use lsm_tree::{segment::block::ValueBlock, BlockCache, Config, Value};
+use std::{io::Write, sync::Arc};
 
 fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
@@ -63,7 +62,7 @@ fn load_block_from_disk(c: &mut Criterion) {
 
             // Serialize block
             block.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let bytes = ValueBlock::to_bytes(&block);
+            let bytes = ValueBlock::to_bytes_compressed(&block);
             let block_size_on_disk = bytes.len();
 
             let mut file = tempfile::tempfile().unwrap();
@@ -83,7 +82,6 @@ fn load_block_from_disk(c: &mut Criterion) {
 
 fn file_descriptor(c: &mut Criterion) {
     use std::fs::File;
-    use std::sync::Arc;
 
     let file = tempfile::NamedTempFile::new().unwrap();
 
@@ -107,7 +105,7 @@ fn file_descriptor(c: &mut Criterion) {
     });
 }
 
-fn bloom_filter_construction(c: &mut Criterion) {
+/* fn bloom_filter_construction(c: &mut Criterion) {
     let mut filter = BloomFilter::with_fp_rate(1_000_000, 0.001);
 
     c.bench_function("bloom filter add key", |b| {
@@ -137,6 +135,45 @@ fn bloom_filter_contains(c: &mut Criterion) {
     c.bench_function("bloom filter contains key, true negative", |b| {
         b.iter(|| filter.contains(b"sdfafdas"));
     });
+} */
+
+fn tree_get_pairs(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Get pairs");
+
+    for segment_count in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1_024] {
+        let folder = tempfile::tempdir().unwrap();
+        let tree = Config::new(folder)
+            .block_size(1_024)
+            .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
+
+        for _ in 0..segment_count {
+            for x in 0u16..10 {
+                let key = x.to_be_bytes();
+                tree.insert(key, key, 0);
+            }
+            tree.flush_active_memtable().unwrap();
+        }
+
+        group.bench_function(
+            &format!("Tree::first_key_value, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    assert!(tree.first_key_value().unwrap().is_some());
+                });
+            },
+        );
+
+        group.bench_function(
+            &format!("Tree::last_key_value, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    assert!(tree.last_key_value().unwrap().is_some());
+                });
+            },
+        );
+    }
 }
 
 criterion_group!(
@@ -144,7 +181,8 @@ criterion_group!(
     value_block_size,
     load_block_from_disk,
     file_descriptor,
-    bloom_filter_construction,
-    bloom_filter_contains
+    /*     bloom_filter_construction,
+    bloom_filter_contains, */
+    tree_get_pairs,
 );
 criterion_main!(benches);
