@@ -650,7 +650,7 @@ impl Tree {
         let segment_info = lock
             .get_all_segments()
             .values()
-            .filter(|x| x.check_prefix_overlap(&prefix))
+            .filter(|x| x.metadata.key_range.contains_prefix(&prefix))
             .cloned()
             .collect();
 

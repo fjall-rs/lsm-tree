@@ -102,7 +102,7 @@ impl Segment {
             }
         }
 
-        if !self.key_range_contains(&key) {
+        if !self.metadata.key_range.contains_key(&key) {
             return Ok(None);
         }
 
@@ -292,57 +292,21 @@ impl Segment {
         self.metadata.tombstone_count
     }
 
-    /// Returns `true` if the key is contained in the segment's key range.
+    /*  /// Returns `true` if the key is contained in the segment's key range.
     pub(crate) fn key_range_contains<K: AsRef<[u8]>>(&self, key: K) -> bool {
         self.metadata.key_range_contains(key)
     }
 
     /// Returns `true` if the prefix matches any key in the segment's key range.
     pub(crate) fn check_prefix_overlap(&self, prefix: &[u8]) -> bool {
-        self.metadata.check_prefix_overlap(prefix)
-    }
+        self.metadata.key_range.contains_prefix(prefix)
+    } */
 
-    // TODO: unit tests
     /// Checks if a key range is (partially or fully) contained in this segment.
     pub(crate) fn check_key_range_overlap(
         &self,
         bounds: &(Bound<UserKey>, Bound<UserKey>),
     ) -> bool {
-        let (lo, hi) = bounds;
-        let (segment_lo, segment_hi) = &self.metadata.key_range;
-
-        if *lo == Bound::Unbounded && *hi == Bound::Unbounded {
-            return true;
-        }
-
-        if *hi == Bound::Unbounded {
-            return match lo {
-                Bound::Included(key) => key <= segment_hi,
-                Bound::Excluded(key) => key < segment_hi,
-                Bound::Unbounded => panic!("Invalid key range check"),
-            };
-        }
-
-        if *lo == Bound::Unbounded {
-            return match hi {
-                Bound::Included(key) => key >= segment_lo,
-                Bound::Excluded(key) => key > segment_lo,
-                Bound::Unbounded => panic!("Invalid key range check"),
-            };
-        }
-
-        let lo_included = match lo {
-            Bound::Included(key) => key <= segment_hi,
-            Bound::Excluded(key) => key < segment_hi,
-            Bound::Unbounded => panic!("Invalid key range check"),
-        };
-
-        let hi_included = match hi {
-            Bound::Included(key) => key >= segment_lo,
-            Bound::Excluded(key) => key > segment_lo,
-            Bound::Unbounded => panic!("Invalid key range check"),
-        };
-
-        lo_included && hi_included
+        self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 }

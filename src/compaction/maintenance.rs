@@ -76,6 +76,7 @@ mod tests {
         config::PersistedConfig,
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
+        key_range::KeyRange,
         levels::Levels,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
     };
@@ -103,7 +104,7 @@ mod tests {
                 compression: crate::segment::meta::CompressionType::Lz4,
                 item_count: 0,
                 key_count: 0,
-                key_range: (vec![].into(), vec![].into()),
+                key_range: KeyRange::new((vec![].into(), vec![].into())),
                 tombstone_count: 0,
                 uncompressed_size: 0,
                 seqnos: (0, 0),

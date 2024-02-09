@@ -326,8 +326,8 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
+        key_range::KeyRange,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
-        value::UserKey,
     };
     use std::sync::Arc;
 
@@ -335,7 +335,7 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, key_range: (UserKey, UserKey)) -> Arc<Segment> {
+    fn fixture_segment(id: Arc<str>, key_range: KeyRange) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
@@ -366,24 +366,39 @@ mod tests {
 
     #[test]
     fn level_overlaps() {
-        let seg0 = fixture_segment("1".into(), (b"c".to_vec().into(), b"k".to_vec().into()));
-        let seg1 = fixture_segment("2".into(), (b"l".to_vec().into(), b"z".to_vec().into()));
+        let seg0 = fixture_segment(
+            "1".into(),
+            KeyRange::new((b"c".to_vec().into(), b"k".to_vec().into())),
+        );
+        let seg1 = fixture_segment(
+            "2".into(),
+            KeyRange::new((b"l".to_vec().into(), b"z".to_vec().into())),
+        );
 
         let level = ResolvedLevel(vec![seg0, seg1]);
 
         assert_eq!(
             Vec::<Arc<str>>::new(),
-            level.get_overlapping_segments(b"a".to_vec().into(), b"b".to_vec().into()),
+            level.get_overlapping_segments(&KeyRange::new((
+                b"a".to_vec().into(),
+                b"b".to_vec().into()
+            ))),
         );
 
         assert_eq!(
             vec![Arc::<str>::from("1")],
-            level.get_overlapping_segments(b"d".to_vec().into(), b"k".to_vec().into()),
+            level.get_overlapping_segments(&KeyRange::new((
+                b"d".to_vec().into(),
+                b"k".to_vec().into()
+            ))),
         );
 
         assert_eq!(
             vec![Arc::<str>::from("1"), Arc::<str>::from("2")],
-            level.get_overlapping_segments(b"f".to_vec().into(), b"x".to_vec().into()),
+            level.get_overlapping_segments(&KeyRange::new((
+                b"f".to_vec().into(),
+                b"x".to_vec().into()
+            ))),
         );
     }
 }

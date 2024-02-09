@@ -1,5 +1,5 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::PersistedConfig, levels::Levels, segment::Segment, value::UserKey};
+use crate::{config::PersistedConfig, key_range::KeyRange, levels::Levels, segment::Segment};
 use std::{ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
@@ -37,12 +37,13 @@ impl Default for Strategy {
     }
 }
 
-fn get_key_range(segments: &[Arc<Segment>]) -> (UserKey, UserKey) {
+fn aggregate_key_range(segments: &[Arc<Segment>]) -> KeyRange {
     let (mut min, mut max) = segments
         .first()
         .expect("segment should always exist")
         .metadata
         .key_range
+        .deref()
         .clone();
 
     for other in segments.iter().skip(1) {
@@ -54,7 +55,7 @@ fn get_key_range(segments: &[Arc<Segment>]) -> (UserKey, UserKey) {
         }
     }
 
-    (min, max)
+    KeyRange::new((min, max))
 }
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> usize {
@@ -122,13 +123,12 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
-                let (min, max) = get_key_range(&segments_to_compact);
-
                 let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
                     break;
                 };
 
-                let overlapping_segment_ids = next_level.get_overlapping_segments(min, max);
+                let key_range = aggregate_key_range(&segments_to_compact);
+                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
                 let mut segment_ids: Vec<_> = segments_to_compact
                     .iter()
@@ -159,13 +159,12 @@ impl CompactionStrategy for Strategy {
                 first_level_segments
                     .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
 
-                let (min, max) = get_key_range(&first_level_segments);
-
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
                 };
 
-                let overlapping_segment_ids = next_level.get_overlapping_segments(min, max);
+                let key_range = aggregate_key_range(&first_level_segments);
+                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
                 let mut segment_ids = first_level_segments
                     .iter()
@@ -195,10 +194,10 @@ mod tests {
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
+        key_range::KeyRange,
         levels::Levels,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
         time::unix_timestamp,
-        value::UserKey,
         Config,
     };
     use std::sync::Arc;
@@ -208,7 +207,7 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, key_range: (UserKey, UserKey), size: u64) -> Arc<Segment> {
+    fn fixture_segment(id: Arc<str>, key_range: KeyRange, size: u64) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
@@ -267,7 +266,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "1".into(),
-            ("a".as_bytes().into(), "z".as_bytes().into()),
+            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -277,7 +276,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "2".into(),
-            ("a".as_bytes().into(), "z".as_bytes().into()),
+            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -287,7 +286,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "3".into(),
-            ("a".as_bytes().into(), "z".as_bytes().into()),
+            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -297,7 +296,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "4".into(),
-            ("a".as_bytes().into(), "z".as_bytes().into()),
+            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
 
@@ -330,22 +329,22 @@ mod tests {
         let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
-            ("h".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "2".into(),
-            ("h".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "3".into(),
-            ("h".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "4".into(),
-            ("h".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
 
@@ -353,7 +352,7 @@ mod tests {
             1,
             fixture_segment(
                 "5".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -361,7 +360,7 @@ mod tests {
             1,
             fixture_segment(
                 "6".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -369,7 +368,7 @@ mod tests {
             1,
             fixture_segment(
                 "7".into(),
-                ("y".as_bytes().into(), "z".as_bytes().into()),
+                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -377,7 +376,7 @@ mod tests {
             1,
             fixture_segment(
                 "8".into(),
-                ("y".as_bytes().into(), "z".as_bytes().into()),
+                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -405,22 +404,22 @@ mod tests {
         let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
-            ("a".as_bytes().into(), "g".as_bytes().into()),
+            KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "2".into(),
-            ("h".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "3".into(),
-            ("i".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("i".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "4".into(),
-            ("j".as_bytes().into(), "t".as_bytes().into()),
+            KeyRange::new(("j".as_bytes().into(), "t".as_bytes().into())),
             128 * 1_024 * 1_024,
         ));
 
@@ -428,7 +427,7 @@ mod tests {
             1,
             fixture_segment(
                 "5".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -436,7 +435,7 @@ mod tests {
             1,
             fixture_segment(
                 "6".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -444,7 +443,7 @@ mod tests {
             1,
             fixture_segment(
                 "7".into(),
-                ("y".as_bytes().into(), "z".as_bytes().into()),
+                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -452,7 +451,7 @@ mod tests {
             1,
             fixture_segment(
                 "8".into(),
-                ("y".as_bytes().into(), "z".as_bytes().into()),
+                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -497,7 +496,7 @@ mod tests {
             2,
             fixture_segment(
                 "4".into(),
-                ("f".as_bytes().into(), "l".as_bytes().into()),
+                KeyRange::new(("f".as_bytes().into(), "l".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -507,7 +506,7 @@ mod tests {
             1,
             fixture_segment(
                 "1".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -517,7 +516,7 @@ mod tests {
             1,
             fixture_segment(
                 "2".into(),
-                ("h".as_bytes().into(), "t".as_bytes().into()),
+                KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -526,7 +525,7 @@ mod tests {
             1,
             fixture_segment(
                 "3".into(),
-                ("h".as_bytes().into(), "t".as_bytes().into()),
+                KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -558,7 +557,7 @@ mod tests {
             3,
             fixture_segment(
                 "5".into(),
-                ("f".as_bytes().into(), "l".as_bytes().into()),
+                KeyRange::new(("f".as_bytes().into(), "l".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -568,7 +567,7 @@ mod tests {
             2,
             fixture_segment(
                 "1".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -578,7 +577,7 @@ mod tests {
             2,
             fixture_segment(
                 "2".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -588,7 +587,7 @@ mod tests {
             2,
             fixture_segment(
                 "3".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -598,7 +597,7 @@ mod tests {
             2,
             fixture_segment(
                 "4".into(),
-                ("a".as_bytes().into(), "g".as_bytes().into()),
+                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );
@@ -607,7 +606,7 @@ mod tests {
             2,
             fixture_segment(
                 "6".into(),
-                ("y".as_bytes().into(), "z".as_bytes().into()),
+                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
                 128 * 1_024 * 1_024,
             ),
         );

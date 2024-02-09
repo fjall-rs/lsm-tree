@@ -124,6 +124,7 @@ pub mod flush;
 #[doc(hidden)]
 pub mod id;
 
+mod key_range;
 mod levels;
 
 mod lru_list;
