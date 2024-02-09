@@ -132,12 +132,12 @@ impl FileDescriptorTable {
                 fd
             };
 
-            let size_now = lock
+            let mut size_now = lock
                 .size
-                .fetch_add(self.concurrency, std::sync::atomic::Ordering::Release)
-                + 1;
+                .fetch_add(self.concurrency, std::sync::atomic::Ordering::AcqRel)
+                + self.concurrency;
 
-            if size_now > self.limit {
+            while size_now > self.limit {
                 if let Some(oldest) = lru.get_least_recently_used() {
                     if &oldest != id {
                         if let Some(item) = lock.table.get(&oldest) {
@@ -146,10 +146,13 @@ impl FileDescriptorTable {
 
                             lock.size
                                 .fetch_sub(oldest_lock.len(), std::sync::atomic::Ordering::Release);
+                            size_now -= oldest_lock.len();
 
                             oldest_lock.clear();
                         };
                     }
+                } else {
+                    break;
                 }
             }
 
