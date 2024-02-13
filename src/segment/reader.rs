@@ -328,10 +328,10 @@ mod tests {
         writer.finish()?;
 
         let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
-        metadata.write_to_file()?;
+        metadata.write_to_file(&folder)?;
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(metadata.path.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(

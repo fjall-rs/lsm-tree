@@ -1,11 +1,20 @@
 use crate::{
     descriptor_table::FileDescriptorTable, segment::meta::CompressionType, BlockCache, Tree,
 };
+use path_absolutize::Absolutize;
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    // TODO: replace with https://doc.rust-lang.org/std/path/fn.absolute.html once stable
+    path.as_ref()
+        .absolutize()
+        .expect("should be absolute path")
+        .into()
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum TreeType {
@@ -44,7 +53,7 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 impl Default for PersistedConfig {
     fn default() -> Self {
         Self {
-            path: DEFAULT_FILE_FOLDER.into(),
+            path: absolute_path(DEFAULT_FILE_FOLDER),
             block_size: 4_096,
             level_count: 7,
             level_ratio: 8,
@@ -85,7 +94,7 @@ impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let inner = PersistedConfig {
-            path: path.as_ref().into(),
+            path: absolute_path(path),
             ..Default::default()
         };
 

@@ -62,7 +62,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     segment_writer.finish()?;
 
     let metadata = Metadata::from_writer(opts.segment_id.clone(), segment_writer)?;
-    metadata.write_to_file()?;
+    metadata.write_to_file(&segment_folder)?;
 
     log::debug!("Finalized segment write at {}", segment_folder.display());
 

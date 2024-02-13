@@ -720,6 +720,11 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+        // TODO: fast path for levelled strategy:
+        // TODO: only get first ("lowest") segment of each level, if level is disjunct
+        // TODO: if nothing found, fallback to self.iter()
+        // TODO: same for last_kv
+
         self.iter().into_iter().next().transpose()
     }
 
@@ -953,7 +958,7 @@ impl Tree {
         }
 
         if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Expected segments : {segment_ids_to_recover:?}");
+            log::error!("Expected segments: {segment_ids_to_recover:?}");
 
             // TODO: no panic here
             panic!("Some segments were not recovered")

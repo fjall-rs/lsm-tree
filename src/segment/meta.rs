@@ -4,12 +4,7 @@ use crate::{
     version::Version,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::OpenOptions,
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CompressionType {
@@ -25,9 +20,6 @@ impl std::fmt::Display for CompressionType {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Metadata {
     pub version: Version,
-
-    /// Path of segment folder
-    pub path: PathBuf,
 
     /// Segment ID
     pub id: Arc<str>,
@@ -76,7 +68,6 @@ impl Metadata {
         Ok(Self {
             id,
             version: Version::V0,
-            path: writer.opts.path,
             block_count: writer.block_count as u32,
             block_size: writer.opts.block_size,
 
@@ -103,15 +94,15 @@ impl Metadata {
         })
     }
 
-    /// Stores segment metadata in a file
+    /// Stores segment metadata at a folder
     ///
     /// Will be stored as JSON
-    pub fn write_to_file(&self) -> std::io::Result<()> {
+    pub fn write_to_file<P: AsRef<Path>>(&self, folder_path: P) -> std::io::Result<()> {
         let mut writer = OpenOptions::new()
             .truncate(true)
             .create(true)
             .write(true)
-            .open(self.path.join(SEGMENT_METADATA_FILE))?;
+            .open(folder_path.as_ref().join(SEGMENT_METADATA_FILE))?;
 
         writer.write_all(
             serde_json::to_string_pretty(self)
@@ -124,7 +115,7 @@ impl Metadata {
         #[cfg(not(target_os = "windows"))]
         {
             // fsync folder on Unix
-            let folder = std::fs::File::open(&self.path)?;
+            let folder = std::fs::File::open(&folder_path)?;
             folder.sync_all()?;
         }
 

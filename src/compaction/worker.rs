@@ -164,16 +164,13 @@ fn merge_segments(
         created_segments.len()
     );
 
-    for metadata in &created_segments {
-        metadata.write_to_file()?;
-    }
-
     let created_segments = created_segments
         .into_iter()
         .map(|metadata| -> crate::Result<Segment> {
             let segment_id = metadata.id.clone();
 
             let segment_folder = segments_base_folder.join(&*segment_id);
+            metadata.write_to_file(&segment_folder)?;
 
             #[cfg(feature = "bloom")]
             let bloom_filter = BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?;

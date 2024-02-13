@@ -16,4 +16,4 @@ Cargo.lock
 .lsm.data
 .data
 /old_*
-
+.test
