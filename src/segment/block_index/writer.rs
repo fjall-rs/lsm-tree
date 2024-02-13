@@ -17,7 +17,7 @@ fn concat_files<P: AsRef<Path>>(src_path: P, dest_path: P) -> crate::Result<()> 
     let mut reader = BufReader::new(reader);
 
     let writer = OpenOptions::new()
-        .write(true)
+        
         .create(true)
         .append(true)
         .open(dest_path)?;

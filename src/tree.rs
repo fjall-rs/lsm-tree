@@ -317,7 +317,7 @@ impl Tree {
     ///
     /// This operation scans the entire tree: O(n) complexity!
     ///
-    /// Never, under any circumstances, use .len() == 0 to check
+    /// Never, under any circumstances, use .`len()` == 0 to check
     /// if the tree is empty, use [`Tree::is_empty`] instead.
     ///
     /// # Examples
