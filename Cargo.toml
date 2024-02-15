@@ -23,7 +23,7 @@ segment_history = []
 
 [dependencies]
 byteorder = "1.5.0"
-chrono = "0.4.33"
+chrono = "0.4.34"
 crc32fast = "1.3.2"
 crossbeam-skiplist = "0.1.3"
 fs_extra = "1.3.0"
