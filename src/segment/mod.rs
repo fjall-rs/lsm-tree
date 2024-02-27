@@ -116,6 +116,28 @@ impl Segment {
             }
         }
 
+        // Get the block handle, if it doesn't exist, the key is definitely not found
+        let Some(block_handle) = self.block_index.get_latest(key.as_ref())? else {
+            return Ok(None);
+        };
+
+        // The block should definitely exist, we just got the block handle before
+        let Some(block) = load_and_cache_by_block_handle(
+            &self.descriptor_table,
+            &self.block_cache,
+            &self.metadata.id,
+            &block_handle,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        let mut maybe_our_items_iter = block
+            .items
+            .iter()
+            // TODO: maybe binary search can be used, but it needs to find the max seqno
+            .filter(|item| item.key == key.as_ref().into());
+
         match seqno {
             None => {
                 // NOTE: Fastpath for non-seqno reads (which are most common)
@@ -123,101 +145,66 @@ impl Segment {
                 // (see explanation for that below)
                 // This only really works because sequence numbers are sorted
                 // in descending order
+                //
+                // If it doesn't exist, we avoid loading the next block
+                // because the block handle was retrieved using the item key, so if
+                // the item exists, it HAS to be in the first block
 
-                if let Some(block_handle) = self.block_index.get_latest(key.as_ref())? {
-                    let block = load_and_cache_by_block_handle(
-                        &self.descriptor_table,
-                        &self.block_cache,
-                        &self.metadata.id,
-                        &block_handle,
-                    )?;
-
-                    let item = block.map_or_else(
-                        || Ok(None),
-                        |block| {
-                            // TODO: maybe binary search can be used, but it needs to find the max seqno
-                            Ok(block
-                                .items
-                                .iter()
-                                .find(|item| item.key == key.as_ref().into())
-                                .cloned())
-                        },
-                    );
-
-                    item
-                } else {
-                    Ok(None)
-                }
+                Ok(maybe_our_items_iter.next().cloned())
             }
             Some(seqno) => {
-                // NOTE: if block does not contain entry, fallback to prefix as seen below
-                if let Some(block_handle) = self.block_index.get_latest(key.as_ref())? {
-                    let block = load_and_cache_by_block_handle(
-                        &self.descriptor_table,
-                        &self.block_cache,
-                        &self.metadata.id,
-                        &block_handle,
-                    )?;
-
-                    if let Some(block) = block {
-                        for item in block
-                            .items
-                            .iter()
-                            // TODO: maybe binary search can be used, but it needs to find the max seqno
-                            .filter(|item| item.key == key.as_ref().into())
-                        {
-                            if item.seqno < seqno {
-                                return Ok(Some(item.clone()));
-                            }
-                        }
+                for item in maybe_our_items_iter {
+                    if item.seqno < seqno {
+                        return Ok(Some(item.clone()));
                     }
+                }
 
-                    // NOTE: For finding a specific seqno,
-                    // we need to use a prefixed reader
-                    // because nothing really prevents the version
-                    // we are searching for to be in the next block
-                    // after the one our key starts in
-                    //
-                    // Example (key:seqno), searching for a:2:
-                    //
-                    // [..., a:5, a:4] [a:3, a:2, b: 4, b:3]
-                    // ^               ^
-                    // Block A         Block B
-                    //
-                    // Based on get_lower_bound_block, "a" is in Block A
-                    // However, we are searching for A with seqno 2, which
-                    // unfortunately is in the next block
+                // NOTE: If we got here, the item was not in the block :(
 
-                    let Some(next_block_handle) = self
-                        .block_index
-                        .get_next_block_key(&block_handle.start_key)?
-                    else {
-                        return Ok(None);
-                    };
+                // NOTE: For finding a specific seqno,
+                // we need to use a prefixed reader
+                // because nothing really prevents the version
+                // we are searching for to be in the next block
+                // after the one our key starts in
+                //
+                // Example (key:seqno), searching for a:2:
+                //
+                // [..., a:5, a:4] [a:3, a:2, b: 4, b:3]
+                // ^               ^
+                // Block A         Block B
+                //
+                // Based on get_lower_bound_block, "a" is in Block A
+                // However, we are searching for A with seqno 2, which
+                // unfortunately is in the next block
 
-                    let iter = Reader::new(
-                        Arc::clone(&self.descriptor_table),
-                        self.metadata.id.clone(),
-                        Some(Arc::clone(&self.block_cache)),
-                        Arc::clone(&self.block_index),
-                        Some(&next_block_handle.start_key),
-                        None,
-                    );
-
-                    for item in iter {
-                        let item = item?;
-
-                        // Just stop iterating once we go past our desired key
-                        if &*item.key != key {
-                            return Ok(None);
-                        }
-
-                        if item.seqno < seqno {
-                            return Ok(Some(item));
-                        }
-                    }
-                } else {
+                // Load next block and setup block iterator
+                let Some(next_block_handle) = self
+                    .block_index
+                    .get_next_block_key(&block_handle.start_key)?
+                else {
                     return Ok(None);
+                };
+
+                let iter = Reader::new(
+                    Arc::clone(&self.descriptor_table),
+                    self.metadata.id.clone(),
+                    Some(Arc::clone(&self.block_cache)),
+                    Arc::clone(&self.block_index),
+                    Some(&next_block_handle.start_key),
+                    None,
+                );
+
+                for item in iter {
+                    let item = item?;
+
+                    // Just stop iterating once we go past our desired key
+                    if &*item.key != key {
+                        return Ok(None);
+                    }
+
+                    if item.seqno < seqno {
+                        return Ok(Some(item));
+                    }
                 }
 
                 Ok(None)
