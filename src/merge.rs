@@ -8,7 +8,7 @@ pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Va
 
 type IteratorIndex = usize;
 
-#[derive(Debug)]
+#[derive(Debug, Eq)]
 struct IteratorValue((IteratorIndex, Value));
 
 impl std::ops::Deref for IteratorValue {
@@ -24,7 +24,6 @@ impl PartialEq for IteratorValue {
         self.0 .1 == other.0 .1
     }
 }
-impl Eq for IteratorValue {}
 
 impl PartialOrd for IteratorValue {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
