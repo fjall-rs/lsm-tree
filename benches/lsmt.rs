@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{segment::block::ValueBlock, BlockCache, Config, Value};
+use lsm_tree::{bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, Value};
 use std::{io::Write, sync::Arc};
 
 fn value_block_size(c: &mut Criterion) {
@@ -105,7 +105,7 @@ fn file_descriptor(c: &mut Criterion) {
     });
 }
 
-/* fn bloom_filter_construction(c: &mut Criterion) {
+fn bloom_filter_construction(c: &mut Criterion) {
     let mut filter = BloomFilter::with_fp_rate(1_000_000, 0.001);
 
     c.bench_function("bloom filter add key", |b| {
@@ -135,7 +135,7 @@ fn bloom_filter_contains(c: &mut Criterion) {
     c.bench_function("bloom filter contains key, true negative", |b| {
         b.iter(|| filter.contains(b"sdfafdas"));
     });
-} */
+}
 
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
@@ -176,13 +176,15 @@ fn tree_get_pairs(c: &mut Criterion) {
     }
 }
 
+// TODO: benchmark point read disjunct vs non-disjunct level
+
 criterion_group!(
     benches,
     value_block_size,
     load_block_from_disk,
     file_descriptor,
-    /*     bloom_filter_construction,
-    bloom_filter_contains, */
+    bloom_filter_construction,
+    bloom_filter_contains,
     tree_get_pairs,
 );
 criterion_main!(benches);

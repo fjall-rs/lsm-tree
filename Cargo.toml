@@ -48,4 +48,4 @@ test-log = "0.2.15"
 name = "lsmt"
 harness = false
 path = "benches/lsmt.rs"
-# required-features = ["bloom"]
+required-features = ["bloom"]

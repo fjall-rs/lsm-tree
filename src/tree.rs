@@ -720,7 +720,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        // TODO: fast path for levelled strategy:
+        // TODO: fast path (especially useful for levelled strategy):
         // TODO: only get first ("lowest") segment of each level, if level is disjunct
         // TODO: if nothing found, fallback to self.iter()
         // TODO: same for last_kv
