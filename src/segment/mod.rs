@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_index;
 pub mod meta;
+pub mod multi_writer;
 pub mod prefix;
 pub mod range;
 pub mod reader;
