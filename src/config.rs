@@ -121,7 +121,7 @@ impl Config {
 
     /// Sets the size ratio between levels of the LSM tree (a.k.a. fanout, growth rate).
     ///
-    /// Defaults to 10.
+    /// Defaults to 8.
     ///
     /// # Panics
     ///
