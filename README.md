@@ -27,7 +27,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Range & prefix searching with forward and reverse iteration
 - Size-tiered, (concurrent) Levelled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
-- Partitioned block index to reduce memory footprint and keep startup time tiny [1]
+- Partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
 - Block caching to keep hot data in memory
 - Bloom filters to increase point lookup performance (`bloom` feature, disabled by default)
 - Snapshots (MVCC)
