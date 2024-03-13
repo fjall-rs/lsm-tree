@@ -175,7 +175,7 @@ impl Value {
     ///
     /// # Panics
     ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
     pub fn new<K: Into<UserKey>, V: Into<UserValue>>(
         key: K,
         value: V,
