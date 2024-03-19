@@ -76,7 +76,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # use lsm_tree::{Tree, Config, BlockCache};
 /// # use std::sync::Arc;
 /// #
-/// // Provide 10'000 blocks 40 MB of cache capacity
+/// // Provide 40 MB of cache capacity
 /// let block_cache = Arc::new(BlockCache::with_capacity_bytes(40 * 1_000 * 1_000));
 ///
 /// # let folder = tempfile::tempdir()?;
