@@ -262,13 +262,13 @@ mod tests {
 
     #[test]
     fn test_snapshot_iter() -> crate::Result<()> {
-        let vec0 = vec![
+        let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = vec![
+        let vec1 = [
             crate::Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
@@ -350,13 +350,13 @@ mod tests {
 
     #[test]
     fn test_mixed() -> crate::Result<()> {
-        let vec0 = vec![
+        let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = vec![
+        let vec1 = [
             crate::Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
@@ -382,13 +382,13 @@ mod tests {
 
     #[test]
     fn test_forward_merge() -> crate::Result<()> {
-        let vec0 = vec![
+        let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = vec![
+        let vec1 = [
             crate::Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
@@ -414,13 +414,13 @@ mod tests {
 
     #[test]
     fn test_forward_tombstone_shadowing() -> crate::Result<()> {
-        let vec0 = vec![
+        let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = vec![
+        let vec1 = [
             crate::Value::new(1u64.to_be_bytes(), *b"", 1, ValueType::Tombstone),
             crate::Value::new(2u64.to_be_bytes(), *b"", 1, ValueType::Tombstone),
             crate::Value::new(3u64.to_be_bytes(), *b"", 1, ValueType::Tombstone),
@@ -446,13 +446,13 @@ mod tests {
 
     #[test]
     fn test_rev_merge() -> crate::Result<()> {
-        let vec0 = vec![
+        let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = vec![
+        let vec1 = [
             crate::Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             crate::Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
