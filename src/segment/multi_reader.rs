@@ -7,7 +7,7 @@ use crate::merge::MergeIterator;
 
 /// Reads through a disjoint, sorted set of segment readers
 pub struct MultiReader {
-    readers: VecDeque<SegmentReader>,
+    readers: VecDeque<SegmentReader>, //  TODO: maybe Vec of BoxedIterators...
 }
 
 impl MultiReader {
@@ -88,6 +88,9 @@ mod tests {
                     block_size: 4_096,
                     evict_tombstones: false,
                     path: folder.clone(),
+
+                    #[cfg(feature = "bloom")]
+                    bloom_fp_rate: 0.01,
                 })?;
 
                 for key in keys {
@@ -114,6 +117,9 @@ mod tests {
                     )?),
                     metadata,
                     descriptor_table: descriptor_table.clone(),
+
+                    #[cfg(feature = "bloom")]
+                    bloom_filter: crate::bloom::BloomFilter::with_fp_rate(1, 0.1),
                 })
             })
             .collect::<crate::Result<Vec<_>>>()?;

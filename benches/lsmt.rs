@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, Value};
+use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
 
 fn value_block_size(c: &mut Criterion) {
@@ -180,13 +181,150 @@ fn tree_get_pairs(c: &mut Criterion) {
 
 // TODO: benchmark point read disjoint vs non-disjoint level
 
+fn first_kv_disjoint(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Segments get first/last KV");
+
+    for segment_count in [1, 2, 4, 16, 64, 256] {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let descriptor_table =
+            Arc::new(lsm_tree::descriptor_table::FileDescriptorTable::new(100, 1));
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(0));
+
+        let segments = (0u64..segment_count)
+            .into_iter()
+            .map(|key| {
+                let segment_id: Arc<str> = nanoid!().into();
+
+                let folder = tempdir.path().join(&*segment_id);
+                std::fs::create_dir_all(&folder).unwrap();
+
+                let mut writer =
+                    lsm_tree::segment::writer::Writer::new(lsm_tree::segment::writer::Options {
+                        block_size: 4_096,
+                        evict_tombstones: false,
+                        path: folder.clone(),
+                        bloom_fp_rate: 0.1,
+                    })
+                    .unwrap();
+
+                writer
+                    .write(Value {
+                        key: (key.to_be_bytes()).into(),
+                        value: vec![].into(),
+                        seqno: 0,
+                        value_type: lsm_tree::ValueType::Value,
+                    })
+                    .unwrap();
+
+                writer.finish().unwrap();
+                let metadata =
+                    lsm_tree::segment::meta::Metadata::from_writer(segment_id.clone(), writer)
+                        .unwrap();
+                metadata.write_to_file(&folder).unwrap();
+
+                descriptor_table.insert(folder.join("blocks"), segment_id.clone());
+
+                Ok::<_, lsm_tree::Error>(lsm_tree::Segment {
+                    block_cache: block_cache.clone(),
+                    block_index: Arc::new(lsm_tree::segment::block_index::BlockIndex::from_file(
+                        segment_id,
+                        descriptor_table.clone(),
+                        folder,
+                        block_cache.clone(),
+                    )?),
+                    metadata,
+                    descriptor_table: descriptor_table.clone(),
+                    bloom_filter: BloomFilter::with_fp_rate(1, 0.5),
+                })
+            })
+            .collect::<lsm_tree::Result<Vec<_>>>()
+            .unwrap();
+
+        group.bench_function(
+            &format!("first key value - merge, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    let mut segment_iters: Vec<lsm_tree::merge::BoxedIterator> = vec![];
+
+                    for segment in &segments {
+                        let reader = segment.iter(false);
+                        segment_iters.push(Box::new(reader));
+                    }
+
+                    let mut iter = lsm_tree::merge::MergeIterator::new(segment_iters);
+
+                    iter.next();
+                });
+            },
+        );
+
+        group.bench_function(
+            &format!("last key value - merge, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    let mut segment_iters: Vec<lsm_tree::merge::BoxedIterator> = vec![];
+
+                    for segment in &segments {
+                        let reader = segment.iter(false);
+                        segment_iters.push(Box::new(reader));
+                    }
+
+                    let mut iter = lsm_tree::merge::MergeIterator::new(segment_iters);
+
+                    iter.next_back();
+                });
+            },
+        );
+
+        group.bench_function(
+            &format!("first key value - disjoint reader, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    let mut segment_iters: Vec<_> = vec![];
+
+                    for segment in &segments {
+                        let reader = segment.iter(false);
+                        segment_iters.push(reader);
+                    }
+
+                    let mut iter =
+                        lsm_tree::segment::multi_reader::MultiReader::new(segment_iters.into());
+
+                    iter.next();
+                });
+            },
+        );
+
+        group.bench_function(
+            &format!("last key value - disjoint reader, {segment_count} segments"),
+            |b| {
+                b.iter(|| {
+                    let mut segment_iters: Vec<_> = vec![];
+
+                    for segment in &segments {
+                        let reader = segment.iter(false);
+                        segment_iters.push(reader);
+                    }
+
+                    let mut iter =
+                        lsm_tree::segment::multi_reader::MultiReader::new(segment_iters.into());
+
+                    iter.next_back();
+                });
+            },
+        );
+    }
+}
+
 criterion_group!(
     benches,
-    value_block_size,
-    load_block_from_disk,
-    file_descriptor,
-    bloom_filter_construction,
-    bloom_filter_contains,
-    tree_get_pairs,
+    // value_block_size,
+    // load_block_from_disk,
+    // file_descriptor,
+    // bloom_filter_construction,
+    // bloom_filter_contains,
+    // tree_get_pairs,
+    first_kv_disjoint
 );
 criterion_main!(benches);

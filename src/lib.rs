@@ -130,7 +130,9 @@ mod levels;
 mod lru_list;
 
 mod memtable;
-mod merge;
+
+#[doc(hidden)]
+pub mod merge;
 
 #[doc(hidden)]
 pub mod prefix;
