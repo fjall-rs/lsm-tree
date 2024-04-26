@@ -279,28 +279,26 @@ impl BlockIndex {
     pub fn from_file<P: AsRef<Path>>(
         segment_id: Arc<str>,
         descriptor_table: Arc<FileDescriptorTable>,
-        path: P,
+        folder: P,
         block_cache: Arc<BlockCache>,
     ) -> crate::Result<Self> {
-        log::debug!("Reading block index from {}", path.as_ref().display());
+        let folder = folder.as_ref();
 
+        log::debug!("Reading block index from {}", folder.display());
+
+        debug_assert!(folder.try_exists()?, "{} missing", folder.display());
         debug_assert!(
-            path.as_ref().try_exists()?,
+            folder.join(TOP_LEVEL_INDEX_FILE).try_exists()?,
             "{} missing",
-            path.as_ref().display()
+            folder.display()
         );
         debug_assert!(
-            path.as_ref().join(TOP_LEVEL_INDEX_FILE).try_exists()?,
+            folder.join(BLOCKS_FILE).try_exists()?,
             "{} missing",
-            path.as_ref().display()
-        );
-        debug_assert!(
-            path.as_ref().join(BLOCKS_FILE).try_exists()?,
-            "{} missing",
-            path.as_ref().display()
+            folder.display()
         );
 
-        let tli_path = path.as_ref().join(TOP_LEVEL_INDEX_FILE);
+        let tli_path = folder.join(TOP_LEVEL_INDEX_FILE);
         let top_level_index = TopLevelIndex::from_file(tli_path)?;
 
         Ok(Self {
