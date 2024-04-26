@@ -2,6 +2,7 @@ use crate::UserKey;
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 
+/// A key range in the format of [min, max] (inclusive on both sides)
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct KeyRange((UserKey, UserKey));
 
@@ -18,17 +19,33 @@ impl KeyRange {
         Self(range)
     }
 
+    /// Returns `true` if the list of key ranges is disjunct
+    pub fn is_disjunct(ranges: &[Self]) -> bool {
+        for i in 0..ranges.len() {
+            let a = ranges.get(i).expect("should exist");
+
+            for j in (i + 1)..ranges.len() {
+                let b = ranges.get(j).expect("should exist");
+
+                if a.overlaps_with_key_range(b) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
     pub(crate) fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
         let (start, end) = &self.0;
         key >= start && key <= end
     }
 
-    // TODO: unit tests
     pub fn overlaps_with_key_range(&self, other: &Self) -> bool {
         let (start1, end1) = &self.0;
         let (start2, end2) = &other.0;
-        end1 > start2 && start1 < end2
+        end1 >= start2 && start1 <= end2
     }
 
     // TODO: unit tests
@@ -86,6 +103,52 @@ impl KeyRange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_range_disjunct() {
+        let ranges = [
+            KeyRange::new(((*b"a").into(), (*b"d").into())),
+            KeyRange::new(((*b"g").into(), (*b"z").into())),
+        ];
+        assert!(KeyRange::is_disjunct(&ranges));
+    }
+
+    #[test]
+    fn key_range_overlap() {
+        let a = KeyRange::new(((*b"a").into(), (*b"f").into()));
+        let b = KeyRange::new(((*b"b").into(), (*b"h").into()));
+        assert!(a.overlaps_with_key_range(&b));
+    }
+
+    #[test]
+    fn key_range_overlap_edge() {
+        let a = KeyRange::new(((*b"a").into(), (*b"f").into()));
+        let b = KeyRange::new(((*b"f").into(), (*b"t").into()));
+        assert!(a.overlaps_with_key_range(&b));
+    }
+
+    #[test]
+    fn key_range_no_overlap() {
+        let a = KeyRange::new(((*b"a").into(), (*b"f").into()));
+        let b = KeyRange::new(((*b"g").into(), (*b"t").into()));
+        assert!(!a.overlaps_with_key_range(&b));
+    }
+
+    #[test]
+    fn key_range_not_disjunct() {
+        let ranges = [
+            KeyRange::new(((*b"a").into(), (*b"f").into())),
+            KeyRange::new(((*b"b").into(), (*b"h").into())),
+        ];
+        assert!(!KeyRange::is_disjunct(&ranges));
+
+        let ranges = [
+            KeyRange::new(((*b"a").into(), (*b"d").into())),
+            KeyRange::new(((*b"d").into(), (*b"e").into())),
+            KeyRange::new(((*b"f").into(), (*b"z").into())),
+        ];
+        assert!(!KeyRange::is_disjunct(&ranges));
+    }
 
     #[test]
     fn key_range_contains_prefix() {
