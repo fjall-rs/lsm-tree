@@ -19,8 +19,8 @@ impl KeyRange {
         Self(range)
     }
 
-    /// Returns `true` if the list of key ranges is disjunct
-    pub fn is_disjunct(ranges: &[Self]) -> bool {
+    /// Returns `true` if the list of key ranges is disjoint
+    pub fn is_disjoint(ranges: &[Self]) -> bool {
         for i in 0..ranges.len() {
             let a = ranges.get(i).expect("should exist");
 
@@ -105,12 +105,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn key_range_disjunct() {
+    fn key_range_disjoint() {
         let ranges = [
             KeyRange::new(((*b"a").into(), (*b"d").into())),
             KeyRange::new(((*b"g").into(), (*b"z").into())),
         ];
-        assert!(KeyRange::is_disjunct(&ranges));
+        assert!(KeyRange::is_disjoint(&ranges));
     }
 
     #[test]
@@ -135,19 +135,19 @@ mod tests {
     }
 
     #[test]
-    fn key_range_not_disjunct() {
+    fn key_range_not_disjoint() {
         let ranges = [
             KeyRange::new(((*b"a").into(), (*b"f").into())),
             KeyRange::new(((*b"b").into(), (*b"h").into())),
         ];
-        assert!(!KeyRange::is_disjunct(&ranges));
+        assert!(!KeyRange::is_disjoint(&ranges));
 
         let ranges = [
             KeyRange::new(((*b"a").into(), (*b"d").into())),
             KeyRange::new(((*b"d").into(), (*b"e").into())),
             KeyRange::new(((*b"f").into(), (*b"z").into())),
         ];
-        assert!(!KeyRange::is_disjunct(&ranges));
+        assert!(!KeyRange::is_disjoint(&ranges));
     }
 
     #[test]

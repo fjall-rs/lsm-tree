@@ -70,24 +70,15 @@ impl ResolvedLevel {
         self.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    // TODO: unit tests
-    pub fn is_disjunct(&self) -> bool {
-        for i in 0..self.0.len() {
-            for j in i + 1..self.0.len() {
-                let segment1 = &self.0.get(i).expect("should exist");
-                let segment2 = &self.0.get(j).expect("should exist");
+    fn is_disjoint(&self) -> bool {
+        let ranges = self
+            .0
+            .iter()
+            .map(|x| &x.metadata.key_range)
+            .cloned()
+            .collect::<Vec<_>>();
 
-                if segment1
-                    .metadata
-                    .key_range
-                    .overlaps_with_key_range(&segment2.metadata.key_range)
-                {
-                    return false;
-                }
-            }
-        }
-
-        true
+        KeyRange::is_disjoint(&ranges)
     }
 
     pub fn get_overlapping_segments(&self, key_range: &KeyRange) -> Vec<Arc<str>> {
@@ -99,40 +90,3 @@ impl ResolvedLevel {
             .collect()
     }
 }
-
-/*
-// Helper function to check if two segments are disjoint
-fn is_disjoint(a: (UserKey, UserKey), b: (UserKey, UserKey)) -> bool {
-    use std::ops::Bound::Included;
-
-    let (start, end) = b.clone();
-    let bounds = (Included(start), Included(end));
-
-    segment1.check_key_range_overlap(&bounds)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_disjoint_segments_disjoint() {
-        // Create two disjoint segments
-        let segment1 = Arc::new(Segment { start: 0, end: 5 });
-        let segment2 = Arc::new(Segment { start: 6, end: 10 });
-
-        // Check if they are disjoint
-        assert!(is_disjoint(&segment1, &segment2));
-    }
-
-    #[test]
-    fn test_is_disjoint_segments_overlap() {
-        // Create two overlapping segments
-        let segment1 = Arc::new(Segment { start: 0, end: 5 });
-        let segment2 = Arc::new(Segment { start: 3, end: 7 });
-
-        // Check if they are disjoint
-        assert!(!is_disjoint(&segment1, &segment2));
-    }
-}
- */

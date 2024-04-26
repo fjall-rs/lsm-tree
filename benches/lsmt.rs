@@ -148,6 +148,8 @@ fn tree_get_pairs(c: &mut Criterion) {
             .open()
             .unwrap();
 
+        // TODO: disjoint
+
         for _ in 0..segment_count {
             for x in 0u16..10 {
                 let key = x.to_be_bytes();
@@ -176,7 +178,7 @@ fn tree_get_pairs(c: &mut Criterion) {
     }
 }
 
-// TODO: benchmark point read disjunct vs non-disjunct level
+// TODO: benchmark point read disjoint vs non-disjoint level
 
 criterion_group!(
     benches,
