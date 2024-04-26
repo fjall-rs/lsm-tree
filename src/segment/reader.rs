@@ -10,9 +10,9 @@ use std::{
     sync::Arc,
 };
 
-#[allow(clippy::module_name_repetitions)]
 /// Stupidly iterates through the entries of a segment
 /// This does not account for tombstones
+#[allow(clippy::module_name_repetitions)]
 pub struct Reader {
     descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
