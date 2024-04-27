@@ -8,7 +8,11 @@ use std::hash::Hasher;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
-/// A basic bloom filter
+/// A standard bloom filter
+///
+/// Allows buffering the key hashes before actual filter construction
+/// which is needed to properly calculate the filter size, as the amount of items
+/// are unknown during segment construction.
 #[derive(Debug)]
 pub struct BloomFilter {
     /// Raw bytes exposed as bit array
@@ -87,8 +91,8 @@ impl BloomFilter {
             _ if fp_rate > 0.02 => 5,
             _ if fp_rate > 0.01 => 7,
             _ if fp_rate > 0.001 => 10,
-            _ if fp_rate > 0.0001 => 13,
-            _ if fp_rate > 0.00001 => 17,
+            _ if fp_rate > 0.000_1 => 13,
+            _ if fp_rate > 0.000_01 => 17,
             _ => 20,
         }
     }
