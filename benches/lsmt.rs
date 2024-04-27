@@ -221,6 +221,7 @@ fn first_kv_disjoint(c: &mut Criterion) {
                 let metadata =
                     lsm_tree::segment::meta::Metadata::from_writer(segment_id.clone(), writer)
                         .unwrap();
+
                 metadata.write_to_file(&folder).unwrap();
 
                 descriptor_table.insert(folder.join("blocks"), segment_id.clone());
@@ -319,12 +320,12 @@ fn first_kv_disjoint(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // value_block_size,
-    // load_block_from_disk,
-    // file_descriptor,
-    // bloom_filter_construction,
-    // bloom_filter_contains,
-    // tree_get_pairs,
+    value_block_size,
+    load_block_from_disk,
+    file_descriptor,
+    bloom_filter_construction,
+    bloom_filter_contains,
+    tree_get_pairs,
     first_kv_disjoint
 );
 criterion_main!(benches);

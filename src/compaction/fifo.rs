@@ -74,8 +74,9 @@ impl CompactionStrategy for Strategy {
         if db_size > self.limit {
             let mut bytes_to_delete = db_size - self.limit;
 
-            // Sort the level by oldest to newest
-            first_level.sort_by(|a, b| a.metadata.seqnos.0.cmp(&b.metadata.seqnos.0));
+            // NOTE: Sort the level by oldest to newest (levels are sorted from newest to oldest)
+            // so we can just reverse
+            first_level.reverse();
 
             for segment in first_level {
                 if bytes_to_delete == 0 {
@@ -136,7 +137,7 @@ mod tests {
                 key_range: KeyRange::new((vec![].into(), vec![].into())),
                 tombstone_count: 0,
                 uncompressed_size: 0,
-                seqnos: (0, 0),
+                seqnos: (0, created_at as u64),
             },
             block_cache,
 
