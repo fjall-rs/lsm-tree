@@ -382,6 +382,62 @@ mod tests {
     }
 
     #[test]
+    fn level_disjoint() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        let mut x = 0_u64;
+
+        for _ in 0..10 {
+            for _ in 0..10 {
+                let key = x.to_be_bytes();
+                x += 1;
+                tree.insert(key, key, 0);
+            }
+            tree.flush_active_memtable().expect("should flush");
+        }
+
+        assert!(
+            tree.levels
+                .read()
+                .expect("lock is poisoned")
+                .levels
+                .first()
+                .expect("should exist")
+                .is_disjoint
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn level_not_disjoint() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        for i in 0..10 {
+            tree.insert("a", "", i);
+            tree.insert("z", "", i);
+            tree.flush_active_memtable().expect("should flush");
+        }
+
+        assert!(
+            !tree
+                .levels
+                .read()
+                .expect("lock is poisoned")
+                .levels
+                .first()
+                .expect("should exist")
+                .is_disjoint
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn level_overlaps() {
         let seg0 = fixture_segment(
             "1".into(),
