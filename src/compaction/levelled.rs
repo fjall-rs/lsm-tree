@@ -208,6 +208,10 @@ mod tests {
     #[cfg(feature = "bloom")]
     use crate::bloom::BloomFilter;
 
+    fn string_key_range(a: &str, b: &str) -> KeyRange {
+        KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
+    }
+
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: Arc<str>, key_range: KeyRange, size: u64) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
@@ -267,7 +271,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "1".into(),
-            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
+            string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -277,7 +281,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "2".into(),
-            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
+            string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -287,7 +291,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "3".into(),
-            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
+            string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
@@ -297,7 +301,7 @@ mod tests {
 
         levels.add(fixture_segment(
             "4".into(),
-            KeyRange::new(("a".as_bytes().into(), "z".as_bytes().into())),
+            string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
 
@@ -330,56 +334,40 @@ mod tests {
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
-            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "2".into(),
-            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "3".into(),
-            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "4".into(),
-            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
 
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "5".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("5".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "6".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("6".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "7".into(),
-                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("7".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "8".into(),
-                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("8".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
@@ -405,56 +393,40 @@ mod tests {
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
-            KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
+            string_key_range("a", "g"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "2".into(),
-            KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "3".into(),
-            KeyRange::new(("i".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("i", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
             "4".into(),
-            KeyRange::new(("j".as_bytes().into(), "t".as_bytes().into())),
+            string_key_range("j", "t"),
             128 * 1_024 * 1_024,
         ));
 
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "5".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("5".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "6".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("6".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "7".into(),
-                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("7".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "8".into(),
-                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("8".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
@@ -495,40 +467,24 @@ mod tests {
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "4".into(),
-                KeyRange::new(("f".as_bytes().into(), "l".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("4".into(), string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "1".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("1".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "2".into(),
-                KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("2".into(), string_key_range("h", "t"), 128 * 1_024 * 1_024),
         );
 
         levels.insert_into_level(
             1,
-            fixture_segment(
-                "3".into(),
-                KeyRange::new(("h".as_bytes().into(), "t".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("3".into(), string_key_range("h", "t"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
@@ -556,60 +512,36 @@ mod tests {
 
         levels.insert_into_level(
             3,
-            fixture_segment(
-                "5".into(),
-                KeyRange::new(("f".as_bytes().into(), "l".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("5".into(), string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "1".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("1".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "2".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("2".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "3".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("3".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "4".into(),
-                KeyRange::new(("a".as_bytes().into(), "g".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("4".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
 
         levels.insert_into_level(
             2,
-            fixture_segment(
-                "6".into(),
-                KeyRange::new(("y".as_bytes().into(), "z".as_bytes().into())),
-                128 * 1_024 * 1_024,
-            ),
+            fixture_segment("6".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
