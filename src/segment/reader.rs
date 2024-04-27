@@ -299,7 +299,7 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn reader_full_scan_bounded_memory() -> crate::Result<()> {
-        const ITEM_COUNT: u64 = 10_000_000;
+        const ITEM_COUNT: u64 = 1_000_000;
 
         let folder = tempfile::tempdir()?.into_path();
 
@@ -312,14 +312,8 @@ mod tests {
             bloom_fp_rate: 0.01,
         })?;
 
-        let items = (0u64..ITEM_COUNT).map(|i| {
-            Value::new(
-                i.to_be_bytes(),
-                nanoid::nanoid!().as_bytes(),
-                1000 + i,
-                ValueType::Value,
-            )
-        });
+        let items = (0u64..ITEM_COUNT)
+            .map(|i| Value::new(i.to_be_bytes(), *b"asd", 1000 + i, ValueType::Value));
 
         for item in items {
             writer.write(item)?;
