@@ -149,11 +149,12 @@ fn tree_get_pairs(c: &mut Criterion) {
             .open()
             .unwrap();
 
-        // TODO: disjoint
+        let mut x = 0_u64;
 
         for _ in 0..segment_count {
-            for x in 0u16..10 {
+            for _ in 0..10 {
                 let key = x.to_be_bytes();
+                x += 1;
                 tree.insert(key, key, 0);
             }
             tree.flush_active_memtable().unwrap();
