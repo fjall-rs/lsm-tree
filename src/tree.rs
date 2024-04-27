@@ -589,15 +589,6 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let lock = self.levels.read().expect("lock is poisoned");
-
-        let segment_info = lock
-            .get_all_segments()
-            .values()
-            .filter(|x| x.check_key_range_overlap(&bounds))
-            .cloned()
-            .collect::<Vec<_>>();
-
         Range::new(
             crate::range::MemTableGuard {
                 active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
@@ -606,8 +597,8 @@ impl Tree {
                     .expect("lock is poisoned"),
             },
             bounds,
-            segment_info,
             seqno,
+            self.levels.clone(),
         )
     }
 
@@ -645,15 +636,6 @@ impl Tree {
     ) -> Prefix {
         let prefix = prefix.into();
 
-        let lock = self.levels.read().expect("lock is poisoned");
-
-        let segment_info = lock
-            .get_all_segments()
-            .values()
-            .filter(|x| x.metadata.key_range.contains_prefix(&prefix))
-            .cloned()
-            .collect();
-
         Prefix::new(
             MemTableGuard {
                 active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
@@ -662,8 +644,8 @@ impl Tree {
                     .expect("lock is poisoned"),
             },
             prefix,
-            segment_info,
             seqno,
+            self.levels.clone(),
         )
     }
 
@@ -720,11 +702,6 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        // TODO: fast path (especially useful for levelled strategy):
-        // TODO: only get first ("lowest") segment of each level, if level is disjoint
-        // TODO: if nothing found, fallback to self.iter()
-        // TODO: same for last_kv
-
         self.iter().into_iter().next().transpose()
     }
 

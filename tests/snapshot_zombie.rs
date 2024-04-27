@@ -89,6 +89,8 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).block_size(1_024).open()?;
 
+        dbg!(&tree.levels.read().expect("lasd").levels);
+
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().into_iter().rev().count(), 0);
 

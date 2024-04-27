@@ -1,12 +1,17 @@
 use crate::{
+    levels::LevelManifest,
     memtable::MemTable,
     merge::{BoxedIterator, MergeIterator},
-    segment::Segment,
+    segment::multi_reader::MultiReader,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
     Value,
 };
 use guardian::ArcRwLockReadGuardian;
-use std::{collections::BTreeMap, ops::Bound, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    ops::Bound,
+    sync::{Arc, RwLock},
+};
 
 pub struct MemTableGuard {
     pub(crate) active: ArcRwLockReadGuardian<MemTable>,
@@ -16,8 +21,8 @@ pub struct MemTableGuard {
 pub struct Range {
     guard: MemTableGuard,
     bounds: (Bound<UserKey>, Bound<UserKey>),
-    segments: Vec<Arc<Segment>>,
     seqno: Option<SeqNo>,
+    level_manifest: Arc<RwLock<LevelManifest>>,
 }
 
 impl Range {
@@ -25,14 +30,14 @@ impl Range {
     pub fn new(
         guard: MemTableGuard,
         bounds: (Bound<UserKey>, Bound<UserKey>),
-        segments: Vec<Arc<Segment>>,
         seqno: Option<SeqNo>,
+        level_manifest: Arc<RwLock<LevelManifest>>,
     ) -> Self {
         Self {
             guard,
             bounds,
-            segments,
             seqno,
+            level_manifest,
         }
     }
 }
@@ -89,12 +94,31 @@ impl<'a> RangeIterator<'a> {
 
         let range = (lo, hi);
 
-        let mut segment_iters: Vec<BoxedIterator<'a>> = vec![];
+        let level_manifest = lock.level_manifest.read().expect("lock is poisoned");
+        let mut segment_iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(level_manifest.len());
 
-        for segment in &lock.segments {
-            let reader = segment.range(lock.bounds.clone());
-            segment_iters.push(Box::new(reader));
+        for level in &level_manifest.levels {
+            if level.is_disjoint {
+                let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+
+                for segment in &level.segments {
+                    if segment.check_key_range_overlap(&lock.bounds) {
+                        let range = segment.range(lock.bounds.clone());
+                        readers.push_back(Box::new(range));
+                    }
+                }
+
+                segment_iters.push(Box::new(MultiReader::new(readers)));
+            } else {
+                for segment in &level.segments {
+                    if segment.check_key_range_overlap(&lock.bounds) {
+                        segment_iters.push(Box::new(segment.range(lock.bounds.clone())));
+                    }
+                }
+            }
         }
+
+        drop(level_manifest);
 
         let mut iters: Vec<BoxedIterator<'a>> = vec![Box::new(MergeIterator::new(segment_iters))];
 

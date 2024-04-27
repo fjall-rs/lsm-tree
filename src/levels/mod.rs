@@ -23,7 +23,8 @@ pub type HiddenSet = HashSet<Arc<str>>;
 pub struct LevelManifest {
     path: PathBuf,
 
-    levels: Vec<Level>,
+    #[doc(hidden)]
+    pub levels: Vec<Level>,
 
     /// Set of segment IDs that are masked
     ///
@@ -108,7 +109,7 @@ impl LevelManifest {
 
             for id in level {
                 let segment = segments.get(&id).cloned().expect("should find segment");
-                created_level.push(segment);
+                created_level.insert(segment);
             }
 
             levels.push(created_level);

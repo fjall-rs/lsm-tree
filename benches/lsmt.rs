@@ -159,6 +159,9 @@ fn bloom_filter_contains(c: &mut Criterion) {
     });
 }
 
+// TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
+
+// TODO: compare vs non-disjoint
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
 
@@ -203,7 +206,7 @@ fn tree_get_pairs(c: &mut Criterion) {
 
 // TODO: benchmark point read disjoint vs non-disjoint level
 
-fn first_kv_disjoint(c: &mut Criterion) {
+/* fn first_kv_disjoint(c: &mut Criterion) {
     let mut group = c.benchmark_group("Segments get first/last KV");
 
     for segment_count in [1, 2, 4, 16, 64, 256] {
@@ -308,7 +311,7 @@ fn first_kv_disjoint(c: &mut Criterion) {
 
                     for segment in &segments {
                         let reader = segment.iter(false);
-                        segment_iters.push(reader);
+                        segment_iters.push(Box::new(reader));
                     }
 
                     let mut iter =
@@ -327,7 +330,7 @@ fn first_kv_disjoint(c: &mut Criterion) {
 
                     for segment in &segments {
                         let reader = segment.iter(false);
-                        segment_iters.push(reader);
+                        segment_iters.push(Box::new(reader));
                     }
 
                     let mut iter =
@@ -339,6 +342,7 @@ fn first_kv_disjoint(c: &mut Criterion) {
         );
     }
 }
+ */
 
 criterion_group!(
     benches,
@@ -349,6 +353,6 @@ criterion_group!(
     bloom_filter_construction,
     bloom_filter_contains,
     tree_get_pairs,
-    first_kv_disjoint
+    // first_kv_disjoint
 );
 criterion_main!(benches);

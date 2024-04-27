@@ -1,5 +1,5 @@
 use crate::{key_range::KeyRange, Segment};
-use std::{ops::DerefMut, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Level {
@@ -12,12 +12,6 @@ impl std::ops::Deref for Level {
 
     fn deref(&self) -> &Self::Target {
         &self.segments
-    }
-}
-
-impl DerefMut for Level {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.segments
     }
 }
 

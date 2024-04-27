@@ -1,23 +1,22 @@
-use super::Reader as SegmentReader;
-use crate::Value;
+use crate::{merge::BoxedIterator, Value};
 use std::collections::VecDeque;
 
 #[allow(unused)]
 use crate::merge::MergeIterator;
 
 /// Reads through a disjoint, sorted set of segment readers
-pub struct MultiReader {
-    readers: VecDeque<SegmentReader>, //  TODO: maybe Vec of BoxedIterators...
+pub struct MultiReader<'a> {
+    readers: VecDeque<BoxedIterator<'a>>,
 }
 
-impl MultiReader {
+impl<'a> MultiReader<'a> {
     #[must_use]
-    pub fn new(readers: VecDeque<SegmentReader>) -> Self {
+    pub fn new(readers: VecDeque<BoxedIterator<'a>>) -> Self {
         Self { readers }
     }
 }
 
-impl Iterator for MultiReader {
+impl<'a> Iterator for MultiReader<'a> {
     type Item = crate::Result<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -32,7 +31,7 @@ impl Iterator for MultiReader {
     }
 }
 
-impl DoubleEndedIterator for MultiReader {
+impl<'a> DoubleEndedIterator for MultiReader<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(item) = self.readers.back_mut()?.next_back() {
@@ -54,6 +53,7 @@ mod tests {
         segment::{
             block_index::BlockIndex,
             meta::Metadata,
+            reader::Reader as SegmentReader,
             writer::{Options, Writer},
         },
         BlockCache, Segment,
@@ -126,21 +126,21 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let readers = segments
-                .iter()
-                .map(|segment| {
-                    SegmentReader::new(
-                        descriptor_table.clone(),
-                        segment.metadata.id.clone(),
-                        None,
-                        segment.block_index.clone(),
-                        None,
-                        None,
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
-            let multi_reader = MultiReader::new(readers.into());
+            for segment in &segments {
+                let range = SegmentReader::new(
+                    descriptor_table.clone(),
+                    segment.metadata.id.clone(),
+                    None,
+                    segment.block_index.clone(),
+                    None,
+                    None,
+                );
+                readers.push_back(Box::new(range));
+            }
+
+            let multi_reader = MultiReader::new(readers);
 
             let mut iter = multi_reader.into_iter().flatten();
 
@@ -160,21 +160,21 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let readers = segments
-                .iter()
-                .map(|segment| {
-                    SegmentReader::new(
-                        descriptor_table.clone(),
-                        segment.metadata.id.clone(),
-                        None,
-                        segment.block_index.clone(),
-                        None,
-                        None,
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
-            let multi_reader = MultiReader::new(readers.into());
+            for segment in &segments {
+                let range = SegmentReader::new(
+                    descriptor_table.clone(),
+                    segment.metadata.id.clone(),
+                    None,
+                    segment.block_index.clone(),
+                    None,
+                    None,
+                );
+                readers.push_back(Box::new(range));
+            }
+
+            let multi_reader = MultiReader::new(readers);
 
             let mut iter = multi_reader.into_iter().rev().flatten();
 
@@ -194,21 +194,21 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let readers = segments
-                .iter()
-                .map(|segment| {
-                    SegmentReader::new(
-                        descriptor_table.clone(),
-                        segment.metadata.id.clone(),
-                        None,
-                        segment.block_index.clone(),
-                        None,
-                        None,
-                    )
-                })
-                .collect::<Vec<_>>();
+            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
-            let multi_reader = MultiReader::new(readers.into());
+            for segment in &segments {
+                let range = SegmentReader::new(
+                    descriptor_table.clone(),
+                    segment.metadata.id.clone(),
+                    None,
+                    segment.block_index.clone(),
+                    None,
+                    None,
+                );
+                readers.push_back(Box::new(range));
+            }
+
+            let multi_reader = MultiReader::new(readers);
 
             let mut iter = multi_reader.into_iter().flatten();
 
