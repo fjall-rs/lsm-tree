@@ -1,7 +1,28 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, Value};
+use lsm_tree::{
+    bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, MemTable, Value,
+};
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
+
+fn memtable_get_upper_bound(c: &mut Criterion) {
+    let memtable = MemTable::default();
+
+    for _ in 0..1_000_000 {
+        memtable.insert(Value {
+            key: format!("abc_{}", nanoid!()).as_bytes().into(),
+            value: vec![].into(),
+            seqno: 0,
+            value_type: lsm_tree::ValueType::Value,
+        });
+    }
+
+    c.bench_function("memtable get", |b| {
+        b.iter(|| {
+            memtable.get("abc", None);
+        });
+    });
+}
 
 fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
@@ -321,6 +342,7 @@ fn first_kv_disjoint(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    memtable_get_upper_bound,
     value_block_size,
     load_block_from_disk,
     file_descriptor,
