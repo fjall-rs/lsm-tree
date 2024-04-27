@@ -8,7 +8,7 @@ use crate::{
     file::{BLOCKS_FILE, CONFIG_FILE, LEVELS_MANIFEST_FILE, LSM_MARKER, SEGMENTS_FOLDER},
     flush::{flush_to_segment, Options as FlushOptions},
     id::generate_segment_id,
-    levels::Levels,
+    levels::LevelManifest,
     memtable::MemTable,
     prefix::Prefix,
     range::{MemTableGuard, Range},
@@ -911,13 +911,13 @@ impl Tree {
         tree_path: P,
         block_cache: &Arc<BlockCache>,
         descriptor_table: &Arc<FileDescriptorTable>,
-    ) -> crate::Result<Levels> {
+    ) -> crate::Result<LevelManifest> {
         let tree_path = tree_path.as_ref();
         log::debug!("Recovering disk segments from {}", tree_path.display());
 
         let manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
-        let segment_ids_to_recover = Levels::recover_ids(&manifest_path)?;
+        let segment_ids_to_recover = LevelManifest::recover_ids(&manifest_path)?;
 
         let mut segments = vec![];
 
@@ -966,6 +966,6 @@ impl Tree {
 
         log::debug!("Recovered {} segments", segments.len());
 
-        Levels::recover(&manifest_path, segments)
+        LevelManifest::recover(&manifest_path, segments)
     }
 }

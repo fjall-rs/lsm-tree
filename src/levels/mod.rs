@@ -20,7 +20,7 @@ use std::{
 pub type HiddenSet = HashSet<Arc<str>>;
 
 /// Represents the levels of a log-structured merge tree.
-pub struct Levels {
+pub struct LevelManifest {
     path: PathBuf,
 
     levels: Vec<Level>,
@@ -35,7 +35,7 @@ pub struct Levels {
     segment_history_writer: segment_history::Writer,
 }
 
-impl Levels {
+impl LevelManifest {
     pub(crate) fn is_compacting(&self) -> bool {
         !self.hidden_set.is_empty()
     }
