@@ -194,7 +194,7 @@ impl LevelManifest {
     /// point read ----------->
     pub(crate) fn sort_levels(&mut self) {
         for level in &mut self.levels {
-            level.sort();
+            level.sort_by_seqno();
         }
     }
 

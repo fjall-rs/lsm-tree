@@ -27,14 +27,19 @@ impl Default for Level {
 impl Level {
     pub fn insert(&mut self, segment: Arc<Segment>) {
         self.segments.push(segment);
-        self.sort();
+        self.sort_by_seqno();
         self.set_disjoint_flag();
     }
 
     pub fn remove(&mut self, segment_id: &Arc<str>) {
         self.segments.retain(|x| *segment_id != x.metadata.id);
-        self.sort();
+        self.sort_by_seqno();
         self.set_disjoint_flag();
+    }
+
+    pub fn sort_by_key_range(&mut self) {
+        self.segments
+            .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
     }
 
     /// Sorts the level from newest to oldest
@@ -46,7 +51,7 @@ impl Level {
     /// [key:asd:2] [key:asd:1]
     ///
     /// point read ----------->
-    pub fn sort(&mut self) {
+    pub fn sort_by_seqno(&mut self) {
         self.segments
             .sort_by(|a, b| b.metadata.seqnos.1.cmp(&a.metadata.seqnos.1));
     }

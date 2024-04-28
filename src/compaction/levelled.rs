@@ -113,8 +113,8 @@ impl CompactionStrategy for Strategy {
             if overshoot > 0 {
                 let mut segments_to_compact = vec![];
 
-                let mut level = level.deref().clone();
-                level.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+                let mut level = level.clone();
+                level.sort_by_key_range();
 
                 for segment in level.iter().take(config.level_ratio.into()).cloned() {
                     if overshoot == 0 {
