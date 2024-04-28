@@ -161,46 +161,88 @@ fn bloom_filter_contains(c: &mut Criterion) {
 
 // TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
-// TODO: compare vs non-disjoint
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
+    group.sample_size(10);
 
-    for segment_count in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1_024] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder)
-            .block_size(1_024)
-            .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
-            .open()
-            .unwrap();
+    for segment_count in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512] {
+        {
+            let folder = tempfile::tempdir().unwrap();
+            let tree = Config::new(folder)
+                .block_size(1_024)
+                .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+                .open()
+                .unwrap();
 
-        let mut x = 0_u64;
+            let mut x = 0_u64;
 
-        for _ in 0..segment_count {
-            for _ in 0..10 {
-                let key = x.to_be_bytes();
-                x += 1;
-                tree.insert(key, key, 0);
+            for _ in 0..segment_count {
+                for _ in 0..10 {
+                    let key = x.to_be_bytes();
+                    x += 1;
+                    tree.insert(key, key, 0);
+                }
+                tree.flush_active_memtable().unwrap();
             }
-            tree.flush_active_memtable().unwrap();
+
+            group.bench_function(
+                &format!("Tree::first_key_value (disjoint), {segment_count} segments"),
+                |b| {
+                    b.iter(|| {
+                        assert!(tree.first_key_value().unwrap().is_some());
+                    });
+                },
+            );
+
+            group.bench_function(
+                &format!("Tree::last_key_value (disjoint), {segment_count} segments"),
+                |b| {
+                    b.iter(|| {
+                        assert!(tree.last_key_value().unwrap().is_some());
+                    });
+                },
+            );
         }
 
-        group.bench_function(
-            &format!("Tree::first_key_value, {segment_count} segments"),
-            |b| {
-                b.iter(|| {
-                    assert!(tree.first_key_value().unwrap().is_some());
-                });
-            },
-        );
+        {
+            let folder = tempfile::tempdir().unwrap();
+            let tree = Config::new(folder)
+                .block_size(1_024)
+                .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+                .open()
+                .unwrap();
 
-        group.bench_function(
-            &format!("Tree::last_key_value, {segment_count} segments"),
-            |b| {
-                b.iter(|| {
-                    assert!(tree.last_key_value().unwrap().is_some());
-                });
-            },
-        );
+            let mut x = 0_u64;
+
+            for _ in 0..segment_count {
+                for _ in 0..10 {
+                    let key = x.to_be_bytes();
+                    x += 1;
+                    tree.insert(key, key, 0);
+                }
+                tree.insert("a", vec![], 0);
+                tree.insert(u64::MAX.to_be_bytes(), vec![], 0);
+                tree.flush_active_memtable().unwrap();
+            }
+
+            group.bench_function(
+                &format!("Tree::first_key_value (non-disjoint), {segment_count} segments"),
+                |b| {
+                    b.iter(|| {
+                        assert!(tree.first_key_value().unwrap().is_some());
+                    });
+                },
+            );
+
+            group.bench_function(
+                &format!("Tree::last_key_value (non-disjoint), {segment_count} segments"),
+                |b| {
+                    b.iter(|| {
+                        assert!(tree.last_key_value().unwrap().is_some());
+                    });
+                },
+            );
+        }
     }
 }
 

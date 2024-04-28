@@ -47,28 +47,19 @@ impl<'a> DoubleEndedIterator for MultiReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        descriptor_table::FileDescriptorTable,
-        file::BLOCKS_FILE,
-        segment::{
-            block_index::BlockIndex,
-            meta::Metadata,
-            reader::Reader as SegmentReader,
-            writer::{Options, Writer},
-        },
-        BlockCache, Segment,
-    };
-    use nanoid::nanoid;
     use std::sync::Arc;
     use test_log::test;
+
+    // TODO: same test for prefix & ranges
 
     #[test]
     fn segment_multi_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+        let tree = crate::Config::new(&tempdir).open()?;
 
-        let descriptor_table = Arc::new(FileDescriptorTable::new(100, 1));
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(0));
-
+        // IMPORTANT: Purposefully mangle the order of IDs
+        // to make sure stuff is still getting read in the correct order
+        // even if written out of order
         let ids = [
             ["a", "b", "c"],
             ["d", "e", "f"],
@@ -76,68 +67,25 @@ mod tests {
             ["j", "k", "l"],
         ];
 
-        let segments = ids
-            .into_iter()
-            .map(|keys| {
-                let segment_id: Arc<str> = nanoid!().into();
+        for batch in ids {
+            for id in batch {
+                tree.insert(id, vec![], 0);
+            }
+            tree.flush_active_memtable()?;
+        }
 
-                let folder = tempdir.path().join(&*segment_id);
-                std::fs::create_dir_all(&folder)?;
-
-                let mut writer = Writer::new(Options {
-                    block_size: 4_096,
-                    evict_tombstones: false,
-                    path: folder.clone(),
-
-                    #[cfg(feature = "bloom")]
-                    bloom_fp_rate: 0.01,
-                })?;
-
-                for key in keys {
-                    writer.write(Value {
-                        key: (*key.as_bytes()).into(),
-                        value: vec![].into(),
-                        seqno: 0,
-                        value_type: crate::ValueType::Value,
-                    })?;
-                }
-                writer.finish()?;
-                let metadata = Metadata::from_writer(segment_id.clone(), writer)?;
-                metadata.write_to_file(&folder)?;
-
-                descriptor_table.insert(folder.join(BLOCKS_FILE), segment_id.clone());
-
-                Ok::<_, crate::Error>(Segment {
-                    block_cache: block_cache.clone(),
-                    block_index: Arc::new(BlockIndex::from_file(
-                        segment_id,
-                        descriptor_table.clone(),
-                        folder,
-                        block_cache.clone(),
-                    )?),
-                    metadata,
-                    descriptor_table: descriptor_table.clone(),
-
-                    #[cfg(feature = "bloom")]
-                    bloom_filter: crate::bloom::BloomFilter::with_fp_rate(1, 0.1),
-                })
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
+        let segments = tree
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .get_all_segments_flattened();
 
         #[allow(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
             for segment in &segments {
-                let range = SegmentReader::new(
-                    descriptor_table.clone(),
-                    segment.metadata.id.clone(),
-                    None,
-                    segment.block_index.clone(),
-                    None,
-                    None,
-                );
-                readers.push_back(Box::new(range));
+                readers.push_back(Box::new(segment.iter(false)));
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -163,15 +111,7 @@ mod tests {
             let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
             for segment in &segments {
-                let range = SegmentReader::new(
-                    descriptor_table.clone(),
-                    segment.metadata.id.clone(),
-                    None,
-                    segment.block_index.clone(),
-                    None,
-                    None,
-                );
-                readers.push_back(Box::new(range));
+                readers.push_back(Box::new(segment.iter(false)));
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -197,15 +137,7 @@ mod tests {
             let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
             for segment in &segments {
-                let range = SegmentReader::new(
-                    descriptor_table.clone(),
-                    segment.metadata.id.clone(),
-                    None,
-                    segment.block_index.clone(),
-                    None,
-                    None,
-                );
-                readers.push_back(Box::new(range));
+                readers.push_back(Box::new(segment.iter(false)));
             }
 
             let multi_reader = MultiReader::new(readers);
