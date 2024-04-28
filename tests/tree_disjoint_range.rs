@@ -24,7 +24,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
         tree.flush_active_memtable()?;
     }
 
-    /* let iter = tree.range("e".."i");
+    let iter = tree.range("e".."i");
     let mut iter = iter.into_iter();
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
@@ -56,16 +56,16 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
     assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0); */
+    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
 
     let iter = tree.range("e"..="i");
     let mut iter = iter.into_iter();
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"i"), iter.next_back().unwrap()?.0);
-    /* assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0); */
+    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
 
     Ok(())
 }
