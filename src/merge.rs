@@ -261,6 +261,56 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn merge_ping_pong() -> crate::Result<()> {
+        let vec0 = [
+            crate::Value::new(0u64.to_be_bytes(), *b"", 0, ValueType::Value),
+            crate::Value::new(1u64.to_be_bytes(), *b"", 0, ValueType::Value),
+            crate::Value::new(2u64.to_be_bytes(), *b"", 0, ValueType::Value),
+        ];
+
+        let vec1 = [
+            crate::Value::new(3u64.to_be_bytes(), *b"", 0, ValueType::Value),
+            crate::Value::new(4u64.to_be_bytes(), *b"", 0, ValueType::Value),
+            crate::Value::new(5u64.to_be_bytes(), *b"", 0, ValueType::Value),
+        ];
+
+        #[allow(clippy::unwrap_used)]
+        {
+            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+            let iter1 = Box::new(vec1.iter().cloned().map(Ok));
+
+            let mut merge_iter = MergeIterator::new(vec![iter0, iter1]);
+
+            assert_eq!(
+                0u64.to_be_bytes(),
+                &*merge_iter.next().unwrap().unwrap().key
+            );
+            assert_eq!(
+                5u64.to_be_bytes(),
+                &*merge_iter.next_back().unwrap().unwrap().key
+            );
+            assert_eq!(
+                1u64.to_be_bytes(),
+                &*merge_iter.next().unwrap().unwrap().key
+            );
+            assert_eq!(
+                4u64.to_be_bytes(),
+                &*merge_iter.next_back().unwrap().unwrap().key
+            );
+            assert_eq!(
+                2u64.to_be_bytes(),
+                &*merge_iter.next().unwrap().unwrap().key
+            );
+            assert_eq!(
+                3u64.to_be_bytes(),
+                &*merge_iter.next_back().unwrap().unwrap().key
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_snapshot_iter() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
