@@ -1,6 +1,9 @@
 use super::writer::Writer;
 use crate::{
-    file::SEGMENT_METADATA_FILE, key_range::KeyRange, time::unix_timestamp, value::SeqNo,
+    file::{fsync_directory, SEGMENT_METADATA_FILE},
+    key_range::KeyRange,
+    time::unix_timestamp,
+    value::SeqNo,
     version::Version,
 };
 use serde::{Deserialize, Serialize};
@@ -112,12 +115,8 @@ impl Metadata {
         writer.flush()?;
         writer.sync_all()?;
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            // fsync folder on Unix
-            let folder = std::fs::File::open(&folder_path)?;
-            folder.sync_all()?;
-        }
+        // IMPORTANT: fsync folder on Unix
+        fsync_directory(&folder_path)?;
 
         Ok(())
     }

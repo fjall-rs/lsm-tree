@@ -5,7 +5,10 @@ use crate::{
     },
     config::Config,
     descriptor_table::FileDescriptorTable,
-    file::{BLOCKS_FILE, CONFIG_FILE, LEVELS_MANIFEST_FILE, LSM_MARKER, SEGMENTS_FOLDER},
+    file::{
+        fsync_directory, BLOCKS_FILE, CONFIG_FILE, LEVELS_MANIFEST_FILE, LSM_MARKER,
+        SEGMENTS_FOLDER,
+    },
     flush::{flush_to_segment, Options as FlushOptions},
     id::generate_segment_id,
     levels::Levels,
@@ -823,7 +826,8 @@ impl Tree {
         let marker_path = path.join(LSM_MARKER);
         assert!(!marker_path.try_exists()?);
 
-        std::fs::create_dir_all(path.join(SEGMENTS_FOLDER))?;
+        let segment_folder_path = path.join(SEGMENTS_FOLDER);
+        std::fs::create_dir_all(&segment_folder_path)?;
 
         let config_str =
             serde_json::to_string_pretty(&config.inner).expect("should serialize JSON");
@@ -835,21 +839,13 @@ impl Tree {
 
         // NOTE: Lastly, fsync .lsm marker, which contains the version
         // -> the LSM is fully initialized
-
         let mut file = std::fs::File::create(marker_path)?;
         Version::V0.write_file_header(&mut file)?;
         file.sync_all()?;
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            // fsync folders on Unix
-
-            let folder = std::fs::File::open(path.join(SEGMENTS_FOLDER))?;
-            folder.sync_all()?;
-
-            let folder = std::fs::File::open(&path)?;
-            folder.sync_all()?;
-        }
+        // IMPORTANT: fsync folders on Unix
+        fsync_directory(&segment_folder_path)?;
+        fsync_directory(&path)?;
 
         Ok(Self(Arc::new(inner)))
     }
