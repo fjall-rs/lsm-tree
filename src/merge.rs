@@ -261,6 +261,83 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn merge_evict_versions() -> crate::Result<()> {
+        let vec0 = [
+            crate::Value::new(0u64.to_be_bytes(), *b"", 3, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 2, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 1, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 0, ValueType::Value),
+        ];
+
+        #[allow(clippy::unwrap_used)]
+        {
+            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+
+            let mut merge_iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
+            assert_eq!(3, merge_iter.next().unwrap()?.seqno);
+            assert!(merge_iter.next().is_none());
+        }
+
+        Ok(())
+    }
+    // TODO: .rev()
+
+    #[test]
+    fn merge_mvcc_simple() -> crate::Result<()> {
+        let vec0 = [
+            crate::Value::new(0u64.to_be_bytes(), *b"", 3, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 2, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 1, ValueType::Value),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 0, ValueType::Value),
+        ];
+
+        #[allow(clippy::unwrap_used)]
+        {
+            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+
+            let mut merge_iter = MergeIterator::new(vec![iter0])
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .snapshot_seqno(1);
+            assert_eq!(0, merge_iter.next().unwrap()?.seqno);
+        }
+
+        Ok(())
+    }
+    // TODO: .rev()
+
+    #[test]
+    fn merge_tombstone_too_new() -> crate::Result<()> {
+        let vec0 = [
+            crate::Value::new(0u64.to_be_bytes(), *b"", 1, ValueType::Tombstone),
+            crate::Value::new(0u64.to_be_bytes(), *b"", 0, ValueType::Value),
+        ];
+
+        #[allow(clippy::unwrap_used)]
+        {
+            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+
+            let mut merge_iter = MergeIterator::new(vec![iter0])
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .snapshot_seqno(1);
+            assert_eq!(0u64.to_be_bytes(), &*merge_iter.next().unwrap()?.key);
+        }
+
+        // #[allow(clippy::unwrap_used)]
+        // {
+        //     let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+
+        //     let mut merge_iter = MergeIterator::new(vec![iter0]).snapshot_seqno(1);
+        //     assert_eq!(0u64.to_be_bytes(), &*merge_iter.next_back().unwrap()?.key);
+        // }
+
+        Ok(())
+    }
+
+    #[test]
     fn merge_ping_pong() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(0u64.to_be_bytes(), *b"", 0, ValueType::Value),
@@ -399,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed() -> crate::Result<()> {
+    fn merge_mixed() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
@@ -431,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_merge() -> crate::Result<()> {
+    fn merge_forward_merge() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
@@ -463,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn test_forward_tombstone_shadowing() -> crate::Result<()> {
+    fn merge_forward_tombstone_shadowing() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
@@ -495,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rev_merge() -> crate::Result<()> {
+    fn merge_rev_merge() -> crate::Result<()> {
         let vec0 = [
             crate::Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
             crate::Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
