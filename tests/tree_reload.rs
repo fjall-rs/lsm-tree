@@ -93,7 +93,7 @@ fn tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let subfolder = path.join("segments").join("abc");
+    let subfolder = path.join("segments").join("63364");
 
     create_dir_all(&subfolder)?;
     assert!(subfolder.try_exists()?);

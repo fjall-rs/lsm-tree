@@ -1,4 +1,5 @@
 use crate::segment::block_index::block_handle::BlockHandle;
+use crate::segment::id::GlobalSegmentId;
 use crate::segment::{block::ValueBlock, block_index::BlockHandleBlock};
 use crate::{
     either::{
@@ -21,26 +22,26 @@ type Item = Either<Arc<ValueBlock>, Arc<BlockHandleBlock>>;
 
 // (Type (disk or index), Segment ID, Block key)
 #[derive(Eq, std::hash::Hash, PartialEq)]
-struct CacheKey((BlockTag, Arc<str>, UserKey));
+struct CacheKey((BlockTag, GlobalSegmentId, UserKey));
 
-impl From<(BlockTag, Arc<str>, UserKey)> for CacheKey {
-    fn from(value: (BlockTag, Arc<str>, UserKey)) -> Self {
+impl From<(BlockTag, GlobalSegmentId, UserKey)> for CacheKey {
+    fn from(value: (BlockTag, GlobalSegmentId, UserKey)) -> Self {
         Self(value)
     }
 }
 
 impl std::ops::Deref for CacheKey {
-    type Target = (BlockTag, Arc<str>, UserKey);
+    type Target = (BlockTag, GlobalSegmentId, UserKey);
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Equivalent<CacheKey> for (BlockTag, &str, &UserKey) {
+impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, &UserKey) {
     fn equivalent(&self, key: &CacheKey) -> bool {
         let inner = &**key;
-        self.0 == inner.0 && self.1 == &*inner.1 && self.2 == &inner.2
+        self.0 == inner.0 && self.1 == inner.1 && self.2 == &inner.2
     }
 }
 
@@ -120,7 +121,12 @@ impl BlockCache {
     }
 
     #[doc(hidden)]
-    pub fn insert_disk_block(&self, segment_id: Arc<str>, key: UserKey, value: Arc<ValueBlock>) {
+    pub fn insert_disk_block(
+        &self,
+        segment_id: GlobalSegmentId,
+        key: UserKey,
+        value: Arc<ValueBlock>,
+    ) {
         if self.capacity > 0 {
             self.data
                 .insert((BlockTag::Data, segment_id, key).into(), Left(value));
@@ -130,7 +136,7 @@ impl BlockCache {
     #[doc(hidden)]
     pub fn insert_block_handle_block(
         &self,
-        segment_id: Arc<str>,
+        segment_id: GlobalSegmentId,
         key: UserKey,
         value: Arc<BlockHandleBlock>,
     ) {
@@ -142,7 +148,11 @@ impl BlockCache {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_disk_block(&self, segment_id: &str, key: &UserKey) -> Option<Arc<ValueBlock>> {
+    pub fn get_disk_block(
+        &self,
+        segment_id: GlobalSegmentId,
+        key: &UserKey,
+    ) -> Option<Arc<ValueBlock>> {
         let key = (BlockTag::Data, segment_id, key);
         let item = self.data.get(&key)?;
         Some(item.left().clone())
@@ -152,7 +162,7 @@ impl BlockCache {
     #[must_use]
     pub fn get_block_handle_block(
         &self,
-        segment_id: &str,
+        segment_id: GlobalSegmentId,
         key: &UserKey,
     ) -> Option<Arc<BlockHandleBlock>> {
         let key = (BlockTag::Index, segment_id, key);

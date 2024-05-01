@@ -1,4 +1,5 @@
 use super::block_index::BlockIndex;
+use super::id::GlobalSegmentId;
 use super::reader::Reader;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -12,7 +13,7 @@ pub struct Range {
     descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
     block_cache: Arc<BlockCache>,
-    segment_id: Arc<str>,
+    segment_id: GlobalSegmentId,
 
     range: (Bound<UserKey>, Bound<UserKey>),
 
@@ -22,7 +23,7 @@ pub struct Range {
 impl Range {
     pub fn new(
         descriptor_table: Arc<FileDescriptorTable>,
-        segment_id: Arc<str>,
+        segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
         block_index: Arc<BlockIndex>,
         range: (Bound<UserKey>, Bound<UserKey>),
@@ -57,7 +58,7 @@ impl Range {
 
         let reader = Reader::new(
             self.descriptor_table.clone(),
-            self.segment_id.clone(),
+            self.segment_id,
             Some(self.block_cache.clone()),
             self.block_index.clone(),
             offset_lo.as_ref(),
@@ -238,15 +239,15 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let metadata = Metadata::from_writer(0, writer)?;
         metadata.write_to_file(&folder)?;
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, 0).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -257,7 +258,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple(&..),
@@ -272,7 +273,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple(&..),
@@ -291,7 +292,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple::<UserKey>(&..end),
@@ -308,7 +309,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple(&..end),
@@ -327,7 +328,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple(&(start..)),
@@ -345,7 +346,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table,
-                metadata.id,
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 range_bounds_to_tuple(&(start..end)),
@@ -436,15 +437,15 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let metadata = Metadata::from_writer(0, writer)?;
         metadata.write_to_file(&folder)?;
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, 0).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -469,7 +470,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 bounds_u64_to_bytes(&bounds),
@@ -488,7 +489,7 @@ mod tests {
 
             let mut iter = Range::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 bounds_u64_to_bytes(&bounds),

@@ -198,7 +198,11 @@ mod tests {
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
         levels::LevelManifest,
-        segment::{block_index::BlockIndex, meta::Metadata, Segment},
+        segment::{
+            block_index::BlockIndex,
+            meta::{Metadata, SegmentId},
+            Segment,
+        },
         time::unix_timestamp,
         Config,
     };
@@ -213,12 +217,13 @@ mod tests {
     }
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, key_range: KeyRange, size: u64) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, key_range: KeyRange, size: u64) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
+            tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new(id.clone(), block_cache.clone())),
+            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
             metadata: Metadata {
                 version: crate::version::Version::V0,
                 block_count: 0,
@@ -270,7 +275,7 @@ mod tests {
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.add(fixture_segment(
-            "1".into(),
+            1,
             string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
@@ -280,7 +285,7 @@ mod tests {
         );
 
         levels.add(fixture_segment(
-            "2".into(),
+            2,
             string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
@@ -290,7 +295,7 @@ mod tests {
         );
 
         levels.add(fixture_segment(
-            "3".into(),
+            3,
             string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
@@ -300,7 +305,7 @@ mod tests {
         );
 
         levels.add(fixture_segment(
-            "4".into(),
+            4,
             string_key_range("a", "z"),
             128 * 1_024 * 1_024,
         ));
@@ -309,12 +314,12 @@ mod tests {
             compactor.choose(&levels, &Config::default().inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec!["1".into(), "2".into(), "3".into(), "4".into()],
+                segment_ids: vec![1, 2, 3, 4],
                 target_size: 128 * 1024 * 1024
             })
         );
 
-        levels.hide_segments(&["4".into()]);
+        levels.hide_segments(&[4]);
         assert_eq!(
             compactor.choose(&levels, &Config::default().inner),
             Choice::DoNothing
@@ -333,48 +338,48 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
-            "1".into(),
+            1,
             string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "2".into(),
+            2,
             string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "3".into(),
+            3,
             string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "4".into(),
+            4,
             string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
 
         levels.insert_into_level(
             1,
-            fixture_segment("5".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(5, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("6".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(6, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("7".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
+            fixture_segment(7, string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("8".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
+            fixture_segment(8, string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
             compactor.choose(&levels, &Config::default().inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec!["1".into(), "2".into(), "3".into(), "4".into()],
+                segment_ids: vec![1, 2, 3, 4],
                 target_size: 128 * 1024 * 1024
             })
         );
@@ -392,60 +397,53 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
-            "1".into(),
+            1,
             string_key_range("a", "g"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "2".into(),
+            2,
             string_key_range("h", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "3".into(),
+            3,
             string_key_range("i", "t"),
             128 * 1_024 * 1_024,
         ));
         levels.add(fixture_segment(
-            "4".into(),
+            4,
             string_key_range("j", "t"),
             128 * 1_024 * 1_024,
         ));
 
         levels.insert_into_level(
             1,
-            fixture_segment("5".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(5, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("6".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(6, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("7".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
+            fixture_segment(7, string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
         levels.insert_into_level(
             1,
-            fixture_segment("8".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
+            fixture_segment(8, string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
             compactor.choose(&levels, &Config::default().inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![
-                    "1".into(),
-                    "2".into(),
-                    "3".into(),
-                    "4".into(),
-                    "5".into(),
-                    "6".into()
-                ],
+                segment_ids: vec![1, 2, 3, 4, 5, 6],
                 target_size: 128 * 1024 * 1024
             })
         );
 
-        levels.hide_segments(&["5".into()]);
+        levels.hide_segments(&[5]);
         assert_eq!(
             compactor.choose(&levels, &Config::default().inner),
             Choice::DoNothing
@@ -467,31 +465,31 @@ mod tests {
 
         levels.insert_into_level(
             2,
-            fixture_segment("4".into(), string_key_range("f", "l"), 128 * 1_024 * 1_024),
+            fixture_segment(4, string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
-            fixture_segment("1".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
-            fixture_segment("2".into(), string_key_range("h", "t"), 128 * 1_024 * 1_024),
+            fixture_segment(2, string_key_range("h", "t"), 128 * 1_024 * 1_024),
         );
 
         levels.insert_into_level(
             1,
-            fixture_segment("3".into(), string_key_range("h", "t"), 128 * 1_024 * 1_024),
+            fixture_segment(3, string_key_range("h", "t"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec!["1".into(), "4".into()],
+                segment_ids: vec![1, 4],
                 target_size: 128 * 1024 * 1024
             })
         );
@@ -512,43 +510,43 @@ mod tests {
 
         levels.insert_into_level(
             3,
-            fixture_segment("5".into(), string_key_range("f", "l"), 128 * 1_024 * 1_024),
+            fixture_segment(5, string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment("1".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment("2".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(2, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment("3".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(3, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
-            fixture_segment("4".into(), string_key_range("a", "g"), 128 * 1_024 * 1_024),
+            fixture_segment(4, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
 
         levels.insert_into_level(
             2,
-            fixture_segment("6".into(), string_key_range("y", "z"), 128 * 1_024 * 1_024),
+            fixture_segment(6, string_key_range("y", "z"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 3,
-                segment_ids: vec!["1".into(), "5".into()],
+                segment_ids: vec![1, 5],
                 target_size: 128 * 1024 * 1024
             })
         );

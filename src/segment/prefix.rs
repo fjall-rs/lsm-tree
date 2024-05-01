@@ -1,4 +1,4 @@
-use super::{block_index::BlockIndex, range::Range};
+use super::{block_index::BlockIndex, id::GlobalSegmentId, range::Range};
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
 };
@@ -12,7 +12,7 @@ pub struct PrefixedReader {
     descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
     block_cache: Arc<BlockCache>,
-    segment_id: Arc<str>,
+    segment_id: GlobalSegmentId,
 
     prefix: UserKey,
 
@@ -22,7 +22,7 @@ pub struct PrefixedReader {
 impl PrefixedReader {
     pub fn new<K: Into<UserKey>>(
         descriptor_table: Arc<FileDescriptorTable>,
-        segment_id: Arc<str>,
+        segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
         block_index: Arc<BlockIndex>,
         prefix: K,
@@ -45,7 +45,7 @@ impl PrefixedReader {
 
         let iterator = Range::new(
             self.descriptor_table.clone(),
-            self.segment_id.clone(),
+            self.segment_id,
             self.block_cache.clone(),
             self.block_index.clone(),
             (Included(self.prefix.clone()), upper_bound),
@@ -204,15 +204,15 @@ mod tests {
 
             writer.finish()?;
 
-            let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+            let metadata = Metadata::from_writer(0, writer)?;
             metadata.write_to_file(&folder)?;
 
             let table = Arc::new(FileDescriptorTable::new(512, 1));
-            table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+            table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
             let block_index = Arc::new(BlockIndex::from_file(
-                metadata.id.clone(),
+                (0, 0).into(),
                 table.clone(),
                 &folder,
                 Arc::clone(&block_cache),
@@ -220,7 +220,7 @@ mod tests {
 
             let iter = Reader::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Some(Arc::clone(&block_cache)),
                 Arc::clone(&block_index),
                 None,
@@ -230,7 +230,7 @@ mod tests {
 
             let iter = PrefixedReader::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 b"a/b/".to_vec(),
@@ -240,7 +240,7 @@ mod tests {
 
             let iter = PrefixedReader::new(
                 table,
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 b"a/b/".to_vec(),
@@ -295,15 +295,15 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let metadata = Metadata::from_writer(0, writer)?;
         metadata.write_to_file(&folder)?;
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, 0).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -323,7 +323,7 @@ mod tests {
         for (prefix_key, item_count) in expected {
             let iter = PrefixedReader::new(
                 table.clone(),
-                metadata.id.clone(),
+                (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 prefix_key,

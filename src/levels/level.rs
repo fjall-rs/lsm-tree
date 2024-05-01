@@ -1,4 +1,4 @@
-use crate::{key_range::KeyRange, Segment};
+use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -31,8 +31,8 @@ impl Level {
         self.set_disjoint_flag();
     }
 
-    pub fn remove(&mut self, segment_id: &Arc<str>) {
-        self.segments.retain(|x| *segment_id != x.metadata.id);
+    pub fn remove(&mut self, segment_id: SegmentId) {
+        self.segments.retain(|x| segment_id != x.metadata.id);
         self.sort_by_seqno();
         self.set_disjoint_flag();
     }
@@ -56,12 +56,8 @@ impl Level {
             .sort_by(|a, b| b.metadata.seqnos.1.cmp(&a.metadata.seqnos.1));
     }
 
-    pub fn ids(&self) -> Vec<Arc<str>> {
-        self.segments
-            .iter()
-            .map(|x| &x.metadata.id)
-            .cloned()
-            .collect()
+    pub fn ids(&self) -> Vec<SegmentId> {
+        self.segments.iter().map(|x| x.metadata.id).collect()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -90,12 +86,11 @@ impl Level {
         self.is_disjoint = KeyRange::is_disjoint(&ranges);
     }
 
-    pub fn get_overlapping_segments(&self, key_range: &KeyRange) -> Vec<Arc<str>> {
+    pub fn get_overlapping_segments(&self, key_range: &KeyRange) -> Vec<SegmentId> {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
-            .map(|x| &x.metadata.id)
-            .cloned()
+            .map(|x| x.metadata.id)
             .collect()
     }
 }

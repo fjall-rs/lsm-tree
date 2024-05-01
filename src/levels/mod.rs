@@ -9,7 +9,10 @@ use crate::time::unix_timestamp;
 use serde_json::json;
 
 use self::level::Level;
-use crate::{file::rewrite_atomic, segment::Segment};
+use crate::{
+    file::rewrite_atomic,
+    segment::{meta::SegmentId, Segment},
+};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self},
@@ -17,7 +20,7 @@ use std::{
     sync::Arc,
 };
 
-pub type HiddenSet = HashSet<Arc<str>>;
+pub type HiddenSet = HashSet<SegmentId>;
 
 /// Represents the levels of a log-structured merge tree.
 pub struct LevelManifest {
@@ -91,16 +94,16 @@ impl LevelManifest {
         self.segment_history_writer.write(&line)
     }
 
-    pub(crate) fn recover_ids<P: AsRef<Path>>(path: P) -> crate::Result<Vec<Arc<str>>> {
+    pub(crate) fn recover_ids<P: AsRef<Path>>(path: P) -> crate::Result<Vec<SegmentId>> {
         let level_manifest = fs::read_to_string(&path)?;
-        let level_manifest: Vec<Vec<Arc<str>>> =
+        let level_manifest: Vec<Vec<SegmentId>> =
             serde_json::from_str(&level_manifest).expect("could not deserialize level manifest");
         Ok(level_manifest.into_iter().flatten().collect())
     }
 
     fn resolve_levels(
-        level_manifest: Vec<Vec<Arc<str>>>,
-        segments: &HashMap<Arc<str>, Arc<Segment>>,
+        level_manifest: Vec<Vec<SegmentId>>,
+        segments: &HashMap<SegmentId, Arc<Segment>>,
     ) -> Vec<Level> {
         let mut levels = Vec::with_capacity(level_manifest.len());
 
@@ -123,12 +126,12 @@ impl LevelManifest {
         segments: Vec<Arc<Segment>>,
     ) -> crate::Result<Self> {
         let level_manifest = fs::read_to_string(&path)?;
-        let level_manifest: Vec<Vec<Arc<str>>> =
+        let level_manifest: Vec<Vec<SegmentId>> =
             serde_json::from_str(&level_manifest).expect("could not deserialize level manifest");
 
         let segments: HashMap<_, _> = segments
             .into_iter()
-            .map(|seg| (seg.metadata.id.clone(), seg))
+            .map(|seg| (seg.metadata.id, seg))
             .collect();
 
         let levels = Self::resolve_levels(level_manifest, &segments);
@@ -150,7 +153,7 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    fn serialize_ids(&self) -> Vec<Vec<Arc<str>>> {
+    fn serialize_ids(&self) -> Vec<Vec<SegmentId>> {
         let mut levels = Vec::with_capacity(self.depth().into());
 
         for level in &self.levels {
@@ -213,7 +216,7 @@ impl LevelManifest {
         self.write_segment_history_entry("insert").ok();
     }
 
-    pub(crate) fn remove(&mut self, segment_id: &Arc<str>) {
+    pub(crate) fn remove(&mut self, segment_id: SegmentId) {
         for level in &mut self.levels {
             level.remove(segment_id);
         }
@@ -282,7 +285,7 @@ impl LevelManifest {
             let mut level = raw_level.clone();
 
             for id in &self.hidden_set {
-                level.remove(id);
+                level.remove(*id);
             }
 
             output.push(level);
@@ -303,24 +306,24 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn get_all_segments(&self) -> HashMap<Arc<str>, Arc<Segment>> {
+    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         let mut output = HashMap::new();
 
         for segment in self.get_all_segments_flattened() {
-            output.insert(segment.metadata.id.clone(), segment);
+            output.insert(segment.metadata.id, segment);
         }
 
         output
     }
 
-    pub(crate) fn get_segments(&self) -> HashMap<Arc<str>, Arc<Segment>> {
+    pub(crate) fn get_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         self.get_all_segments()
             .into_iter()
             .filter(|(key, _)| !self.hidden_set.contains(key))
             .collect()
     }
 
-    pub(crate) fn show_segments(&mut self, keys: &[Arc<str>]) {
+    pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
             self.hidden_set.remove(key);
         }
@@ -329,9 +332,9 @@ impl LevelManifest {
         self.write_segment_history_entry("show").ok();
     }
 
-    pub(crate) fn hide_segments(&mut self, keys: &[Arc<str>]) {
+    pub(crate) fn hide_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
-            self.hidden_set.insert(key.clone());
+            self.hidden_set.insert(*key);
         }
 
         #[cfg(feature = "segment_history")]
@@ -346,7 +349,11 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
         levels::level::Level,
-        segment::{block_index::BlockIndex, meta::Metadata, Segment},
+        segment::{
+            block_index::BlockIndex,
+            meta::{Metadata, SegmentId},
+            Segment,
+        },
     };
     use std::sync::Arc;
 
@@ -354,12 +361,13 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, key_range: KeyRange) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
+            tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new(id.clone(), block_cache.clone())),
+            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
             metadata: Metadata {
                 version: crate::version::Version::V0,
                 block_count: 0,
@@ -441,11 +449,11 @@ mod tests {
     #[test]
     fn level_overlaps() {
         let seg0 = fixture_segment(
-            "1".into(),
+            1,
             KeyRange::new((b"c".to_vec().into(), b"k".to_vec().into())),
         );
         let seg1 = fixture_segment(
-            "2".into(),
+            2,
             KeyRange::new((b"l".to_vec().into(), b"z".to_vec().into())),
         );
 
@@ -454,7 +462,7 @@ mod tests {
         level.insert(seg1);
 
         assert_eq!(
-            Vec::<Arc<str>>::new(),
+            Vec::<SegmentId>::new(),
             level.get_overlapping_segments(&KeyRange::new((
                 b"a".to_vec().into(),
                 b"b".to_vec().into()
@@ -462,7 +470,7 @@ mod tests {
         );
 
         assert_eq!(
-            vec![Arc::<str>::from("1")],
+            vec![1],
             level.get_overlapping_segments(&KeyRange::new((
                 b"d".to_vec().into(),
                 b"k".to_vec().into()
@@ -470,7 +478,7 @@ mod tests {
         );
 
         assert_eq!(
-            vec![Arc::<str>::from("1"), Arc::<str>::from("2")],
+            vec![1, 2],
             level.get_overlapping_segments(&KeyRange::new((
                 b"f".to_vec().into(),
                 b"x".to_vec().into()

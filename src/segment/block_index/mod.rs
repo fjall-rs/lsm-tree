@@ -3,6 +3,7 @@ pub mod top_level;
 pub mod writer;
 
 use self::block_handle::BlockHandle;
+use super::id::GlobalSegmentId;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
 use crate::disk_block::DiskBlock;
@@ -35,12 +36,12 @@ impl BlockHandleBlock {
 pub struct BlockHandleBlockIndex(Arc<BlockCache>);
 
 impl BlockHandleBlockIndex {
-    pub fn insert(&self, segment_id: Arc<str>, key: UserKey, value: Arc<BlockHandleBlock>) {
+    pub fn insert(&self, segment_id: GlobalSegmentId, key: UserKey, value: Arc<BlockHandleBlock>) {
         self.0.insert_block_handle_block(segment_id, key, value);
     }
 
     #[must_use]
-    pub fn get(&self, segment_id: &str, key: &UserKey) -> Option<Arc<BlockHandleBlock>> {
+    pub fn get(&self, segment_id: GlobalSegmentId, key: &UserKey) -> Option<Arc<BlockHandleBlock>> {
         self.0.get_block_handle_block(segment_id, key)
     }
 }
@@ -55,7 +56,7 @@ pub struct BlockIndex {
     descriptor_table: Arc<FileDescriptorTable>,
 
     /// Segment ID
-    segment_id: Arc<str>,
+    segment_id: GlobalSegmentId,
 
     /// Level-0 index ("fence pointers"). Is read-only and always fully loaded.
     ///
@@ -206,7 +207,7 @@ impl BlockIndex {
         block_key: &UserKey,
         block_handle: &BlockHandleBlockHandle,
     ) -> crate::Result<Arc<DiskBlock<BlockHandle>>> {
-        if let Some(block) = self.blocks.get(&self.segment_id, block_key) {
+        if let Some(block) = self.blocks.get(self.segment_id, block_key) {
             // Cache hit: Copy from block
 
             Ok(block)
@@ -215,7 +216,7 @@ impl BlockIndex {
 
             let file_guard = self
                 .descriptor_table
-                .access(&self.segment_id)?
+                .access(self.segment_id)?
                 .expect("should acquire file handle");
 
             let block = BlockHandleBlock::from_file_compressed(
@@ -228,11 +229,8 @@ impl BlockIndex {
 
             let block = Arc::new(block);
 
-            self.blocks.insert(
-                self.segment_id.clone(),
-                block_key.clone(),
-                Arc::clone(&block),
-            );
+            self.blocks
+                .insert(self.segment_id, block_key.clone(), Arc::clone(&block));
 
             Ok(block)
         }
@@ -255,7 +253,7 @@ impl BlockIndex {
     /// Only used for tests
     #[allow(dead_code, clippy::expect_used)]
     #[doc(hidden)]
-    pub(crate) fn new(segment_id: Arc<str>, block_cache: Arc<BlockCache>) -> Self {
+    pub(crate) fn new(segment_id: GlobalSegmentId, block_cache: Arc<BlockCache>) -> Self {
         let index_block_index = BlockHandleBlockIndex(block_cache);
 
         Self {
@@ -277,7 +275,7 @@ impl BlockIndex {
     } */
 
     pub fn from_file<P: AsRef<Path>>(
-        segment_id: Arc<str>,
+        segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
         folder: P,
         block_cache: Arc<BlockCache>,

@@ -10,15 +10,14 @@ use crate::{
         SEGMENTS_FOLDER,
     },
     flush::{flush_to_segment, Options as FlushOptions},
-    id::generate_segment_id,
     levels::LevelManifest,
     memtable::MemTable,
     prefix::Prefix,
     range::{MemTableGuard, Range},
-    segment::Segment,
+    segment::{meta::SegmentId, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
-    tree_inner::{SealedMemtables, TreeInner},
+    tree_inner::{get_next_tree_id, MemtableId, SealedMemtables, TreeId, TreeInner},
     version::Version,
     BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
@@ -26,7 +25,7 @@ use std::{
     io::Write,
     ops::RangeBounds,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
 };
 
 fn ignore_tombstone_value(item: Value) -> Option<Value> {
@@ -85,6 +84,8 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     pub fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()> {
         do_compaction(&CompactionOptions {
+            segment_id_generator: self.segment_id_counter.clone(),
+            tree_id: self.id,
             config: self.config.clone(),
             sealed_memtables: self.sealed_memtables.clone(),
             levels: self.levels.clone(),
@@ -198,6 +199,7 @@ impl Tree {
             block_cache: self.block_cache.clone(),
             block_size: self.config.block_size,
             folder: segment_folder.clone(),
+            tree_id: self.id,
             segment_id,
             descriptor_table: self.descriptor_table.clone(),
         })?;
@@ -277,7 +279,7 @@ impl Tree {
 
     /// Seals the active memtable, and returns a reference to it
     #[must_use]
-    pub fn rotate_memtable(&self) -> Option<(Arc<str>, Arc<MemTable>)> {
+    pub fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)> {
         log::trace!("rotate: acquiring active memtable write lock");
         let mut active_memtable = self.lock_active_memtable();
 
@@ -291,8 +293,8 @@ impl Tree {
         let yanked_memtable = std::mem::take(&mut *active_memtable);
         let yanked_memtable = Arc::new(yanked_memtable);
 
-        let tmp_memtable_id = generate_segment_id();
-        sealed_memtables.insert(tmp_memtable_id.clone(), yanked_memtable.clone());
+        let tmp_memtable_id = self.get_next_segment_id();
+        sealed_memtables.insert(tmp_memtable_id, yanked_memtable.clone());
 
         Some((tmp_memtable_id, yanked_memtable))
     }
@@ -309,7 +311,7 @@ impl Tree {
     /// Adds a sealed memtables.
     ///
     /// May be used to restore the LSM-tree's in-memory state from some journals.
-    pub fn add_sealed_memtable(&self, id: Arc<str>, memtable: Arc<MemTable>) {
+    pub fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>) {
         let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
         memtable_lock.insert(id, memtable);
     }
@@ -773,13 +775,24 @@ impl Tree {
             }
         }
 
-        let mut levels = Self::recover_levels(path, &block_cache, &descriptor_table)?;
+        let tree_id = get_next_tree_id();
+
+        let mut levels = Self::recover_levels(path, tree_id, &block_cache, &descriptor_table)?;
         levels.sort_levels();
 
         let config_str = std::fs::read_to_string(path.join(CONFIG_FILE))?;
         let config = serde_json::from_str(&config_str).expect("should be valid JSON");
 
+        let highest_segment_id = levels
+            .get_all_segments_flattened()
+            .iter()
+            .map(|x| x.metadata.id)
+            .max()
+            .unwrap_or_default();
+
         let inner = TreeInner {
+            id: tree_id,
+            segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
@@ -882,6 +895,7 @@ impl Tree {
     /// Recovers the level manifest, loading all segments from disk.
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
+        tree_id: TreeId,
         block_cache: &Arc<BlockCache>,
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
@@ -904,20 +918,23 @@ impl Tree {
                 .file_name()
                 .to_str()
                 .expect("invalid segment folder name")
-                .to_owned()
-                .into();
+                .parse::<SegmentId>()
+                .expect("should be valid segment ID");
 
             log::debug!("Recovering segment from {}", segment_path.display());
 
             if segment_ids_to_recover.contains(&segment_id) {
                 let segment = Segment::recover(
                     &segment_path,
+                    tree_id,
                     Arc::clone(block_cache),
                     descriptor_table.clone(),
                 )?;
 
-                descriptor_table
-                    .insert(segment_path.join(BLOCKS_FILE), segment.metadata.id.clone());
+                descriptor_table.insert(
+                    segment_path.join(BLOCKS_FILE),
+                    (tree_id, segment.metadata.id).into(),
+                );
 
                 segments.push(Arc::new(segment));
                 log::debug!("Recovered segment from {}", segment_path.display());

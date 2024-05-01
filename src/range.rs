@@ -3,19 +3,21 @@ use crate::{
     memtable::MemTable,
     merge::{BoxedIterator, MergeIterator},
     segment::multi_reader::MultiReader,
+    tree_inner::SealedMemtables,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
     Value,
 };
 use guardian::ArcRwLockReadGuardian;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     ops::Bound,
     sync::{Arc, RwLock},
 };
 
+/// Grants temporary access to active & sealed memtables through a read lock
 pub struct MemTableGuard {
     pub(crate) active: ArcRwLockReadGuardian<MemTable>,
-    pub(crate) sealed: ArcRwLockReadGuardian<BTreeMap<Arc<str>, Arc<MemTable>>>,
+    pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
 }
 
 pub struct Range {

@@ -121,9 +121,6 @@ pub mod file;
 #[doc(hidden)]
 pub mod flush;
 
-#[doc(hidden)]
-pub mod id;
-
 mod key_range;
 mod levels;
 

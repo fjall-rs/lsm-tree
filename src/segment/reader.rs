@@ -1,6 +1,7 @@
 use super::{
     block::{load_and_cache_block_by_item_key, ValueBlock},
     block_index::BlockIndex,
+    id::GlobalSegmentId,
 };
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
@@ -17,7 +18,7 @@ pub struct Reader {
     descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
 
-    segment_id: Arc<str>,
+    segment_id: GlobalSegmentId,
     block_cache: Option<Arc<BlockCache>>,
 
     blocks: HashMap<UserKey, VecDeque<Value>>,
@@ -32,7 +33,7 @@ pub struct Reader {
 impl Reader {
     pub fn new(
         descriptor_table: Arc<FileDescriptorTable>,
-        segment_id: Arc<str>,
+        segment_id: GlobalSegmentId,
         block_cache: Option<Arc<BlockCache>>,
         block_index: Arc<BlockIndex>,
         start_offset: Option<&UserKey>,
@@ -82,7 +83,7 @@ impl Reader {
                     &self.descriptor_table,
                     &self.block_index,
                     block_cache,
-                    &self.segment_id,
+                    self.segment_id,
                     key,
                 )? {
                     let items = block.items.clone().to_vec().into();
@@ -98,7 +99,7 @@ impl Reader {
         {
             let file_guard = self
                 .descriptor_table
-                .access(&self.segment_id)?
+                .access(self.segment_id)?
                 .expect("should acquire file handle");
 
             let block = ValueBlock::from_file_compressed(
@@ -321,15 +322,15 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let metadata = Metadata::from_writer(0, writer)?;
         metadata.write_to_file(&folder)?;
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, 0).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -339,7 +340,7 @@ mod tests {
 
         let mut iter = Reader::new(
             table.clone(),
-            metadata.id.clone(),
+            (0, 0).into(),
             Some(Arc::clone(&block_cache)),
             Arc::clone(&block_index),
             None,
@@ -357,7 +358,7 @@ mod tests {
 
         let mut iter = Reader::new(
             table.clone(),
-            metadata.id.clone(),
+            (0, 0).into(),
             Some(Arc::clone(&block_cache)),
             Arc::clone(&block_index),
             None,
@@ -375,7 +376,7 @@ mod tests {
 
         let mut iter = Reader::new(
             table,
-            metadata.id,
+            (0, 0).into(),
             Some(Arc::clone(&block_cache)),
             Arc::clone(&block_index),
             None,

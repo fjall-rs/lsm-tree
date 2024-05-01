@@ -7,8 +7,7 @@ pub(crate) mod major;
 pub(crate) mod tiered;
 pub(crate) mod worker;
 
-use crate::{config::PersistedConfig, levels::LevelManifest};
-use std::sync::Arc;
+use crate::{config::PersistedConfig, levels::LevelManifest, segment::meta::SegmentId};
 
 /// Input for compactor.
 ///
@@ -17,7 +16,7 @@ use std::sync::Arc;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
     /// Segments to compact
-    pub segment_ids: Vec<Arc<str>>,
+    pub segment_ids: Vec<SegmentId>,
 
     /// Level to put the created segments into
     pub dest_level: u8,
@@ -42,7 +41,7 @@ pub enum Choice {
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].
-    DeleteSegments(Vec<Arc<str>>),
+    DeleteSegments(Vec<SegmentId>),
 }
 
 /// Trait for a compaction strategy

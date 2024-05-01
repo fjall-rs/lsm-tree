@@ -62,7 +62,7 @@ pub struct Options {
 }
 
 impl Writer {
-    /// Sets up a new `MultiWriter` at the given segments folder
+    /// Sets up a new `Writer` at the given folder
     pub fn new(opts: Options) -> crate::Result<Self> {
         std::fs::create_dir_all(&opts.path)?;
 
@@ -294,24 +294,26 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let segment_id = 532;
+
+        let metadata = Metadata::from_writer(segment_id, writer)?;
         metadata.write_to_file(&folder)?;
         assert_eq!(ITEM_COUNT, metadata.item_count);
         assert_eq!(ITEM_COUNT, metadata.key_count);
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, segment_id).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
         )?);
         let iter = Reader::new(
             table,
-            metadata.id,
+            (0, segment_id).into(),
             Some(Arc::clone(&block_cache)),
             Arc::clone(&block_index),
             None,
@@ -354,17 +356,19 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let segment_id = 532;
+
+        let metadata = Metadata::from_writer(segment_id, writer)?;
         metadata.write_to_file(&folder)?;
         assert_eq!(ITEM_COUNT * VERSION_COUNT, metadata.item_count);
         assert_eq!(ITEM_COUNT, metadata.key_count);
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, segment_id).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -372,7 +376,7 @@ mod tests {
 
         let iter = Reader::new(
             table,
-            metadata.id,
+            (0, segment_id).into(),
             Some(Arc::clone(&block_cache)),
             Arc::clone(&block_index),
             None,

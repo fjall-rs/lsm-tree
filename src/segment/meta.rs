@@ -7,7 +7,7 @@ use crate::{
     version::Version,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
+use std::{fs::OpenOptions, io::Write, path::Path};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CompressionType {
@@ -20,12 +20,14 @@ impl std::fmt::Display for CompressionType {
     }
 }
 
+pub type SegmentId = u64;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Metadata {
     pub version: Version,
 
     /// Segment ID
-    pub id: Arc<str>,
+    pub id: SegmentId,
 
     /// Creation time as unix timestamp (in µs)
     pub created_at: u128,
@@ -67,7 +69,7 @@ pub struct Metadata {
 
 impl Metadata {
     /// Consumes a writer and its metadata to create the segment metadata
-    pub fn from_writer(id: Arc<str>, writer: Writer) -> crate::Result<Self> {
+    pub fn from_writer(id: SegmentId, writer: Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
             version: Version::V0,

@@ -1,4 +1,7 @@
-use super::block_index::{block_handle::BlockHandle, BlockIndex};
+use super::{
+    block_index::{block_handle::BlockHandle, BlockIndex},
+    id::GlobalSegmentId,
+};
 use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
 use std::sync::Arc;
 
@@ -18,7 +21,7 @@ impl ValueBlock {
 pub fn load_and_cache_by_block_handle(
     descriptor_table: &FileDescriptorTable,
     block_cache: &BlockCache,
-    segment_id: &str,
+    segment_id: GlobalSegmentId,
     block_handle: &BlockHandle,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
@@ -30,7 +33,7 @@ pub fn load_and_cache_by_block_handle(
             // Cache miss: load from disk
 
             let file_guard = descriptor_table
-                .access(&segment_id.into())?
+                .access(segment_id)?
                 .expect("should acquire file handle");
 
             let block = ValueBlock::from_file_compressed(
@@ -44,7 +47,7 @@ pub fn load_and_cache_by_block_handle(
             let block = Arc::new(block);
 
             block_cache.insert_disk_block(
-                segment_id.into(),
+                segment_id,
                 block_handle.start_key.clone(),
                 Arc::clone(&block),
             );
@@ -58,7 +61,7 @@ pub fn load_and_cache_block_by_item_key<K: AsRef<[u8]>>(
     descriptor_table: &FileDescriptorTable,
     block_index: &BlockIndex,
     block_cache: &BlockCache,
-    segment_id: &str,
+    segment_id: GlobalSegmentId,
     item_key: K,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(

@@ -1,5 +1,6 @@
 pub mod block;
 pub mod block_index;
+pub mod id;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
@@ -16,6 +17,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     file::SEGMENT_METADATA_FILE,
+    tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
 };
@@ -36,6 +38,8 @@ use crate::file::BLOOM_FILTER_FILE;
 ///
 /// Segments can be merged together to remove duplicates, reducing disk space and improving read performance.
 pub struct Segment {
+    pub(crate) tree_id: TreeId,
+
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
 
@@ -68,6 +72,7 @@ impl Segment {
     /// Tries to recover a segment from a folder.
     pub fn recover<P: AsRef<Path>>(
         folder: P,
+        tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
@@ -75,13 +80,15 @@ impl Segment {
 
         let metadata = Metadata::from_disk(folder.join(SEGMENT_METADATA_FILE))?;
         let block_index = BlockIndex::from_file(
-            metadata.id.clone(),
+            (tree_id, metadata.id).into(),
             descriptor_table.clone(),
             folder,
             Arc::clone(&block_cache),
         )?;
 
         Ok(Self {
+            tree_id,
+
             descriptor_table,
             metadata,
             block_index: Arc::new(block_index),
@@ -130,7 +137,7 @@ impl Segment {
         let Some(block) = load_and_cache_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
-            &self.metadata.id,
+            (self.tree_id, self.metadata.id).into(),
             &block_handle,
         )?
         else {
@@ -192,7 +199,7 @@ impl Segment {
 
                 let iter = Reader::new(
                     Arc::clone(&self.descriptor_table),
-                    self.metadata.id.clone(),
+                    (self.tree_id, self.metadata.id).into(),
                     Some(Arc::clone(&self.block_cache)),
                     Arc::clone(&self.block_index),
                     Some(&next_block_handle.start_key),
@@ -233,7 +240,7 @@ impl Segment {
 
         Reader::new(
             Arc::clone(&self.descriptor_table),
-            self.metadata.id.clone(),
+            (self.tree_id, self.metadata.id).into(),
             cache,
             Arc::clone(&self.block_index),
             None,
@@ -250,7 +257,7 @@ impl Segment {
     pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
             Arc::clone(&self.descriptor_table),
-            self.metadata.id.clone(),
+            (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
             range,
@@ -266,7 +273,7 @@ impl Segment {
     pub fn prefix<K: Into<UserKey>>(&self, prefix: K) -> PrefixedReader {
         PrefixedReader::new(
             Arc::clone(&self.descriptor_table),
-            self.metadata.id.clone(),
+            (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
             prefix,

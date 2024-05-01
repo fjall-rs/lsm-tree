@@ -1,4 +1,4 @@
-use crate::lru_list::LruList;
+use crate::{lru_list::LruList, segment::id::GlobalSegmentId};
 use std::{
     collections::HashMap,
     fs::File,
@@ -43,8 +43,8 @@ pub struct FileHandle {
 // TODO: table should probably use a concurrent hashmap
 
 pub struct FileDescriptorTableInner {
-    table: HashMap<Arc<str>, FileHandle>,
-    lru: Mutex<LruList<Arc<str>>>,
+    table: HashMap<GlobalSegmentId, FileHandle>,
+    lru: Mutex<LruList<GlobalSegmentId>>,
     size: AtomicUsize,
 }
 
@@ -94,10 +94,10 @@ impl FileDescriptorTable {
     }
 
     // TODO: on access, adjust hotness of ID -> lock contention though
-    pub fn access(&self, id: &Arc<str>) -> crate::Result<Option<FileGuard>> {
+    pub fn access(&self, id: GlobalSegmentId) -> crate::Result<Option<FileGuard>> {
         let lock = self.inner.read().expect("lock is poisoned");
 
-        let Some(item) = lock.table.get(id) else {
+        let Some(item) = lock.table.get(&id) else {
             return Ok(None);
         };
 
@@ -109,10 +109,10 @@ impl FileDescriptorTable {
 
             let lock = self.inner.write().expect("lock is poisoned");
             let mut lru = lock.lru.lock().expect("lock is poisoned");
-            lru.refresh(id.clone());
+            lru.refresh(id);
 
             let fd = {
-                let item = lock.table.get(id).expect("should exist");
+                let item = lock.table.get(&id).expect("should exist");
                 let mut fd_lock = item.descriptors.write().expect("lock is poisoned");
 
                 for _ in 0..(self.concurrency - 1) {
@@ -139,7 +139,7 @@ impl FileDescriptorTable {
 
             while size_now > self.limit {
                 if let Some(oldest) = lru.get_least_recently_used() {
-                    if &oldest != id {
+                    if oldest != id {
                         if let Some(item) = lock.table.get(&oldest) {
                             let mut oldest_lock =
                                 item.descriptors.write().expect("lock is poisoned");
@@ -177,10 +177,10 @@ impl FileDescriptorTable {
     fn inner_insert(
         mut lock: RwLockWriteGuard<'_, FileDescriptorTableInner>,
         path: PathBuf,
-        id: Arc<str>,
+        id: GlobalSegmentId,
     ) {
         lock.table.insert(
-            id.clone(),
+            id,
             FileHandle {
                 descriptors: RwLock::new(vec![]),
                 path,
@@ -190,22 +190,22 @@ impl FileDescriptorTable {
         lock.lru.lock().expect("lock is poisoned").refresh(id);
     }
 
-    pub fn insert<P: Into<PathBuf>>(&self, path: P, id: Arc<str>) {
+    pub fn insert<P: Into<PathBuf>>(&self, path: P, id: GlobalSegmentId) {
         let lock = self.inner.write().expect("lock is poisoned");
         Self::inner_insert(lock, path.into(), id);
     }
 
-    pub fn remove(&self, id: &Arc<str>) {
+    pub fn remove(&self, id: GlobalSegmentId) {
         let mut lock = self.inner.write().expect("lock is poisoned");
 
-        if let Some(item) = lock.table.remove(id) {
+        if let Some(item) = lock.table.remove(&id) {
             lock.size.fetch_sub(
                 item.descriptors.read().expect("lock is poisoned").len(),
                 std::sync::atomic::Ordering::Release,
             );
         }
 
-        lock.lru.lock().expect("lock is poisoned").remove(id);
+        lock.lru.lock().expect("lock is poisoned").remove(&id);
     }
 }
 
@@ -227,41 +227,41 @@ mod tests {
 
         assert_eq!(0, table.size());
 
-        table.insert(path.join("1"), "1".into());
+        table.insert(path.join("1"), (0, 1).into());
         assert_eq!(0, table.size());
 
         {
-            let _ = table.access(&"1".into());
+            let _ = table.access((0, 1).into());
             assert_eq!(1, table.size());
         }
 
-        table.insert(path.join("2"), "2".into());
+        table.insert(path.join("2"), (0, 2).into());
 
         {
             assert_eq!(1, table.size());
-            let _ = table.access(&"1".into());
+            let _ = table.access((0, 1).into());
         }
 
         {
-            let _ = table.access(&"2".into());
+            let _ = table.access((0, 2).into());
             assert_eq!(2, table.size());
         }
 
-        table.insert(path.join("3"), "3".into());
+        table.insert(path.join("3"), (0, 3).into());
         assert_eq!(2, table.size());
 
         {
-            let _ = table.access(&"3".into());
+            let _ = table.access((0, 3).into());
             assert_eq!(2, table.size());
         }
 
-        table.remove(&"3".into());
+        table.remove((0, 3).into());
         assert_eq!(1, table.size());
 
-        table.remove(&"2".into());
+        table.remove((0, 2).into());
         assert_eq!(0, table.size());
 
-        let _ = table.access(&"1".into());
+        let _ = table.access((0, 1).into());
         assert_eq!(1, table.size());
 
         Ok(())
