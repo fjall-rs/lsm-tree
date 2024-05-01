@@ -11,7 +11,7 @@ use crate::{
     },
     flush::{flush_to_segment, Options as FlushOptions},
     id::generate_segment_id,
-    levels::Levels,
+    levels::LevelManifest,
     memtable::MemTable,
     prefix::Prefix,
     range::{MemTableGuard, Range},
@@ -592,15 +592,6 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let lock = self.levels.read().expect("lock is poisoned");
-
-        let segment_info = lock
-            .get_all_segments()
-            .values()
-            .filter(|x| x.check_key_range_overlap(&bounds))
-            .cloned()
-            .collect::<Vec<_>>();
-
         Range::new(
             crate::range::MemTableGuard {
                 active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
@@ -609,8 +600,8 @@ impl Tree {
                     .expect("lock is poisoned"),
             },
             bounds,
-            segment_info,
             seqno,
+            self.levels.clone(),
         )
     }
 
@@ -648,15 +639,6 @@ impl Tree {
     ) -> Prefix {
         let prefix = prefix.into();
 
-        let lock = self.levels.read().expect("lock is poisoned");
-
-        let segment_info = lock
-            .get_all_segments()
-            .values()
-            .filter(|x| x.metadata.key_range.contains_prefix(&prefix))
-            .cloned()
-            .collect();
-
         Prefix::new(
             MemTableGuard {
                 active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
@@ -665,8 +647,8 @@ impl Tree {
                     .expect("lock is poisoned"),
             },
             prefix,
-            segment_info,
             seqno,
+            self.levels.clone(),
         )
     }
 
@@ -723,11 +705,6 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        // TODO: fast path (especially useful for levelled strategy):
-        // TODO: only get first ("lowest") segment of each level, if level is disjoint
-        // TODO: if nothing found, fallback to self.iter()
-        // TODO: same for last_kv
-
         self.iter().into_iter().next().transpose()
     }
 
@@ -907,13 +884,13 @@ impl Tree {
         tree_path: P,
         block_cache: &Arc<BlockCache>,
         descriptor_table: &Arc<FileDescriptorTable>,
-    ) -> crate::Result<Levels> {
+    ) -> crate::Result<LevelManifest> {
         let tree_path = tree_path.as_ref();
         log::debug!("Recovering disk segments from {}", tree_path.display());
 
         let manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
-        let segment_ids_to_recover = Levels::recover_ids(&manifest_path)?;
+        let segment_ids_to_recover = LevelManifest::recover_ids(&manifest_path)?;
 
         let mut segments = vec![];
 
@@ -962,6 +939,6 @@ impl Tree {
 
         log::debug!("Recovered {} segments", segments.len());
 
-        Levels::recover(&manifest_path, segments)
+        LevelManifest::recover(&manifest_path, segments)
     }
 }

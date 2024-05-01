@@ -2,7 +2,7 @@ use crate::{
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
     file::LEVELS_MANIFEST_FILE,
-    levels::Levels,
+    levels::LevelManifest,
     memtable::MemTable,
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
@@ -22,8 +22,9 @@ pub struct TreeInner {
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Levels manifest
-    pub(crate) levels: Arc<RwLock<Levels>>,
+    /// Level manifest
+    #[doc(hidden)]
+    pub levels: Arc<RwLock<LevelManifest>>,
 
     /// Tree configuration
     pub config: PersistedConfig,
@@ -44,7 +45,7 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub fn create_new(config: Config) -> crate::Result<Self> {
-        let levels = Levels::create_new(
+        let levels = LevelManifest::create_new(
             config.inner.level_count,
             config.inner.path.join(LEVELS_MANIFEST_FILE),
         )?;

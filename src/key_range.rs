@@ -104,8 +104,18 @@ impl KeyRange {
 mod tests {
     use super::*;
 
+    fn int_key_range(a: u64, b: u64) -> KeyRange {
+        KeyRange::new((a.to_be_bytes().into(), b.to_be_bytes().into()))
+    }
+
     fn string_key_range(a: &str, b: &str) -> KeyRange {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
+    }
+
+    #[test]
+    fn key_range_number_disjoint() {
+        let ranges = [int_key_range(0, 4), int_key_range(0, 4)];
+        assert!(!KeyRange::is_disjoint(&ranges));
     }
 
     #[test]

@@ -6,6 +6,7 @@ use std::sync::Arc;
 /// and stored in compressed form on disk, in sorted order.
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
+#[allow(clippy::module_name_repetitions)]
 pub type ValueBlock = DiskBlock<Value>;
 
 impl ValueBlock {

@@ -1,5 +1,5 @@
 use super::{Choice, CompactionStrategy};
-use crate::{config::PersistedConfig, levels::Levels, segment::Segment};
+use crate::{config::PersistedConfig, levels::LevelManifest, segment::Segment};
 use std::{ops::Deref, sync::Arc};
 
 const L0_SEGMENT_CAP: usize = 20;
@@ -37,7 +37,7 @@ pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> Ve
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &Levels, _: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, _: &PersistedConfig) -> Choice {
         let resolved_view = levels.resolved_view();
 
         let mut first_level = resolved_view
@@ -77,7 +77,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::Levels,
+        levels::LevelManifest,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
     };
     use std::sync::Arc;
@@ -120,7 +120,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 
-        let levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
@@ -135,7 +135,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         for id in 0..5 {
             levels.add(fixture_segment(id.to_string().into(), id));
         }
@@ -153,7 +153,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         for id in 0..(L0_SEGMENT_CAP + 2) {
             levels.add(fixture_segment(id.to_string().into(), id as u128));
         }

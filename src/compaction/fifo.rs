@@ -1,5 +1,5 @@
 use super::{Choice, CompactionStrategy};
-use crate::{config::PersistedConfig, levels::Levels, time::unix_timestamp};
+use crate::{config::PersistedConfig, levels::LevelManifest, time::unix_timestamp};
 use std::ops::Deref;
 
 // TODO: L0 stall/halt thresholds should be configurable
@@ -41,7 +41,7 @@ impl Strategy {
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &Levels, config: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, config: &PersistedConfig) -> Choice {
         let resolved_view = levels.resolved_view();
 
         let mut first_level = resolved_view
@@ -74,8 +74,9 @@ impl CompactionStrategy for Strategy {
         if db_size > self.limit {
             let mut bytes_to_delete = db_size - self.limit;
 
-            // Sort the level by oldest to newest
-            first_level.sort_by(|a, b| a.metadata.seqnos.0.cmp(&b.metadata.seqnos.0));
+            // NOTE: Sort the level by oldest to newest (levels are sorted from newest to oldest)
+            // so we can just reverse
+            first_level.reverse();
 
             for segment in first_level {
                 if bytes_to_delete == 0 {
@@ -106,7 +107,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::Levels,
+        levels::LevelManifest,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
         time::unix_timestamp,
     };
@@ -136,7 +137,7 @@ mod tests {
                 key_range: KeyRange::new((vec![].into(), vec![].into())),
                 tombstone_count: 0,
                 uncompressed_size: 0,
-                seqnos: (0, 0),
+                seqnos: (0, created_at as u64),
             },
             block_cache,
 
@@ -150,7 +151,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(u64::MAX, Some(5_000));
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.add(fixture_segment("1".into(), 1));
         levels.add(fixture_segment("2".into(), unix_timestamp().as_micros()));
@@ -168,7 +169,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(1, None);
 
-        let levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
@@ -183,7 +184,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(4, None);
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.add(fixture_segment("1".into(), 1));
         assert_eq!(
@@ -217,7 +218,7 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(2, None);
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment("1".into(), 1));
         levels.add(fixture_segment("2".into(), 2));
         levels.add(fixture_segment("3".into(), 3));

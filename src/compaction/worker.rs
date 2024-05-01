@@ -4,7 +4,7 @@ use crate::{
     config::PersistedConfig,
     descriptor_table::FileDescriptorTable,
     file::{BLOCKS_FILE, SEGMENTS_FOLDER},
-    levels::Levels,
+    levels::LevelManifest,
     memtable::MemTable,
     merge::MergeIterator,
     segment::{block_index::BlockIndex, multi_writer::MultiWriter, Segment},
@@ -36,7 +36,7 @@ pub struct Options {
     pub descriptor_table: Arc<FileDescriptorTable>,
 
     /// Levels manifest.
-    pub levels: Arc<RwLock<Levels>>,
+    pub levels: Arc<RwLock<LevelManifest>>,
 
     /// sealed memtables (required for temporarily locking).
     pub sealed_memtables: Arc<RwLock<BTreeMap<Arc<str>, Arc<MemTable>>>>,
@@ -80,7 +80,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
-    mut levels: RwLockWriteGuard<'_, Levels>,
+    mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
@@ -248,7 +248,7 @@ fn merge_segments(
 }
 
 fn drop_segments(
-    mut levels: RwLockWriteGuard<'_, Levels>,
+    mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
     segment_ids: &[Arc<str>],
 ) -> crate::Result<()> {

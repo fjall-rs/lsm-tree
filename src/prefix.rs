@@ -1,17 +1,21 @@
 use crate::{
+    levels::LevelManifest,
     merge::{BoxedIterator, MergeIterator},
     range::MemTableGuard,
-    segment::Segment,
+    segment::multi_reader::MultiReader,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
     Value,
 };
-use std::sync::Arc;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, RwLock},
+};
 
 pub struct Prefix {
     guard: MemTableGuard,
     prefix: UserKey,
-    segments: Vec<Arc<Segment>>,
     seqno: Option<SeqNo>,
+    level_manifest: Arc<RwLock<LevelManifest>>,
 }
 
 impl Prefix {
@@ -19,14 +23,14 @@ impl Prefix {
     pub fn new(
         guard: MemTableGuard,
         prefix: UserKey,
-        segments: Vec<Arc<Segment>>,
         seqno: Option<SeqNo>,
+        level_manifest: Arc<RwLock<LevelManifest>>,
     ) -> Self {
         Self {
             guard,
             prefix,
-            segments,
             seqno,
+            level_manifest,
         }
     }
 }
@@ -38,15 +42,39 @@ pub struct PrefixIterator<'a> {
 
 impl<'a> PrefixIterator<'a> {
     fn new(lock: &'a Prefix, seqno: Option<SeqNo>) -> Self {
-        let mut segment_iters: Vec<BoxedIterator<'a>> = vec![];
+        let level_manifest = lock.level_manifest.read().expect("lock is poisoned");
+        let mut segment_iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(level_manifest.len());
 
-        for segment in &lock.segments {
-            let reader = segment.prefix(lock.prefix.clone());
+        for level in level_manifest.levels.iter() {
+            if level.is_disjoint {
+                let mut level = level.clone();
 
-            segment_iters.push(Box::new(reader));
+                let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+
+                level.sort_by_key_range();
+
+                for segment in &level.segments {
+                    if segment.metadata.key_range.contains_prefix(&lock.prefix) {
+                        let range = segment.prefix(lock.prefix.clone());
+                        readers.push_back(Box::new(range));
+                    }
+                }
+
+                if !readers.is_empty() {
+                    segment_iters.push(Box::new(MultiReader::new(readers)));
+                }
+            } else {
+                for segment in &level.segments {
+                    if segment.metadata.key_range.contains_prefix(&lock.prefix) {
+                        segment_iters.push(Box::new(segment.prefix(lock.prefix.clone())));
+                    }
+                }
+            }
         }
 
-        let mut iters: Vec<BoxedIterator<'a>> = vec![Box::new(MergeIterator::new(segment_iters))];
+        drop(level_manifest);
+
+        let mut iters: Vec<BoxedIterator<'a>> = segment_iters;
 
         for memtable in lock.guard.sealed.values() {
             iters.push(Box::new(

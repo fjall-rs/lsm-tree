@@ -26,12 +26,12 @@ impl MemTable {
         // We search for the lowest entry that is greater or equal the user's prefix key
         // and has the highest seqno (because the seqno is stored in reverse order)
         //
-        // Example: We search for "asd"
+        // Example: We search for "abc"
         //
         // key -> seqno
         //
         // a   -> 7
-        // abc -> 5 <<< This is the lowest key that matches the range
+        // abc -> 5 <<< This is the lowest key (highest seqno) that matches the range
         // abc -> 4
         // abc -> 3
         // abcdef -> 6
@@ -42,8 +42,7 @@ impl MemTable {
         for entry in self.items.range(range) {
             let key = entry.key();
 
-            // TODO: add benchmark to check upper bound of this query
-            // We are past the searched key, so we can immediately return None
+            // NOTE: We are past the searched key, so we can immediately return None
             if &*key.user_key > prefix {
                 return None;
             }

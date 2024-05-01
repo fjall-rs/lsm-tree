@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_index;
 pub mod meta;
+pub mod multi_reader;
 pub mod multi_writer;
 pub mod prefix;
 pub mod range;
@@ -35,22 +36,26 @@ use crate::file::BLOOM_FILTER_FILE;
 ///
 /// Segments can be merged together to remove duplicates, reducing disk space and improving read performance.
 pub struct Segment {
-    pub(crate) descriptor_table: Arc<FileDescriptorTable>,
+    #[doc(hidden)]
+    pub descriptor_table: Arc<FileDescriptorTable>,
 
     /// Segment metadata object (will be stored in a JSON file)
     pub metadata: meta::Metadata,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
-    pub(crate) block_index: Arc<BlockIndex>,
+    #[doc(hidden)]
+    pub block_index: Arc<BlockIndex>,
 
     /// Block cache
     ///
     /// Stores index and data blocks
-    pub(crate) block_cache: Arc<BlockCache>,
+    #[doc(hidden)]
+    pub block_cache: Arc<BlockCache>,
 
     /// Bloom filter
     #[cfg(feature = "bloom")]
-    pub(crate) bloom_filter: BloomFilter,
+    #[doc(hidden)]
+    pub bloom_filter: BloomFilter,
 }
 
 impl std::fmt::Debug for Segment {
