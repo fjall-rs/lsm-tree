@@ -32,6 +32,7 @@ fn snapshot_after_compaction() -> lsm_tree::Result<()> {
     tree.major_compact(u64::MAX)?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
+
     assert_eq!(ITEM_COUNT, snapshot.len()?);
     assert_eq!(ITEM_COUNT, snapshot.iter().into_iter().rev().count());
 

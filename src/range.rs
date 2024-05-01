@@ -98,7 +98,7 @@ impl<'a> RangeIterator<'a> {
 
         let mut iters: Vec<BoxedIterator<'a>> = vec![Box::new(MergeIterator::new(segment_iters))];
 
-        for (_, memtable) in lock.guard.sealed.iter() {
+        for memtable in lock.guard.sealed.values() {
             iters.push(Box::new(memtable.items.range(range.clone()).map(|entry| {
                 Ok(Value::from((entry.key().clone(), entry.value().clone())))
             })));

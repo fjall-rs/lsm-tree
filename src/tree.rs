@@ -347,7 +347,7 @@ impl Tree {
     pub fn len(&self) -> crate::Result<usize> {
         let mut count = 0;
 
-        // TODO: shouldn't use block cache
+        // TODO: shouldn't thrash block cache
         for item in &self.iter() {
             let _ = item?;
             count += 1;
