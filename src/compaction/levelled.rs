@@ -1,5 +1,7 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::PersistedConfig, key_range::KeyRange, levels::Levels, segment::Segment};
+use crate::{
+    config::PersistedConfig, key_range::KeyRange, levels::LevelManifest, segment::Segment,
+};
 use std::{ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
@@ -67,7 +69,7 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
 // TODO: instead of rewriting
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &Levels, config: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, config: &PersistedConfig) -> Choice {
         let resolved_view = levels.resolved_view();
 
         // If there are any levels that already have a compactor working on it
@@ -111,8 +113,8 @@ impl CompactionStrategy for Strategy {
             if overshoot > 0 {
                 let mut segments_to_compact = vec![];
 
-                let mut level = level.deref().clone();
-                level.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+                let mut level = level.clone();
+                level.sort_by_key_range();
 
                 for segment in level.iter().take(config.level_ratio.into()).cloned() {
                     if overshoot == 0 {
@@ -195,7 +197,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::Levels,
+        levels::LevelManifest,
         segment::{block_index::BlockIndex, meta::Metadata, Segment},
         time::unix_timestamp,
         Config,
@@ -247,7 +249,7 @@ mod tests {
             ..Default::default()
         };
 
-        let levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         assert_eq!(
             compactor.choose(&levels, &Config::default().inner),
@@ -265,7 +267,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.add(fixture_segment(
             "1".into(),
@@ -329,7 +331,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
             string_key_range("h", "t"),
@@ -388,7 +390,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(
             "1".into(),
             string_key_range("a", "g"),
@@ -461,7 +463,7 @@ mod tests {
         };
         let config = Config::default().level_ratio(2);
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.insert_into_level(
             2,
@@ -506,7 +508,7 @@ mod tests {
         };
         let config = Config::default().level_ratio(2);
 
-        let mut levels = Levels::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         levels.insert_into_level(
             3,
