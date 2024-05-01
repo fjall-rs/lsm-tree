@@ -45,7 +45,7 @@ impl<'a> PrefixIterator<'a> {
         let level_manifest = lock.level_manifest.read().expect("lock is poisoned");
         let mut segment_iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(level_manifest.len());
 
-        for level in level_manifest.levels.iter() {
+        for level in &level_manifest.levels {
             if level.is_disjoint {
                 let mut level = level.clone();
 

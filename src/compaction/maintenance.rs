@@ -16,8 +16,8 @@ pub struct Strategy;
 
 /// Choose a run of segments that has the least file size sum.
 ///
-/// This minimizes the compaction time (+ write amp) for a amount of segments we
-/// want to get rid of.
+/// This minimizes the compaction time (+ write amp) for a set of segments we
+/// want to partially compact.
 pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> Vec<Arc<str>> {
     let num_segments = segments.len();
 
