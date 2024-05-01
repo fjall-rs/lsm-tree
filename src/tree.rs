@@ -16,7 +16,7 @@ use crate::{
     prefix::Prefix,
     range::{MemTableGuard, Range},
     segment::Segment,
-    snapshot::SnapshotCounter,
+    snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     tree_inner::{SealedMemtables, TreeInner},
     version::Version,

@@ -4,7 +4,7 @@ use crate::{
     file::LEVELS_MANIFEST_FILE,
     levels::Levels,
     memtable::MemTable,
-    snapshot::SnapshotCounter,
+    snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     BlockCache,
 };

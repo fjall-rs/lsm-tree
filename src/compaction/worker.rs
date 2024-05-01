@@ -8,7 +8,7 @@ use crate::{
     memtable::MemTable,
     merge::MergeIterator,
     segment::{block_index::BlockIndex, multi_writer::MultiWriter, Segment},
-    snapshot::SnapshotCounter, /* Tree, */
+    snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     BlockCache,
 };
