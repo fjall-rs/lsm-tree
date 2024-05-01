@@ -1,9 +1,6 @@
 use crate::{merge::BoxedIterator, Value};
 use std::collections::VecDeque;
 
-#[allow(unused)]
-use crate::merge::MergeIterator;
-
 /// Reads through a disjoint, sorted set of segment readers
 pub struct MultiReader<'a> {
     readers: VecDeque<BoxedIterator<'a>>,
