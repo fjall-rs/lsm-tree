@@ -42,7 +42,7 @@ tempfile = "3.10.1"
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
 nanoid = "0.4.0"
-test-log = "0.2.15"
+test-log = "0.2.16"
 
 [[bench]]
 name = "lsmt"
