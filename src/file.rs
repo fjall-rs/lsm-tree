@@ -23,15 +23,26 @@ pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Resul
     temp_file.write_all(content)?;
     temp_file.persist(path)?;
 
+    // TODO: not sure why it fails on Windows...
     #[cfg(not(target_os = "windows"))]
     {
-        // TODO: Not sure if the fsync is really required, but just for the sake of it...
-        // TODO: also not sure why it fails on Windows...
         let file = File::open(path)?;
         file.sync_all()?;
     }
 
     Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn fsync_directory<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+    let file = File::open(path)?;
+    debug_assert!(file.metadata()?.is_dir());
+    file.sync_all()
+}
+
+#[cfg(target_os = "windows")]
+pub fn fsync_directory<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+    // Cannot fsync directory on Windows
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use super::block::ValueBlock;
 use crate::{
-    file::BLOCKS_FILE,
+    file::{fsync_directory, BLOCKS_FILE},
     segment::block_index::writer::Writer as IndexWriter,
     value::{SeqNo, UserKey},
     Value,
@@ -237,12 +237,8 @@ impl Writer {
             filter.write_to_file(self.opts.path.join(BLOOM_FILTER_FILE))?;
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            // fsync folder on Unix
-            let folder = std::fs::File::open(&self.opts.path)?;
-            folder.sync_all()?;
-        }
+        // IMPORTANT: fsync folder on Unix
+        fsync_directory(&self.opts.path)?;
 
         log::debug!(
             "Written {} items in {} blocks into new segment file, written {} MB",
