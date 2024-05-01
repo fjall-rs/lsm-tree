@@ -45,9 +45,13 @@ impl<'a> PrefixIterator<'a> {
         let level_manifest = lock.level_manifest.read().expect("lock is poisoned");
         let mut segment_iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(level_manifest.len());
 
-        for level in &level_manifest.levels {
+        for level in level_manifest.levels.iter() {
             if level.is_disjoint {
+                let mut level = level.clone();
+
                 let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+
+                level.sort_by_key_range();
 
                 for segment in &level.segments {
                     if segment.metadata.key_range.contains_prefix(&lock.prefix) {
@@ -56,7 +60,9 @@ impl<'a> PrefixIterator<'a> {
                     }
                 }
 
-                segment_iters.push(Box::new(MultiReader::new(readers)));
+                if !readers.is_empty() {
+                    segment_iters.push(Box::new(MultiReader::new(readers)));
+                }
             } else {
                 for segment in &level.segments {
                     if segment.metadata.key_range.contains_prefix(&lock.prefix) {
@@ -68,7 +74,7 @@ impl<'a> PrefixIterator<'a> {
 
         drop(level_manifest);
 
-        let mut iters: Vec<BoxedIterator<'a>> = vec![Box::new(MergeIterator::new(segment_iters))];
+        let mut iters: Vec<BoxedIterator<'a>> = segment_iters;
 
         for memtable in lock.guard.sealed.values() {
             iters.push(Box::new(
