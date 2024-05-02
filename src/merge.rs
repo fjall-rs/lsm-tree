@@ -65,7 +65,7 @@ impl<'a> MergeIterator<'a> {
                     if let Ok(item) = item {
                         if &item.key == key {
                             // Consume key
-                            iter.next().expect("should not be empty");
+                            iter.next().expect("should not be empty")?;
                         } else {
                             // Reached next key, go to next iterator
                             break 'inner;
