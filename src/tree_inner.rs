@@ -14,7 +14,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
+#[doc(hidden)]
 pub type TreeId = u64;
+
 pub type MemtableId = u64;
 
 pub type SealedMemtables = BTreeMap<MemtableId, Arc<MemTable>>;
@@ -25,7 +27,7 @@ pub fn get_next_tree_id() -> TreeId {
 }
 
 pub struct TreeInner {
-    pub(crate) id: TreeId,
+    pub id: TreeId,
 
     pub(crate) segment_id_counter: Arc<AtomicU64>,
 
@@ -77,7 +79,7 @@ impl TreeInner {
         })
     }
 
-    pub(crate) fn get_next_segment_id(&self) -> SegmentId {
+    pub fn get_next_segment_id(&self) -> SegmentId {
         self.segment_id_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }

@@ -156,6 +156,12 @@ mod tree_inner;
 mod value;
 mod version;
 
+#[doc(hidden)]
+pub use {
+    segment::{id::GlobalSegmentId, meta::SegmentId},
+    tree_inner::TreeId,
+};
+
 pub use {
     block_cache::BlockCache,
     config::Config,

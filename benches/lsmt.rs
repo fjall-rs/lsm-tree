@@ -115,9 +115,9 @@ fn file_descriptor(c: &mut Criterion) {
         });
     });
 
-    let id: Arc<str> = Arc::from("file");
+    let id = (0, 523).into();
     let descriptor_table = lsm_tree::descriptor_table::FileDescriptorTable::new(1, 1);
-    descriptor_table.insert(file.path(), id.clone());
+    descriptor_table.insert(file.path(), id);
 
     group.bench_function("descriptor table", |b: &mut criterion::Bencher<'_>| {
         b.iter(|| {

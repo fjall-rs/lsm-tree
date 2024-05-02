@@ -33,7 +33,7 @@ pub fn load_and_cache_by_block_handle(
             // Cache miss: load from disk
 
             let file_guard = descriptor_table
-                .access(segment_id)?
+                .access(&segment_id)?
                 .expect("should acquire file handle");
 
             let block = ValueBlock::from_file_compressed(

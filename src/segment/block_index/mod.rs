@@ -216,7 +216,7 @@ impl BlockIndex {
 
             let file_guard = self
                 .descriptor_table
-                .access(self.segment_id)?
+                .access(&self.segment_id)?
                 .expect("should acquire file handle");
 
             let block = BlockHandleBlock::from_file_compressed(

@@ -94,10 +94,10 @@ impl FileDescriptorTable {
     }
 
     // TODO: on access, adjust hotness of ID -> lock contention though
-    pub fn access(&self, id: GlobalSegmentId) -> crate::Result<Option<FileGuard>> {
+    pub fn access(&self, id: &GlobalSegmentId) -> crate::Result<Option<FileGuard>> {
         let lock = self.inner.read().expect("lock is poisoned");
 
-        let Some(item) = lock.table.get(&id) else {
+        let Some(item) = lock.table.get(id) else {
             return Ok(None);
         };
 
@@ -109,10 +109,10 @@ impl FileDescriptorTable {
 
             let lock = self.inner.write().expect("lock is poisoned");
             let mut lru = lock.lru.lock().expect("lock is poisoned");
-            lru.refresh(id);
+            lru.refresh(*id);
 
             let fd = {
-                let item = lock.table.get(&id).expect("should exist");
+                let item = lock.table.get(id).expect("should exist");
                 let mut fd_lock = item.descriptors.write().expect("lock is poisoned");
 
                 for _ in 0..(self.concurrency - 1) {
@@ -139,7 +139,7 @@ impl FileDescriptorTable {
 
             while size_now > self.limit {
                 if let Some(oldest) = lru.get_least_recently_used() {
-                    if oldest != id {
+                    if &oldest != id {
                         if let Some(item) = lock.table.get(&oldest) {
                             let mut oldest_lock =
                                 item.descriptors.write().expect("lock is poisoned");
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(0, table.size());
 
         {
-            let _ = table.access((0, 1).into());
+            let _ = table.access(&(0, 1).into());
             assert_eq!(1, table.size());
         }
 
@@ -239,11 +239,11 @@ mod tests {
 
         {
             assert_eq!(1, table.size());
-            let _ = table.access((0, 1).into());
+            let _ = table.access(&(0, 1).into());
         }
 
         {
-            let _ = table.access((0, 2).into());
+            let _ = table.access(&(0, 2).into());
             assert_eq!(2, table.size());
         }
 
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(2, table.size());
 
         {
-            let _ = table.access((0, 3).into());
+            let _ = table.access(&(0, 3).into());
             assert_eq!(2, table.size());
         }
 
@@ -261,7 +261,7 @@ mod tests {
         table.remove((0, 2).into());
         assert_eq!(0, table.size());
 
-        let _ = table.access((0, 1).into());
+        let _ = table.access(&(0, 1).into());
         assert_eq!(1, table.size());
 
         Ok(())
