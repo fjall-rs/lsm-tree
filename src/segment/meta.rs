@@ -21,6 +21,25 @@ pub enum CompressionType {
     Lz4,
 }
 
+impl From<CompressionType> for u8 {
+    fn from(val: CompressionType) -> Self {
+        match val {
+            CompressionType::Lz4 => 0,
+        }
+    }
+}
+
+impl TryFrom<u8> for CompressionType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Lz4),
+            _ => Err(()),
+        }
+    }
+}
+
 impl std::fmt::Display for CompressionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "lz4")
@@ -88,7 +107,7 @@ impl Serializable for Metadata {
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u32::<BigEndian>(self.block_count)?;
 
-        writer.write_u8(self.compression as u8)?;
+        writer.write_u8(self.compression.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
         writer.write_u64::<BigEndian>(self.seqnos.1)?;
@@ -118,11 +137,9 @@ impl Deserializable for Metadata {
         let block_size = reader.read_u32::<BigEndian>()?;
         let block_count = reader.read_u32::<BigEndian>()?;
 
-        let compression = reader.read_u8()?;
-        let compression = match compression {
-            0 => CompressionType::Lz4,
-            _ => panic!("Invalid compression type: {compression}"),
-        };
+        let compression_tag = reader.read_u8()?;
+        let compression =
+            CompressionType::try_from(compression_tag).expect("invalid compression type");
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;
