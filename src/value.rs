@@ -280,4 +280,27 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_with_value() -> crate::Result<()> {
+        // Create an empty Value instance
+        let value = Value::new(
+            vec![1, 2, 3],
+            vec![6, 2, 6, 2, 7, 5, 7, 8, 98],
+            42,
+            ValueType::Value,
+        );
+
+        // Serialize the empty Value
+        let mut serialized = Vec::new();
+        value.serialize(&mut serialized)?;
+
+        // Deserialize the empty Value
+        let deserialized = Value::deserialize(&mut &serialized[..])?;
+
+        // Check if deserialized Value is equivalent to the original empty Value
+        assert_eq!(value, deserialized);
+
+        Ok(())
+    }
 }
