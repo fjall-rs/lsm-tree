@@ -124,7 +124,6 @@ mod tests {
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
             metadata: Metadata {
-                version: crate::version::Version::V0,
                 block_count: 0,
                 block_size: 0,
                 created_at: 0,

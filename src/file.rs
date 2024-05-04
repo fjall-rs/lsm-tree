@@ -9,7 +9,7 @@ pub const CONFIG_FILE: &str = "config.json";
 pub const BLOCKS_FILE: &str = "blocks";
 pub const INDEX_BLOCKS_FILE: &str = "index_blocks";
 pub const TOP_LEVEL_INDEX_FILE: &str = "index";
-pub const SEGMENT_METADATA_FILE: &str = "meta.json";
+pub const SEGMENT_METADATA_FILE: &str = "meta";
 
 #[cfg(feature = "bloom")]
 pub const BLOOM_FILTER_FILE: &str = "bloom";
