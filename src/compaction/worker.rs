@@ -242,7 +242,7 @@ fn merge_segments(
 
     for segment_id in &payload.segment_ids {
         let segment_folder = segments_base_folder.join(segment_id.to_string());
-        log::trace!("rm -rf segment folder at {}", segment_folder.display());
+        log::trace!("rm -rf segment folder at {segment_folder:?}");
 
         std::fs::remove_dir_all(segment_folder)?;
     }

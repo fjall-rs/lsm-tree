@@ -164,7 +164,7 @@ impl LevelManifest {
     }
 
     pub(crate) fn write_to_disk(&mut self) -> crate::Result<()> {
-        log::trace!("Writing level manifest to {}", self.path.display());
+        log::trace!("Writing level manifest to {:?}", self.path);
 
         // NOTE: Serialization can't fail here
         #[allow(clippy::expect_used)]

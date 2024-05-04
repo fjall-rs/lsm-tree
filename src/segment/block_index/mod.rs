@@ -282,19 +282,14 @@ impl BlockIndex {
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
-        log::debug!("Reading block index from {}", folder.display());
+        log::debug!("Reading block index from {folder:?}");
 
-        debug_assert!(folder.try_exists()?, "{} missing", folder.display());
+        debug_assert!(folder.try_exists()?, "{folder:?} missing");
         debug_assert!(
             folder.join(TOP_LEVEL_INDEX_FILE).try_exists()?,
-            "{} missing",
-            folder.display()
+            "{folder:?} missing",
         );
-        debug_assert!(
-            folder.join(BLOCKS_FILE).try_exists()?,
-            "{} missing",
-            folder.display()
-        );
+        debug_assert!(folder.join(BLOCKS_FILE).try_exists()?, "{folder:?} missing");
 
         let tli_path = folder.join(TOP_LEVEL_INDEX_FILE);
         let top_level_index = TopLevelIndex::from_file(tli_path)?;

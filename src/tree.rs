@@ -62,7 +62,7 @@ impl Tree {
     ///
     /// Returns error, if an IO error occured.
     pub fn open(config: Config) -> crate::Result<Self> {
-        log::debug!("Opening LSM-tree at {}", config.inner.path.display());
+        log::debug!("Opening LSM-tree at {:?}", config.inner.path);
 
         let tree = if config.inner.path.join(LSM_MARKER).try_exists()? {
             Self::recover(
@@ -192,7 +192,7 @@ impl Tree {
         };
 
         let segment_folder = self.config.path.join(SEGMENTS_FOLDER);
-        log::debug!("flush: writing segment to {}", segment_folder.display());
+        log::debug!("flush: writing segment to {segment_folder:?}");
 
         let segment = flush_to_segment(FlushOptions {
             memtable: yanked_memtable,
@@ -761,7 +761,7 @@ impl Tree {
     ) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        log::info!("Recovering LSM-tree at {}", path.display());
+        log::info!("Recovering LSM-tree at {path:?}");
 
         {
             let bytes = std::fs::read(path.join(LSM_MARKER))?;
@@ -809,7 +809,7 @@ impl Tree {
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
         let path = config.inner.path.clone();
-        log::trace!("Creating LSM-tree at {}", path.display());
+        log::trace!("Creating LSM-tree at {path:?}");
 
         std::fs::create_dir_all(&path)?;
 
@@ -900,7 +900,7 @@ impl Tree {
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         let tree_path = tree_path.as_ref();
-        log::debug!("Recovering disk segments from {}", tree_path.display());
+        log::debug!("Recovering disk segments from {tree_path:?}");
 
         let manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
@@ -921,7 +921,7 @@ impl Tree {
                 .parse::<SegmentId>()
                 .expect("should be valid segment ID");
 
-            log::debug!("Recovering segment from {}", segment_path.display());
+            log::debug!("Recovering segment from {segment_path:?}");
 
             if segment_ids_to_recover.contains(&segment_id) {
                 let segment = Segment::recover(
@@ -937,7 +937,7 @@ impl Tree {
                 );
 
                 segments.push(Arc::new(segment));
-                log::debug!("Recovered segment from {}", segment_path.display());
+                log::debug!("Recovered segment from {segment_path:?}");
             } else {
                 log::debug!(
                     "Deleting unfinished segment (not part of level manifest): {}",

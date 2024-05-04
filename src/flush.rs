@@ -51,7 +51,7 @@ pub struct Options {
 #[doc(hidden)]
 pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     let segment_folder = opts.folder.join(opts.segment_id.to_string());
-    log::debug!("Flushing segment to {}", segment_folder.display());
+    log::debug!("Flushing segment to {segment_folder:?}");
 
     let mut segment_writer = Writer::new(crate::segment::writer::Options {
         folder: segment_folder.clone(),
@@ -73,7 +73,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     let metadata = Metadata::from_writer(opts.segment_id, segment_writer)?;
     metadata.write_to_file(&segment_folder)?;
 
-    log::debug!("Finalized segment write at {}", segment_folder.display());
+    log::debug!("Finalized segment write at {segment_folder:?}");
 
     // TODO: if L0, L1, preload block index (non-partitioned)
     let block_index = Arc::new(BlockIndex::from_file(
@@ -100,7 +100,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         (opts.tree_id, created_segment.metadata.id).into(),
     );
 
-    log::debug!("Flushed segment to {}", segment_folder.display());
+    log::debug!("Flushed segment to {segment_folder:?}");
 
     Ok(created_segment)
 }

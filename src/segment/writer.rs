@@ -211,8 +211,8 @@ impl Writer {
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
             log::debug!(
-                "Deleting empty segment folder ({}) because no items were written",
-                self.opts.folder.display()
+                "Deleting empty segment folder ({:?}) because no items were written",
+                self.opts.folder
             );
             std::fs::remove_dir_all(&self.opts.folder)?;
             return Ok(());
