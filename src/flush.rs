@@ -54,7 +54,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
     log::debug!("Flushing segment to {}", segment_folder.display());
 
     let mut segment_writer = Writer::new(crate::segment::writer::Options {
-        path: segment_folder.clone(),
+        folder: segment_folder.clone(),
         evict_tombstones: false,
         block_size: opts.block_size,
 

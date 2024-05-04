@@ -36,7 +36,7 @@ impl MultiWriter {
             segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let writer = Writer::new(Options {
-            path: opts.path.join(current_segment_id.to_string()),
+            folder: opts.folder.join(current_segment_id.to_string()),
             evict_tombstones: opts.evict_tombstones,
             block_size: opts.block_size,
 
@@ -73,7 +73,7 @@ impl MultiWriter {
         let new_segment_id = self.get_next_segment_id();
 
         let new_writer = Writer::new(Options {
-            path: self.opts.path.join(new_segment_id.to_string()),
+            folder: self.opts.folder.join(new_segment_id.to_string()),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
 

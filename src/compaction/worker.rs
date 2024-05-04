@@ -153,7 +153,7 @@ fn merge_segments(
         crate::segment::writer::Options {
             block_size: opts.config.block_size,
             evict_tombstones: should_evict_tombstones,
-            path: opts.config.path.join(SEGMENTS_FOLDER),
+            folder: opts.config.path.join(SEGMENTS_FOLDER),
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: if is_last_level { 0.1 } else { 0.01 }, // TODO: MONKEY

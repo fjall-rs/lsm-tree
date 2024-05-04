@@ -305,7 +305,7 @@ mod tests {
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
-            path: folder.clone(),
+            folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
 
