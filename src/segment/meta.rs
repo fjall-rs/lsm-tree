@@ -24,7 +24,7 @@ pub enum CompressionType {
 impl From<CompressionType> for u8 {
     fn from(val: CompressionType) -> Self {
         match val {
-            CompressionType::Lz4 => 0,
+            CompressionType::Lz4 => 1,
         }
     }
 }
@@ -34,7 +34,7 @@ impl TryFrom<u8> for CompressionType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Lz4),
+            1 => Ok(Self::Lz4),
             _ => Err(()),
         }
     }

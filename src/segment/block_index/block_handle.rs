@@ -5,10 +5,6 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 
 /// Points to a block on file
-///
-/// # Disk representation
-///
-/// \[offset; 8 bytes] - \[size; 4 bytes] - \[key length; 2 bytes] - \[key; N bytes]
 #[derive(Clone, Debug)]
 pub struct BlockHandle {
     /// Key of first item in block

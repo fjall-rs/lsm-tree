@@ -103,10 +103,6 @@ impl Ord for ParsedInternalKey {
 /// Represents a value in the LSM-tree
 ///
 /// `key` and `value` are arbitrary user-defined byte arrays
-///
-/// # Disk representation
-///
-/// \[seqno; 8 bytes] \[tombstone; 1 byte] \[key length; 2 bytes] \[key; N bytes] \[value length; 4 bytes] \[value: N bytes]
 #[derive(Clone, PartialEq, Eq)]
 pub struct Value {
     /// User-defined key - an arbitrary byte array
