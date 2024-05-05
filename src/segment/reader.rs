@@ -101,7 +101,10 @@ impl Reader {
             return Ok(Some(()));
         }
 
-        if let Some(block_handle) = self.block_index.get_lower_bound_block_info(key.as_ref())? {
+        if let Some(block_handle) = self
+            .block_index
+            .get_block_containing_item(key.as_ref(), self.cache_policy)?
+        {
             let file_guard = self
                 .descriptor_table
                 .access(&self.segment_id)?
@@ -175,12 +178,13 @@ impl Iterator for Reader {
                         // Load next block
                         self.blocks.remove(current_lo);
 
-                        if let Some(new_block_offset) =
-                            match self.block_index.get_next_block_key(current_lo) {
-                                Ok(x) => x,
-                                Err(e) => return Some(Err(e)),
-                            }
+                        if let Some(new_block_offset) = match self
+                            .block_index
+                            .get_next_block_key(current_lo, self.cache_policy)
                         {
+                            Ok(x) => x,
+                            Err(e) => return Some(Err(e)),
+                        } {
                             self.current_lo = Some(new_block_offset.start_key.clone());
 
                             if Some(&new_block_offset.start_key) == self.current_hi.as_ref() {

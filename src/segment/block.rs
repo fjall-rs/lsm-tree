@@ -78,7 +78,9 @@ pub fn load_by_item_key<K: AsRef<[u8]>>(
     cache_policy: CachePolicy,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
-        if let Some(block_handle) = block_index.get_lower_bound_block_info(item_key.as_ref())? {
+        if let Some(block_handle) =
+            block_index.get_block_containing_item(item_key.as_ref(), cache_policy)?
+        {
             load_by_block_handle(
                 descriptor_table,
                 block_cache,

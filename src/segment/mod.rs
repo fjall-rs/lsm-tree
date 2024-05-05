@@ -10,8 +10,12 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block::load_by_block_handle, block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader,
-    range::Range, reader::Reader,
+    block::{load_by_block_handle, CachePolicy},
+    block_index::BlockIndex,
+    meta::Metadata,
+    prefix::PrefixedReader,
+    range::Range,
+    reader::Reader,
 };
 use crate::{
     block_cache::BlockCache,
@@ -193,7 +197,7 @@ impl Segment {
                 // Load next block and setup block iterator
                 let Some(next_block_handle) = self
                     .block_index
-                    .get_next_block_key(&block_handle.start_key)?
+                    .get_next_block_key(&block_handle.start_key, CachePolicy::Write)?
                 else {
                     return Ok(None);
                 };

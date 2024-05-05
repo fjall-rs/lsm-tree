@@ -56,7 +56,7 @@ impl Range {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => self
                 .block_index
-                .get_lower_bound_block_info(start)?
+                .get_block_containing_item(start, self.cache_policy)?
                 .map(|x| x.start_key),
         };
 

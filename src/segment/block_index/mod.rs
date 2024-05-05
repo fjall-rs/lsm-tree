@@ -113,16 +113,19 @@ impl BlockIndex {
         }
     }
 
-    // TODO: rename get_block_containing_item
     /// Gets the reference to a disk block that should contain the given item
-    pub fn get_lower_bound_block_info(&self, key: &[u8]) -> crate::Result<Option<BlockHandle>> {
+    pub fn get_block_containing_item(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockHandle>> {
         let Some((block_key, block_handle)) = self.top_level_index.get_block_containing_item(key)
         else {
             return Ok(None);
         };
 
-        let index_block =
-            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
+        let index_block = self.load_index_block(block_key, block_handle, cache_policy)?;
+
         Ok(index_block.get_block_containing_item(key).cloned())
     }
 
@@ -163,18 +166,19 @@ impl BlockIndex {
     }
 
     /// Returns the next index block's key, if it exists, or None
-    pub fn get_next_block_key(&self, key: &[u8]) -> crate::Result<Option<BlockHandle>> {
+    pub fn get_next_block_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockHandle>> {
         let Some((first_block_key, first_block_handle)) =
             self.top_level_index.get_block_containing_item(key)
         else {
             return Ok(None);
         };
 
-        let index_block = self.load_index_block(
-            first_block_key,
-            first_block_handle,
-            CachePolicy::Write, /* TODO: */
-        )?;
+        let index_block =
+            self.load_index_block(first_block_key, first_block_handle, cache_policy)?;
 
         let maybe_next = index_block.get_next_block_info(key);
 
@@ -187,11 +191,8 @@ impl BlockIndex {
                 return Ok(None);
             };
 
-            let index_block = self.load_index_block(
-                next_block_key,
-                next_block_handle,
-                CachePolicy::Write, /* TODO: */
-            )?;
+            let index_block =
+                self.load_index_block(next_block_key, next_block_handle, cache_policy)?;
 
             Ok(index_block.items.first().cloned())
         }
