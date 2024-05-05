@@ -25,9 +25,8 @@ impl BlockHandleBlock {
         self.items.iter().find(|x| &*x.start_key > key)
     }
 
-    // TODO: rename get_block_containing_item
-    /// Finds the block that contains a key
-    pub(crate) fn get_lower_bound_block_info(&self, key: &[u8]) -> Option<&BlockHandle> {
+    /// Finds the block that (possibly) contains a key
+    pub fn get_block_containing_item(&self, key: &[u8]) -> Option<&BlockHandle> {
         self.items.iter().rev().find(|x| &*x.start_key <= key)
     }
 }
@@ -119,7 +118,7 @@ impl BlockIndex {
         };
 
         let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
-        Ok(index_block.get_lower_bound_block_info(key).cloned())
+        Ok(index_block.get_block_containing_item(key).cloned())
     }
 
     /// Returns the previous index block's key, if it exists, or None
@@ -247,7 +246,7 @@ impl BlockIndex {
 
         let index_block = self.load_and_cache_index_block(block_key, index_block_handle)?;
 
-        Ok(index_block.get_lower_bound_block_info(key).cloned())
+        Ok(index_block.get_block_containing_item(key).cloned())
     }
 
     /// Only used for tests

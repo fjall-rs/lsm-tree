@@ -49,6 +49,31 @@ fn value_block_size(c: &mut Criterion) {
     }
 }
 
+fn value_block_size_find(c: &mut Criterion) {
+    use lsm_tree::segment::{
+        block_index::block_handle::BlockHandle, block_index::BlockHandleBlock,
+    };
+
+    let mut group = c.benchmark_group("Find item in BlockHandleBlock");
+
+    for item_count in [10, 100, 1_000] {
+        group.bench_function(format!("{item_count} items"), |b| {
+            let items = (0u64..item_count)
+                .map(|x| BlockHandle {
+                    start_key: x.to_be_bytes().into(),
+                    offset: 56,
+                    size: 635,
+                })
+                .collect();
+
+            let block = BlockHandleBlock { items, crc: 0 };
+            let key = &(item_count / 2).to_be_bytes();
+
+            b.iter(|| block.get_lower_bound_block_info(key))
+        });
+    }
+}
+
 fn load_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
@@ -251,12 +276,12 @@ fn tree_get_pairs(c: &mut Criterion) {
 criterion_group!(
     benches,
     memtable_get_upper_bound,
+    value_block_size_find,
     value_block_size,
     load_block_from_disk,
     file_descriptor,
     bloom_filter_construction,
     bloom_filter_contains,
     tree_get_pairs,
-    // first_kv_disjoint
 );
 criterion_main!(benches);
