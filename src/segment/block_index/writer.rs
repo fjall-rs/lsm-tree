@@ -1,50 +1,67 @@
-use super::block_handle::BlockHandle;
-use crate::{disk_block::DiskBlock, file::TOP_LEVEL_INDEX_FILE};
+use super::BlockHandle;
+use crate::{
+    disk_block::DiskBlock,
+    file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
+    value::UserKey,
+};
 use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    path::PathBuf,
+    fs::{File, OpenOptions},
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
 };
 
+fn concat_files<P: AsRef<Path>>(src_path: P, dest_path: P) -> crate::Result<()> {
+    let reader = File::open(src_path)?;
+    let mut reader = BufReader::new(reader);
+
+    let writer = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dest_path)?;
+    let mut writer = BufWriter::new(writer);
+
+    std::io::copy(&mut reader, &mut writer)?;
+    writer.flush()?;
+
+    Ok(())
+}
+
 pub struct Writer {
-    folder: PathBuf,
-
-    /// Actual data block handles
-    block_handles: Vec<BlockHandle>,
-
-    /// Block size
+    path: PathBuf,
+    file_pos: u64,
+    block_writer: Option<BufWriter<File>>,
+    index_writer: BufWriter<File>,
     block_size: u32,
-
-    /// File position
-    ///
-    /// IMPORTANT: needs to be set after writing data blocks
-    /// to correctly track file position of index blocks
-    pub file_pos: u64,
+    block_counter: u32,
+    block_chunk: Vec<BlockHandle>,
+    index_chunk: Vec<BlockHandle>,
 }
 
 impl Writer {
-    #[must_use]
-    pub fn new(folder: PathBuf, block_size: u32) -> Self {
-        Self {
-            folder,
-            block_handles: Vec::with_capacity(1_000),
+    pub fn new<P: AsRef<Path>>(path: P, block_size: u32) -> crate::Result<Self> {
+        let block_writer = File::create(path.as_ref().join(INDEX_BLOCKS_FILE))?;
+        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
+
+        let index_writer = File::create(path.as_ref().join(TOP_LEVEL_INDEX_FILE))?;
+        let index_writer = BufWriter::new(index_writer);
+
+        Ok(Self {
+            path: path.as_ref().into(),
             file_pos: 0,
+            block_writer: Some(block_writer),
+            index_writer,
+            block_counter: 0,
             block_size,
-        }
+            block_chunk: Vec::with_capacity(1_000),
+            index_chunk: Vec::with_capacity(1_000),
+        })
     }
 
-    pub fn register_block(&mut self, block_handle: BlockHandle) {
-        self.block_handles.push(block_handle);
-    }
-
-    fn write_index_block(
-        &mut self,
-        file_writer: &mut BufWriter<File>,
-        index_blocks: Vec<BlockHandle>,
-    ) -> crate::Result<BlockHandle> {
+    fn write_block(&mut self) -> crate::Result<()> {
         // Prepare block
         let mut block = DiskBlock::<BlockHandle> {
-            items: index_blocks.into(),
+            items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
+                .into_boxed_slice(),
             crc: 0,
         };
 
@@ -53,34 +70,73 @@ impl Writer {
         let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file
-        file_writer.write_all(&bytes)?;
+        self.block_writer
+            .as_mut()
+            .expect("should exist")
+            .write_all(&bytes)?;
 
         // Expect is fine, because the chunk is not empty
         let first = block.items.first().expect("Chunk should not be empty");
 
         let bytes_written = bytes.len();
 
-        let block_pos = self.file_pos;
+        self.index_chunk.push(BlockHandle {
+            start_key: first.start_key.clone(),
+            offset: self.file_pos,
+            size: bytes_written as u32,
+        });
 
+        self.block_counter = 0;
         self.file_pos += bytes_written as u64;
 
-        Ok(BlockHandle {
-            start_key: first.start_key.clone(),
-            offset: block_pos,
-            size: bytes_written as u32,
-        })
+        Ok(())
     }
 
-    fn write_tli(&mut self, handles: Vec<BlockHandle>) -> crate::Result<()> {
-        log::trace!("Writing TLI");
+    pub fn register_block(
+        &mut self,
+        start_key: UserKey,
+        offset: u64,
+        size: u32,
+    ) -> crate::Result<()> {
+        let block_handle_size = (start_key.len() + std::mem::size_of::<BlockHandle>()) as u32;
 
-        let tli_path = self.folder.join(TOP_LEVEL_INDEX_FILE);
-        let index_writer = File::create(&tli_path)?;
-        let mut index_writer = BufWriter::new(index_writer);
+        let reference = BlockHandle {
+            start_key,
+            offset,
+            size,
+        };
+        self.block_chunk.push(reference);
+
+        self.block_counter += block_handle_size;
+
+        if self.block_counter >= self.block_size {
+            self.write_block()?;
+        }
+
+        Ok(())
+    }
+
+    fn write_top_level_index(&mut self, block_file_size: u64) -> crate::Result<()> {
+        // TODO: I hate this, but we need to drop the writer
+        // so the file is closed
+        // so it can be replaced when using Windows
+        self.block_writer = None;
+
+        concat_files(
+            self.path.join(INDEX_BLOCKS_FILE),
+            self.path.join(BLOCKS_FILE),
+        )?;
+
+        log::trace!("Concatted index blocks onto blocks file");
+
+        for item in &mut self.index_chunk {
+            item.offset += block_file_size;
+        }
 
         // Prepare block
         let mut block = DiskBlock::<BlockHandle> {
-            items: handles.into(),
+            items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
+                .into_boxed_slice(),
             crc: 0,
         };
 
@@ -89,60 +145,31 @@ impl Writer {
         let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file
-        index_writer.write_all(&bytes)?;
-        index_writer.flush()?;
+        self.index_writer.write_all(&bytes)?;
+        self.index_writer.flush()?;
 
-        log::trace!("Written top level index to {tli_path:?}");
+        log::trace!(
+            "Written top level index to {}, with {} pointers ({} bytes)",
+            self.path.join(TOP_LEVEL_INDEX_FILE).display(),
+            block.items.len(),
+            bytes.len(),
+        );
 
         Ok(())
     }
 
-    pub fn finish(&mut self, file_writer: &mut BufWriter<File>) -> crate::Result<()> {
-        log::trace!(
-            "Writing {} block handles into index blocks",
-            self.block_handles.len()
-        );
-
-        let mut index_chunk = Vec::with_capacity(100);
-
-        let mut index_blocks_count = 0;
-        let mut index_blocks_chunk_size = 0;
-        let mut index_blocks_chunk = vec![];
-
-        for block_handle in std::mem::take(&mut self.block_handles) {
-            let block_handle_size =
-                (block_handle.start_key.len() + std::mem::size_of::<BlockHandle>()) as u32;
-
-            index_blocks_chunk.push(block_handle);
-
-            index_blocks_chunk_size += block_handle_size;
-
-            if index_blocks_chunk_size >= self.block_size {
-                let tli_entry =
-                    self.write_index_block(file_writer, std::mem::take(&mut index_blocks_chunk))?;
-                index_blocks_chunk_size = 0;
-
-                // Buffer TLI entry
-                index_chunk.push(tli_entry);
-
-                index_blocks_count += 1;
-            }
+    pub fn finish(&mut self, block_file_size: u64) -> crate::Result<()> {
+        if self.block_counter > 0 {
+            self.write_block()?;
         }
 
-        if index_blocks_chunk_size > 0 {
-            let tli_entry =
-                self.write_index_block(file_writer, std::mem::take(&mut index_blocks_chunk))?;
+        self.block_writer.as_mut().expect("should exist").flush()?;
+        self.write_top_level_index(block_file_size)?;
 
-            // Buffer TLI entry
-            index_chunk.push(tli_entry);
+        self.index_writer.get_mut().sync_all()?;
 
-            index_blocks_count += 1;
-        }
-
-        log::trace!("Written {index_blocks_count} index blocks");
-
-        // Write TLI
-        self.write_tli(index_chunk)?;
+        // TODO: add test to make sure writer is deleting index_blocks
+        std::fs::remove_file(self.path.join(INDEX_BLOCKS_FILE))?;
 
         Ok(())
     }

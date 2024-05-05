@@ -1,9 +1,7 @@
-use super::{
-    block::ValueBlock,
-    block_index::{block_handle::BlockHandle, writer::Writer as IndexWriter},
-};
+use super::block::ValueBlock;
 use crate::{
     file::{fsync_directory, BLOCKS_FILE},
+    segment::block_index::writer::Writer as IndexWriter,
     value::{SeqNo, UserKey},
     Value,
 };
@@ -15,6 +13,7 @@ use std::{
 
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
+
 #[cfg(feature = "bloom")]
 use crate::file::BLOOM_FILTER_FILE;
 
@@ -24,7 +23,7 @@ use crate::file::BLOOM_FILTER_FILE;
 pub struct Writer {
     pub opts: Options,
 
-    file_writer: BufWriter<File>,
+    block_writer: BufWriter<File>,
     index_writer: IndexWriter,
     chunk: Vec<Value>,
 
@@ -68,16 +67,16 @@ impl Writer {
         std::fs::create_dir_all(&opts.folder)?;
 
         let block_writer = File::create(opts.folder.join(BLOCKS_FILE))?;
-        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
+        let block_writer = BufWriter::with_capacity(512_000, block_writer);
 
-        let index_writer = IndexWriter::new(opts.folder.clone(), opts.block_size);
+        let index_writer = IndexWriter::new(&opts.folder, opts.block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
         Ok(Self {
             opts,
 
-            file_writer: block_writer,
+            block_writer,
             index_writer,
             chunk,
 
@@ -128,7 +127,7 @@ impl Writer {
         let bytes = ValueBlock::to_bytes_compressed(&block);
 
         // Write to file
-        self.file_writer.write_all(&bytes)?;
+        self.block_writer.write_all(&bytes)?;
 
         // NOTE: Blocks are never bigger than 4 GB anyway,
         // so it's fine to just truncate it
@@ -138,12 +137,8 @@ impl Writer {
         // NOTE: Expect is fine, because the chunk is not empty
         let first = block.items.first().expect("Chunk should not be empty");
 
-        // Buffer block handle for building block index later
-        self.index_writer.register_block(BlockHandle {
-            start_key: first.key.clone(),
-            offset: self.file_pos,
-            size: bytes_written,
-        });
+        self.index_writer
+            .register_block(first.key.clone(), self.file_pos, bytes_written)?;
 
         // Adjust metadata
         self.file_pos += u64::from(bytes_written);
@@ -211,29 +206,21 @@ impl Writer {
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
             log::debug!(
-                "Deleting empty segment folder ({:?}) because no items were written",
-                self.opts.folder
+                "Deleting empty segment folder ({}) because no items were written",
+                self.opts.folder.display()
             );
             std::fs::remove_dir_all(&self.opts.folder)?;
             return Ok(());
         }
 
         // First, flush all data blocks
-        self.file_writer.flush()?;
+        self.block_writer.flush()?;
 
-        log::debug!(
-            "Written {} items in {} blocks into new segment file, written {} MB",
-            self.item_count,
-            self.block_count,
-            self.file_pos / 1024 / 1024
-        );
+        // Append index blocks to file
+        self.index_writer.finish(self.file_pos)?;
 
-        // Then write block index
-        self.index_writer.file_pos = self.file_pos;
-        self.index_writer.finish(&mut self.file_writer)?;
-
-        // Then fsync
-        self.file_writer.get_mut().sync_all()?;
+        // Then fsync the blocks file
+        self.block_writer.get_mut().sync_all()?;
 
         // NOTE: BloomFilter::write_to_file fsyncs internally
         #[cfg(feature = "bloom")]
@@ -253,7 +240,12 @@ impl Writer {
         // IMPORTANT: fsync folder on Unix
         fsync_directory(&self.opts.folder)?;
 
-        log::debug!("Segment write done");
+        log::debug!(
+            "Written {} items in {} blocks into new segment file, written {} MB",
+            self.item_count,
+            self.block_count,
+            self.file_pos / 1024 / 1024
+        );
 
         Ok(())
     }
