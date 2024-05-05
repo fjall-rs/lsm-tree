@@ -1225,9 +1225,9 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value,),
-                Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value,),
-                Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value,),
+                Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+                Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
+                Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             ]
         );
 

@@ -92,7 +92,7 @@ impl Writer {
         index_writer.write_all(&bytes)?;
         index_writer.flush()?;
 
-        log::trace!("Written top level index to {tli_path:?}",);
+        log::trace!("Written top level index to {tli_path:?}");
 
         Ok(())
     }

@@ -268,7 +268,7 @@ fn drop_segments(
     opts: &Options,
     segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
-    log::debug!("compactor: Chosen {} segments to drop", segment_ids.len(),);
+    log::debug!("compactor: Chosen {} segments to drop", segment_ids.len());
 
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
     log::trace!("compaction: acquiring sealed memtables write lock");
