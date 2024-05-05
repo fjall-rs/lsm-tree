@@ -1,3 +1,4 @@
+use super::block::CachePolicy;
 use super::block_index::BlockIndex;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
@@ -18,6 +19,8 @@ pub struct Range {
     range: (Bound<UserKey>, Bound<UserKey>),
 
     iterator: Option<Reader>,
+
+    cache_policy: CachePolicy,
 }
 
 impl Range {
@@ -36,7 +39,16 @@ impl Range {
 
             iterator: None,
             range,
+
+            cache_policy: CachePolicy::Write,
         }
+    }
+
+    /// Sets the cache policy
+    #[must_use]
+    pub fn cache_policy(mut self, policy: CachePolicy) -> Self {
+        self.cache_policy = policy;
+        self
     }
 
     fn initialize(&mut self) -> crate::Result<()> {
@@ -59,11 +71,13 @@ impl Range {
         let reader = Reader::new(
             self.descriptor_table.clone(),
             self.segment_id,
-            Some(self.block_cache.clone()),
+            self.block_cache.clone(),
             self.block_index.clone(),
             offset_lo.as_ref(),
             offset_hi.as_ref(),
-        );
+        )
+        .cache_policy(self.cache_policy);
+
         self.iterator = Some(reader);
 
         Ok(())

@@ -314,7 +314,7 @@ mod tests {
         let iter = Reader::new(
             table,
             (0, segment_id).into(),
-            Some(Arc::clone(&block_cache)),
+            Arc::clone(&block_cache),
             Arc::clone(&block_index),
             None,
             None,
@@ -377,7 +377,7 @@ mod tests {
         let iter = Reader::new(
             table,
             (0, segment_id).into(),
-            Some(Arc::clone(&block_cache)),
+            Arc::clone(&block_cache),
             Arc::clone(&block_index),
             None,
             None,

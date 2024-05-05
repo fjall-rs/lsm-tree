@@ -10,8 +10,8 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block::load_and_cache_by_block_handle, block_index::BlockIndex, meta::Metadata,
-    prefix::PrefixedReader, range::Range, reader::Reader,
+    block::load_by_block_handle, block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader,
+    range::Range, reader::Reader,
 };
 use crate::{
     block_cache::BlockCache,
@@ -134,11 +134,12 @@ impl Segment {
         };
 
         // The block should definitely exist, we just got the block handle before
-        let Some(block) = load_and_cache_by_block_handle(
+        let Some(block) = load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
             (self.tree_id, self.metadata.id).into(),
             &block_handle,
+            block::CachePolicy::Write, // TODO:
         )?
         else {
             return Ok(None);
@@ -200,7 +201,7 @@ impl Segment {
                 let iter = Reader::new(
                     Arc::clone(&self.descriptor_table),
                     (self.tree_id, self.metadata.id).into(),
-                    Some(Arc::clone(&self.block_cache)),
+                    Arc::clone(&self.block_cache),
                     Arc::clone(&self.block_index),
                     Some(&next_block_handle.start_key),
                     None,
@@ -231,17 +232,11 @@ impl Segment {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
-    pub fn iter(&self, use_cache: bool) -> Reader {
-        let cache = if use_cache {
-            Some(Arc::clone(&self.block_cache))
-        } else {
-            None
-        };
-
+    pub fn iter(&self) -> Reader {
         Reader::new(
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
-            cache,
+            Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
             None,
             None,

@@ -1,4 +1,4 @@
-use super::{block_index::BlockIndex, id::GlobalSegmentId, range::Range};
+use super::{block::CachePolicy, block_index::BlockIndex, id::GlobalSegmentId, range::Range};
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
 };
@@ -17,6 +17,8 @@ pub struct PrefixedReader {
     prefix: UserKey,
 
     iterator: Option<Range>,
+
+    cache_policy: CachePolicy,
 }
 
 impl PrefixedReader {
@@ -36,21 +38,32 @@ impl PrefixedReader {
             iterator: None,
 
             prefix: prefix.into(),
+
+            cache_policy: CachePolicy::Write,
         }
+    }
+
+    /// Sets the cache policy
+    #[must_use]
+    pub fn cache_policy(mut self, policy: CachePolicy) -> Self {
+        self.cache_policy = policy;
+        self
     }
 
     fn initialize(&mut self) -> crate::Result<()> {
         let upper_bound = self.block_index.get_prefix_upper_bound(&self.prefix)?;
         let upper_bound = upper_bound.map(|x| x.start_key).map_or(Unbounded, Excluded);
 
-        let iterator = Range::new(
+        let range = Range::new(
             self.descriptor_table.clone(),
             self.segment_id,
             self.block_cache.clone(),
             self.block_index.clone(),
             (Included(self.prefix.clone()), upper_bound),
-        );
-        self.iterator = Some(iterator);
+        )
+        .cache_policy(self.cache_policy);
+
+        self.iterator = Some(range);
 
         Ok(())
     }
@@ -221,7 +234,7 @@ mod tests {
             let iter = Reader::new(
                 table.clone(),
                 (0, 0).into(),
-                Some(Arc::clone(&block_cache)),
+                Arc::clone(&block_cache),
                 Arc::clone(&block_index),
                 None,
                 None,

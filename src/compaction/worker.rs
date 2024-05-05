@@ -5,7 +5,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     file::{BLOCKS_FILE, SEGMENTS_FOLDER},
     levels::LevelManifest,
-    merge::MergeIterator,
+    merge::{BoxedIterator, MergeIterator},
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
@@ -131,8 +131,18 @@ fn merge_segments(
         let no_snapshots_open = !opts.open_snapshots.has_open_snapshots();
         let is_deep_level = payload.dest_level >= 2;
 
-        MergeIterator::from_segments(&to_merge)
-            .evict_old_versions(no_snapshots_open && is_deep_level)
+        let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());
+
+        for segment in to_merge {
+            let iter = Box::new(
+                segment
+                    .iter()
+                    .cache_policy(crate::segment::block::CachePolicy::Read),
+            );
+            segment_readers.push(iter);
+        }
+
+        MergeIterator::new(segment_readers).evict_old_versions(no_snapshots_open && is_deep_level)
     };
 
     let last_level = levels.last_level_index();

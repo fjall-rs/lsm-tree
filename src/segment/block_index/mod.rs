@@ -3,6 +3,7 @@ pub mod top_level;
 pub mod writer;
 
 use self::block_handle::BlockHandle;
+use super::block::CachePolicy;
 use super::id::GlobalSegmentId;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -78,7 +79,9 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
+        let index_block =
+            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
+
         Ok(index_block.items.first().cloned())
     }
 
@@ -88,7 +91,8 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
+        let index_block =
+            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
 
         let next_block = index_block.get_next_block_info(key);
 
@@ -117,7 +121,8 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
+        let index_block =
+            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
         Ok(index_block.get_block_containing_item(key).cloned())
     }
 
@@ -129,7 +134,11 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(first_block_key, first_block_handle)?;
+        let index_block = self.load_index_block(
+            first_block_key,
+            first_block_handle,
+            CachePolicy::Write, /* TODO: */
+        )?;
 
         let maybe_prev = index_block.get_previous_block_info(key);
 
@@ -143,7 +152,11 @@ impl BlockIndex {
                 return Ok(None);
             };
 
-            let index_block = self.load_and_cache_index_block(prev_block_key, prev_block_handle)?;
+            let index_block = self.load_index_block(
+                prev_block_key,
+                prev_block_handle,
+                CachePolicy::Write, /* TODO: */
+            )?;
 
             Ok(index_block.items.last().cloned())
         }
@@ -157,7 +170,11 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(first_block_key, first_block_handle)?;
+        let index_block = self.load_index_block(
+            first_block_key,
+            first_block_handle,
+            CachePolicy::Write, /* TODO: */
+        )?;
 
         let maybe_next = index_block.get_next_block_info(key);
 
@@ -170,7 +187,11 @@ impl BlockIndex {
                 return Ok(None);
             };
 
-            let index_block = self.load_and_cache_index_block(next_block_key, next_block_handle)?;
+            let index_block = self.load_index_block(
+                next_block_key,
+                next_block_handle,
+                CachePolicy::Write, /* TODO: */
+            )?;
 
             Ok(index_block.items.first().cloned())
         }
@@ -179,7 +200,8 @@ impl BlockIndex {
     /// Returns the first block's key
     pub fn get_first_block_key(&self) -> crate::Result<BlockHandle> {
         let (block_key, block_handle) = self.top_level_index.get_first_block_handle();
-        let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
+        let index_block =
+            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
 
         Ok(index_block
             .items
@@ -191,7 +213,8 @@ impl BlockIndex {
     /// Returns the last block's key
     pub fn get_last_block_key(&self) -> crate::Result<BlockHandle> {
         let (block_key, block_handle) = self.top_level_index.get_last_block_handle();
-        let index_block = self.load_and_cache_index_block(block_key, block_handle)?;
+        let index_block =
+            self.load_index_block(block_key, block_handle, CachePolicy::Write /* TODO: */)?;
 
         Ok(index_block
             .items
@@ -201,10 +224,11 @@ impl BlockIndex {
     }
 
     /// Loads an index block from disk
-    fn load_and_cache_index_block(
+    fn load_index_block(
         &self,
         block_key: &UserKey,
         block_handle: &BlockHandleBlockHandle,
+        cache_policy: CachePolicy,
     ) -> crate::Result<Arc<DiskBlock<BlockHandle>>> {
         if let Some(block) = self.blocks.get(self.segment_id, block_key) {
             // Cache hit: Copy from block
@@ -228,8 +252,10 @@ impl BlockIndex {
 
             let block = Arc::new(block);
 
-            self.blocks
-                .insert(self.segment_id, block_key.clone(), Arc::clone(&block));
+            if cache_policy == CachePolicy::Write {
+                self.blocks
+                    .insert(self.segment_id, block_key.clone(), Arc::clone(&block));
+            }
 
             Ok(block)
         }
@@ -244,7 +270,11 @@ impl BlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_and_cache_index_block(block_key, index_block_handle)?;
+        let index_block = self.load_index_block(
+            block_key,
+            index_block_handle,
+            CachePolicy::Write, /* TODO: */
+        )?;
 
         Ok(index_block.get_block_containing_item(key).cloned())
     }

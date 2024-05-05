@@ -18,11 +18,21 @@ impl ValueBlock {
     }
 }
 
-pub fn load_and_cache_by_block_handle(
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CachePolicy {
+    /// Read cached blocks, but do not change cache
+    Read,
+
+    /// Read cached blocks, and update cache
+    Write,
+}
+
+pub fn load_by_block_handle(
     descriptor_table: &FileDescriptorTable,
     block_cache: &BlockCache,
     segment_id: GlobalSegmentId,
     block_handle: &BlockHandle,
+    cache_policy: CachePolicy,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
         if let Some(block) = block_cache.get_disk_block(segment_id, &block_handle.start_key) {
@@ -46,31 +56,35 @@ pub fn load_and_cache_by_block_handle(
 
             let block = Arc::new(block);
 
-            block_cache.insert_disk_block(
-                segment_id,
-                block_handle.start_key.clone(),
-                Arc::clone(&block),
-            );
+            if cache_policy == CachePolicy::Write {
+                block_cache.insert_disk_block(
+                    segment_id,
+                    block_handle.start_key.clone(),
+                    Arc::clone(&block),
+                );
+            }
 
             Some(block)
         },
     )
 }
 
-pub fn load_and_cache_block_by_item_key<K: AsRef<[u8]>>(
+pub fn load_by_item_key<K: AsRef<[u8]>>(
     descriptor_table: &FileDescriptorTable,
     block_index: &BlockIndex,
     block_cache: &BlockCache,
     segment_id: GlobalSegmentId,
     item_key: K,
+    cache_policy: CachePolicy,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
         if let Some(block_handle) = block_index.get_lower_bound_block_info(item_key.as_ref())? {
-            load_and_cache_by_block_handle(
+            load_by_block_handle(
                 descriptor_table,
                 block_cache,
                 segment_id,
                 &block_handle,
+                cache_policy,
             )?
         } else {
             None
