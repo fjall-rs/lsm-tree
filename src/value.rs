@@ -256,8 +256,39 @@ impl Deserializable for Value {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
     use test_log::test;
+
+    #[test]
+    fn test_raw() -> crate::Result<()> {
+        // Create an empty Value instance
+        let value = Value::new(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
+
+        #[rustfmt::skip]
+        let  bytes = &[
+            // Seqno
+            0, 0, 0, 0, 0, 0, 0, 1, 
+            
+            // Type
+            0, 
+            
+            // Key
+            0, 3, 1, 2, 3,
+            
+             // Value
+            0, 0, 0, 3, 3, 2, 1,
+        ];
+
+        // Deserialize the empty Value
+        let deserialized = Value::deserialize(&mut Cursor::new(bytes))?;
+
+        // Check if deserialized Value is equivalent to the original empty Value
+        assert_eq!(value, deserialized);
+
+        Ok(())
+    }
 
     #[test]
     fn test_empty_value() -> crate::Result<()> {
