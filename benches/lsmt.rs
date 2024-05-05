@@ -56,7 +56,8 @@ fn value_block_size_find(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("Find item in BlockHandleBlock");
 
-    for item_count in [10, 100, 1_000] {
+    // NOTE: Anything above 1000 is unlikely
+    for item_count in [10, 100, 500, 1_000] {
         group.bench_function(format!("{item_count} items"), |b| {
             let items = (0u64..item_count)
                 .map(|x| BlockHandle {
@@ -67,9 +68,9 @@ fn value_block_size_find(c: &mut Criterion) {
                 .collect();
 
             let block = BlockHandleBlock { items, crc: 0 };
-            let key = &(item_count / 2).to_be_bytes();
+            let key = &0u64.to_be_bytes();
 
-            b.iter(|| block.get_lower_bound_block_info(key))
+            b.iter(|| block.get_block_containing_item(key))
         });
     }
 }
