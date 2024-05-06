@@ -214,8 +214,6 @@ impl Metadata {
     }
 
     /// Stores segment metadata at a folder
-    ///
-    /// Will be stored as JSON
     pub fn write_to_file<P: AsRef<Path>>(&self, folder_path: P) -> crate::Result<()> {
         let mut writer = OpenOptions::new()
             .truncate(true)

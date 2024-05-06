@@ -47,7 +47,7 @@ pub struct Segment {
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
 
-    /// Segment metadata object (will be stored in a JSON file)
+    /// Segment metadata object
     pub metadata: meta::Metadata,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
