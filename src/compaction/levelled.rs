@@ -138,11 +138,9 @@ impl CompactionStrategy for Strategy {
                     .copied()
                     .collect();
 
-                segment_ids.extend(overlapping_segment_ids);
+                segment_ids.extend(&overlapping_segment_ids);
 
-                // TODO: if there are no overlapping segments, just Choice::Move
-                // TODO: implement in compactor + write test & benchmark
-
+                // TODO: maybe only move segments, if there are no overlapping
                 return Choice::DoCompact(CompactionInput {
                     segment_ids,
                     dest_level: next_level_index,
