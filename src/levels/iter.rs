@@ -32,15 +32,13 @@ impl<'a> Iterator for LevelManifestIterator<'a> {
                 .get(self.current_idx)
                 .cloned();
 
-            match segment {
-                Some(segment) => {
-                    self.current_idx += 1;
-                    return Some(segment);
-                }
-                None => {
-                    self.current_level += 1;
-                }
+            if let Some(segment) = segment {
+                self.current_idx += 1;
+                return Some(segment);
             }
+
+            self.current_level += 1;
+            self.current_idx = 0;
         }
     }
 }

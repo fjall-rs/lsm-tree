@@ -17,24 +17,11 @@ fn iterate_level_manifest(c: &mut Criterion) {
             tree.flush_active_memtable().unwrap();
         }
 
-        group.bench_function(
-            &format!("iterate {segment_count} segments - flattened"),
-            |b| {
-                let levels = tree.levels.read().unwrap();
-
-                b.iter(|| {
-                    let segments = levels.get_all_segments_flattened();
-                    assert_eq!(segments.len(), segment_count);
-                });
-            },
-        );
-
-        group.bench_function(&format!("iterate {segment_count} segments - iter"), |b| {
+        group.bench_function(&format!("iterate {segment_count} segments"), |b| {
             let levels = tree.levels.read().unwrap();
 
             b.iter(|| {
-                let iter = lsm_tree::levels::iter::LevelManifestIterator::new(&levels);
-                assert_eq!(iter.count(), segment_count);
+                assert_eq!(levels.iter().count(), segment_count);
             });
         });
     }

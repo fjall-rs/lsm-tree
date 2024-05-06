@@ -13,6 +13,7 @@ use crate::{
     segment::{meta::SegmentId, Segment},
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use iter::LevelManifestIterator;
 use std::{
     collections::{HashMap, HashSet},
     io::Cursor,
@@ -266,14 +267,13 @@ impl LevelManifest {
     /// Returns the amount of segments, summed over all levels
     #[must_use]
     pub fn len(&self) -> usize {
-        self.levels.iter().map(|level| level.len()).sum()
+        self.levels.iter().map(Level::len).sum()
     }
 
     /// Returns the (compressed) size of all segments
     #[must_use]
     pub fn size(&self) -> u64 {
-        let segment_iter = iter::LevelManifestIterator::new(self);
-        segment_iter.map(|s| s.metadata.file_size).sum()
+        self.iter().map(|s| s.metadata.file_size).sum()
     }
 
     pub fn busy_levels(&self) -> HashSet<u8> {
@@ -308,16 +308,15 @@ impl LevelManifest {
         output
     }
 
-    #[doc(hidden)]
-    pub fn get_all_segments_flattened(&self) -> Vec<Arc<Segment>> {
-        iter::LevelManifestIterator::new(self).collect()
+    #[must_use]
+    pub fn iter(&self) -> LevelManifestIterator {
+        LevelManifestIterator::new(self)
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let segment_iter = iter::LevelManifestIterator::new(self);
         let mut output = HashMap::new();
 
-        for segment in segment_iter {
+        for segment in self.iter() {
             output.insert(segment.metadata.id, segment);
         }
 
@@ -325,10 +324,9 @@ impl LevelManifest {
     }
 
     pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let segment_iter = iter::LevelManifestIterator::new(self);
         let mut output = HashMap::new();
 
-        for segment in segment_iter {
+        for segment in self.iter() {
             if !self.hidden_set.contains(&segment.metadata.id) {
                 output.insert(segment.metadata.id, segment);
             }

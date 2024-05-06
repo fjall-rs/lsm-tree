@@ -397,9 +397,8 @@ impl Tree {
 
         // Now look in segments... this may involve disk I/O
         let levels = self.levels.read().expect("lock is poisoned");
-        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
 
-        for segment in segment_iter {
+        for segment in levels.iter() {
             if let Some(item) = segment.get(&key, seqno)? {
                 if evict_tombstone {
                     return Ok(ignore_tombstone_value(item));
@@ -772,7 +771,6 @@ impl Tree {
         let config = PersistedConfig::deserialize(&mut Cursor::new(config))?;
 
         let highest_segment_id = levels
-            .get_all_segments_flattened()
             .iter()
             .map(|x| x.metadata.id)
             .max()
@@ -834,16 +832,14 @@ impl Tree {
     #[must_use]
     pub fn disk_space(&self) -> u64 {
         let levels = self.levels.read().expect("lock is poisoned");
-        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
-        segment_iter.map(|x| x.metadata.file_size).sum()
+        levels.iter().map(|x| x.metadata.file_size).sum()
     }
 
     /// Returns the highest sequence number that is flushed to disk
     #[must_use]
     pub fn get_segment_lsn(&self) -> Option<SeqNo> {
         let levels = self.levels.read().expect("lock is poisoned");
-        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
-        segment_iter.map(|s| s.get_lsn()).max()
+        levels.iter().map(|s| s.get_lsn()).max()
     }
 
     /// Returns the highest sequence number

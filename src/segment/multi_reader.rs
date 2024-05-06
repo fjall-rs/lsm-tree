@@ -72,7 +72,8 @@ mod tests {
             .levels
             .read()
             .expect("lock is poisoned")
-            .get_all_segments_flattened();
+            .iter()
+            .collect::<Vec<_>>();
 
         #[allow(clippy::unwrap_used)]
         {
