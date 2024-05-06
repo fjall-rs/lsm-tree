@@ -45,7 +45,7 @@ impl TryFrom<u8> for TreeType {
 }
 
 /// Tree configuration
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 pub struct PersistedConfig {
     /// Block size of data and index blocks
@@ -238,5 +238,33 @@ impl Config {
     /// Will return `Err` if an IO error occurs.
     pub fn open(self) -> crate::Result<Tree> {
         Tree::open(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use test_log::test;
+
+    #[test]
+    fn segment_metadata_serde_round_trip() -> crate::Result<()> {
+        let config = PersistedConfig {
+            block_size: 4_096,
+            compression: CompressionType::Lz4,
+            level_count: 7,
+            level_ratio: 8,
+            r#type: TreeType::Standard,
+        };
+
+        let mut bytes = vec![];
+        config.serialize(&mut bytes)?;
+
+        let mut cursor = Cursor::new(bytes);
+        let config_copy = PersistedConfig::deserialize(&mut cursor)?;
+
+        assert_eq!(config, config_copy);
+
+        Ok(())
     }
 }

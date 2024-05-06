@@ -67,7 +67,7 @@ impl Writer {
         std::fs::create_dir_all(&opts.folder)?;
 
         let block_writer = File::create(opts.folder.join(BLOCKS_FILE))?;
-        let block_writer = BufWriter::with_capacity(512_000, block_writer);
+        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
         let index_writer = IndexWriter::new(&opts.folder, opts.block_size)?;
 

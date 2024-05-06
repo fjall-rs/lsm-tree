@@ -20,7 +20,7 @@ fn set_bit(byte: u8, idx: usize, value: bool) -> u8 {
 }
 
 /// Fixed-size bit array
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct BitArray(Box<[u8]>);
 
 impl BitArray {

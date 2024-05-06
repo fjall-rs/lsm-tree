@@ -249,7 +249,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn segment_metadata_roundtrip() -> crate::Result<()> {
+    fn segment_metadata_serde_round_trip() -> crate::Result<()> {
         let metadata = Metadata {
             block_count: 0,
             block_size: 0,

@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)]
-    pub fn version_round_trip() {
+    pub fn version_serde_round_trip() {
         let mut buf = vec![];
         Version::V0.write_file_header(&mut buf).expect("can't fail");
 

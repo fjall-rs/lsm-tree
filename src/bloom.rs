@@ -13,7 +13,7 @@ use std::path::Path;
 /// Allows buffering the key hashes before actual filter construction
 /// which is needed to properly calculate the filter size, as the amount of items
 /// are unknown during segment construction.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct BloomFilter {
     /// Raw bytes exposed as bit array
     inner: BitArray,
@@ -49,7 +49,7 @@ impl Deserializable for BloomFilter {
 impl BloomFilter {
     /// Stores a bloom filter to a file
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), SerializeError> {
-        let mut writer = BufWriter::with_capacity(128_000, File::create(path)?);
+        let mut writer = BufWriter::new(File::create(path)?);
         self.serialize(&mut writer)?;
         writer.flush()?;
         writer.get_mut().sync_all()?;
@@ -58,7 +58,7 @@ impl BloomFilter {
 
     /// Loads a bloom filter from a file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, DeserializeError> {
-        let mut reader = BufReader::with_capacity(128_000, File::open(path)?);
+        let mut reader = BufReader::new(File::open(path)?);
         Self::deserialize(&mut reader)
     }
 
@@ -172,6 +172,28 @@ impl BloomFilter {
 mod tests {
     use super::*;
     use test_log::test;
+
+    #[test]
+    fn bloom_serde_round_trip() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("bf");
+
+        let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
+
+        for key in [
+            b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
+            b"item8", b"item9",
+        ] {
+            filter.set_with_hash(BloomFilter::get_hash(key));
+        }
+
+        filter.write_to_file(&path)?;
+        let filter_copy = BloomFilter::from_file(&path)?;
+
+        assert_eq!(filter, filter_copy);
+
+        Ok(())
+    }
 
     #[test]
     fn bloom_calculate_m() {
