@@ -30,7 +30,7 @@ pub fn get_next_tree_id() -> TreeId {
 pub struct TreeInner {
     pub id: TreeId,
 
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
 
     pub(crate) segment_id_counter: Arc<AtomicU64>,
 
