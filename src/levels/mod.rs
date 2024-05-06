@@ -71,7 +71,6 @@ impl LevelManifest {
 
     #[cfg(feature = "segment_history")]
     fn write_segment_history_entry(&mut self, event: &str) -> crate::Result<()> {
-        let segment_map = self.get_all_segments();
         let ts = unix_timestamp();
 
         let line = serde_json::to_string(&json!({
@@ -79,12 +78,10 @@ impl LevelManifest {
             "time_ms": ts.as_millis(),
             "event": event,
             "levels": self.levels.iter().map(|level| {
-                let segments = level.iter().map(|seg_id| segment_map[seg_id].clone()).collect::<Vec<_>>();
-
-                segments
+                level.segments
                 .iter()
                 .map(|segment| json!({
-                        "path": segment.metadata.path.clone(),
+                        "id": segment.metadata.id,
                         "metadata": segment.metadata.clone(),
                         "hidden": self.hidden_set.contains(&segment.metadata.id)
                     }))

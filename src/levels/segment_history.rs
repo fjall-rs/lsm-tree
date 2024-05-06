@@ -13,6 +13,7 @@ impl Writer {
     pub fn new() -> crate::Result<Self> {
         let file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(SEGMENT_HISTORY_PATH)?;
         let file = BufWriter::new(file);

@@ -16,6 +16,10 @@ use std::{
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "segment_history",
+    derive(serde::Deserialize, serde::Serialize)
+)]
 pub enum CompressionType {
     Lz4,
 }
@@ -48,6 +52,10 @@ impl std::fmt::Display for CompressionType {
 pub type SegmentId = u64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "segment_history",
+    derive(serde::Deserialize, serde::Serialize)
+)]
 pub struct Metadata {
     /// Segment ID
     pub id: SegmentId,
