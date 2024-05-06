@@ -19,14 +19,14 @@ pub struct Strategy {
     ///
     /// Default = 4
     ///
-    /// Same as `level0_file_num_compaction_trigger` in RocksDB
+    /// Same as `level0_file_num_compaction_trigger` in `RocksDB`
     pub l0_threshold: u8,
 
     /// Target segment size (compressed)
     ///
     /// Default = 64 MiB
     ///
-    /// Same as `target_file_size_base` in RocksDB
+    /// Same as `target_file_size_base` in `RocksDB`
     pub target_size: u32,
 }
 
@@ -135,7 +135,7 @@ impl CompactionStrategy for Strategy {
                 let mut segment_ids: Vec<_> = segments_to_compact
                     .iter()
                     .map(|x| &x.metadata.id)
-                    .cloned()
+                    .copied()
                     .collect();
 
                 segment_ids.extend(overlapping_segment_ids);
@@ -171,7 +171,7 @@ impl CompactionStrategy for Strategy {
                 let mut segment_ids = first_level_segments
                     .iter()
                     .map(|x| &x.metadata.id)
-                    .cloned()
+                    .copied()
                     .collect::<Vec<_>>();
 
                 segment_ids.extend(overlapping_segment_ids);

@@ -5,11 +5,11 @@ use crate::tree_inner::TreeId;
 pub struct GlobalSegmentId((TreeId, SegmentId));
 
 impl GlobalSegmentId {
-    pub fn tree_id(&self) -> TreeId {
+    #[must_use] pub fn tree_id(&self) -> TreeId {
         self.0 .0
     }
 
-    pub fn segment_id(&self) -> SegmentId {
+    #[must_use] pub fn segment_id(&self) -> SegmentId {
         self.0 .1
     }
 }

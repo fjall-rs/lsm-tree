@@ -141,7 +141,7 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         for id in 0..5 {
-            levels.add(fixture_segment(id, id as u128));
+            levels.add(fixture_segment(id, u128::from(id)));
         }
 
         assert_eq!(

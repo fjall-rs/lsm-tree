@@ -150,9 +150,7 @@ impl Default for Config {
 impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        let inner = PersistedConfig {
-            ..Default::default()
-        };
+        let inner = Default::default();
 
         Self {
             inner,
