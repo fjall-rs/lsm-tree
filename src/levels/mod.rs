@@ -254,7 +254,8 @@ impl LevelManifest {
         self.levels.len() as u8
     }
 
-    #[must_use] pub fn first_level_segment_count(&self) -> usize {
+    #[must_use]
+    pub fn first_level_segment_count(&self) -> usize {
         self.levels.first().expect("L0 should always exist").len()
     }
 
@@ -276,7 +277,8 @@ impl LevelManifest {
         self.iter().map(|s| s.metadata.file_size).sum()
     }
 
-    #[must_use] pub fn busy_levels(&self) -> HashSet<u8> {
+    #[must_use]
+    pub fn busy_levels(&self) -> HashSet<u8> {
         let mut output = HashSet::with_capacity(self.len());
 
         for (idx, level) in self.levels.iter().enumerate() {

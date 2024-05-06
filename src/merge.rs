@@ -35,12 +35,14 @@ impl<'a> MergeIterator<'a> {
     }
 
     /// Evict old versions by skipping over them
-    #[must_use] pub fn evict_old_versions(mut self, v: bool) -> Self {
+    #[must_use]
+    pub fn evict_old_versions(mut self, v: bool) -> Self {
         self.evict_old_versions = v;
         self
     }
 
-    #[must_use] pub fn snapshot_seqno(mut self, v: SeqNo) -> Self {
+    #[must_use]
+    pub fn snapshot_seqno(mut self, v: SeqNo) -> Self {
         self.seqno = Some(v);
         self
     }
