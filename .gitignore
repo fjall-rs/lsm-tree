@@ -16,4 +16,5 @@ Cargo.lock
 .lsm.data
 .data
 /old_*
-.test
+.test*
+segment_history.jsonl
