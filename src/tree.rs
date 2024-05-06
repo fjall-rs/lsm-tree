@@ -1,23 +1,14 @@
 use crate::{
-    compaction::{
-        worker::{do_compaction, Options as CompactionOptions},
-        CompactionStrategy,
-    },
+    compaction::CompactionStrategy,
     config::Config,
     descriptor_table::FileDescriptorTable,
-    file::{
-        fsync_directory, BLOCKS_FILE, CONFIG_FILE, LEVELS_MANIFEST_FILE, LSM_MARKER,
-        SEGMENTS_FOLDER,
-    },
-    flush::{flush_to_segment, Options as FlushOptions},
     levels::LevelManifest,
     memtable::MemTable,
     prefix::Prefix,
     range::{MemTableGuard, Range},
-    segment::{meta::SegmentId, Segment},
-    snapshot::Counter as SnapshotCounter,
+    segment::Segment,
     stop_signal::StopSignal,
-    tree_inner::{get_next_tree_id, MemtableId, SealedMemtables, TreeId, TreeInner},
+    tree_inner::{MemtableId, SealedMemtables, TreeId, TreeInner},
     version::Version,
     BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
@@ -62,6 +53,8 @@ impl Tree {
     ///
     /// Returns error, if an IO error occured.
     pub fn open(config: Config) -> crate::Result<Self> {
+        use crate::file::LSM_MARKER;
+
         log::debug!("Opening LSM-tree at {:?}", config.inner.path);
 
         let tree = if config.inner.path.join(LSM_MARKER).try_exists()? {
@@ -83,7 +76,9 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()> {
-        do_compaction(&CompactionOptions {
+        use crate::compaction::worker::{do_compaction, Options};
+
+        do_compaction(&Options {
             segment_id_generator: self.segment_id_counter.clone(),
             tree_id: self.id,
             config: self.config.clone(),
@@ -185,6 +180,11 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn flush_active_memtable(&self) -> crate::Result<Option<PathBuf>> {
+        use crate::{
+            file::SEGMENTS_FOLDER,
+            flush::{flush_to_segment, Options},
+        };
+
         log::debug!("flush: flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
@@ -194,7 +194,7 @@ impl Tree {
         let segment_folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("flush: writing segment to {segment_folder:?}");
 
-        let segment = flush_to_segment(FlushOptions {
+        let segment = flush_to_segment(Options {
             memtable: yanked_memtable,
             block_cache: self.block_cache.clone(),
             block_size: self.config.block_size,
@@ -759,6 +759,12 @@ impl Tree {
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
+        use crate::{
+            file::{CONFIG_FILE, LSM_MARKER},
+            snapshot::Counter as SnapshotCounter,
+            tree_inner::get_next_tree_id,
+        };
+
         let path = path.as_ref();
 
         log::info!("Recovering LSM-tree at {path:?}");
@@ -808,6 +814,8 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
+        use crate::file::{fsync_directory, CONFIG_FILE, LSM_MARKER, SEGMENTS_FOLDER};
+
         let path = config.inner.path.clone();
         log::trace!("Creating LSM-tree at {path:?}");
 
@@ -899,6 +907,11 @@ impl Tree {
         block_cache: &Arc<BlockCache>,
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
+        use crate::{
+            file::{BLOCKS_FILE, LEVELS_MANIFEST_FILE, SEGMENTS_FOLDER},
+            SegmentId,
+        };
+
         let tree_path = tree_path.as_ref();
         log::debug!("Recovering disk segments from {tree_path:?}");
 
