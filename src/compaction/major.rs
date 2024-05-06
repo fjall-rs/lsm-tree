@@ -32,7 +32,7 @@ impl Default for Strategy {
 
 impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &PersistedConfig) -> Choice {
-        let segments = levels.get_segments();
+        let segments = levels.get_visible_segments();
         let segment_ids = segments.values().map(|s| s.metadata.id).collect();
 
         Choice::DoCompact(CompactionInput {

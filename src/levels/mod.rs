@@ -1,3 +1,4 @@
+pub mod iter;
 mod level;
 
 #[cfg(feature = "segment_history")]
@@ -271,10 +272,8 @@ impl LevelManifest {
     /// Returns the (compressed) size of all segments
     #[must_use]
     pub fn size(&self) -> u64 {
-        self.get_all_segments_flattened()
-            .iter()
-            .map(|s| s.metadata.file_size)
-            .sum()
+        let segment_iter = iter::LevelManifestIterator::new(self);
+        segment_iter.map(|s| s.metadata.file_size).sum()
     }
 
     pub fn busy_levels(&self) -> HashSet<u8> {
@@ -309,7 +308,8 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn get_all_segments_flattened(&self) -> Vec<Arc<Segment>> {
+    #[doc(hidden)]
+    pub fn get_all_segments_flattened(&self) -> Vec<Arc<Segment>> {
         let mut output = Vec::with_capacity(self.len());
 
         for level in &self.levels {
@@ -322,20 +322,27 @@ impl LevelManifest {
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+        let segment_iter = iter::LevelManifestIterator::new(self);
         let mut output = HashMap::new();
 
-        for segment in self.get_all_segments_flattened() {
+        for segment in segment_iter {
             output.insert(segment.metadata.id, segment);
         }
 
         output
     }
 
-    pub(crate) fn get_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        self.get_all_segments()
-            .into_iter()
-            .filter(|(key, _)| !self.hidden_set.contains(key))
-            .collect()
+    pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+        let segment_iter = iter::LevelManifestIterator::new(self);
+        let mut output = HashMap::new();
+
+        for segment in segment_iter {
+            if !self.hidden_set.contains(&segment.metadata.id) {
+                output.insert(segment.metadata.id, segment);
+            }
+        }
+
+        output
     }
 
     pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {

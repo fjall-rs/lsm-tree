@@ -122,7 +122,9 @@ pub mod file;
 pub mod flush;
 
 mod key_range;
-mod levels;
+
+#[doc(hidden)]
+pub mod levels;
 
 mod lru_list;
 

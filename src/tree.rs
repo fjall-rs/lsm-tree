@@ -227,15 +227,10 @@ impl Tree {
     #[must_use]
     pub fn approximate_len(&self) -> u64 {
         let memtable = self.active_memtable.read().expect("lock is poisoned");
+        let levels = self.levels.read().expect("lock is poisoned");
 
-        let item_count_segments = self
-            .levels
-            .read()
-            .expect("lock is poisoned")
-            .get_all_segments_flattened()
-            .into_iter()
-            .map(|x| x.metadata.item_count)
-            .sum::<u64>();
+        let level_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
+        let item_count_segments = level_iter.map(|x| x.metadata.item_count).sum::<u64>();
 
         memtable.len() as u64 + item_count_segments
     }
@@ -401,10 +396,10 @@ impl Tree {
         drop(memtable_lock);
 
         // Now look in segments... this may involve disk I/O
-        let segment_lock = self.levels.read().expect("lock is poisoned");
-        let segments = &segment_lock.get_all_segments_flattened();
+        let levels = self.levels.read().expect("lock is poisoned");
+        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
 
-        for segment in segments {
+        for segment in segment_iter {
             if let Some(item) = segment.get(&key, seqno)? {
                 if evict_tombstone {
                     return Ok(ignore_tombstone_value(item));
@@ -838,25 +833,17 @@ impl Tree {
     /// Returns the disk space usage
     #[must_use]
     pub fn disk_space(&self) -> u64 {
-        let segments = self
-            .levels
-            .read()
-            .expect("lock is poisoned")
-            .get_all_segments_flattened();
-
-        segments.into_iter().map(|x| x.metadata.file_size).sum()
+        let levels = self.levels.read().expect("lock is poisoned");
+        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
+        segment_iter.map(|x| x.metadata.file_size).sum()
     }
 
     /// Returns the highest sequence number that is flushed to disk
     #[must_use]
     pub fn get_segment_lsn(&self) -> Option<SeqNo> {
-        self.levels
-            .read()
-            .expect("lock is poisoned")
-            .get_all_segments_flattened()
-            .iter()
-            .map(|s| s.get_lsn())
-            .max()
+        let levels = self.levels.read().expect("lock is poisoned");
+        let segment_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
+        segment_iter.map(|s| s.get_lsn()).max()
     }
 
     /// Returns the highest sequence number

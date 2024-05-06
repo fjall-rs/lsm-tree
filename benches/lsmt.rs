@@ -5,6 +5,41 @@ use lsm_tree::{
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
 
+fn iterate_level_manifest(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Iterate level manifest");
+
+    for segment_count in [0, 1, 5, 10, 20, 50, 100, 250, 500, 1_000] {
+        let folder = tempfile::tempdir().unwrap();
+        let tree = Config::new(folder).block_size(1_024).open().unwrap();
+
+        for x in 0..segment_count {
+            tree.insert("a", "b", x as u64);
+            tree.flush_active_memtable().unwrap();
+        }
+
+        group.bench_function(
+            &format!("iterate {segment_count} segments - flattened"),
+            |b| {
+                let levels = tree.levels.read().unwrap();
+
+                b.iter(|| {
+                    let segments = levels.get_all_segments_flattened();
+                    assert_eq!(segments.len(), segment_count);
+                });
+            },
+        );
+
+        group.bench_function(&format!("iterate {segment_count} segments - iter"), |b| {
+            let levels = tree.levels.read().unwrap();
+
+            b.iter(|| {
+                let iter = lsm_tree::levels::iter::LevelManifestIterator::new(&levels);
+                assert_eq!(iter.count(), segment_count);
+            });
+        });
+    }
+}
+
 fn memtable_get_upper_bound(c: &mut Criterion) {
     let memtable = MemTable::default();
 
@@ -284,5 +319,6 @@ criterion_group!(
     bloom_filter_construction,
     bloom_filter_contains,
     tree_get_pairs,
+    iterate_level_manifest,
 );
 criterion_main!(benches);
