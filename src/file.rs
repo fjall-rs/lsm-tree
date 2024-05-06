@@ -4,7 +4,7 @@ use std::{fs::File, io::Write, path::Path};
 pub const LSM_MARKER: &str = ".lsm";
 pub const SEGMENTS_FOLDER: &str = "segments";
 pub const LEVELS_MANIFEST_FILE: &str = "levels";
-pub const CONFIG_FILE: &str = "config.json";
+pub const CONFIG_FILE: &str = "config";
 
 pub const BLOCKS_FILE: &str = "blocks";
 pub const INDEX_BLOCKS_FILE: &str = "index_blocks";
