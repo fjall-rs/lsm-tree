@@ -5,6 +5,7 @@ mod segment_history;
 
 #[cfg(feature = "segment_history")]
 use crate::time::unix_timestamp;
+
 #[cfg(feature = "segment_history")]
 use serde_json::json;
 
@@ -13,9 +14,10 @@ use crate::{
     file::rewrite_atomic,
     segment::{meta::SegmentId, Segment},
 };
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self},
+    io::Cursor,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -94,11 +96,35 @@ impl LevelManifest {
         self.segment_history_writer.write(&line)
     }
 
+    pub(crate) fn load_level_manifest<P: AsRef<Path>>(
+        path: P,
+    ) -> crate::Result<Vec<Vec<SegmentId>>> {
+        let mut level_manifest = Cursor::new(std::fs::read(&path)?);
+
+        let mut levels = vec![];
+
+        let level_count = level_manifest.read_u32::<BigEndian>()?;
+
+        for _ in 0..level_count {
+            let mut level = vec![];
+            let segment_count = level_manifest.read_u32::<BigEndian>()?;
+
+            for _ in 0..segment_count {
+                let id = level_manifest.read_u64::<BigEndian>()?;
+                level.push(id);
+            }
+
+            levels.push(level);
+        }
+
+        Ok(levels)
+    }
+
     pub(crate) fn recover_ids<P: AsRef<Path>>(path: P) -> crate::Result<Vec<SegmentId>> {
-        let level_manifest = fs::read_to_string(&path)?;
-        let level_manifest: Vec<Vec<SegmentId>> =
-            serde_json::from_str(&level_manifest).expect("could not deserialize level manifest");
-        Ok(level_manifest.into_iter().flatten().collect())
+        Ok(Self::load_level_manifest(path)?
+            .into_iter()
+            .flatten()
+            .collect())
     }
 
     fn resolve_levels(
@@ -125,9 +151,7 @@ impl LevelManifest {
         path: P,
         segments: Vec<Arc<Segment>>,
     ) -> crate::Result<Self> {
-        let level_manifest = fs::read_to_string(&path)?;
-        let level_manifest: Vec<Vec<SegmentId>> =
-            serde_json::from_str(&level_manifest).expect("could not deserialize level manifest");
+        let level_manifest = Self::load_level_manifest(&path)?;
 
         let segments: HashMap<_, _> = segments
             .into_iter()
@@ -153,22 +177,19 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    fn serialize_ids(&self) -> Vec<Vec<SegmentId>> {
-        let mut levels = Vec::with_capacity(self.depth().into());
-
-        for level in &self.levels {
-            levels.push(level.ids());
-        }
-
-        levels
-    }
-
     pub(crate) fn write_to_disk(&mut self) -> crate::Result<()> {
         log::trace!("Writing level manifest to {:?}", self.path);
 
-        // NOTE: Serialization can't fail here
-        #[allow(clippy::expect_used)]
-        let json = serde_json::to_string_pretty(&self.serialize_ids()).expect("should serialize");
+        let mut serialized = vec![];
+        serialized.write_u32::<BigEndian>(self.levels.len() as u32)?;
+
+        for level in &self.levels {
+            serialized.write_u32::<BigEndian>(level.segments.len() as u32)?;
+
+            for segment in &level.segments {
+                serialized.write_u64::<BigEndian>(segment.metadata.id)?;
+            }
+        }
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -177,7 +198,7 @@ impl LevelManifest {
         //
         // a) truncating is not an option, because for a short moment, the file is empty
         // b) just overwriting corrupts the file content
-        rewrite_atomic(&self.path, json.as_bytes())?;
+        rewrite_atomic(&self.path, &serialized)?;
 
         Ok(())
     }
