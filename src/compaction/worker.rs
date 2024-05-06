@@ -14,6 +14,7 @@ use crate::{
 };
 use std::{
     collections::HashSet,
+    path::PathBuf,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
@@ -29,6 +30,8 @@ pub struct Options {
     pub tree_id: TreeId,
 
     pub segment_id_generator: Arc<AtomicU64>,
+
+    pub path: PathBuf,
 
     /// Configuration of tree.
     pub config: PersistedConfig,
@@ -55,6 +58,24 @@ pub struct Options {
 
     /// Stop signal
     pub stop_signal: StopSignal,
+}
+
+impl Options {
+    pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
+        Self {
+            tree_id: tree.id,
+            path: tree.path.clone(),
+            segment_id_generator: tree.segment_id_counter.clone(),
+            config: tree.config.clone(),
+            sealed_memtables: tree.sealed_memtables.clone(),
+            levels: tree.levels.clone(),
+            open_snapshots: tree.open_snapshots.clone(),
+            stop_signal: tree.stop_signal.clone(),
+            block_cache: tree.block_cache.clone(),
+            strategy,
+            descriptor_table: tree.descriptor_table.clone(),
+        }
+    }
 }
 
 /// Runs compaction task.
@@ -100,7 +121,7 @@ fn merge_segments(
         log::debug!("compactor: stopping before compaction because of stop signal");
     }
 
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let segments_base_folder = opts.path.join(SEGMENTS_FOLDER);
 
     log::debug!(
         "compactor: Chosen {} segments to compact into a single new segment at level {}",
@@ -163,7 +184,7 @@ fn merge_segments(
         crate::segment::writer::Options {
             block_size: opts.config.block_size,
             evict_tombstones: should_evict_tombstones,
-            folder: opts.config.path.join(SEGMENTS_FOLDER),
+            folder: opts.path.join(SEGMENTS_FOLDER),
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: if is_last_level { 0.1 } else { 0.01 }, // TODO: MONKEY
@@ -302,12 +323,7 @@ fn drop_segments(
         let segment_id = key.segment_id();
         log::trace!("rm -rf segment folder {segment_id}");
 
-        std::fs::remove_dir_all(
-            opts.config
-                .path
-                .join(SEGMENTS_FOLDER)
-                .join(segment_id.to_string()),
-        )?;
+        std::fs::remove_dir_all(opts.path.join(SEGMENTS_FOLDER).join(segment_id.to_string()))?;
     }
 
     for key in segment_ids {

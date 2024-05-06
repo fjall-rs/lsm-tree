@@ -1,19 +1,20 @@
 use crate::{
     compaction::CompactionStrategy,
-    config::Config,
+    config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
     levels::LevelManifest,
     memtable::MemTable,
     prefix::Prefix,
     range::{MemTableGuard, Range},
     segment::Segment,
+    serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     tree_inner::{MemtableId, SealedMemtables, TreeId, TreeInner},
     version::Version,
     BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
 use std::{
-    io::Write,
+    io::Cursor,
     ops::RangeBounds,
     path::{Path, PathBuf},
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -55,14 +56,10 @@ impl Tree {
     pub fn open(config: Config) -> crate::Result<Self> {
         use crate::file::LSM_MARKER;
 
-        log::debug!("Opening LSM-tree at {:?}", config.inner.path);
+        log::debug!("Opening LSM-tree at {:?}", config.path);
 
-        let tree = if config.inner.path.join(LSM_MARKER).try_exists()? {
-            Self::recover(
-                config.inner.path,
-                config.block_cache,
-                config.descriptor_table,
-            )
+        let tree = if config.path.join(LSM_MARKER).try_exists()? {
+            Self::recover(config.path, config.block_cache, config.descriptor_table)
         } else {
             Self::create_new(config)
         }?;
@@ -78,18 +75,8 @@ impl Tree {
     pub fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()> {
         use crate::compaction::worker::{do_compaction, Options};
 
-        do_compaction(&Options {
-            segment_id_generator: self.segment_id_counter.clone(),
-            tree_id: self.id,
-            config: self.config.clone(),
-            sealed_memtables: self.sealed_memtables.clone(),
-            levels: self.levels.clone(),
-            open_snapshots: self.open_snapshots.clone(),
-            stop_signal: self.stop_signal.clone(),
-            block_cache: self.block_cache.clone(),
-            strategy,
-            descriptor_table: self.descriptor_table.clone(),
-        })?;
+        let opts = Options::from_tree(self, strategy);
+        do_compaction(&opts)?;
 
         log::debug!("lsm-tree: compaction run over");
 
@@ -191,7 +178,7 @@ impl Tree {
             return Ok(None);
         };
 
-        let segment_folder = self.config.path.join(SEGMENTS_FOLDER);
+        let segment_folder = self.path.join(SEGMENTS_FOLDER);
         log::debug!("flush: writing segment to {segment_folder:?}");
 
         let segment = flush_to_segment(Options {
@@ -786,8 +773,8 @@ impl Tree {
         let mut levels = Self::recover_levels(path, tree_id, &block_cache, &descriptor_table)?;
         levels.sort_levels();
 
-        let config_str = std::fs::read_to_string(path.join(CONFIG_FILE))?;
-        let config = serde_json::from_str(&config_str).expect("should be valid JSON");
+        let config = std::fs::read(path.join(CONFIG_FILE))?;
+        let config = PersistedConfig::deserialize(&mut Cursor::new(config))?;
 
         let highest_segment_id = levels
             .get_all_segments_flattened()
@@ -798,6 +785,7 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
+            path: path.to_path_buf(),
             segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
@@ -815,29 +803,28 @@ impl Tree {
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
         use crate::file::{fsync_directory, CONFIG_FILE, LSM_MARKER, SEGMENTS_FOLDER};
+        use std::fs::{create_dir_all, File};
 
-        let path = config.inner.path.clone();
+        let path = config.path.clone();
         log::trace!("Creating LSM-tree at {path:?}");
 
-        std::fs::create_dir_all(&path)?;
+        create_dir_all(&path)?;
 
         let marker_path = path.join(LSM_MARKER);
         assert!(!marker_path.try_exists()?);
 
         let segment_folder_path = path.join(SEGMENTS_FOLDER);
-        std::fs::create_dir_all(&segment_folder_path)?;
+        create_dir_all(&segment_folder_path)?;
 
-        let config_str =
-            serde_json::to_string_pretty(&config.inner).expect("should serialize JSON");
-        let mut file = std::fs::File::create(path.join(CONFIG_FILE))?;
-        file.write_all(config_str.as_bytes())?;
+        let mut file = File::create(path.join(CONFIG_FILE))?;
+        config.inner.serialize(&mut file)?;
         file.sync_all()?;
 
         let inner = TreeInner::create_new(config)?;
 
         // NOTE: Lastly, fsync .lsm marker, which contains the version
         // -> the LSM is fully initialized
-        let mut file = std::fs::File::create(marker_path)?;
+        let mut file = File::create(marker_path)?;
         Version::V0.write_file_header(&mut file)?;
         file.sync_all()?;
 

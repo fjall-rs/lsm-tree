@@ -8,7 +8,6 @@ use crate::{
     DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
     io::{Cursor, Read, Write},
@@ -16,7 +15,7 @@ use std::{
     sync::Arc,
 };
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CompressionType {
     Lz4,
 }
@@ -137,9 +136,8 @@ impl Deserializable for Metadata {
         let block_size = reader.read_u32::<BigEndian>()?;
         let block_count = reader.read_u32::<BigEndian>()?;
 
-        let compression_tag = reader.read_u8()?;
-        let compression =
-            CompressionType::try_from(compression_tag).expect("invalid compression type");
+        let compression = reader.read_u8()?;
+        let compression = CompressionType::try_from(compression).expect("invalid compression type");
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;

@@ -11,6 +11,7 @@ use crate::{
 };
 use std::{
     collections::BTreeMap,
+    path::PathBuf,
     sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
@@ -28,6 +29,8 @@ pub fn get_next_tree_id() -> TreeId {
 
 pub struct TreeInner {
     pub id: TreeId,
+
+    pub(crate) path: PathBuf,
 
     pub(crate) segment_id_counter: Arc<AtomicU64>,
 
@@ -62,11 +65,12 @@ impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
         let levels = LevelManifest::create_new(
             config.inner.level_count,
-            config.inner.path.join(LEVELS_MANIFEST_FILE),
+            config.path.join(LEVELS_MANIFEST_FILE),
         )?;
 
         Ok(Self {
             id: get_next_tree_id(),
+            path: config.path,
             segment_id_counter: Arc::new(AtomicU64::default()),
             config: config.inner,
             block_cache: config.block_cache,

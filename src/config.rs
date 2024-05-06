@@ -1,9 +1,13 @@
 use crate::{
-    descriptor_table::FileDescriptorTable, segment::meta::CompressionType, BlockCache, Tree,
+    descriptor_table::FileDescriptorTable,
+    segment::meta::CompressionType,
+    serde::{Deserializable, Serializable},
+    BlockCache, DeserializeError, SerializeError, Tree,
 };
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use path_absolutize::Absolutize;
-use serde::{Deserialize, Serialize};
 use std::{
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,18 +20,34 @@ fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .into()
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum TreeType {
     Standard,
 }
 
+impl From<TreeType> for u8 {
+    fn from(val: TreeType) -> Self {
+        match val {
+            TreeType::Standard => 0,
+        }
+    }
+}
+
+impl TryFrom<u8> for TreeType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Standard),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Tree configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct PersistedConfig {
-    /// Folder path
-    pub path: PathBuf, // TODO: not needed, move to Config
-
     /// Block size of data and index blocks
     pub block_size: u32,
 
@@ -53,13 +73,45 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 impl Default for PersistedConfig {
     fn default() -> Self {
         Self {
-            path: absolute_path(DEFAULT_FILE_FOLDER),
             block_size: 4_096,
             level_count: 7,
             level_ratio: 8,
             r#type: TreeType::Standard,
             compression: CompressionType::Lz4,
         }
+    }
+}
+
+impl Serializable for PersistedConfig {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        writer.write_u8(self.r#type.into())?;
+        writer.write_u8(self.compression.into())?;
+        writer.write_u32::<BigEndian>(self.block_size)?;
+        writer.write_u8(self.level_count)?;
+        writer.write_u8(self.level_ratio)?;
+        Ok(())
+    }
+}
+
+impl Deserializable for PersistedConfig {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        let tree_type = reader.read_u8()?;
+        let tree_type = TreeType::try_from(tree_type).expect("invalid tree type");
+
+        let compression = reader.read_u8()?;
+        let compression = CompressionType::try_from(compression).expect("invalid compression type");
+
+        let block_size = reader.read_u32::<BigEndian>()?;
+        let level_count = reader.read_u8()?;
+        let level_ratio = reader.read_u8()?;
+
+        Ok(Self {
+            r#type: tree_type,
+            compression,
+            block_size,
+            level_count,
+            level_ratio,
+        })
     }
 }
 
@@ -70,6 +122,9 @@ pub struct Config {
     /// Once set, this configuration is permanent
     #[doc(hidden)]
     pub inner: PersistedConfig,
+
+    /// Folder path
+    pub path: PathBuf, // TODO: not needed, move to Config
 
     /// Block cache to use
     #[doc(hidden)]
@@ -83,6 +138,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            path: absolute_path(DEFAULT_FILE_FOLDER),
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
             descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
@@ -94,12 +150,12 @@ impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let inner = PersistedConfig {
-            path: absolute_path(path),
             ..Default::default()
         };
 
         Self {
             inner,
+            path: absolute_path(path),
             ..Default::default()
         }
     }
