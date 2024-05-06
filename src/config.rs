@@ -139,7 +139,7 @@ impl Config {
     /// Defaults to 4 KiB (4096 bytes).
     ///
     /// For point read heavy workloads (get) a sensible default is
-    /// somewhere between 1 - 8 KiB, depending on the average value size.
+    /// somewhere between 4 - 8 KiB, depending on the average value size.
     ///
     /// For scan heavy workloads (range, prefix), use 16 - 64 KiB
     /// which also increases compression efficiency.
@@ -149,7 +149,7 @@ impl Config {
     /// Panics if the block size is smaller than 1 KiB (1024 bytes).
     #[must_use]
     pub fn block_size(mut self, block_size: u32) -> Self {
-        assert!(block_size >= 1024);
+        assert!(block_size >= 1_024);
 
         self.inner.block_size = block_size;
         self

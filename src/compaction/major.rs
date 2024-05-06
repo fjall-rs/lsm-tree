@@ -17,7 +17,7 @@ impl Strategy {
     #[must_use]
     #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {
-        assert!(target_size >= 1024);
+        assert!(target_size >= 1_024);
         Self { target_size }
     }
 }

@@ -314,7 +314,7 @@ mod tests {
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
-                target_size: 128 * 1024 * 1024
+                target_size: 128 * 1_024 * 1_024
             })
         );
 
@@ -379,7 +379,7 @@ mod tests {
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
-                target_size: 128 * 1024 * 1024
+                target_size: 128 * 1_024 * 1_024
             })
         );
 
@@ -438,7 +438,7 @@ mod tests {
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4, 5, 6],
-                target_size: 128 * 1024 * 1024
+                target_size: 128 * 1_024 * 1_024
             })
         );
 
@@ -489,7 +489,7 @@ mod tests {
             Choice::DoCompact(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1, 4],
-                target_size: 128 * 1024 * 1024
+                target_size: 128 * 1_024 * 1_024
             })
         );
 
@@ -546,7 +546,7 @@ mod tests {
             Choice::DoCompact(CompactionInput {
                 dest_level: 3,
                 segment_ids: vec![1, 5],
-                target_size: 128 * 1024 * 1024
+                target_size: 128 * 1_024 * 1_024
             })
         );
 

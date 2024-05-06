@@ -244,7 +244,7 @@ impl Writer {
             "Written {} items in {} blocks into new segment file, written {} MB",
             self.item_count,
             self.block_count,
-            self.file_pos / 1024 / 1024
+            self.file_pos / 1_024 / 1_024
         );
 
         Ok(())
