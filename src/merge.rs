@@ -241,7 +241,7 @@ impl<'a> MergeIterator<'a> {
                 .as_ref()
                 .expect("should not be error");
 
-            Some(Ok((idx, &value)))
+            Some(Ok((idx, value)))
         } else {
             None
         }
