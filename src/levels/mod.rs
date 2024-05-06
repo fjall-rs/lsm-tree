@@ -310,15 +310,7 @@ impl LevelManifest {
 
     #[doc(hidden)]
     pub fn get_all_segments_flattened(&self) -> Vec<Arc<Segment>> {
-        let mut output = Vec::with_capacity(self.len());
-
-        for level in &self.levels {
-            for segment in level.segments.iter().cloned() {
-                output.push(segment);
-            }
-        }
-
-        output
+        iter::LevelManifestIterator::new(self).collect()
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
