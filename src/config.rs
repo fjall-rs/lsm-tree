@@ -124,7 +124,8 @@ pub struct Config {
     pub inner: PersistedConfig,
 
     /// Folder path
-    pub path: PathBuf, // TODO: not needed, move to Config
+    #[doc(hidden)]
+    pub path: PathBuf,
 
     /// Block cache to use
     #[doc(hidden)]
