@@ -6,9 +6,6 @@ mod segment_history;
 #[cfg(feature = "segment_history")]
 use crate::time::unix_timestamp;
 
-#[cfg(feature = "segment_history")]
-use serde_json::json;
-
 use self::level::Level;
 use crate::{
     file::rewrite_atomic,
@@ -73,14 +70,14 @@ impl LevelManifest {
     fn write_segment_history_entry(&mut self, event: &str) -> crate::Result<()> {
         let ts = unix_timestamp();
 
-        let line = serde_json::to_string(&json!({
+        let line = serde_json::to_string(&serde_json::json!({
             "time_unix": ts.as_secs(),
             "time_ms": ts.as_millis(),
             "event": event,
             "levels": self.levels.iter().map(|level| {
                 level.segments
                 .iter()
-                .map(|segment| json!({
+                .map(|segment| serde_json::json!({
                         "id": segment.metadata.id,
                         "metadata": segment.metadata.clone(),
                         "hidden": self.hidden_set.contains(&segment.metadata.id)
