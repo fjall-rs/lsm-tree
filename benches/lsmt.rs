@@ -46,6 +46,38 @@ fn memtable_get_upper_bound(c: &mut Criterion) {
     });
 }
 
+fn tli_find_item(c: &mut Criterion) {
+    use lsm_tree::segment::block_index::top_level::{BlockHandleBlockHandle, TopLevelIndex};
+
+    let mut group = c.benchmark_group("TLI find item");
+
+    for item_count in [10u64, 100, 1_000, 10_000, 100_000, 1_000_000] {
+        let tree = {
+            let mut tree = std::collections::BTreeMap::new();
+
+            for x in 0..item_count {
+                tree.insert(
+                    x.to_be_bytes().into(),
+                    BlockHandleBlockHandle { offset: 0, size: 0 },
+                );
+            }
+
+            tree
+        };
+
+        let index = TopLevelIndex::from_tree(tree);
+
+        group.bench_function(format!("TLI find ({item_count} items)"), |b| {
+            let key = (item_count / 10 * 6).to_be_bytes();
+            let expected: Arc<[u8]> = (item_count / 10 * 6 + 1).to_be_bytes().into();
+
+            b.iter(|| {
+                assert_eq!(&expected, index.get_next_block_handle(&key).unwrap().0);
+            })
+        });
+    }
+}
+
 fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
 
@@ -298,6 +330,7 @@ fn tree_get_pairs(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    tli_find_item,
     memtable_get_upper_bound,
     value_block_size_find,
     value_block_size,
