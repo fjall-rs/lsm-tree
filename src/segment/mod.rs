@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_index;
 pub mod id;
+pub mod index_block_consumer;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
@@ -133,7 +134,10 @@ impl Segment {
         }
 
         // Get the block handle, if it doesn't exist, the key is definitely not found
-        let Some(block_handle) = self.block_index.get_latest(key.as_ref())? else {
+        let Some(block_handle) = self
+            .block_index
+            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+        else {
             return Ok(None);
         };
 
@@ -143,7 +147,7 @@ impl Segment {
             &self.block_cache,
             (self.tree_id, self.metadata.id).into(),
             &block_handle,
-            block::CachePolicy::Write, // TODO:
+            CachePolicy::Write,
         )?
         else {
             return Ok(None);
@@ -170,7 +174,8 @@ impl Segment {
                 Ok(maybe_our_items_iter.next().cloned())
             }
             Some(seqno) => {
-                for item in maybe_our_items_iter {
+                todo!();
+                /* for item in maybe_our_items_iter {
                     if item.seqno < seqno {
                         return Ok(Some(item.clone()));
                     }
@@ -222,7 +227,7 @@ impl Segment {
                     if item.seqno < seqno {
                         return Ok(Some(item));
                     }
-                }
+                } */
 
                 Ok(None)
             }
@@ -237,14 +242,16 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Reader {
-        Reader::new(
+        todo!();
+
+        /*     Reader::new(
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
             None,
             None,
-        )
+        ) */
     }
 
     /// Creates a ranged iterator over the `Segment`.

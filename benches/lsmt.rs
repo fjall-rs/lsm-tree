@@ -47,34 +47,62 @@ fn memtable_get_upper_bound(c: &mut Criterion) {
 }
 
 fn tli_find_item(c: &mut Criterion) {
-    use lsm_tree::segment::block_index::top_level::{BlockHandleBlockHandle, TopLevelIndex};
+    use lsm_tree::segment::block_index::{
+        block_handle::KeyedBlockHandle, top_level::TopLevelIndex,
+    };
 
     let mut group = c.benchmark_group("TLI find item");
 
     for item_count in [10u64, 100, 1_000, 10_000, 100_000, 1_000_000] {
-        let tree = {
-            let mut tree = std::collections::BTreeMap::new();
+        let items = {
+            let mut items = Vec::with_capacity(item_count as usize);
 
             for x in 0..item_count {
-                tree.insert(
-                    x.to_be_bytes().into(),
-                    BlockHandleBlockHandle { offset: 0, size: 0 },
-                );
+                items.push(KeyedBlockHandle {
+                    start_key: x.to_be_bytes().into(),
+                    offset: x,
+                    size: 0,
+                });
             }
 
-            tree
+            items
         };
 
-        let index = TopLevelIndex::from_tree(tree);
+        let index = TopLevelIndex::from_boxed_slice(items.into());
 
-        group.bench_function(format!("TLI find ({item_count} items)"), |b| {
-            let key = (item_count / 10 * 6).to_be_bytes();
-            let expected: Arc<[u8]> = (item_count / 10 * 6 + 1).to_be_bytes().into();
+        group.bench_function(
+            format!("TLI get_next_block_handle ({item_count} items)"),
+            |b| {
+                let key = (item_count / 10 * 6).to_be_bytes();
+                let expected: Arc<[u8]> = (item_count / 10 * 6 + 1).to_be_bytes().into();
 
-            b.iter(|| {
-                assert_eq!(&expected, index.get_next_block_handle(&key).unwrap().0);
-            })
-        });
+                let block = index.get_lowest_block_containing_item(&key).unwrap();
+
+                b.iter(|| {
+                    assert_eq!(
+                        expected,
+                        index.get_next_block_handle(block.offset).unwrap().start_key
+                    );
+                })
+            },
+        );
+
+        group.bench_function(
+            format!("TLI get_block_containing_item ({item_count} items)"),
+            |b| {
+                let key = (item_count / 10 * 6).to_be_bytes();
+
+                b.iter(|| {
+                    assert_eq!(
+                        key,
+                        &*index
+                            .get_lowest_block_containing_item(&key)
+                            .unwrap()
+                            .start_key
+                    );
+                })
+            },
+        );
     }
 }
 
@@ -105,7 +133,7 @@ fn value_block_size(c: &mut Criterion) {
 
 fn value_block_size_find(c: &mut Criterion) {
     use lsm_tree::segment::{
-        block_index::block_handle::BlockHandle, block_index::BlockHandleBlock,
+        block_index::block_handle::KeyedBlockHandle, block_index::BlockHandleBlock,
     };
 
     let mut group = c.benchmark_group("Find item in BlockHandleBlock");
@@ -114,7 +142,7 @@ fn value_block_size_find(c: &mut Criterion) {
     for item_count in [10, 100, 500, 1_000] {
         group.bench_function(format!("{item_count} items"), |b| {
             let items = (0u64..item_count)
-                .map(|x| BlockHandle {
+                .map(|x| KeyedBlockHandle {
                     start_key: x.to_be_bytes().into(),
                     offset: 56,
                     size: 635,
@@ -124,7 +152,7 @@ fn value_block_size_find(c: &mut Criterion) {
             let block = BlockHandleBlock { items, crc: 0 };
             let key = &0u64.to_be_bytes();
 
-            b.iter(|| block.get_block_containing_item(key))
+            b.iter(|| block.get_lowest_block_containing_item(key))
         });
     }
 }

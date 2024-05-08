@@ -1,7 +1,4 @@
-use super::{
-    block_index::{block_handle::BlockHandle, BlockIndex},
-    id::GlobalSegmentId,
-};
+use super::{block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
 use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
 use std::sync::Arc;
 
@@ -31,11 +28,11 @@ pub fn load_by_block_handle(
     descriptor_table: &FileDescriptorTable,
     block_cache: &BlockCache,
     segment_id: GlobalSegmentId,
-    block_handle: &BlockHandle,
+    block_handle: &KeyedBlockHandle,
     cache_policy: CachePolicy,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
-        if let Some(block) = block_cache.get_disk_block(segment_id, &block_handle.start_key) {
+        if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
             // Cache hit: Copy from block
 
             Some(block)
@@ -57,39 +54,10 @@ pub fn load_by_block_handle(
             let block = Arc::new(block);
 
             if cache_policy == CachePolicy::Write {
-                block_cache.insert_disk_block(
-                    segment_id,
-                    block_handle.start_key.clone(),
-                    Arc::clone(&block),
-                );
+                block_cache.insert_disk_block(segment_id, block_handle.offset, Arc::clone(&block));
             }
 
             Some(block)
-        },
-    )
-}
-
-pub fn load_by_item_key<K: AsRef<[u8]>>(
-    descriptor_table: &FileDescriptorTable,
-    block_index: &BlockIndex,
-    block_cache: &BlockCache,
-    segment_id: GlobalSegmentId,
-    item_key: K,
-    cache_policy: CachePolicy,
-) -> crate::Result<Option<Arc<ValueBlock>>> {
-    Ok(
-        if let Some(block_handle) =
-            block_index.get_block_containing_item(item_key.as_ref(), cache_policy)?
-        {
-            load_by_block_handle(
-                descriptor_table,
-                block_cache,
-                segment_id,
-                &block_handle,
-                cache_policy,
-            )?
-        } else {
-            None
         },
     )
 }

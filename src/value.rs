@@ -269,10 +269,10 @@ mod tests {
         #[rustfmt::skip]
         let  bytes = &[
             // Seqno
-            0, 0, 0, 0, 0, 0, 0, 1, 
+            0, 0, 0, 0, 0, 0, 0, 1,
             
             // Type
-            0, 
+            0,
             
             // Key
             0, 3, 1, 2, 3,

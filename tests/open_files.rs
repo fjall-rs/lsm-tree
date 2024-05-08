@@ -19,10 +19,7 @@ fn open_file_limit() {
         tree.flush_active_memtable().unwrap();
     }
 
-    eprintln!("read");
-
     for _ in 0..5 {
         assert!(tree.first_key_value().unwrap().is_some());
-        eprintln!("read");
     }
 }

@@ -101,11 +101,13 @@ impl Writer {
         })
     }
 
-    /// Writes a compressed block to disk
+    /// Writes a compressed block to disk.
     ///
-    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`
-    fn write_block(&mut self) -> crate::Result<()> {
+    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`.
+    pub(crate) fn write_block(&mut self) -> crate::Result<()> {
         debug_assert!(!self.chunk.is_empty());
+
+        // log::error!("write block {:#?}", self.chunk);
 
         let uncompressed_chunk_size = self
             .chunk
@@ -148,7 +150,13 @@ impl Writer {
         Ok(())
     }
 
-    /// Writes an item
+    /// Writes an item.
+    ///
+    /// # Note
+    ///
+    /// It's important that the incoming stream of data is correctly
+    /// sorted as described by the [`UserKey`], otherwise the block layout will
+    /// be non-sense.
     pub fn write(&mut self, item: Value) -> crate::Result<()> {
         if item.is_tombstone() {
             if self.opts.evict_tombstones {
@@ -266,7 +274,8 @@ mod tests {
 
     #[test]
     fn test_write_and_read() -> crate::Result<()> {
-        const ITEM_COUNT: u64 = 100;
+        todo!();
+        /* const ITEM_COUNT: u64 = 100;
 
         let folder = tempfile::tempdir()?.into_path();
 
@@ -320,14 +329,15 @@ mod tests {
             None,
         );
 
-        assert_eq!(ITEM_COUNT, iter.count() as u64);
+        assert_eq!(ITEM_COUNT, iter.count() as u64); */
 
         Ok(())
     }
 
     #[test]
     fn test_write_and_read_mvcc() -> crate::Result<()> {
-        const ITEM_COUNT: u64 = 1_000;
+        todo!();
+        /* const ITEM_COUNT: u64 = 1_000;
         const VERSION_COUNT: u64 = 5;
 
         let folder = tempfile::tempdir()?.into_path();
@@ -383,7 +393,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);
+        assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64); */
 
         Ok(())
     }
