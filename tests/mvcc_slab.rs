@@ -28,7 +28,7 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
         .first()
         .expect("should exist");
 
-    let reader = segment.iter(false);
+    let reader = segment.iter();
     assert_eq!(reader.count(), ITEM_COUNT + 1);
 
     Ok(())
