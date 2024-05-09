@@ -16,6 +16,10 @@ use std::{
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "segment_history",
+    derive(serde::Deserialize, serde::Serialize)
+)]
 pub enum TableType {
     Block,
 }
