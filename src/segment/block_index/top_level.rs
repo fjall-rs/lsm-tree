@@ -1,6 +1,6 @@
 use super::block_handle::KeyedBlockHandle;
 use crate::disk_block::DiskBlock;
-use std::{f32::consts::E, fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their position
 ///

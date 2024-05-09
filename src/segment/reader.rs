@@ -573,10 +573,10 @@ mod tests {
         assert_eq!(ITEM_COUNT as usize, iter.flatten().count());
 
         let iter = Reader::new(
-            table.clone(),
+            table,
             (0, 0).into(),
-            block_cache.clone(),
-            block_index.clone(),
+            block_cache,
+            block_index,
         );
         assert_eq!(ITEM_COUNT as usize, iter.rev().flatten().count());
 
@@ -653,10 +653,10 @@ mod tests {
         assert_eq!(1 + 250 + chars.len(), iter.flatten().count());
 
         let iter = Reader::new(
-            table.clone(),
+            table,
             (0, 0).into(),
-            block_cache.clone(),
-            block_index.clone(),
+            block_cache,
+            block_index,
         );
         assert_eq!(1 + 250 + chars.len(), iter.rev().flatten().count());
 
@@ -740,10 +740,10 @@ mod tests {
         assert_eq!(100 + chars.len(), iter.flatten().count());
 
         let iter = Reader::new(
-            table.clone(),
+            table,
             (0, 0).into(),
-            block_cache.clone(),
-            block_index.clone(),
+            block_cache,
+            block_index,
         )
         .set_lower_bound(Arc::new(*b"b"));
 
@@ -829,10 +829,10 @@ mod tests {
         assert_eq!(500 + 100, iter.flatten().count());
 
         let iter = Reader::new(
-            table.clone(),
+            table,
             (0, 0).into(),
-            block_cache.clone(),
-            block_index.clone(),
+            block_cache,
+            block_index,
         )
         .set_upper_bound(Arc::new(*b"b"));
 

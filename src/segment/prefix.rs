@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(3, iter.rev().count());
 
         let mut iter = PrefixedReader::new(
-            table.clone(),
+            table,
             (0, 0).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
