@@ -1,6 +1,6 @@
 use crate::{
     descriptor_table::FileDescriptorTable,
-    segment::meta::CompressionType,
+    segment::meta::{CompressionType, TableType},
     serde::{Deserializable, Serializable},
     BlockCache, DeserializeError, SerializeError, Tree,
 };
@@ -66,6 +66,8 @@ pub struct PersistedConfig {
 
     /// What type of compression is used
     compression: CompressionType,
+
+    table_type: TableType,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -78,6 +80,7 @@ impl Default for PersistedConfig {
             level_ratio: 8,
             r#type: TreeType::Standard,
             compression: CompressionType::Lz4,
+            table_type: TableType::Block,
         }
     }
 }
@@ -86,6 +89,7 @@ impl Serializable for PersistedConfig {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         writer.write_u8(self.r#type.into())?;
         writer.write_u8(self.compression.into())?;
+        writer.write_u8(self.table_type.into())?;
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
         writer.write_u8(self.level_ratio)?;
@@ -101,6 +105,9 @@ impl Deserializable for PersistedConfig {
         let compression = reader.read_u8()?;
         let compression = CompressionType::try_from(compression).expect("invalid compression type");
 
+        let table_type = reader.read_u8()?;
+        let table_type = TableType::try_from(table_type).expect("invalid table type");
+
         let block_size = reader.read_u32::<BigEndian>()?;
         let level_count = reader.read_u8()?;
         let level_ratio = reader.read_u8()?;
@@ -108,6 +115,7 @@ impl Deserializable for PersistedConfig {
         Ok(Self {
             r#type: tree_type,
             compression,
+            table_type,
             block_size,
             level_count,
             level_ratio,
@@ -150,7 +158,7 @@ impl Default for Config {
 impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        let inner = Default::default();
+        let inner = PersistedConfig::default();
 
         Self {
             inner,
@@ -250,6 +258,7 @@ mod tests {
         let config = PersistedConfig {
             block_size: 4_096,
             compression: CompressionType::Lz4,
+            table_type: TableType::Block,
             level_count: 7,
             level_ratio: 8,
             r#type: TreeType::Standard,

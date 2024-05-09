@@ -51,7 +51,10 @@ impl PrefixedReader {
     }
 
     fn initialize(&mut self) -> crate::Result<()> {
-        let upper_bound = self.block_index.get_prefix_upper_bound(&self.prefix)?;
+        let upper_bound = self
+            .block_index
+            .get_prefix_upper_bound(&self.prefix, self.cache_policy)?;
+
         let upper_bound = upper_bound.map(|x| x.start_key).map_or(Unbounded, Excluded);
 
         let range = Range::new(
@@ -80,25 +83,25 @@ impl Iterator for PrefixedReader {
         }
 
         loop {
-            let entry_result = self
+            let item_result = self
                 .iterator
                 .as_mut()
                 .expect("should be initialized")
                 .next()?;
 
-            match entry_result {
-                Ok(entry) => {
-                    if entry.key < self.prefix {
+            match item_result {
+                Ok(item) => {
+                    if item.key < self.prefix {
                         // Before prefix key
                         continue;
                     }
 
-                    if !entry.key.starts_with(&self.prefix) {
+                    if !item.key.starts_with(&self.prefix) {
                         // Reached max key
                         return None;
                     }
 
-                    return Some(Ok(entry));
+                    return Some(Ok(item));
                 }
                 Err(error) => return Some(Err(error)),
             };
@@ -160,7 +163,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_lots_of_prefixed() -> crate::Result<()> {
+    fn segment_prefix_lots_of_prefixes() -> crate::Result<()> {
         for item_count in [1, 10, 100, 1_000, 10_000] {
             let folder = tempfile::tempdir()?.into_path();
 
@@ -236,8 +239,6 @@ mod tests {
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                None,
-                None,
             );
             assert_eq!(iter.count() as u64, item_count * 3);
 
@@ -266,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prefixed() -> crate::Result<()> {
+    fn segment_prefix_reader_prefixed_items() -> crate::Result<()> {
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
@@ -333,17 +334,114 @@ mod tests {
             (b"b/".to_vec(), 2),
         ];
 
-        for (prefix_key, item_count) in expected {
+        for (prefix_key, item_count) in &expected {
             let iter = PrefixedReader::new(
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                prefix_key,
+                prefix_key.clone(),
             );
 
-            assert_eq!(iter.count(), item_count);
+            assert_eq!(iter.count(), *item_count);
         }
+
+        for (prefix_key, item_count) in &expected {
+            let iter = PrefixedReader::new(
+                table.clone(),
+                (0, 0).into(),
+                Arc::clone(&block_cache),
+                Arc::clone(&block_index),
+                prefix_key.clone(),
+            );
+
+            assert_eq!(iter.rev().count(), *item_count);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_prefix_ping_pong() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?.into_path();
+
+        let mut writer = Writer::new(Options {
+            folder: folder.clone(),
+            evict_tombstones: false,
+            block_size: 4096,
+
+            #[cfg(feature = "bloom")]
+            bloom_fp_rate: 0.01,
+        })?;
+
+        let items = [
+            b"aa", b"ab", b"ac", b"ba", b"bb", b"bc", b"ca", b"cb", b"cc", b"da", b"db", b"dc",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, key)| {
+            Value::new(
+                key.to_vec(),
+                nanoid::nanoid!().as_bytes(),
+                idx as SeqNo,
+                ValueType::Value,
+            )
+        });
+
+        for item in items {
+            writer.write(item)?;
+        }
+
+        writer.finish()?;
+
+        let metadata = Metadata::from_writer(0, writer)?;
+        metadata.write_to_file(&folder)?;
+
+        let table = Arc::new(FileDescriptorTable::new(512, 1));
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_index = Arc::new(BlockIndex::from_file(
+            (0, 0).into(),
+            table.clone(),
+            &folder,
+            Arc::clone(&block_cache),
+        )?);
+
+        let iter = PrefixedReader::new(
+            table.clone(),
+            (0, 0).into(),
+            Arc::clone(&block_cache),
+            Arc::clone(&block_index),
+            *b"d",
+        );
+        assert_eq!(3, iter.count());
+
+        let iter = PrefixedReader::new(
+            table.clone(),
+            (0, 0).into(),
+            Arc::clone(&block_cache),
+            Arc::clone(&block_index),
+            *b"d",
+        );
+        assert_eq!(3, iter.rev().count());
+
+        let mut iter = PrefixedReader::new(
+            table,
+            (0, 0).into(),
+            Arc::clone(&block_cache),
+            Arc::clone(&block_index),
+            *b"d",
+        );
+
+        assert_eq!(Arc::from(*b"da"), iter.next().expect("should exist")?.key);
+        assert_eq!(
+            Arc::from(*b"dc"),
+            iter.next_back().expect("should exist")?.key
+        );
+        assert_eq!(Arc::from(*b"db"), iter.next().expect("should exist")?.key);
+
+        assert!(iter.next().is_none());
 
         Ok(())
     }

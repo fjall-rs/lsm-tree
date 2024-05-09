@@ -101,10 +101,10 @@ impl Writer {
         })
     }
 
-    /// Writes a compressed block to disk
+    /// Writes a compressed block to disk.
     ///
-    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`
-    fn write_block(&mut self) -> crate::Result<()> {
+    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`.
+    pub(crate) fn write_block(&mut self) -> crate::Result<()> {
         debug_assert!(!self.chunk.is_empty());
 
         let uncompressed_chunk_size = self
@@ -148,7 +148,13 @@ impl Writer {
         Ok(())
     }
 
-    /// Writes an item
+    /// Writes an item.
+    ///
+    /// # Note
+    ///
+    /// It's important that the incoming stream of data is correctly
+    /// sorted as described by the [`UserKey`], otherwise the block layout will
+    /// be non-sense.
     pub fn write(&mut self, item: Value) -> crate::Result<()> {
         if item.is_tombstone() {
             if self.opts.evict_tombstones {
@@ -205,7 +211,7 @@ impl Writer {
 
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
-            log::debug!(
+            log::trace!(
                 "Deleting empty segment folder ({}) because no items were written",
                 self.opts.folder.display()
             );
@@ -226,7 +232,7 @@ impl Writer {
         #[cfg(feature = "bloom")]
         {
             let n = self.bloom_hash_buffer.len();
-            log::debug!("Writing bloom filter with {n} hashes");
+            log::trace!("Writing bloom filter with {n} hashes");
 
             let mut filter = BloomFilter::with_fp_rate(n, self.opts.bloom_fp_rate);
 
@@ -265,7 +271,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_write_and_read() -> crate::Result<()> {
+    fn segment_writer_write_read() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
         let folder = tempfile::tempdir()?.into_path();
@@ -316,8 +322,6 @@ mod tests {
             (0, segment_id).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
         assert_eq!(ITEM_COUNT, iter.count() as u64);
@@ -326,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_write_and_read_mvcc() -> crate::Result<()> {
+    fn segment_writer_write_read_mvcc() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 1_000;
         const VERSION_COUNT: u64 = 5;
 
@@ -379,8 +383,6 @@ mod tests {
             (0, segment_id).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
         assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);
