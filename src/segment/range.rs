@@ -202,6 +202,7 @@ impl DoubleEndedIterator for Range {
 
 #[cfg(test)]
 mod tests {
+    use super::Reader as SegmentReader;
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
@@ -362,8 +363,7 @@ mod tests {
                 assert_eq!(key, &*item.key);
             }
 
-            // TODO: reverse
-            /* let mut iter = Range::new(
+            let mut iter = Range::new(
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -374,7 +374,7 @@ mod tests {
             for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
                 assert_eq!(key, &*item.key);
-            } */
+            }
         }
 
         {
@@ -395,8 +395,7 @@ mod tests {
                 assert_eq!(key, &*item.key);
             }
 
-            // TODO: reverse
-            /* log::info!("Getting every item in reverse (unbounded start)");
+            log::info!("Getting every item in reverse (unbounded start)");
 
             let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
 
@@ -411,7 +410,7 @@ mod tests {
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
                 assert_eq!(key, &*item.key);
-            } */
+            }
         }
 
         {
@@ -432,8 +431,7 @@ mod tests {
                 assert_eq!(key, &*item.key);
             }
 
-            // TODO: reverse
-            /* log::info!("Getting every item in reverse (unbounded end)");
+            log::info!("Getting every item in reverse (unbounded end)");
 
             let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
             let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
@@ -449,7 +447,7 @@ mod tests {
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
                 assert_eq!(key, &*item.key);
-            } */
+            }
         }
 
         Ok(())
@@ -579,8 +577,7 @@ mod tests {
                     assert_eq!(key, &*item.key);
                 }
 
-                // TODO: reverse
-                /* log::debug!("Getting every item in range in reverse");
+                log::debug!("Getting every item in range in reverse");
                 let range = std::ops::Range { start, end };
 
                 let mut iter = Range::new(
@@ -597,7 +594,91 @@ mod tests {
                     })?;
 
                     assert_eq!(key, &*item.key);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn segment_range_reader_char_ranges() -> crate::Result<()> {
+        let chars = (b'a'..=b'z').collect::<Vec<_>>();
+
+        let folder = tempfile::tempdir()?.into_path();
+
+        let mut writer = Writer::new(Options {
+            folder: folder.clone(),
+            evict_tombstones: false,
+            block_size: 250,
+
+            #[cfg(feature = "bloom")]
+            bloom_fp_rate: 0.01,
+        })?;
+
+        let items = chars.iter().map(|&key| {
+            Value::new(
+                &[key][..],
+                *b"dsgfgfdsgsfdsgfdgfdfgdsgfdhsnreezrzsernszsdaadsadsadsadsadsdsensnzersnzers",
+                0,
+                ValueType::Value,
+            )
+        });
+
+        for item in items {
+            writer.write(item)?;
+        }
+
+        writer.finish()?;
+
+        let metadata = Metadata::from_writer(0, writer)?;
+        metadata.write_to_file(&folder)?;
+
+        let table = Arc::new(FileDescriptorTable::new(512, 1));
+        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_index = Arc::new(BlockIndex::from_file(
+            (0, 0).into(),
+            table.clone(),
+            &folder,
+            Arc::clone(&block_cache),
+        )?);
+
+        for (i, &start_char) in chars.iter().enumerate() {
+            for &end_char in chars.iter().skip(i + 1) {
+                log::debug!("checking ({}, {})", start_char as char, end_char as char);
+
+                let expected_range = (start_char..=end_char).collect::<Vec<_>>();
+
+                /*   let iter = SegmentReader::new(
+                    table.clone(),
+                    (0, 0).into(),
+                    block_cache.clone(),
+                    block_index.clone(),
+                )
+                .set_lower_bound(Arc::new([start_char]))
+                .set_upper_bound(Arc::new([end_char]));
+                let mut range = iter.flatten().map(|x| x.key);
+
+                for &item in &expected_range {
+                    assert_eq!(&*range.next().expect("should exist"), &[item]);
                 } */
+
+                let iter = SegmentReader::new(
+                    table.clone(),
+                    (0, 0).into(),
+                    block_cache.clone(),
+                    block_index.clone(),
+                )
+                .set_lower_bound(Arc::new([start_char]))
+                .set_upper_bound(Arc::new([end_char]));
+                let mut range = iter.flatten().map(|x| x.key);
+
+                for &item in expected_range.iter().rev() {
+                    assert_eq!(&*range.next_back().expect("should exist"), &[item]);
+                }
             }
         }
 

@@ -48,7 +48,7 @@ impl TopLevelIndex {
         )?
         .items;
 
-        log::trace!("loaded TLI: {items:#?}");
+        log::trace!("loaded TLI ({path:?}): {items:#?}");
 
         debug_assert!(!items.is_empty());
 

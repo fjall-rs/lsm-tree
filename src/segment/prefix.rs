@@ -252,8 +252,7 @@ mod tests {
 
             assert_eq!(iter.count() as u64, item_count);
 
-            // TODO: reverse
-            /*   let iter = PrefixedReader::new(
+            let iter = PrefixedReader::new(
                 table,
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -261,7 +260,7 @@ mod tests {
                 b"a/b/".to_vec(),
             );
 
-            assert_eq!(iter.rev().count() as u64, item_count); */
+            assert_eq!(iter.rev().count() as u64, item_count);
         }
 
         Ok(())

@@ -147,14 +147,16 @@ impl IndexBlockConsumer {
         Some((idx, block))
     }
 
-    fn initialize(&mut self) -> crate::Result<()> {
+    // TODO: reader.rs should be correct - index block consumer needs rewrite...
+
+    fn initialize(&mut self) {
         if let Some(key) = &self.start_key {
             // TODO: unit test
+
+            // TODO: only return index
             let result = self.get_start_block(key);
 
-            if let Some((idx, eligible_block_handle)) = result {
-                let eligible_block_handle = eligible_block_handle.clone();
-
+            if let Some((idx, _)) = result {
                 // IMPORTANT: Remove all handles lower and including eligible block handle
                 //
                 // If our block handles look like this:
@@ -167,26 +169,17 @@ impl IndexBlockConsumer {
                 // current_lo = c
                 //
                 // [d, e, f]
-                self.data_block_handles.drain(..=idx);
-
-                self.current_lo = Some(eligible_block_handle.clone());
-
-                let data_block = self.load_data_block(&eligible_block_handle)?;
-                debug_assert!(data_block.is_some());
-
-                if let Some(data_block) = data_block {
-                    self.data_blocks.insert(eligible_block_handle, data_block);
-                }
+                self.data_block_handles.drain(..idx);
             }
         }
 
         if let Some(key) = &self.end_key {
             // TODO: unit test
+
+            // TODO: only return index
             let result = self.get_end_block(key);
 
-            if let Some((idx, eligible_block_handle)) = result {
-                let eligible_block_handle = eligible_block_handle.clone();
-
+            if let Some((idx, _)) = result {
                 // IMPORTANT: Remove all handles higher and including eligible block handle
                 //
                 // If our block handles look like this:
@@ -200,21 +193,10 @@ impl IndexBlockConsumer {
                 //
                 // [a, b, c]
                 self.data_block_handles.drain((idx + 1)..);
-
-                self.current_hi = Some(eligible_block_handle.clone());
-
-                let data_block = self.load_data_block(&eligible_block_handle)?;
-                debug_assert!(data_block.is_some());
-
-                if let Some(data_block) = data_block {
-                    self.data_blocks.insert(eligible_block_handle, data_block);
-                }
             }
         }
 
         self.is_initialized = true;
-
-        Ok(())
     }
 }
 
@@ -223,9 +205,7 @@ impl Iterator for IndexBlockConsumer {
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_initialized {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
+            self.initialize();
         }
 
         if self.current_lo.is_none() {
@@ -249,61 +229,55 @@ impl Iterator for IndexBlockConsumer {
             }
         }
 
-        if let Some(current_lo) = &self.current_lo {
-            if self.current_hi == self.current_lo {
-                // We've reached the highest (last) block (bound by the hi marker)
-                // Just consume from it instead
-                let block = self.data_blocks.get_mut(&current_lo.clone());
-                return block.and_then(VecDeque::pop_front).map(Ok);
-            }
+        if self.data_block_handles.is_empty() && self.data_blocks.len() == 1 {
+            // We've reached the final block
+            // Just consume from it instead
+            let block = self.data_blocks.values_mut().next();
+            return block.and_then(VecDeque::pop_front).map(Ok);
         }
 
-        if let Some(current_lo) = &self.current_lo {
-            let block = self.data_blocks.get_mut(current_lo);
+        let current_lo = self.current_lo.as_ref().expect("lower bound uninitialized");
 
-            if let Some(block) = block {
-                let item = block.pop_front();
+        let block = self.data_blocks.get_mut(current_lo);
 
-                if block.is_empty() {
-                    // Load next block
-                    self.data_blocks.remove(current_lo);
+        if let Some(block) = block {
+            let item = block.pop_front();
 
-                    if let Some(next_data_block_handle) = self.data_block_handles.pop_front() {
-                        self.current_lo = Some(next_data_block_handle.clone());
+            if block.is_empty() {
+                // Load next block
+                self.data_blocks.remove(current_lo);
 
-                        if Some(&next_data_block_handle) == self.current_hi.as_ref() {
-                            // Do nothing
-                            // Next item consumed will use the existing higher block
-                        } else {
-                            let data_block = match self.load_data_block(&next_data_block_handle) {
-                                Ok(block) => block,
-                                Err(e) => return Some(Err(e)),
-                            };
-                            debug_assert!(data_block.is_some());
+                if let Some(next_data_block_handle) = self.data_block_handles.pop_front() {
+                    self.current_lo = Some(next_data_block_handle.clone());
 
-                            if let Some(data_block) = data_block {
-                                self.data_blocks.insert(next_data_block_handle, data_block);
-                            }
+                    if Some(&next_data_block_handle) == self.current_hi.as_ref() {
+                        // Do nothing
+                        // Next item consumed will use the existing higher block
+                    } else {
+                        let data_block = match self.load_data_block(&next_data_block_handle) {
+                            Ok(block) => block,
+                            Err(e) => return Some(Err(e)),
+                        };
+                        debug_assert!(data_block.is_some());
+
+                        if let Some(data_block) = data_block {
+                            self.data_blocks.insert(next_data_block_handle, data_block);
                         }
-                    };
+                    }
                 }
+            }
 
-                return item.map(Ok);
-            };
+            item.map(Ok)
+        } else {
+            None
         }
-
-        None
     }
 }
 
 impl DoubleEndedIterator for IndexBlockConsumer {
     fn next_back(&mut self) -> Option<Self::Item> {
-        //log::debug!("::next_back()");
-
         if !self.is_initialized {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
+            self.initialize();
         }
 
         if self.current_hi.is_none() {
@@ -327,51 +301,47 @@ impl DoubleEndedIterator for IndexBlockConsumer {
             }
         }
 
-        if let Some(current_hi) = &self.current_hi {
-            if self.current_lo == self.current_hi {
-                // We've reached the lowest (first) block (bound by the lo marker)
-                // Just consume from it instead
-                let block = self.data_blocks.get_mut(&current_hi.clone());
-                return block.and_then(VecDeque::pop_back).map(Ok);
-            }
+        if self.data_block_handles.is_empty() && self.data_blocks.len() == 1 {
+            // We've reached the final block
+            // Just consume from it instead
+            let block = self.data_blocks.values_mut().next();
+            return block.and_then(VecDeque::pop_back).map(Ok);
         }
 
-        if let Some(current_hi) = &self.current_hi {
-            let block = self.data_blocks.get_mut(current_hi);
+        let current_hi = self.current_hi.as_ref().expect("upper bound uninitialized");
 
-            if let Some(block) = block {
-                let item = block.pop_back();
+        let block = self.data_blocks.get_mut(current_hi);
 
-                if block.is_empty() {
-                    // Load next block
-                    self.data_blocks.remove(current_hi);
+        if let Some(block) = block {
+            let item = block.pop_back();
 
-                    if let Some(prev_data_block_handle) = self.data_block_handles.pop_back() {
-                        // log::trace!("rotated block");
+            if block.is_empty() {
+                // Load next block
+                self.data_blocks.remove(current_hi);
 
-                        self.current_hi = Some(prev_data_block_handle.clone());
+                if let Some(prev_data_block_handle) = self.data_block_handles.pop_back() {
+                    self.current_hi = Some(prev_data_block_handle.clone());
 
-                        if Some(&prev_data_block_handle) == self.current_lo.as_ref() {
-                            // Do nothing
-                            // Next item consumed will use the existing lower block
-                        } else {
-                            let data_block = match self.load_data_block(&prev_data_block_handle) {
-                                Ok(block) => block,
-                                Err(e) => return Some(Err(e)),
-                            };
-                            debug_assert!(data_block.is_some());
+                    if Some(&prev_data_block_handle) == self.current_lo.as_ref() {
+                        // Do nothing
+                        // Next item consumed will use the existing lower block
+                    } else {
+                        let data_block = match self.load_data_block(&prev_data_block_handle) {
+                            Ok(block) => block,
+                            Err(e) => return Some(Err(e)),
+                        };
+                        debug_assert!(data_block.is_some());
 
-                            if let Some(data_block) = data_block {
-                                self.data_blocks.insert(prev_data_block_handle, data_block);
-                            }
+                        if let Some(data_block) = data_block {
+                            self.data_blocks.insert(prev_data_block_handle, data_block);
                         }
-                    };
+                    }
                 }
+            }
 
-                return item.map(Ok);
-            };
+            item.map(Ok)
+        } else {
+            None
         }
-
-        None
     }
 }
