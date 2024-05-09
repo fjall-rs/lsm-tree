@@ -208,7 +208,7 @@ fn load_block_from_disk(c: &mut Criterion) {
     }
 }
 
-fn file_descriptor(c: &mut Criterion) {
+fn file_descriptor_table(c: &mut Criterion) {
     use std::fs::File;
 
     let file = tempfile::NamedTempFile::new().unwrap();
@@ -361,7 +361,7 @@ criterion_group!(
     value_block_size_find,
     value_block_size,
     load_block_from_disk,
-    file_descriptor,
+    file_descriptor_table,
     bloom_filter_construction,
     bloom_filter_contains,
     tree_get_pairs,
