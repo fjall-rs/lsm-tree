@@ -18,3 +18,4 @@ Cargo.lock
 /old_*
 .test*
 segment_history.jsonl
+.block_index_test
