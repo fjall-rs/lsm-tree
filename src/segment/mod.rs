@@ -11,7 +11,8 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader, range::Range, reader::Reader,
+    block::CachePolicy, block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader,
+    range::Range, reader::Reader,
 };
 use crate::{
     block_cache::BlockCache,
