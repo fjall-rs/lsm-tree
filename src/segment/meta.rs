@@ -16,6 +16,30 @@ use std::{
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TableType {
+    Block,
+}
+
+impl From<TableType> for u8 {
+    fn from(val: TableType) -> Self {
+        match val {
+            TableType::Block => 0,
+        }
+    }
+}
+
+impl TryFrom<u8> for TableType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Block),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(
     feature = "segment_history",
     derive(serde::Deserialize, serde::Serialize)
@@ -76,6 +100,9 @@ pub struct Metadata {
     /// Number of tombstones
     pub tombstone_count: u64,
 
+    /// Number of range tombstones
+    pub(crate) range_tombstone_count: u64,
+
     /// compressed size in bytes (on disk)
     pub file_size: u64,
 
@@ -90,6 +117,9 @@ pub struct Metadata {
 
     /// What type of compression is used
     pub compression: CompressionType,
+
+    /// Type of table (unused)
+    pub(crate) table_type: TableType,
 
     /// Sequence number range
     pub seqnos: (SeqNo, SeqNo),
@@ -107,6 +137,7 @@ impl Serializable for Metadata {
         writer.write_u64::<BigEndian>(self.item_count)?;
         writer.write_u64::<BigEndian>(self.key_count)?;
         writer.write_u64::<BigEndian>(self.tombstone_count)?;
+        writer.write_u64::<BigEndian>(self.range_tombstone_count)?;
 
         writer.write_u64::<BigEndian>(self.file_size)?;
         writer.write_u64::<BigEndian>(self.uncompressed_size)?;
@@ -115,6 +146,7 @@ impl Serializable for Metadata {
         writer.write_u32::<BigEndian>(self.block_count)?;
 
         writer.write_u8(self.compression.into())?;
+        writer.write_u8(self.table_type.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
         writer.write_u64::<BigEndian>(self.seqnos.1)?;
@@ -137,6 +169,7 @@ impl Deserializable for Metadata {
         let item_count = reader.read_u64::<BigEndian>()?;
         let key_count = reader.read_u64::<BigEndian>()?;
         let tombstone_count = reader.read_u64::<BigEndian>()?;
+        let range_tombstone_count = reader.read_u64::<BigEndian>()?;
 
         let file_size = reader.read_u64::<BigEndian>()?;
         let uncompressed_size = reader.read_u64::<BigEndian>()?;
@@ -146,6 +179,9 @@ impl Deserializable for Metadata {
 
         let compression = reader.read_u8()?;
         let compression = CompressionType::try_from(compression).expect("invalid compression type");
+
+        let table_type = reader.read_u8()?;
+        let table_type = TableType::try_from(table_type).expect("invalid table type");
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;
@@ -167,6 +203,8 @@ impl Deserializable for Metadata {
             item_count,
             key_count,
             tombstone_count,
+            range_tombstone_count,
+
             file_size,
             uncompressed_size,
 
@@ -174,6 +212,7 @@ impl Deserializable for Metadata {
             block_count,
 
             compression,
+            table_type,
 
             seqnos: (seqno_min, seqno_max),
 
@@ -196,6 +235,7 @@ impl Metadata {
 
             file_size: writer.file_pos,
             compression: CompressionType::Lz4,
+            table_type: TableType::Block,
             item_count: writer.item_count as u64,
             key_count: writer.key_count as u64,
 
@@ -207,8 +247,10 @@ impl Metadata {
                     .last_key
                     .expect("should have written at least 1 item"),
             )),
+
             seqnos: (writer.lowest_seqno, writer.highest_seqno),
             tombstone_count: writer.tombstone_count as u64,
+            range_tombstone_count: 0, // TODO:
             uncompressed_size: writer.uncompressed_size,
         })
     }
@@ -254,11 +296,13 @@ mod tests {
             created_at: 5,
             id: 632_632,
             file_size: 1,
-            compression: crate::segment::meta::CompressionType::Lz4,
+            compression: CompressionType::Lz4,
+            table_type: TableType::Block,
             item_count: 0,
             key_count: 0,
             key_range: KeyRange::new((vec![2].into(), vec![5].into())),
             tombstone_count: 0,
+            range_tombstone_count: 0,
             uncompressed_size: 0,
             seqnos: (0, 5),
         };
