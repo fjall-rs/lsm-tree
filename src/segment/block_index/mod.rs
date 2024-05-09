@@ -124,67 +124,6 @@ impl BlockIndex {
             .cloned())
     }
 
-    pub fn get_upper_bound_block_info(
-        &self,
-        key: &[u8],
-    ) -> crate::Result<Option<KeyedBlockHandle>> {
-        todo!();
-        /* let Some(first_block_handle) = self.top_level_index.get_lowest_block_containing_item(key)
-        else {
-            return Ok(None);
-        };
-
-        let index_block =
-            self.load_index_block(first_block_handle, CachePolicy::Write /* TODO: */)?;
-
-        let next_block = index_block.get_next_block_info(key);
-
-        if let Some(block) = next_block {
-            Ok(Some(block).cloned())
-        } else {
-            // The upper bound block is not in the same index block as the key, so load next index block
-            let Some(next_block_handle) = self
-                .top_level_index
-                .get_next_block_handle(first_block_handle.offset)
-            else {
-                return Ok(None);
-            };
-
-            Ok(Some(next_block_handle.clone()))
-        } */
-    }
-
-    /// Returns the previous index block's key, if it exists, or None
-    pub fn get_previous_block_key(&self, key: &[u8]) -> crate::Result<Option<KeyedBlockHandle>> {
-        todo!();
-
-        /*   let Some(first_block_handle) = self.top_level_index.get_lowest_block_containing_item(key)
-        else {
-            return Ok(None);
-        };
-
-        let index_block =
-            self.load_index_block(first_block_handle, CachePolicy::Write /* TODO: */)?;
-
-        let maybe_prev = index_block.get_previous_block_info(key);
-
-        if let Some(item) = maybe_prev {
-            Ok(Some(item).cloned())
-        } else {
-            let Some(prev_block_handle) = self
-                .top_level_index
-                .get_previous_block_handle(first_block_handle.offset)
-            else {
-                return Ok(None);
-            };
-
-            let index_block =
-                self.load_index_block(prev_block_handle, CachePolicy::Write /* TODO: */)?;
-
-            Ok(index_block.items.last().cloned())
-        } */
-    }
-
     /// Returns the next index block's key, if it exists, or None
     #[must_use]
     pub fn get_next_index_block_handle(
@@ -204,30 +143,6 @@ impl BlockIndex {
         self.top_level_index
             .get_prev_block_handle(block_handle.offset)
     }
-
-    /* let Some(first_block_handle) = self.top_level_index.get_lowest_block_containing_item(key)
-    else {
-        return Ok(None);
-    };
-
-    let index_block = self.load_index_block(first_block_handle, cache_policy)?;
-
-    let maybe_next = index_block.get_next_block_info(key);
-
-    if let Some(item) = maybe_next {
-        Ok(Some(item).cloned())
-    } else {
-        let Some(next_block_handle) = self
-            .top_level_index
-            .get_next_block_handle(first_block_handle.offset)
-        else {
-            return Ok(None);
-        };
-
-        let index_block = self.load_index_block(next_block_handle, cache_policy)?;
-
-        Ok(index_block.items.first().cloned())
-    } */
 
     #[must_use]
     pub fn get_first_index_block_handle(&self) -> &KeyedBlockHandle {
