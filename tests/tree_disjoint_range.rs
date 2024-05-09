@@ -1,5 +1,6 @@
 use lsm_tree::Config;
 use std::sync::Arc;
+use test_log::test;
 
 macro_rules! iter_closed {
     ($iter:expr) => {

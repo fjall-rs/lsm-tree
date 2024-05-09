@@ -78,7 +78,6 @@ impl IndexBlockConsumer {
     ///
     /// If we searched for 'f', we would get:
     ///
-    ///           v current_lo, loaded
     /// [a, b, c] [d, e, f] [g, h, i]
     ///           ~~~~~~~~~~~~~~~~~~~
     ///           iteration
@@ -208,7 +207,7 @@ impl Iterator for IndexBlockConsumer {
             self.initialize();
         }
 
-        if self.current_lo.is_none() {
+        if self.current_lo.is_none() && !self.data_block_handles.is_empty() {
             let first_data_block_handle = self.data_block_handles.pop_front()?;
 
             self.current_lo = Some(first_data_block_handle.clone());
@@ -280,7 +279,7 @@ impl DoubleEndedIterator for IndexBlockConsumer {
             self.initialize();
         }
 
-        if self.current_hi.is_none() {
+        if self.current_hi.is_none() && !self.data_block_handles.is_empty() {
             let last_data_block_handle = self.data_block_handles.pop_back()?;
 
             self.current_hi = Some(last_data_block_handle.clone());

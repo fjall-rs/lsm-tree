@@ -9,7 +9,6 @@ use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
 use crate::disk_block::DiskBlock;
 use crate::file::{BLOCKS_FILE, TOP_LEVEL_INDEX_FILE};
-use crate::value::UserKey;
 use std::path::Path;
 use std::sync::Arc;
 use top_level::TopLevelIndex;
@@ -18,13 +17,13 @@ use top_level::TopLevelIndex;
 pub type BlockHandleBlock = DiskBlock<KeyedBlockHandle>;
 
 impl BlockHandleBlock {
-    pub(crate) fn get_previous_data_block_handle(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
+    /*   pub(crate) fn get_previous_data_block_handle(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
         self.items.iter().rev().find(|x| &*x.start_key < key)
     }
 
     pub(crate) fn get_next_data_block_handle(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
         self.items.iter().find(|x| &*x.start_key > key)
-    }
+    } */
 
     /// Finds the block that (possibly) contains a key
     pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
@@ -206,8 +205,6 @@ impl BlockIndex {
             .get_prev_block_handle(block_handle.offset)
     }
 
-    //todo!();
-
     /* let Some(first_block_handle) = self.top_level_index.get_lowest_block_containing_item(key)
     else {
         return Ok(None);
@@ -284,16 +281,14 @@ impl BlockIndex {
     #[allow(dead_code, clippy::expect_used)]
     #[doc(hidden)]
     pub(crate) fn new(segment_id: GlobalSegmentId, block_cache: Arc<BlockCache>) -> Self {
-        todo!();
-
-        /* let index_block_index = IndexBlockFetcher(block_cache);
+        let index_block_index = IndexBlockFetcher(block_cache);
 
         Self {
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             segment_id,
             blocks: index_block_index,
             top_level_index: TopLevelIndex::from_boxed_slice(Box::default()),
-        } */
+        }
     }
 
     /* pub fn preload(&self) -> crate::Result<()> {
@@ -314,7 +309,7 @@ impl BlockIndex {
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
-        log::debug!("Reading block index from {folder:?}");
+        log::trace!("Reading block index from {folder:?}");
 
         debug_assert!(folder.try_exists()?, "{folder:?} missing");
         debug_assert!(

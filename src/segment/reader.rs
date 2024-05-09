@@ -134,23 +134,25 @@ impl Reader {
 
         self.current_lo = Some(block_handle.clone());
 
-        let mut consumer = IndexBlockConsumer::new(
-            self.descriptor_table.clone(),
-            self.segment_id,
-            self.block_cache.clone(),
-            self.block_index.clone(),
-            index_block.items.to_vec().into(),
-        )
-        .cache_policy(self.cache_policy);
+        if self.current_lo != self.current_hi {
+            let mut consumer = IndexBlockConsumer::new(
+                self.descriptor_table.clone(),
+                self.segment_id,
+                self.block_cache.clone(),
+                self.block_index.clone(),
+                index_block.items.to_vec().into(),
+            )
+            .cache_policy(self.cache_policy);
 
-        if let Some(start_key) = &self.start_key {
-            consumer = consumer.set_lower_bound(start_key.clone());
-        }
-        if let Some(end_key) = &self.end_key {
-            consumer = consumer.set_upper_bound(end_key.clone());
-        }
+            if let Some(start_key) = &self.start_key {
+                consumer = consumer.set_lower_bound(start_key.clone());
+            }
+            if let Some(end_key) = &self.end_key {
+                consumer = consumer.set_upper_bound(end_key.clone());
+            }
 
-        self.consumers.insert(block_handle.clone(), consumer);
+            self.consumers.insert(block_handle.clone(), consumer);
+        }
 
         Ok(())
     }
@@ -161,8 +163,6 @@ impl Reader {
         self.current_hi = Some(block_handle.clone());
 
         if self.current_hi != self.current_lo {
-            log::info!("loading initial upper index block: {block_handle:?}");
-
             let index_block = self
                 .block_index
                 .load_index_block(block_handle, self.cache_policy)?;

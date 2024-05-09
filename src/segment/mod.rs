@@ -174,12 +174,13 @@ impl Segment {
                 Ok(maybe_our_items_iter.next().cloned())
             }
             Some(seqno) => {
-                todo!();
+                // TODO: optimize by consuming iter, if nothing found, setup iterator on next **data block**
+
                 /* for item in maybe_our_items_iter {
                     if item.seqno < seqno {
                         return Ok(Some(item.clone()));
                     }
-                }
+                } */
 
                 // NOTE: If we got here, the item was not in the block :(
 
@@ -199,22 +200,21 @@ impl Segment {
                 // However, we are searching for A with seqno 2, which
                 // unfortunately is in the next block
 
-                // Load next block and setup block iterator
+                /*   // Load next block and setup block iterator
                 let Some(next_block_handle) = self
                     .block_index
                     .get_next_block_key(&block_handle.start_key, CachePolicy::Write)?
                 else {
                     return Ok(None);
-                };
+                }; */
 
                 let iter = Reader::new(
                     Arc::clone(&self.descriptor_table),
                     (self.tree_id, self.metadata.id).into(),
                     Arc::clone(&self.block_cache),
                     Arc::clone(&self.block_index),
-                    Some(&next_block_handle.start_key),
-                    None,
-                );
+                )
+                .set_lower_bound(key.into());
 
                 for item in iter {
                     let item = item?;
@@ -227,7 +227,7 @@ impl Segment {
                     if item.seqno < seqno {
                         return Ok(Some(item));
                     }
-                } */
+                }
 
                 Ok(None)
             }
@@ -242,16 +242,12 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Reader {
-        todo!();
-
-        /*     Reader::new(
+        Reader::new(
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
-            None,
-            None,
-        ) */
+        )
     }
 
     /// Creates a ranged iterator over the `Segment`.
@@ -297,16 +293,6 @@ impl Segment {
     pub fn tombstone_count(&self) -> u64 {
         self.metadata.tombstone_count
     }
-
-    /*  /// Returns `true` if the key is contained in the segment's key range.
-    pub(crate) fn key_range_contains<K: AsRef<[u8]>>(&self, key: K) -> bool {
-        self.metadata.key_range_contains(key)
-    }
-
-    /// Returns `true` if the prefix matches any key in the segment's key range.
-    pub(crate) fn check_prefix_overlap(&self, prefix: &[u8]) -> bool {
-        self.metadata.key_range.contains_prefix(prefix)
-    } */
 
     /// Checks if a key range is (partially or fully) contained in this segment.
     pub(crate) fn check_key_range_overlap(

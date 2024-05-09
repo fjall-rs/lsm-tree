@@ -65,8 +65,6 @@ impl Writer {
             crc: 0,
         };
 
-        //  log::trace!("writing index block {:#?}", block);
-
         // Serialize block
         block.crc = DiskBlock::<KeyedBlockHandle>::create_crc(&block.items)?;
         let bytes = DiskBlock::to_bytes_compressed(&block);

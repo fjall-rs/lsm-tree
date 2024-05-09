@@ -107,8 +107,6 @@ impl Writer {
     pub(crate) fn write_block(&mut self) -> crate::Result<()> {
         debug_assert!(!self.chunk.is_empty());
 
-        // log::error!("write block {:#?}", self.chunk);
-
         let uncompressed_chunk_size = self
             .chunk
             .iter()
@@ -213,7 +211,7 @@ impl Writer {
 
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
-            log::debug!(
+            log::trace!(
                 "Deleting empty segment folder ({}) because no items were written",
                 self.opts.folder.display()
             );
@@ -234,7 +232,7 @@ impl Writer {
         #[cfg(feature = "bloom")]
         {
             let n = self.bloom_hash_buffer.len();
-            log::debug!("Writing bloom filter with {n} hashes");
+            log::trace!("Writing bloom filter with {n} hashes");
 
             let mut filter = BloomFilter::with_fp_rate(n, self.opts.bloom_fp_rate);
 
@@ -273,9 +271,8 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_write_and_read() -> crate::Result<()> {
-        todo!();
-        /* const ITEM_COUNT: u64 = 100;
+    fn segment_writer_write_read() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 100;
 
         let folder = tempfile::tempdir()?.into_path();
 
@@ -325,19 +322,16 @@ mod tests {
             (0, segment_id).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
-        assert_eq!(ITEM_COUNT, iter.count() as u64); */
+        assert_eq!(ITEM_COUNT, iter.count() as u64);
 
         Ok(())
     }
 
     #[test]
-    fn test_write_and_read_mvcc() -> crate::Result<()> {
-        todo!();
-        /* const ITEM_COUNT: u64 = 1_000;
+    fn segment_writer_write_read_mvcc() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 1_000;
         const VERSION_COUNT: u64 = 5;
 
         let folder = tempfile::tempdir()?.into_path();
@@ -389,11 +383,9 @@ mod tests {
             (0, segment_id).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
-        assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64); */
+        assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);
 
         Ok(())
     }
