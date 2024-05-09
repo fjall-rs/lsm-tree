@@ -121,11 +121,10 @@ pub mod file;
 #[doc(hidden)]
 pub mod flush;
 
-#[doc(hidden)]
-pub mod id;
-
 mod key_range;
-mod levels;
+
+#[doc(hidden)]
+pub mod levels;
 
 mod lru_list;
 
@@ -158,6 +157,12 @@ mod tree;
 mod tree_inner;
 mod value;
 mod version;
+
+#[doc(hidden)]
+pub use {
+    segment::{id::GlobalSegmentId, meta::SegmentId},
+    tree_inner::TreeId,
+};
 
 pub use {
     block_cache::BlockCache,

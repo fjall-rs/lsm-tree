@@ -79,6 +79,8 @@ impl MemTable {
 
     /// Inserts an item into the memtable
     pub fn insert(&self, item: Value) -> (u32, u32) {
+        // NOTE: Value length is u32 max
+        #[allow(clippy::cast_possible_truncation)]
         let item_size = item.size() as u32;
 
         let size_before = self
@@ -110,7 +112,51 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_memtable_get() {
+    #[allow(clippy::unwrap_used)]
+    fn memtable_mvcc_point_read() {
+        let memtable = MemTable::default();
+
+        memtable.insert(Value::new(
+            *b"hello-key-999991",
+            *b"hello-value-999991",
+            0,
+            ValueType::Value,
+        ));
+
+        let item = memtable.get("hello-key-99999", None);
+        assert_eq!(None, item);
+
+        let item = memtable.get("hello-key-999991", None);
+        assert_eq!(*b"hello-value-999991", &*item.unwrap().value);
+
+        memtable.insert(Value::new(
+            *b"hello-key-999991",
+            *b"hello-value-999991-2",
+            1,
+            ValueType::Value,
+        ));
+
+        let item = memtable.get("hello-key-99999", None);
+        assert_eq!(None, item);
+
+        let item = memtable.get("hello-key-999991", None);
+        assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
+
+        let item = memtable.get("hello-key-99999", Some(1));
+        assert_eq!(None, item);
+
+        let item = memtable.get("hello-key-999991", Some(1));
+        assert_eq!((*b"hello-value-999991"), &*item.unwrap().value);
+
+        let item = memtable.get("hello-key-99999", Some(2));
+        assert_eq!(None, item);
+
+        let item = memtable.get("hello-key-999991", Some(2));
+        assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
+    }
+
+    #[test]
+    fn memtable_get() {
         let memtable = MemTable::default();
 
         let value = Value::new(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
@@ -121,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn test_memtable_get_highest_seqno() {
+    fn memtable_get_highest_seqno() {
         let memtable = MemTable::default();
 
         memtable.insert(Value::new(
@@ -167,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_memtable_get_prefix() {
+    fn memtable_get_prefix() {
         let memtable = MemTable::default();
 
         memtable.insert(Value::new(
@@ -205,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_memtable_get_old_version() {
+    fn memtable_get_old_version() {
         let memtable = MemTable::default();
 
         memtable.insert(Value::new(

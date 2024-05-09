@@ -1,6 +1,5 @@
-use crate::{segment::Segment, value::SeqNo, UserKey, Value};
+use crate::{value::SeqNo, UserKey, Value};
 use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
-use std::sync::Arc;
 
 // TODO: use (ParsedInternalKey, UserValue) instead of Value...
 
@@ -36,26 +35,16 @@ impl<'a> MergeIterator<'a> {
     }
 
     /// Evict old versions by skipping over them
+    #[must_use]
     pub fn evict_old_versions(mut self, v: bool) -> Self {
         self.evict_old_versions = v;
         self
     }
 
+    #[must_use]
     pub fn snapshot_seqno(mut self, v: SeqNo) -> Self {
         self.seqno = Some(v);
         self
-    }
-
-    pub fn from_segments(segments: &[Arc<Segment>]) -> MergeIterator<'a> {
-        let mut iter_vec: Vec<Box<dyn DoubleEndedIterator<Item = crate::Result<Value>>>> =
-            Vec::with_capacity(segments.len());
-
-        for segment in segments {
-            let iter = Box::new(segment.iter(false));
-            iter_vec.push(iter);
-        }
-
-        MergeIterator::new(iter_vec)
     }
 
     fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
@@ -1225,9 +1214,9 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value,),
-                Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value,),
-                Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value,),
+                Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+                Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
+                Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             ]
         );
 

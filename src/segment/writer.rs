@@ -53,7 +53,7 @@ pub struct Writer {
 }
 
 pub struct Options {
-    pub path: PathBuf,
+    pub folder: PathBuf,
     pub evict_tombstones: bool,
     pub block_size: u32,
 
@@ -62,14 +62,14 @@ pub struct Options {
 }
 
 impl Writer {
-    /// Sets up a new `MultiWriter` at the given segments folder
+    /// Sets up a new `Writer` at the given folder
     pub fn new(opts: Options) -> crate::Result<Self> {
-        std::fs::create_dir_all(&opts.path)?;
+        std::fs::create_dir_all(&opts.folder)?;
 
-        let block_writer = File::create(opts.path.join(BLOCKS_FILE))?;
-        let block_writer = BufWriter::with_capacity(512_000, block_writer);
+        let block_writer = File::create(opts.folder.join(BLOCKS_FILE))?;
+        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(&opts.path, opts.block_size)?;
+        let index_writer = IndexWriter::new(&opts.folder, opts.block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
@@ -101,10 +101,10 @@ impl Writer {
         })
     }
 
-    /// Writes a compressed block to disk
+    /// Writes a compressed block to disk.
     ///
-    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`
-    fn write_block(&mut self) -> crate::Result<()> {
+    /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`.
+    pub(crate) fn write_block(&mut self) -> crate::Result<()> {
         debug_assert!(!self.chunk.is_empty());
 
         let uncompressed_chunk_size = self
@@ -148,7 +148,13 @@ impl Writer {
         Ok(())
     }
 
-    /// Writes an item
+    /// Writes an item.
+    ///
+    /// # Note
+    ///
+    /// It's important that the incoming stream of data is correctly
+    /// sorted as described by the [`UserKey`], otherwise the block layout will
+    /// be non-sense.
     pub fn write(&mut self, item: Value) -> crate::Result<()> {
         if item.is_tombstone() {
             if self.opts.evict_tombstones {
@@ -205,11 +211,11 @@ impl Writer {
 
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
-            log::debug!(
+            log::trace!(
                 "Deleting empty segment folder ({}) because no items were written",
-                self.opts.path.display()
+                self.opts.folder.display()
             );
-            std::fs::remove_dir_all(&self.opts.path)?;
+            std::fs::remove_dir_all(&self.opts.folder)?;
             return Ok(());
         }
 
@@ -226,7 +232,7 @@ impl Writer {
         #[cfg(feature = "bloom")]
         {
             let n = self.bloom_hash_buffer.len();
-            log::debug!("Writing bloom filter with {n} hashes");
+            log::trace!("Writing bloom filter with {n} hashes");
 
             let mut filter = BloomFilter::with_fp_rate(n, self.opts.bloom_fp_rate);
 
@@ -234,17 +240,17 @@ impl Writer {
                 filter.set_with_hash(hash);
             }
 
-            filter.write_to_file(self.opts.path.join(BLOOM_FILTER_FILE))?;
+            filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
         }
 
         // IMPORTANT: fsync folder on Unix
-        fsync_directory(&self.opts.path)?;
+        fsync_directory(&self.opts.folder)?;
 
         log::debug!(
             "Written {} items in {} blocks into new segment file, written {} MB",
             self.item_count,
             self.block_count,
-            self.file_pos / 1024 / 1024
+            self.file_pos / 1_024 / 1_024
         );
 
         Ok(())
@@ -265,13 +271,13 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_write_and_read() -> crate::Result<()> {
+    fn segment_writer_write_read() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
-            path: folder.clone(),
+            folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
 
@@ -294,28 +300,28 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let segment_id = 532;
+
+        let metadata = Metadata::from_writer(segment_id, writer)?;
         metadata.write_to_file(&folder)?;
         assert_eq!(ITEM_COUNT, metadata.item_count);
         assert_eq!(ITEM_COUNT, metadata.key_count);
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, segment_id).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
         )?);
         let iter = Reader::new(
             table,
-            metadata.id,
-            Some(Arc::clone(&block_cache)),
+            (0, segment_id).into(),
+            Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
         assert_eq!(ITEM_COUNT, iter.count() as u64);
@@ -324,14 +330,14 @@ mod tests {
     }
 
     #[test]
-    fn test_write_and_read_mvcc() -> crate::Result<()> {
+    fn segment_writer_write_read_mvcc() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 1_000;
         const VERSION_COUNT: u64 = 5;
 
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
-            path: folder.clone(),
+            folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
 
@@ -354,17 +360,19 @@ mod tests {
 
         writer.finish()?;
 
-        let metadata = Metadata::from_writer(nanoid::nanoid!().into(), writer)?;
+        let segment_id = 532;
+
+        let metadata = Metadata::from_writer(segment_id, writer)?;
         metadata.write_to_file(&folder)?;
         assert_eq!(ITEM_COUNT * VERSION_COUNT, metadata.item_count);
         assert_eq!(ITEM_COUNT, metadata.key_count);
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), metadata.id.clone());
+        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
-            metadata.id.clone(),
+            (0, segment_id).into(),
             table.clone(),
             &folder,
             Arc::clone(&block_cache),
@@ -372,11 +380,9 @@ mod tests {
 
         let iter = Reader::new(
             table,
-            metadata.id,
-            Some(Arc::clone(&block_cache)),
+            (0, segment_id).into(),
+            Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            None,
-            None,
         );
 
         assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);

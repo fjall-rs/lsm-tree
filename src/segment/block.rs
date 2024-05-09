@@ -1,4 +1,4 @@
-use super::block_index::{block_handle::BlockHandle, BlockIndex};
+use super::{block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
 use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
 use std::sync::Arc;
 
@@ -15,14 +15,24 @@ impl ValueBlock {
     }
 }
 
-pub fn load_and_cache_by_block_handle(
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CachePolicy {
+    /// Read cached blocks, but do not change cache
+    Read,
+
+    /// Read cached blocks, and update cache
+    Write,
+}
+
+pub fn load_by_block_handle(
     descriptor_table: &FileDescriptorTable,
     block_cache: &BlockCache,
-    segment_id: &str,
-    block_handle: &BlockHandle,
+    segment_id: GlobalSegmentId,
+    block_handle: &KeyedBlockHandle,
+    cache_policy: CachePolicy,
 ) -> crate::Result<Option<Arc<ValueBlock>>> {
     Ok(
-        if let Some(block) = block_cache.get_disk_block(segment_id, &block_handle.start_key) {
+        if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
             // Cache hit: Copy from block
 
             Some(block)
@@ -30,7 +40,7 @@ pub fn load_and_cache_by_block_handle(
             // Cache miss: load from disk
 
             let file_guard = descriptor_table
-                .access(&segment_id.into())?
+                .access(&segment_id)?
                 .expect("should acquire file handle");
 
             let block = ValueBlock::from_file_compressed(
@@ -43,34 +53,11 @@ pub fn load_and_cache_by_block_handle(
 
             let block = Arc::new(block);
 
-            block_cache.insert_disk_block(
-                segment_id.into(),
-                block_handle.start_key.clone(),
-                Arc::clone(&block),
-            );
+            if cache_policy == CachePolicy::Write {
+                block_cache.insert_disk_block(segment_id, block_handle.offset, Arc::clone(&block));
+            }
 
             Some(block)
-        },
-    )
-}
-
-pub fn load_and_cache_block_by_item_key<K: AsRef<[u8]>>(
-    descriptor_table: &FileDescriptorTable,
-    block_index: &BlockIndex,
-    block_cache: &BlockCache,
-    segment_id: &str,
-    item_key: K,
-) -> crate::Result<Option<Arc<ValueBlock>>> {
-    Ok(
-        if let Some(block_handle) = block_index.get_lower_bound_block_info(item_key.as_ref())? {
-            load_and_cache_by_block_handle(
-                descriptor_table,
-                block_cache,
-                segment_id,
-                &block_handle,
-            )?
-        } else {
-            None
         },
     )
 }

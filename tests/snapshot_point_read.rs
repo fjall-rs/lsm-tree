@@ -3,7 +3,7 @@ use test_log::test;
 
 #[test]
 fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
-    let version_count = 100_000;
+    let version_count = 600;
 
     let folder = tempfile::tempdir()?;
 

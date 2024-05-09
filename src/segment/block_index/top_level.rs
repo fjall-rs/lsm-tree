@@ -1,55 +1,6 @@
-use crate::{
-    segment::block_index::BlockHandleBlock,
-    serde::{Deserializable, Serializable},
-    value::UserKey,
-};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::{
-    collections::BTreeMap,
-    fs::File,
-    io::{BufReader, Read, Write},
-    ops::Bound::{Excluded, Unbounded},
-    path::Path,
-    sync::Arc,
-};
-
-/// A reference to a block handle block on disk
-///
-/// Stores the block's position and size in bytes
-/// The start key is stored in the in-memory search tree, see [`TopLevelIndex`] below.
-///
-/// # Disk representation
-///
-/// \[offset; 8 bytes] - \[size; 4 bytes]
-//
-// NOTE: Yes the name is absolutely ridiculous, but it's not the
-// same as a regular BlockHandle (to a data block), because the
-// start key is not required (it's already in the index, see below)
-#[derive(Debug, PartialEq, Eq)]
-pub struct BlockHandleBlockHandle {
-    pub offset: u64,
-    pub size: u32,
-}
-
-impl Serializable for BlockHandleBlockHandle {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), crate::SerializeError> {
-        writer.write_u64::<BigEndian>(self.offset)?;
-        writer.write_u32::<BigEndian>(self.size)?;
-        Ok(())
-    }
-}
-
-impl Deserializable for BlockHandleBlockHandle {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, crate::DeserializeError>
-    where
-        Self: Sized,
-    {
-        let offset = reader.read_u64::<BigEndian>()?;
-        let size = reader.read_u32::<BigEndian>()?;
-
-        Ok(Self { offset, size })
-    }
-}
+use super::block_handle::KeyedBlockHandle;
+use crate::disk_block::DiskBlock;
+use std::{fs::File, io::BufReader, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their position
 ///
@@ -70,16 +21,15 @@ impl Deserializable for BlockHandleBlockHandle {
 /// In the diagram above, searching for 'L' yields the block starting with 'K'.
 /// L must be in that block, because the next block starts with 'Z').
 #[allow(clippy::module_name_repetitions)]
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct TopLevelIndex {
-    // NOTE: UserKey is the start key of the block
-    pub data: BTreeMap<UserKey, BlockHandleBlockHandle>,
+    pub data: Box<[KeyedBlockHandle]>,
 }
 
 impl TopLevelIndex {
     /// Creates a top-level block index
     #[must_use]
-    pub fn from_tree(data: BTreeMap<UserKey, BlockHandleBlockHandle>) -> Self {
+    pub fn from_boxed_slice(data: Box<[KeyedBlockHandle]>) -> Self {
         Self { data }
     }
 
@@ -87,70 +37,76 @@ impl TopLevelIndex {
     pub fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        let file_size = std::fs::metadata(path)?.len();
+        // NOTE: TLI is generally < 1 MB in size
+        #[allow(clippy::cast_possible_truncation)]
+        let index_size = std::fs::metadata(path)?.len() as u32;
 
-        let index = BlockHandleBlock::from_file_compressed(
+        let items = DiskBlock::<KeyedBlockHandle>::from_file_compressed(
             &mut BufReader::new(File::open(path)?),
             0,
-            file_size as u32,
-        )?;
+            index_size,
+        )?
+        .items;
 
-        debug_assert!(!index.items.is_empty());
+        log::trace!("loaded TLI ({path:?}): {items:#?}");
 
-        let mut tree = BTreeMap::new();
+        debug_assert!(!items.is_empty());
 
-        // TODO: https://github.com/rust-lang/rust/issues/59878
-        for item in index.items.into_vec() {
-            tree.insert(
-                item.start_key,
-                BlockHandleBlockHandle {
-                    offset: item.offset,
-                    size: item.size,
-                },
-            );
-        }
-
-        Ok(Self::from_tree(tree))
+        Ok(Self::from_boxed_slice(items))
     }
 
-    /// Returns a handle to the first block that is not covered by the given prefix anymore
-    pub(crate) fn get_prefix_upper_bound(
-        &self,
-        prefix: &[u8],
-    ) -> Option<(&UserKey, &BlockHandleBlockHandle)> {
-        let key: Arc<[u8]> = prefix.into();
+    /// Returns a handle to the first index block that is not covered by the given prefix anymore
+    pub(crate) fn get_prefix_upper_bound(&self, prefix: &[u8]) -> Option<&KeyedBlockHandle> {
+        let start_idx = self.data.partition_point(|x| &*x.start_key < prefix);
 
-        let mut iter = self.data.range(key..);
+        for idx in start_idx.. {
+            let handle = self.data.get(idx)?;
 
-        loop {
-            let (key, block_handle) = iter.next()?;
-
-            if !key.starts_with(prefix) {
-                return Some((key, block_handle));
+            if !handle.start_key.starts_with(prefix) {
+                return Some(handle);
             }
         }
+
+        None
     }
 
-    /// Returns a handle to the block which should contain an item with a given key
-    pub(crate) fn get_block_containing_item(
-        &self,
-        key: &[u8],
-    ) -> Option<(&UserKey, &BlockHandleBlockHandle)> {
-        let key: Arc<[u8]> = key.into();
-        self.data.range(..=key).next_back()
-    }
+    // TODO: these methods work using a slice of KeyedBlockHandles
+    // IndexBlocks are also a slice of KeyedBlockHandles
+    // ... see where I'm getting at...?
 
-    /// Returns a handle to the first block
+    /// Returns a handle to the lowest index block which definitely does not contain the given key
     #[must_use]
-    pub fn get_first_block_handle(&self) -> (&UserKey, &BlockHandleBlockHandle) {
+    pub fn get_lowest_block_not_containing_key(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
+        let idx = self.data.partition_point(|x| &*x.start_key <= key);
+        self.data.get(idx)
+    }
+
+    /// Returns a handle to the index block which should contain an item with a given key
+    #[must_use]
+    pub fn get_lowest_block_containing_key(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
+        let idx = self.data.partition_point(|x| &*x.start_key < key);
+        let idx = idx.saturating_sub(1);
+
+        let block = self.data.get(idx)?;
+
+        if &*block.start_key > key {
+            None
+        } else {
+            Some(block)
+        }
+    }
+
+    /// Returns a handle to the first index block
+    #[must_use]
+    pub fn get_first_block_handle(&self) -> &KeyedBlockHandle {
         // NOTE: Index is never empty
         #[allow(clippy::expect_used)]
         self.data.iter().next().expect("index should not be empty")
     }
 
-    /// Returns a handle to the last block
+    /// Returns a handle to the last index block
     #[must_use]
-    pub fn get_last_block_handle(&self) -> (&UserKey, &BlockHandleBlockHandle) {
+    pub fn get_last_block_handle(&self) -> &KeyedBlockHandle {
         // NOTE: Index is never empty
         #[allow(clippy::expect_used)]
         self.data
@@ -159,21 +115,23 @@ impl TopLevelIndex {
             .expect("index should not be empty")
     }
 
-    /// Returns a handle to the block before the one containing the input key, if it exists, or None
+    /// Returns a handle to the index block before the input block, if it exists, or None
     #[must_use]
-    pub fn get_previous_block_handle(
-        &self,
-        key: &[u8],
-    ) -> Option<(&UserKey, &BlockHandleBlockHandle)> {
-        let key: Arc<[u8]> = key.into();
-        self.data.range(..key).next_back()
+    pub fn get_prev_block_handle(&self, offset: u64) -> Option<&KeyedBlockHandle> {
+        let idx = self.data.partition_point(|x| x.offset < offset);
+
+        if idx == 0 {
+            None
+        } else {
+            self.data.get(idx - 1)
+        }
     }
 
-    /// Returns a handle to the block after the one containing the input key, if it exists, or None
+    /// Returns a handle to the index block after the input block, if it exists, or None
     #[must_use]
-    pub fn get_next_block_handle(&self, key: &[u8]) -> Option<(&UserKey, &BlockHandleBlockHandle)> {
-        let key: Arc<[u8]> = key.into();
-        self.data.range((Excluded(key), Unbounded)).next()
+    pub fn get_next_block_handle(&self, offset: u64) -> Option<&KeyedBlockHandle> {
+        let idx = self.data.partition_point(|x| x.offset <= offset);
+        self.data.get(idx)
     }
 }
 
@@ -181,127 +139,298 @@ impl TopLevelIndex {
 #[allow(clippy::expect_used, clippy::string_lit_as_bytes)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use test_log::test;
 
-    fn bh(offset: u64, size: u32) -> BlockHandleBlockHandle {
-        BlockHandleBlockHandle { offset, size }
+    fn bh(start_key: Arc<[u8]>, offset: u64, size: u32) -> KeyedBlockHandle {
+        KeyedBlockHandle {
+            start_key,
+            offset,
+            size,
+        }
     }
 
     #[test]
-    fn test_get_next_block_handle() {
-        let mut index = TopLevelIndex::default();
+    #[allow(clippy::indexing_slicing)]
+    fn tli_get_next_block_handle() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("g".as_bytes().into(), bh(10, 10));
-        index.data.insert("l".as_bytes().into(), bh(20, 10));
-        index.data.insert("t".as_bytes().into(), bh(30, 10));
+        let handle = index
+            .get_next_block_handle(/* "g" */ 10)
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "l".as_bytes());
 
-        let (next_key, _) = index.get_next_block_handle(b"g").expect("should exist");
-        assert_eq!(*next_key, "l".as_bytes().into());
-
-        let result_without_next = index.get_next_block_handle(b"t");
+        let result_without_next = index.get_next_block_handle(/* "t" */ 30);
         assert!(result_without_next.is_none());
     }
 
     #[test]
-    fn test_get_previous_block_handle() {
-        let mut index = TopLevelIndex::default();
+    #[allow(clippy::indexing_slicing)]
+    fn tli_get_prev_block_handle() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("g".as_bytes().into(), bh(10, 10));
-        index.data.insert("l".as_bytes().into(), bh(20, 10));
-        index.data.insert("t".as_bytes().into(), bh(30, 10));
+        let handle = index
+            .get_prev_block_handle(/* "l" */ 20)
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "g".as_bytes());
 
-        let (previous_key, _) = index.get_previous_block_handle(b"l").expect("should exist");
-        assert_eq!(*previous_key, "g".as_bytes().into());
-
-        let previous_result = index.get_previous_block_handle(b"a");
-        assert!(previous_result.is_none());
+        let prev_result = index.get_prev_block_handle(/* "a" */ 0);
+        assert!(prev_result.is_none());
     }
 
     #[test]
-    fn test_get_first_block_handle() {
-        let mut index = TopLevelIndex::default();
+    #[allow(clippy::indexing_slicing)]
+    fn tli_get_prev_block_handle_2() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("g".as_bytes().into(), 20, 10),
+            bh("l".as_bytes().into(), 30, 10),
+            bh("t".as_bytes().into(), 40, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("g".as_bytes().into(), bh(10, 10));
-        index.data.insert("l".as_bytes().into(), bh(20, 10));
-        index.data.insert("t".as_bytes().into(), bh(30, 10));
+        let handle = index
+            .get_prev_block_handle(/* "l" */ 30)
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "g".as_bytes());
+        assert_eq!(handle.offset, 20);
 
-        let (key, _) = index.get_first_block_handle();
-        assert_eq!(*key, "a".as_bytes().into());
+        let prev_result = index.get_prev_block_handle(/* "a" */ 0);
+        assert!(prev_result.is_none());
     }
 
     #[test]
-    fn test_get_last_block_handle() {
-        let mut index = TopLevelIndex::default();
+    fn tli_get_first_block_handle() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("g".as_bytes().into(), bh(10, 10));
-        index.data.insert("l".as_bytes().into(), bh(20, 10));
-        index.data.insert("t".as_bytes().into(), bh(30, 10));
+        let handle = index.get_first_block_handle();
+        assert_eq!(&*handle.start_key, "a".as_bytes());
+    }
 
-        let (key, _) = index.get_last_block_handle();
-        assert_eq!(*key, "t".as_bytes().into());
+    #[test]
+    fn tli_get_last_block_handle() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
+
+        let handle = index.get_last_block_handle();
+        assert_eq!(&*handle.start_key, "t".as_bytes());
+    }
+
+    #[test]
+    fn tli_get_block_containing_key_non_existant() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
+
+        assert!(index.get_lowest_block_containing_key(b"a").is_none());
+        assert!(index.get_lowest_block_containing_key(b"b").is_none());
+        assert!(index.get_lowest_block_containing_key(b"c").is_none());
+        assert!(index.get_lowest_block_containing_key(b"g").is_some());
     }
 
     #[test]
 
-    fn test_get_block_containing_item() {
-        let mut index = TopLevelIndex::default();
+    fn tli_get_block_containing_key() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("g".as_bytes().into(), 20, 10),
+            bh("l".as_bytes().into(), 30, 10),
+            bh("t".as_bytes().into(), 40, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("g".as_bytes().into(), bh(10, 10));
-        index.data.insert("l".as_bytes().into(), bh(20, 10));
-        index.data.insert("t".as_bytes().into(), bh(30, 10));
+        let handle = index
+            .get_lowest_block_containing_key(b"a")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "a".as_bytes());
 
-        for search_key in ["a", "g", "l", "t"] {
-            let (key, _) = index
-                .get_block_containing_item(search_key.as_bytes())
-                .expect("should exist");
-            assert_eq!(*key, search_key.as_bytes().into());
-        }
+        let handle = index
+            .get_lowest_block_containing_key(b"f")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "a".as_bytes());
 
-        let (key, _) = index.get_block_containing_item(b"f").expect("should exist");
-        assert_eq!(*key, "a".as_bytes().into());
+        let handle = index
+            .get_lowest_block_containing_key(b"g")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "a".as_bytes());
 
-        let (key, _) = index.get_block_containing_item(b"k").expect("should exist");
-        assert_eq!(*key, "g".as_bytes().into());
+        let handle = index
+            .get_lowest_block_containing_key(b"h")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "g".as_bytes());
+        assert_eq!(handle.offset, 20);
 
-        let (key, _) = index.get_block_containing_item(b"p").expect("should exist");
-        assert_eq!(*key, "l".as_bytes().into());
+        let handle = index
+            .get_lowest_block_containing_key(b"k")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "g".as_bytes());
+        assert_eq!(handle.offset, 20);
 
-        let (key, _) = index.get_block_containing_item(b"z").expect("should exist");
-        assert_eq!(*key, "t".as_bytes().into());
+        let handle = index
+            .get_lowest_block_containing_key(b"p")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "l".as_bytes());
+
+        let handle = index
+            .get_lowest_block_containing_key(b"z")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "t".as_bytes());
     }
 
     #[test]
 
-    fn test_get_prefix_upper_bound() {
-        let mut index = TopLevelIndex::default();
+    fn tli_get_block_not_containing_key() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("g".as_bytes().into(), 10, 10),
+            bh("l".as_bytes().into(), 20, 10),
+            bh("t".as_bytes().into(), 30, 10),
+        ]));
 
-        index.data.insert("a".as_bytes().into(), bh(0, 10));
-        index.data.insert("abc".as_bytes().into(), bh(10, 10));
-        index.data.insert("abcabc".as_bytes().into(), bh(20, 10));
-        index.data.insert("abcabcabc".as_bytes().into(), bh(30, 10));
-        index.data.insert("abcysw".as_bytes().into(), bh(40, 10));
-        index.data.insert("basd".as_bytes().into(), bh(50, 10));
-        index.data.insert("cxy".as_bytes().into(), bh(70, 10));
-        index.data.insert("ewqeqw".as_bytes().into(), bh(60, 10));
+        // NOTE: "t" is in the last block, so there can be no block after that
+        assert!(index.get_lowest_block_not_containing_key(b"t").is_none());
 
-        let (key, _) = index.get_prefix_upper_bound(b"a").expect("should exist");
-        assert_eq!(*key, "basd".as_bytes().into());
+        let handle = index
+            .get_lowest_block_not_containing_key(b"f")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "g".as_bytes());
 
-        let (key, _) = index.get_prefix_upper_bound(b"abc").expect("should exist");
-        assert_eq!(*key, "basd".as_bytes().into());
+        let handle = index
+            .get_lowest_block_not_containing_key(b"k")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "l".as_bytes());
 
-        let (key, _) = index.get_prefix_upper_bound(b"basd").expect("should exist");
-        assert_eq!(*key, "cxy".as_bytes().into());
+        let handle = index
+            .get_lowest_block_not_containing_key(b"p")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "t".as_bytes());
 
-        let (key, _) = index.get_prefix_upper_bound(b"cxy").expect("should exist");
-        assert_eq!(*key, "ewqeqw".as_bytes().into());
+        assert!(index.get_lowest_block_not_containing_key(b"z").is_none());
+    }
+
+    #[test]
+
+    fn tli_get_prefix_upper_bound() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("abc".as_bytes().into(), 10, 10),
+            bh("abcabc".as_bytes().into(), 20, 10),
+            bh("abcabcabc".as_bytes().into(), 30, 10),
+            bh("abcysw".as_bytes().into(), 40, 10),
+            bh("basd".as_bytes().into(), 50, 10),
+            bh("cxy".as_bytes().into(), 70, 10),
+            bh("ewqeqw".as_bytes().into(), 60, 10),
+        ]));
+
+        let handle = index.get_prefix_upper_bound(b"a").expect("should exist");
+        assert_eq!(&*handle.start_key, "basd".as_bytes());
+
+        let handle = index.get_prefix_upper_bound(b"abc").expect("should exist");
+        assert_eq!(&*handle.start_key, "basd".as_bytes());
+
+        let handle = index.get_prefix_upper_bound(b"basd").expect("should exist");
+        assert_eq!(&*handle.start_key, "cxy".as_bytes());
+
+        let handle = index.get_prefix_upper_bound(b"cxy").expect("should exist");
+        assert_eq!(&*handle.start_key, "ewqeqw".as_bytes());
 
         let result = index.get_prefix_upper_bound(b"ewqeqw");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn tli_spanning_multi() {
+        let index = TopLevelIndex::from_boxed_slice(Box::new([
+            bh("a".as_bytes().into(), 0, 10),
+            bh("a".as_bytes().into(), 10, 10),
+            bh("a".as_bytes().into(), 20, 10),
+            bh("a".as_bytes().into(), 30, 10),
+            bh("b".as_bytes().into(), 40, 10),
+            bh("b".as_bytes().into(), 50, 10),
+            bh("c".as_bytes().into(), 60, 10),
+        ]));
+
+        {
+            let handle = index.get_prefix_upper_bound(b"a").expect("should exist");
+            assert_eq!(&*handle.start_key, "b".as_bytes());
+        }
+
+        {
+            let handle = index.get_first_block_handle();
+            assert_eq!(&*handle.start_key, "a".as_bytes());
+            assert_eq!(handle.offset, 0);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "a".as_bytes());
+            assert_eq!(handle.offset, 10);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "a".as_bytes());
+            assert_eq!(handle.offset, 20);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "a".as_bytes());
+            assert_eq!(handle.offset, 30);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "b".as_bytes());
+            assert_eq!(handle.offset, 40);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "b".as_bytes());
+            assert_eq!(handle.offset, 50);
+
+            let handle = index
+                .get_next_block_handle(handle.offset)
+                .expect("should exist");
+            assert_eq!(&*handle.start_key, "c".as_bytes());
+            assert_eq!(handle.offset, 60);
+
+            let handle = index.get_next_block_handle(handle.offset);
+            assert!(handle.is_none());
+        }
+
+        {
+            let handle = index.get_last_block_handle();
+            assert_eq!(&*handle.start_key, "c".as_bytes());
+            assert_eq!(handle.offset, 60);
+        }
+
+        let handle = index
+            .get_lowest_block_containing_key(b"a")
+            .expect("should exist");
+        assert_eq!(&*handle.start_key, "a".as_bytes());
+        assert_eq!(handle.offset, 0);
     }
 }

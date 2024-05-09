@@ -2,8 +2,8 @@ use super::{
     meta::Metadata,
     writer::{Options, Writer},
 };
-use crate::{id::generate_segment_id, time::unix_timestamp, Value};
-use std::sync::Arc;
+use crate::{time::unix_timestamp, Value};
+use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
 ///
@@ -19,17 +19,24 @@ pub struct MultiWriter {
     pub opts: Options,
     created_items: Vec<Metadata>,
 
-    pub current_segment_id: Arc<str>,
+    segment_id_generator: Arc<AtomicU64>,
+    current_segment_id: u64,
+
     pub writer: Writer,
 }
 
 impl MultiWriter {
     /// Sets up a new `MultiWriter` at the given segments folder
-    pub fn new(target_size: u64, opts: Options) -> crate::Result<Self> {
-        let segment_id = generate_segment_id();
+    pub fn new(
+        segment_id_generator: Arc<AtomicU64>,
+        target_size: u64,
+        opts: Options,
+    ) -> crate::Result<Self> {
+        let current_segment_id =
+            segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let writer = Writer::new(Options {
-            path: opts.path.join(&*segment_id),
+            folder: opts.folder.join(current_segment_id.to_string()),
             evict_tombstones: opts.evict_tombstones,
             block_size: opts.block_size,
 
@@ -41,9 +48,18 @@ impl MultiWriter {
             target_size,
             created_items: Vec::with_capacity(10),
             opts,
-            current_segment_id: segment_id,
+            segment_id_generator,
+            current_segment_id,
             writer,
         })
+    }
+
+    fn get_next_segment_id(&mut self) -> u64 {
+        self.current_segment_id = self
+            .segment_id_generator
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        self.current_segment_id
     }
 
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next segment
@@ -53,10 +69,11 @@ impl MultiWriter {
         // Flush segment, and start new one
         self.writer.finish()?;
 
-        let new_segment_id = generate_segment_id();
+        let old_segment_id = self.current_segment_id;
+        let new_segment_id = self.get_next_segment_id();
 
         let new_writer = Writer::new(Options {
-            path: self.opts.path.join(&*new_segment_id),
+            folder: self.opts.folder.join(new_segment_id.to_string()),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
 
@@ -65,7 +82,6 @@ impl MultiWriter {
         })?;
 
         let old_writer = std::mem::replace(&mut self.writer, new_writer);
-        let old_segment_id = std::mem::replace(&mut self.current_segment_id, new_segment_id);
 
         if old_writer.item_count > 0 {
             let metadata = Metadata::from_writer(old_segment_id, old_writer)?;

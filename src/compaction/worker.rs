@@ -5,16 +5,17 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     file::{BLOCKS_FILE, SEGMENTS_FOLDER},
     levels::LevelManifest,
-    memtable::MemTable,
-    merge::MergeIterator,
-    segment::{block_index::BlockIndex, multi_writer::MultiWriter, Segment},
+    merge::{BoxedIterator, MergeIterator},
+    segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
+    tree_inner::{SealedMemtables, TreeId},
     BlockCache,
 };
 use std::{
-    collections::{BTreeMap, HashSet},
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    collections::HashSet,
+    path::PathBuf,
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
 
@@ -26,6 +27,12 @@ use crate::file::BLOOM_FILTER_FILE;
 
 /// Compaction options
 pub struct Options {
+    pub tree_id: TreeId,
+
+    pub segment_id_generator: Arc<AtomicU64>,
+
+    pub path: PathBuf,
+
     /// Configuration of tree.
     pub config: PersistedConfig,
 
@@ -39,7 +46,7 @@ pub struct Options {
     pub levels: Arc<RwLock<LevelManifest>>,
 
     /// sealed memtables (required for temporarily locking).
-    pub sealed_memtables: Arc<RwLock<BTreeMap<Arc<str>, Arc<MemTable>>>>,
+    pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
     /// Snapshot counter (required for checking if there are open snapshots).
     pub open_snapshots: SnapshotCounter,
@@ -51,6 +58,24 @@ pub struct Options {
 
     /// Stop signal
     pub stop_signal: StopSignal,
+}
+
+impl Options {
+    pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
+        Self {
+            tree_id: tree.id,
+            path: tree.path.clone(),
+            segment_id_generator: tree.segment_id_counter.clone(),
+            config: tree.config.clone(),
+            sealed_memtables: tree.sealed_memtables.clone(),
+            levels: tree.levels.clone(),
+            open_snapshots: tree.open_snapshots.clone(),
+            stop_signal: tree.stop_signal.clone(),
+            block_cache: tree.block_cache.clone(),
+            strategy,
+            descriptor_table: tree.descriptor_table.clone(),
+        }
+    }
 }
 
 /// Runs compaction task.
@@ -68,7 +93,15 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
             merge_segments(levels, opts, &payload)?;
         }
         Choice::DeleteSegments(payload) => {
-            drop_segments(levels, opts, &payload)?;
+            // TODO: combine with tree ID
+            drop_segments(
+                levels,
+                opts,
+                &payload
+                    .into_iter()
+                    .map(|x| (opts.tree_id, x).into())
+                    .collect::<Vec<_>>(),
+            )?;
         }
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
@@ -88,7 +121,7 @@ fn merge_segments(
         log::debug!("compactor: stopping before compaction because of stop signal");
     }
 
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let segments_base_folder = opts.path.join(SEGMENTS_FOLDER);
 
     log::debug!(
         "compactor: Chosen {} segments to compact into a single new segment at level {}",
@@ -119,8 +152,18 @@ fn merge_segments(
         let no_snapshots_open = !opts.open_snapshots.has_open_snapshots();
         let is_deep_level = payload.dest_level >= 2;
 
-        MergeIterator::from_segments(&to_merge)
-            .evict_old_versions(no_snapshots_open && is_deep_level)
+        let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());
+
+        for segment in to_merge {
+            let iter = Box::new(
+                segment
+                    .iter()
+                    .cache_policy(crate::segment::block::CachePolicy::Read),
+            );
+            segment_readers.push(iter);
+        }
+
+        MergeIterator::new(segment_readers).evict_old_versions(no_snapshots_open && is_deep_level)
     };
 
     let last_level = levels.last_level_index();
@@ -136,11 +179,12 @@ fn merge_segments(
     let start = Instant::now();
 
     let mut segment_writer = MultiWriter::new(
+        opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
             block_size: opts.config.block_size,
             evict_tombstones: should_evict_tombstones,
-            path: opts.config.path.join(SEGMENTS_FOLDER),
+            folder: opts.path.join(SEGMENTS_FOLDER),
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: if is_last_level { 0.1 } else { 0.01 }, // TODO: MONKEY
@@ -167,21 +211,22 @@ fn merge_segments(
     let created_segments = created_segments
         .into_iter()
         .map(|metadata| -> crate::Result<Segment> {
-            let segment_id = metadata.id.clone();
+            let segment_id = metadata.id;
 
-            let segment_folder = segments_base_folder.join(&*segment_id);
+            let segment_folder = segments_base_folder.join(segment_id.to_string());
             metadata.write_to_file(&segment_folder)?;
 
             #[cfg(feature = "bloom")]
             let bloom_filter = BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?;
 
             Ok(Segment {
+                tree_id: opts.tree_id,
                 descriptor_table: opts.descriptor_table.clone(),
                 metadata,
                 block_cache: opts.block_cache.clone(),
                 // TODO: if L0, L1, preload block index (non-partitioned)
                 block_index: BlockIndex::from_file(
-                    segment_id,
+                    (opts.tree_id, segment_id).into(),
                     opts.descriptor_table.clone(),
                     segment_folder,
                     opts.block_cache.clone(),
@@ -200,11 +245,11 @@ fn merge_segments(
     for segment in created_segments {
         log::trace!("Persisting segment {}", segment.metadata.id);
 
-        let segment_folder = segments_base_folder.join(&*segment.metadata.id);
+        let segment_folder = segments_base_folder.join(segment.metadata.id.to_string());
 
         opts.descriptor_table.insert(
             segment_folder.join(BLOCKS_FILE),
-            segment.metadata.id.clone(),
+            (opts.tree_id, segment.metadata.id).into(),
         );
 
         levels.insert_into_level(payload.dest_level, segment.into());
@@ -214,9 +259,9 @@ fn merge_segments(
     log::trace!("compactor: acquiring sealed memtables write lock");
     let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
 
-    for key in &payload.segment_ids {
-        log::trace!("Removing segment {}", key);
-        levels.remove(key);
+    for segment_id in &payload.segment_ids {
+        log::trace!("Removing segment {segment_id}");
+        levels.remove(*segment_id);
     }
 
     // NOTE: Segments are registered, we can unlock the memtable(s) safely
@@ -226,16 +271,18 @@ fn merge_segments(
     // Otherwise the folder is deleted, but the segment is still referenced!
     levels.write_to_disk()?;
 
-    for key in &payload.segment_ids {
-        let segment_folder = segments_base_folder.join(&**key);
-        log::trace!("rm -rf segment folder at {}", segment_folder.display());
+    for segment_id in &payload.segment_ids {
+        let segment_folder = segments_base_folder.join(segment_id.to_string());
+        log::trace!("rm -rf segment folder at {segment_folder:?}");
 
         std::fs::remove_dir_all(segment_folder)?;
     }
 
-    for key in &payload.segment_ids {
+    for segment_id in &payload.segment_ids {
         log::trace!("Closing file handles for segment data file");
-        opts.descriptor_table.remove(key);
+
+        opts.descriptor_table
+            .remove((opts.tree_id, *segment_id).into());
     }
 
     levels.show_segments(&payload.segment_ids);
@@ -250,17 +297,19 @@ fn merge_segments(
 fn drop_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
-    segment_ids: &[Arc<str>],
+    segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
-    log::debug!("compactor: Chosen {} segments to drop", segment_ids.len(),);
+    log::debug!("compactor: Chosen {} segments to drop", segment_ids.len());
 
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
     log::trace!("compaction: acquiring sealed memtables write lock");
     let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
 
     for key in segment_ids {
-        log::trace!("Removing segment {}", key);
-        levels.remove(key);
+        let segment_id = key.segment_id();
+        log::trace!("Removing segment {segment_id}");
+
+        levels.remove(segment_id);
     }
 
     // IMPORTANT: Write the segment with the removed segments first
@@ -271,13 +320,15 @@ fn drop_segments(
     drop(levels);
 
     for key in segment_ids {
-        log::trace!("rm -rf segment folder {}", key);
-        std::fs::remove_dir_all(opts.config.path.join(SEGMENTS_FOLDER).join(&**key))?;
+        let segment_id = key.segment_id();
+        log::trace!("rm -rf segment folder {segment_id}");
+
+        std::fs::remove_dir_all(opts.path.join(SEGMENTS_FOLDER).join(segment_id.to_string()))?;
     }
 
     for key in segment_ids {
         log::trace!("Closing file handles for segment data file");
-        opts.descriptor_table.remove(key);
+        opts.descriptor_table.remove(*key);
     }
 
     log::trace!("Dropped {} segments", segment_ids.len());

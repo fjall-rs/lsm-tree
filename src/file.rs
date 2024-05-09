@@ -2,14 +2,14 @@ use std::{fs::File, io::Write, path::Path};
 
 #[doc(hidden)]
 pub const LSM_MARKER: &str = ".lsm";
+pub const CONFIG_FILE: &str = "config";
 pub const SEGMENTS_FOLDER: &str = "segments";
-pub const LEVELS_MANIFEST_FILE: &str = "levels.json";
-pub const CONFIG_FILE: &str = "config.json";
+pub const LEVELS_MANIFEST_FILE: &str = "levels";
 
 pub const BLOCKS_FILE: &str = "blocks";
 pub const INDEX_BLOCKS_FILE: &str = "index_blocks";
 pub const TOP_LEVEL_INDEX_FILE: &str = "index";
-pub const SEGMENT_METADATA_FILE: &str = "meta.json";
+pub const SEGMENT_METADATA_FILE: &str = "meta";
 
 #[cfg(feature = "bloom")]
 pub const BLOOM_FILTER_FILE: &str = "bloom";
@@ -54,7 +54,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_atomic_rewrite() -> crate::Result<()> {
+    fn atomic_rewrite() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
         let path = dir.path().join("test.txt");

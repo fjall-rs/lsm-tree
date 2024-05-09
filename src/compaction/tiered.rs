@@ -54,7 +54,7 @@ impl CompactionStrategy for Strategy {
 
                 let mut segments_to_compact = vec![];
 
-                for segment in level.iter().take(config.level_ratio.into()).cloned() {
+                for segment in level.iter().rev().take(config.level_ratio.into()).cloned() {
                     if overshoot == 0 {
                         break;
                     }
@@ -66,7 +66,7 @@ impl CompactionStrategy for Strategy {
                 let segment_ids: Vec<_> = segments_to_compact
                     .iter()
                     .map(|x| &x.metadata.id)
-                    .cloned()
+                    .copied()
                     .collect();
 
                 return Choice::DoCompact(CompactionInput {
@@ -102,8 +102,12 @@ mod tests {
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
         levels::LevelManifest,
-        segment::{block_index::BlockIndex, meta::Metadata, Segment},
-        Config,
+        segment::{
+            block_index::BlockIndex,
+            meta::{Metadata, SegmentId},
+            Segment,
+        },
+        Config, SeqNo,
     };
     use std::sync::Arc;
     use test_log::test;
@@ -112,26 +116,28 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, size_mib: u64) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
+            tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new(id.clone(), block_cache.clone())),
+            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
             metadata: Metadata {
-                version: crate::version::Version::V0,
                 block_count: 0,
                 block_size: 0,
                 created_at: 0,
                 id,
                 file_size: size_mib * 1_024 * 1_024,
                 compression: crate::segment::meta::CompressionType::Lz4,
+                table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,
                 key_range: KeyRange::new((vec![].into(), vec![].into())),
                 tombstone_count: 0,
+                range_tombstone_count: 0,
                 uncompressed_size: size_mib * 1_024 * 1_024,
-                seqnos: (0, 0),
+                seqnos: (0, max_seqno),
             },
             block_cache,
 
@@ -167,21 +173,49 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
-        levels.add(fixture_segment("1".into(), 8));
+        levels.add(fixture_segment(1, 8, 5));
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
-        levels.add(fixture_segment("2".into(), 8));
+        levels.add(fixture_segment(2, 8, 6));
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
-        levels.add(fixture_segment("3".into(), 8));
+        levels.add(fixture_segment(3, 8, 7));
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 
-        levels.add(fixture_segment("4".into(), 8));
+        levels.add(fixture_segment(4, 8, 8));
+
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec!["1".into(), "2".into(), "3".into(), "4".into()],
+                segment_ids: vec![1, 2, 3, 4],
+                target_size: u64::MAX,
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn ordering() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            base_size: 8 * 1_024 * 1_024,
+        };
+        let config = Config::default().level_ratio(2);
+
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+
+        levels.add(fixture_segment(1, 8, 0));
+        levels.add(fixture_segment(2, 8, 1));
+        levels.add(fixture_segment(3, 8, 2));
+        levels.add(fixture_segment(4, 8, 3));
+
+        assert_eq!(
+            compactor.choose(&levels, &config.inner),
+            Choice::DoCompact(CompactionInput {
+                dest_level: 1,
+                segment_ids: vec![1, 2],
                 target_size: u64::MAX,
             })
         );
@@ -198,21 +232,21 @@ mod tests {
         let config = Config::default().level_ratio(4);
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment("1".into(), 8));
-        levels.add(fixture_segment("2".into(), 8));
-        levels.add(fixture_segment("3".into(), 8));
-        levels.add(fixture_segment("4".into(), 8));
+        levels.add(fixture_segment(1, 8, 5));
+        levels.add(fixture_segment(2, 8, 6));
+        levels.add(fixture_segment(3, 8, 7));
+        levels.add(fixture_segment(4, 8, 8));
 
-        levels.insert_into_level(1, fixture_segment("5".into(), 8 * 4));
-        levels.insert_into_level(1, fixture_segment("6".into(), 8 * 4));
-        levels.insert_into_level(1, fixture_segment("7".into(), 8 * 4));
-        levels.insert_into_level(1, fixture_segment("8".into(), 8 * 4));
+        levels.insert_into_level(1, fixture_segment(5, 8 * 4, 9));
+        levels.insert_into_level(1, fixture_segment(6, 8 * 4, 10));
+        levels.insert_into_level(1, fixture_segment(7, 8 * 4, 11));
+        levels.insert_into_level(1, fixture_segment(8, 8 * 4, 12));
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec!["5".into(), "6".into(), "7".into(), "8".into()],
+                segment_ids: vec![5, 6, 7, 8],
                 target_size: u64::MAX,
             })
         );
@@ -229,16 +263,16 @@ mod tests {
         let config = Config::default().level_ratio(2);
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment("1".into(), 8));
-        levels.add(fixture_segment("2".into(), 8));
-        levels.add(fixture_segment("3".into(), 8));
-        levels.add(fixture_segment("4".into(), 8));
+        levels.add(fixture_segment(1, 8, 5));
+        levels.add(fixture_segment(2, 8, 6));
+        levels.add(fixture_segment(3, 8, 7));
+        levels.add(fixture_segment(4, 8, 8));
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec!["1".into(), "2".into()],
+                segment_ids: vec![1, 2],
                 target_size: u64::MAX,
             })
         );
@@ -255,16 +289,16 @@ mod tests {
         let config = Config::default().level_ratio(2);
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment("1".into(), 8));
+        levels.add(fixture_segment(1, 8, 5));
 
-        levels.insert_into_level(1, fixture_segment("2".into(), 8 * 2));
-        levels.insert_into_level(1, fixture_segment("3".into(), 8 * 2));
+        levels.insert_into_level(1, fixture_segment(2, 8 * 2, 6));
+        levels.insert_into_level(1, fixture_segment(3, 8 * 2, 7));
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec!["2".into(), "3".into()],
+                segment_ids: vec![2, 3],
                 target_size: u64::MAX,
             })
         );
@@ -272,14 +306,14 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
-        levels.insert_into_level(2, fixture_segment("2".into(), 8 * 4));
-        levels.insert_into_level(2, fixture_segment("3".into(), 8 * 4));
+        levels.insert_into_level(2, fixture_segment(2, 8 * 4, 5));
+        levels.insert_into_level(2, fixture_segment(3, 8 * 4, 6));
 
         assert_eq!(
             compactor.choose(&levels, &config.inner),
             Choice::DoCompact(CompactionInput {
                 dest_level: 3,
-                segment_ids: vec!["2".into(), "3".into()],
+                segment_ids: vec![2, 3],
                 target_size: u64::MAX,
             })
         );
@@ -296,8 +330,8 @@ mod tests {
         let config = Config::default().level_ratio(2);
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.insert_into_level(3, fixture_segment("2".into(), 8));
-        levels.insert_into_level(3, fixture_segment("3".into(), 8));
+        levels.insert_into_level(3, fixture_segment(2, 8, 5));
+        levels.insert_into_level(3, fixture_segment(3, 8, 5));
 
         assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
 

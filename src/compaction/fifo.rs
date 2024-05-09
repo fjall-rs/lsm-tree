@@ -63,7 +63,7 @@ impl CompactionStrategy for Strategy {
                     // eprintln!("TTL: {lifetime_sec} > {ttl_seconds}");
 
                     if lifetime_sec > ttl_seconds.into() {
-                        segment_ids_to_delete.push(segment.metadata.id.clone());
+                        segment_ids_to_delete.push(segment.metadata.id);
                     }
                 }
             }
@@ -85,7 +85,7 @@ impl CompactionStrategy for Strategy {
 
                 bytes_to_delete = bytes_to_delete.saturating_sub(segment.metadata.file_size);
 
-                segment_ids_to_delete.push(segment.metadata.id.clone());
+                segment_ids_to_delete.push(segment.metadata.id);
             }
         }
 
@@ -108,7 +108,11 @@ mod tests {
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
         levels::LevelManifest,
-        segment::{block_index::BlockIndex, meta::Metadata, Segment},
+        segment::{
+            block_index::BlockIndex,
+            meta::{Metadata, SegmentId},
+            Segment,
+        },
         time::unix_timestamp,
     };
     use std::sync::Arc;
@@ -118,24 +122,26 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: Arc<str>, created_at: u128) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, created_at: u128) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
+            tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new(id.clone(), block_cache.clone())),
+            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
             metadata: Metadata {
-                version: crate::version::Version::V0,
                 block_count: 0,
                 block_size: 0,
                 created_at,
                 id,
                 file_size: 1,
                 compression: crate::segment::meta::CompressionType::Lz4,
+                table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,
                 key_range: KeyRange::new((vec![].into(), vec![].into())),
                 tombstone_count: 0,
+                range_tombstone_count: 0,
                 uncompressed_size: 0,
                 seqnos: (0, created_at as u64),
             },
@@ -153,12 +159,12 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
-        levels.add(fixture_segment("1".into(), 1));
-        levels.add(fixture_segment("2".into(), unix_timestamp().as_micros()));
+        levels.add(fixture_segment(1, 1));
+        levels.add(fixture_segment(2, unix_timestamp().as_micros()));
 
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
-            Choice::DeleteSegments(vec!["1".into()])
+            Choice::DeleteSegments(vec![1])
         );
 
         Ok(())
@@ -186,25 +192,25 @@ mod tests {
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
-        levels.add(fixture_segment("1".into(), 1));
+        levels.add(fixture_segment(1, 1));
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
             Choice::DoNothing
         );
 
-        levels.add(fixture_segment("2".into(), 2));
+        levels.add(fixture_segment(2, 2));
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
             Choice::DoNothing
         );
 
-        levels.add(fixture_segment("3".into(), 3));
+        levels.add(fixture_segment(3, 3));
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
             Choice::DoNothing
         );
 
-        levels.add(fixture_segment("4".into(), 4));
+        levels.add(fixture_segment(4, 4));
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
             Choice::DoNothing
@@ -219,14 +225,14 @@ mod tests {
         let compactor = Strategy::new(2, None);
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment("1".into(), 1));
-        levels.add(fixture_segment("2".into(), 2));
-        levels.add(fixture_segment("3".into(), 3));
-        levels.add(fixture_segment("4".into(), 4));
+        levels.add(fixture_segment(1, 1));
+        levels.add(fixture_segment(2, 2));
+        levels.add(fixture_segment(3, 3));
+        levels.add(fixture_segment(4, 4));
 
         assert_eq!(
             compactor.choose(&levels, &PersistedConfig::default()),
-            Choice::DeleteSegments(vec!["1".into(), "2".into()])
+            Choice::DeleteSegments(vec![1, 2])
         );
 
         Ok(())

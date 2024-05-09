@@ -1,5 +1,5 @@
 use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
@@ -73,13 +73,13 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
 impl<T: Clone + Serializable + Deserializable> Serializable for DiskBlock<T> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write CRC
-        writer.write_all(&self.crc.to_be_bytes())?;
+        writer.write_u32::<BigEndian>(self.crc)?;
 
         // Write number of items
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_all(&(self.items.len() as u32).to_be_bytes())?;
+        writer.write_u32::<BigEndian>(self.items.len() as u32)?;
 
         // Serialize each value
         for value in self.items.iter() {
@@ -118,7 +118,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_blocky_deserialization_success() -> crate::Result<()> {
+    fn disk_block_deserialization_success() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blocky_deserialization_failure_crc() -> crate::Result<()> {
+    fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 

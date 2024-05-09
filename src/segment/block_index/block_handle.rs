@@ -5,12 +5,9 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 
 /// Points to a block on file
-///
-/// # Disk representation
-///
-/// \[offset; 8 bytes] - \[size; 4 bytes] - \[key length; 2 bytes] - \[key; N bytes]
-#[derive(Clone, Debug)]
-pub struct BlockHandle {
+#[derive(Clone, Debug, Eq, PartialEq, std::hash::Hash)]
+#[allow(clippy::module_name_repetitions)]
+pub struct KeyedBlockHandle {
     /// Key of first item in block
     pub start_key: UserKey,
 
@@ -21,7 +18,19 @@ pub struct BlockHandle {
     pub size: u32,
 }
 
-impl Serializable for BlockHandle {
+impl PartialOrd for KeyedBlockHandle {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyedBlockHandle {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.start_key, self.offset).cmp(&(&other.start_key, other.offset))
+    }
+}
+
+impl Serializable for KeyedBlockHandle {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), crate::SerializeError> {
         writer.write_u64::<BigEndian>(self.offset)?;
         writer.write_u32::<BigEndian>(self.size)?;
@@ -36,7 +45,7 @@ impl Serializable for BlockHandle {
     }
 }
 
-impl Deserializable for BlockHandle {
+impl Deserializable for KeyedBlockHandle {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, crate::DeserializeError>
     where
         Self: Sized,

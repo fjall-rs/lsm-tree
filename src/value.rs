@@ -103,10 +103,6 @@ impl Ord for ParsedInternalKey {
 /// Represents a value in the LSM-tree
 ///
 /// `key` and `value` are arbitrary user-defined byte arrays
-///
-/// # Disk representation
-///
-/// \[seqno; 8 bytes] \[tombstone; 1 byte] \[key length; 2 bytes] \[key; N bytes] \[value length; 4 bytes] \[value: N bytes]
 #[derive(Clone, PartialEq, Eq)]
 pub struct Value {
     /// User-defined key - an arbitrary byte array
@@ -197,6 +193,25 @@ impl Value {
         }
     }
 
+    /// Creates a new tombstone.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16.
+    pub fn new_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
+        let k = key.into();
+
+        assert!(!k.is_empty());
+        assert!(k.len() <= u16::MAX.into());
+
+        Self {
+            key: k,
+            value: vec![].into(),
+            value_type: ValueType::Tombstone,
+            seqno,
+        }
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn size(&self) -> usize {
@@ -260,13 +275,67 @@ impl Deserializable for Value {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
     use test_log::test;
 
     #[test]
-    fn test_empty_value() -> crate::Result<()> {
+    fn value_raw() -> crate::Result<()> {
+        // Create an empty Value instance
+        let value = Value::new(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
+
+        #[rustfmt::skip]
+        let  bytes = &[
+            // Seqno
+            0, 0, 0, 0, 0, 0, 0, 1,
+            
+            // Type
+            0,
+            
+            // Key
+            0, 3, 1, 2, 3,
+            
+             // Value
+            0, 0, 0, 3, 3, 2, 1,
+        ];
+
+        // Deserialize the empty Value
+        let deserialized = Value::deserialize(&mut Cursor::new(bytes))?;
+
+        // Check if deserialized Value is equivalent to the original empty Value
+        assert_eq!(value, deserialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn value_empty_value() -> crate::Result<()> {
         // Create an empty Value instance
         let value = Value::new(vec![1, 2, 3], vec![], 42, ValueType::Value);
+
+        // Serialize the empty Value
+        let mut serialized = Vec::new();
+        value.serialize(&mut serialized)?;
+
+        // Deserialize the empty Value
+        let deserialized = Value::deserialize(&mut &serialized[..])?;
+
+        // Check if deserialized Value is equivalent to the original empty Value
+        assert_eq!(value, deserialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn value_with_value() -> crate::Result<()> {
+        // Create an empty Value instance
+        let value = Value::new(
+            vec![1, 2, 3],
+            vec![6, 2, 6, 2, 7, 5, 7, 8, 98],
+            42,
+            ValueType::Value,
+        );
 
         // Serialize the empty Value
         let mut serialized = Vec::new();

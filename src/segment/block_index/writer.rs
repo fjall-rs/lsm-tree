@@ -1,4 +1,4 @@
-use super::BlockHandle;
+use super::KeyedBlockHandle;
 use crate::{
     disk_block::DiskBlock,
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
@@ -9,8 +9,6 @@ use std::{
     io::{BufReader, BufWriter, Write},
     path::{Path, PathBuf},
 };
-
-// TODO: just buffer block index in memory, then append to blocks file, then write top-level index
 
 fn concat_files<P: AsRef<Path>>(src_path: P, dest_path: P) -> crate::Result<()> {
     let reader = File::open(src_path)?;
@@ -35,8 +33,8 @@ pub struct Writer {
     index_writer: BufWriter<File>,
     block_size: u32,
     block_counter: u32,
-    block_chunk: Vec<BlockHandle>,
-    index_chunk: Vec<BlockHandle>,
+    block_chunk: Vec<KeyedBlockHandle>,
+    index_chunk: Vec<KeyedBlockHandle>,
 }
 
 impl Writer {
@@ -61,14 +59,14 @@ impl Writer {
 
     fn write_block(&mut self) -> crate::Result<()> {
         // Prepare block
-        let mut block = DiskBlock::<BlockHandle> {
+        let mut block = DiskBlock::<KeyedBlockHandle> {
             items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             crc: 0,
         };
 
         // Serialize block
-        block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
+        block.crc = DiskBlock::<KeyedBlockHandle>::create_crc(&block.items)?;
         let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file
@@ -82,11 +80,13 @@ impl Writer {
 
         let bytes_written = bytes.len();
 
-        self.index_chunk.push(BlockHandle {
+        let index_block_handle = KeyedBlockHandle {
             start_key: first.start_key.clone(),
             offset: self.file_pos,
             size: bytes_written as u32,
-        });
+        };
+
+        self.index_chunk.push(index_block_handle);
 
         self.block_counter = 0;
         self.file_pos += bytes_written as u64;
@@ -100,14 +100,15 @@ impl Writer {
         offset: u64,
         size: u32,
     ) -> crate::Result<()> {
-        let block_handle_size = (start_key.len() + std::mem::size_of::<BlockHandle>()) as u32;
+        let block_handle_size = (start_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
-        let reference = BlockHandle {
+        let block_handle = KeyedBlockHandle {
             start_key,
             offset,
             size,
         };
-        self.block_chunk.push(reference);
+
+        self.block_chunk.push(block_handle);
 
         self.block_counter += block_handle_size;
 
@@ -136,14 +137,14 @@ impl Writer {
         }
 
         // Prepare block
-        let mut block = DiskBlock::<BlockHandle> {
+        let mut block = DiskBlock::<KeyedBlockHandle> {
             items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             crc: 0,
         };
 
         // Serialize block
-        block.crc = DiskBlock::<BlockHandle>::create_crc(&block.items)?;
+        block.crc = DiskBlock::<KeyedBlockHandle>::create_crc(&block.items)?;
         let bytes = DiskBlock::to_bytes_compressed(&block);
 
         // Write to file

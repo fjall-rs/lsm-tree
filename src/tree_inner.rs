@@ -4,18 +4,36 @@ use crate::{
     file::LEVELS_MANIFEST_FILE,
     levels::LevelManifest,
     memtable::MemTable,
+    segment::meta::SegmentId,
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     BlockCache,
 };
 use std::{
     collections::BTreeMap,
-    sync::{Arc, RwLock},
+    path::PathBuf,
+    sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
-pub type SealedMemtables = BTreeMap<Arc<str>, Arc<MemTable>>;
+#[doc(hidden)]
+pub type TreeId = u64;
+
+pub type MemtableId = u64;
+
+pub type SealedMemtables = BTreeMap<MemtableId, Arc<MemTable>>;
+
+pub fn get_next_tree_id() -> TreeId {
+    static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+    TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 pub struct TreeInner {
+    pub id: TreeId,
+
+    pub path: PathBuf,
+
+    pub(crate) segment_id_counter: Arc<AtomicU64>,
+
     /// Active memtable that is being written to
     pub(crate) active_memtable: Arc<RwLock<MemTable>>,
 
@@ -44,13 +62,16 @@ pub struct TreeInner {
 }
 
 impl TreeInner {
-    pub fn create_new(config: Config) -> crate::Result<Self> {
+    pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
         let levels = LevelManifest::create_new(
             config.inner.level_count,
-            config.inner.path.join(LEVELS_MANIFEST_FILE),
+            config.path.join(LEVELS_MANIFEST_FILE),
         )?;
 
         Ok(Self {
+            id: get_next_tree_id(),
+            path: config.path,
+            segment_id_counter: Arc::new(AtomicU64::default()),
             config: config.inner,
             block_cache: config.block_cache,
             descriptor_table: config.descriptor_table,
@@ -60,6 +81,11 @@ impl TreeInner {
             open_snapshots: SnapshotCounter::default(),
             stop_signal: StopSignal::default(),
         })
+    }
+
+    pub fn get_next_segment_id(&self) -> SegmentId {
+        self.segment_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 }
 
