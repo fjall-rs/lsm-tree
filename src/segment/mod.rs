@@ -11,8 +11,7 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block::CachePolicy, block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader,
-    range::Range, reader::Reader,
+    block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader, range::Range, reader::Reader,
 };
 use crate::{
     block_cache::BlockCache,
@@ -155,106 +154,6 @@ impl Segment {
         }
 
         Ok(None)
-
-        /*  // Get the block handle, if it doesn't exist, the key is definitely not found
-        let Some(block_handle) = self
-            .block_index
-            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
-        else {
-            return Ok(None);
-        };
-
-        // The block should definitely exist, we just got the block handle before
-        let Some(block) = load_by_block_handle(
-            &self.descriptor_table,
-            &self.block_cache,
-            (self.tree_id, self.metadata.id).into(),
-            &block_handle,
-            CachePolicy::Write,
-        )?
-        else {
-            return Ok(None);
-        };
-
-        let mut maybe_our_items_iter = block
-            .items
-            .iter()
-            // TODO: maybe binary search can be used, but it needs to find the max seqno
-            .filter(|item| item.key == key.as_ref().into());
-
-        match seqno {
-            None => {
-                // NOTE: Fastpath for non-seqno reads (which are most common)
-                // This avoids setting up a rather expensive block iterator
-                // (see explanation for that below)
-                // This only really works because sequence numbers are sorted
-                // in descending order
-                //
-                // If it doesn't exist, we avoid loading the next block
-                // because the block handle was retrieved using the item key, so if
-                // the item exists, it HAS to be in the first block
-
-                Ok(maybe_our_items_iter.next().cloned())
-            }
-            Some(seqno) => {
-                // TODO: optimize by consuming iter, if nothing found, setup iterator on next **data block**
-
-                /* for item in maybe_our_items_iter {
-                    if item.seqno < seqno {
-                        return Ok(Some(item.clone()));
-                    }
-                } */
-
-                // NOTE: If we got here, the item was not in the block :(
-
-                // NOTE: For finding a specific seqno,
-                // we need to use a prefixed reader
-                // because nothing really prevents the version
-                // we are searching for to be in the next block
-                // after the one our key starts in
-                //
-                // Example (key:seqno), searching for a:2:
-                //
-                // [..., a:5, a:4] [a:3, a:2, b: 4, b:3]
-                // ^               ^
-                // Block A         Block B
-                //
-                // Based on get_lower_bound_block, "a" is in Block A
-                // However, we are searching for A with seqno 2, which
-                // unfortunately is in the next block
-
-                /*   // Load next block and setup block iterator
-                let Some(next_block_handle) = self
-                    .block_index
-                    .get_next_block_key(&block_handle.start_key, CachePolicy::Write)?
-                else {
-                    return Ok(None);
-                }; */
-
-                let iter = Reader::new(
-                    Arc::clone(&self.descriptor_table),
-                    (self.tree_id, self.metadata.id).into(),
-                    Arc::clone(&self.block_cache),
-                    Arc::clone(&self.block_index),
-                )
-                .set_lower_bound(key.into());
-
-                for item in iter {
-                    let item = item?;
-
-                    // Just stop iterating once we go past our desired key
-                    if &*item.key != key {
-                        return Ok(None);
-                    }
-
-                    if item.seqno < seqno {
-                        return Ok(Some(item));
-                    }
-                }
-
-                Ok(None)
-            }
-        } */
     }
 
     /// Creates an iterator over the `Segment`.
