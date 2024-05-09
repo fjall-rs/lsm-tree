@@ -193,6 +193,25 @@ impl Value {
         }
     }
 
+    /// Creates a new tombstone.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16.
+    pub fn new_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
+        let k = key.into();
+
+        assert!(!k.is_empty());
+        assert!(k.len() <= u16::MAX.into());
+
+        Self {
+            key: k,
+            value: vec![].into(),
+            value_type: ValueType::Tombstone,
+            seqno,
+        }
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn size(&self) -> usize {
