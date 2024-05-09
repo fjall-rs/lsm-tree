@@ -132,9 +132,7 @@ fn value_block_size(c: &mut Criterion) {
 }
 
 fn value_block_size_find(c: &mut Criterion) {
-    use lsm_tree::segment::{
-        block_index::block_handle::KeyedBlockHandle, block_index::BlockHandleBlock,
-    };
+    use lsm_tree::segment::block_index::{block_handle::KeyedBlockHandle, IndexBlock};
 
     let mut group = c.benchmark_group("Find item in BlockHandleBlock");
 
@@ -149,7 +147,7 @@ fn value_block_size_find(c: &mut Criterion) {
                 })
                 .collect();
 
-            let block = BlockHandleBlock { items, crc: 0 };
+            let block = IndexBlock { items, crc: 0 };
             let key = &0u64.to_be_bytes();
 
             b.iter(|| block.get_lowest_block_containing_item(key))

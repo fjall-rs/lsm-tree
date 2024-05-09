@@ -13,18 +13,9 @@ use std::path::Path;
 use std::sync::Arc;
 use top_level::TopLevelIndex;
 
-// TODO: rename index block?
-pub type BlockHandleBlock = DiskBlock<KeyedBlockHandle>;
+pub type IndexBlock = DiskBlock<KeyedBlockHandle>;
 
-impl BlockHandleBlock {
-    /*   pub(crate) fn get_previous_data_block_handle(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
-        self.items.iter().rev().find(|x| &*x.start_key < key)
-    }
-
-    pub(crate) fn get_next_data_block_handle(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
-        self.items.iter().find(|x| &*x.start_key > key)
-    } */
-
+impl IndexBlock {
     /// Finds the block that (possibly) contains a key
     pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
         self.items.iter().rev().find(|x| &*x.start_key <= key)
@@ -36,12 +27,12 @@ impl BlockHandleBlock {
 pub struct IndexBlockFetcher(Arc<BlockCache>);
 
 impl IndexBlockFetcher {
-    pub fn insert(&self, segment_id: GlobalSegmentId, offset: u64, value: Arc<BlockHandleBlock>) {
+    pub fn insert(&self, segment_id: GlobalSegmentId, offset: u64, value: Arc<IndexBlock>) {
         self.0.insert_index_block(segment_id, offset, value);
     }
 
     #[must_use]
-    pub fn get(&self, segment_id: GlobalSegmentId, offset: u64) -> Option<Arc<BlockHandleBlock>> {
+    pub fn get(&self, segment_id: GlobalSegmentId, offset: u64) -> Option<Arc<IndexBlock>> {
         self.0.get_index_block(segment_id, offset)
     }
 }
@@ -175,7 +166,7 @@ impl BlockIndex {
                 .access(&self.segment_id)?
                 .expect("should acquire file handle");
 
-            let block = BlockHandleBlock::from_file_compressed(
+            let block = IndexBlock::from_file_compressed(
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
                 block_handle.offset,
                 block_handle.size,

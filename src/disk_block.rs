@@ -1,5 +1,5 @@
 use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
@@ -73,13 +73,13 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
 impl<T: Clone + Serializable + Deserializable> Serializable for DiskBlock<T> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write CRC
-        writer.write_all(&self.crc.to_be_bytes())?;
+        writer.write_u32::<BigEndian>(self.crc)?;
 
         // Write number of items
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_all(&(self.items.len() as u32).to_be_bytes())?;
+        writer.write_u32::<BigEndian>(self.items.len() as u32)?;
 
         // Serialize each value
         for value in self.items.iter() {

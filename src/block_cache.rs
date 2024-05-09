@@ -4,7 +4,7 @@ use crate::either::{
 };
 use crate::segment::block_index::block_handle::KeyedBlockHandle;
 use crate::segment::id::GlobalSegmentId;
-use crate::segment::{block::ValueBlock, block_index::BlockHandleBlock};
+use crate::segment::{block::ValueBlock, block_index::IndexBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
 use std::sync::Arc;
@@ -15,7 +15,7 @@ enum BlockTag {
     Index = 1,
 }
 
-type Item = Either<Arc<ValueBlock>, Arc<BlockHandleBlock>>;
+type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
 // (Type (disk or index), Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
@@ -135,7 +135,7 @@ impl BlockCache {
         &self,
         segment_id: GlobalSegmentId,
         offset: u64,
-        value: Arc<BlockHandleBlock>,
+        value: Arc<IndexBlock>,
     ) {
         if self.capacity > 0 {
             self.data
@@ -161,7 +161,7 @@ impl BlockCache {
         &self,
         segment_id: GlobalSegmentId,
         offset: u64,
-    ) -> Option<Arc<BlockHandleBlock>> {
+    ) -> Option<Arc<IndexBlock>> {
         let key = (BlockTag::Index, segment_id, &offset);
         let item = self.data.get(&key)?;
         Some(item.right().clone())
