@@ -4,7 +4,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-/// Points to disk block on file
+/// Points to a block on file
 #[derive(Clone, Debug, Eq, PartialEq, std::hash::Hash)]
 #[allow(clippy::module_name_repetitions)]
 pub struct KeyedBlockHandle {
