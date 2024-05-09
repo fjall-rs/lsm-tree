@@ -22,7 +22,7 @@ use crate::file::BLOOM_FILTER_FILE;
 /// Flush options
 #[doc(hidden)]
 pub struct Options {
-    /// MemTable to flush
+    /// [`MemTable`] to flush
     pub memtable: Arc<MemTable>,
 
     /// Tree ID
@@ -34,6 +34,7 @@ pub struct Options {
     /// Base folder of segments
     ///
     /// The segment will be stored in {folder}/{segment_id}
+    #[allow(clippy::doc_markdown)]
     pub folder: PathBuf,
 
     /// Block size in bytes

@@ -60,6 +60,7 @@ pub struct PersistedConfig {
     /// level to the next
     ///
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
 
     r#type: TreeType,
@@ -88,11 +89,15 @@ impl Default for PersistedConfig {
 impl Serializable for PersistedConfig {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         writer.write_u8(self.r#type.into())?;
+
         writer.write_u8(self.compression.into())?;
+
         writer.write_u8(self.table_type.into())?;
+
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
         writer.write_u8(self.level_ratio)?;
+
         Ok(())
     }
 }
