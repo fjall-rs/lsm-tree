@@ -281,7 +281,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_raw() -> crate::Result<()> {
+    fn value_raw() -> crate::Result<()> {
         // Create an empty Value instance
         let value = Value::new(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
 
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_value() -> crate::Result<()> {
+    fn value_empty_value() -> crate::Result<()> {
         // Create an empty Value instance
         let value = Value::new(vec![1, 2, 3], vec![], 42, ValueType::Value);
 
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_value() -> crate::Result<()> {
+    fn value_with_value() -> crate::Result<()> {
         // Create an empty Value instance
         let value = Value::new(
             vec![1, 2, 3],

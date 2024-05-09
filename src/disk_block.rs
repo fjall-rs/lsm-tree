@@ -118,7 +118,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_blocky_deserialization_success() -> crate::Result<()> {
+    fn disk_block_deserialization_success() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blocky_deserialization_failure_crc() -> crate::Result<()> {
+    fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 

@@ -54,7 +54,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_atomic_rewrite() -> crate::Result<()> {
+    fn atomic_rewrite() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
         let path = dir.path().join("test.txt");
