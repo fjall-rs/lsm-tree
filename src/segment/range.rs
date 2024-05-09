@@ -53,12 +53,12 @@ impl Range {
 
     // TODO: may not need initialize function anymore, just do in constructor...
     fn initialize(&mut self) -> crate::Result<()> {
-        let offset_lo = match self.range.start_bound() {
+        let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => Some(start),
         };
 
-        let offset_hi = match self.range.end_bound() {
+        let end_key: Option<&Arc<[u8]>> = match self.range.end_bound() {
             Bound::Unbounded => None,
             Bound::Included(end) | Bound::Excluded(end) => Some(end),
         };
@@ -71,12 +71,12 @@ impl Range {
         )
         .cache_policy(self.cache_policy);
 
-        if let Some(handle) = offset_lo.cloned() {
-            reader = reader.set_lower_bound(handle);
+        if let Some(key) = start_key.cloned() {
+            reader = reader.set_lower_bound(key);
         }
-        /* if let Some(handle) = offset_hi.cloned() {
-            reader = reader.set_upper(handle);
-        } */
+        if let Some(key) = end_key.cloned() {
+            reader = reader.set_upper_bound(key);
+        }
 
         self.iterator = Some(reader);
 
