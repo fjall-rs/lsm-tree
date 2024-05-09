@@ -15,6 +15,7 @@ use top_level::TopLevelIndex;
 
 pub type IndexBlock = DiskBlock<KeyedBlockHandle>;
 
+// TODO: benchmark using partition_point, as index block is sorted
 impl IndexBlock {
     /// Finds the block that (possibly) contains a key
     pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
