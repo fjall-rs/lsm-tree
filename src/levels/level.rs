@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Level {
-    pub(crate) segments: Vec<Arc<Segment>>,
+    #[doc(hidden)]
+    pub segments: Vec<Arc<Segment>>,
+
     pub is_disjoint: bool,
 }
 
