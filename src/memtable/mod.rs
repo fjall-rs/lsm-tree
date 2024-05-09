@@ -79,6 +79,8 @@ impl MemTable {
 
     /// Inserts an item into the memtable
     pub fn insert(&self, item: Value) -> (u32, u32) {
+        // NOTE: Value length is u32 max
+        #[allow(clippy::cast_possible_truncation)]
         let item_size = item.size() as u32;
 
         let size_before = self
