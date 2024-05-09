@@ -11,12 +11,7 @@ pub mod reader;
 pub mod writer;
 
 use self::{
-    block::{load_by_block_handle, CachePolicy},
-    block_index::BlockIndex,
-    meta::Metadata,
-    prefix::PrefixedReader,
-    range::Range,
-    reader::Reader,
+    block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader, range::Range, reader::Reader,
 };
 use crate::{
     block_cache::BlockCache,
@@ -133,7 +128,34 @@ impl Segment {
             }
         }
 
-        // Get the block handle, if it doesn't exist, the key is definitely not found
+        let iter = Reader::new(
+            Arc::clone(&self.descriptor_table),
+            (self.tree_id, self.metadata.id).into(),
+            Arc::clone(&self.block_cache),
+            Arc::clone(&self.block_index),
+        )
+        .set_lower_bound(key.into());
+
+        for item in iter {
+            let item = item?;
+
+            // Just stop iterating once we go past our desired key
+            if &*item.key != key {
+                return Ok(None);
+            }
+
+            if let Some(seqno) = seqno {
+                if item.seqno < seqno {
+                    return Ok(Some(item));
+                }
+            } else {
+                return Ok(Some(item));
+            }
+        }
+
+        Ok(None)
+
+        /*  // Get the block handle, if it doesn't exist, the key is definitely not found
         let Some(block_handle) = self
             .block_index
             .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
@@ -231,7 +253,7 @@ impl Segment {
 
                 Ok(None)
             }
-        }
+        } */
     }
 
     /// Creates an iterator over the `Segment`.

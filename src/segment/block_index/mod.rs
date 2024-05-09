@@ -114,11 +114,13 @@ impl BlockIndex {
         key: &[u8],
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<KeyedBlockHandle>> {
-        let Some(block_handle) = self.get_lowest_index_block_handle_containing_key(key) else {
+        let Some(index_block_handle) = self.get_lowest_index_block_handle_containing_key(key)
+        else {
             return Ok(None);
         };
+        log::warn!("idx block handle: {index_block_handle:?}");
 
-        let index_block = self.load_index_block(block_handle, cache_policy)?;
+        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
         Ok(index_block
             .get_lowest_data_block_containing_item(key)
             .cloned())
