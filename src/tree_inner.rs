@@ -10,7 +10,6 @@ use crate::{
     BlockCache,
 };
 use std::{
-    collections::BTreeMap,
     path::PathBuf,
     sync::{atomic::AtomicU64, Arc, RwLock},
 };
@@ -20,8 +19,22 @@ pub type TreeId = u64;
 
 pub type MemtableId = u64;
 
-// TODO: Vec may be enough
-pub type SealedMemtables = BTreeMap<MemtableId, Arc<MemTable>>;
+#[derive(Default)]
+pub struct SealedMemtables(Vec<(MemtableId, Arc<MemTable>)>);
+
+impl SealedMemtables {
+    pub fn add(&mut self, id: MemtableId, memtable: Arc<MemTable>) {
+        self.0.push((id, memtable));
+    }
+
+    pub fn remove(&mut self, id_to_remove: MemtableId) {
+        self.0.retain(|(id, _)| *id != id_to_remove);
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<MemTable>)> {
+        self.0.iter()
+    }
+}
 
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);

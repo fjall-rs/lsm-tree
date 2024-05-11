@@ -76,7 +76,7 @@ impl<'a> PrefixIterator<'a> {
 
         let mut iters: Vec<BoxedIterator<'a>> = segment_iters;
 
-        for memtable in lock.guard.sealed.values() {
+        for (_, memtable) in lock.guard.sealed.iter() {
             iters.push(Box::new(
                 memtable
                     .items

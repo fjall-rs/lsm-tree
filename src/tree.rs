@@ -145,7 +145,7 @@ impl Tree {
         let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
 
         for segment in segments {
-            memtable_lock.remove(&segment.metadata.id);
+            memtable_lock.remove(segment.metadata.id);
         }
 
         // NOTE: Segments are registered, we can unlock the memtable(s) safely
@@ -276,7 +276,7 @@ impl Tree {
         let yanked_memtable = Arc::new(yanked_memtable);
 
         let tmp_memtable_id = self.get_next_segment_id();
-        sealed_memtables.insert(tmp_memtable_id, yanked_memtable.clone());
+        sealed_memtables.add(tmp_memtable_id, yanked_memtable.clone());
 
         Some((tmp_memtable_id, yanked_memtable))
     }
@@ -295,7 +295,7 @@ impl Tree {
     /// May be used to restore the LSM-tree's in-memory state from some journals.
     pub fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>) {
         let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
-        memtable_lock.insert(id, memtable);
+        memtable_lock.add(id, memtable);
     }
 
     /// Scans the entire tree, returning the amount of items.
@@ -385,7 +385,7 @@ impl Tree {
 
         // Now look in sealed memtables
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
-        for memtable in memtable_lock.values().rev() {
+        for (_, memtable) in memtable_lock.iter().rev() {
             if let Some(item) = memtable.get(&key, seqno) {
                 if evict_tombstone {
                     return Ok(ignore_tombstone_value(item));
