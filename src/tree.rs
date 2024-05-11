@@ -385,7 +385,7 @@ impl Tree {
 
         // Now look in sealed memtables
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
-        for (_, memtable) in memtable_lock.iter().rev() {
+        for memtable in memtable_lock.values().rev() {
             if let Some(item) = memtable.get(&key, seqno) {
                 if evict_tombstone {
                     return Ok(ignore_tombstone_value(item));
