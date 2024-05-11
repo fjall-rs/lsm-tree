@@ -2,6 +2,7 @@ use super::meta::SegmentId;
 use crate::tree_inner::TreeId;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[allow(clippy::module_name_repetitions)]
 pub struct GlobalSegmentId((TreeId, SegmentId));
 
 impl GlobalSegmentId {
