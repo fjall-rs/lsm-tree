@@ -20,6 +20,7 @@ pub type TreeId = u64;
 
 pub type MemtableId = u64;
 
+// TODO: VecDeque may be enough
 pub type SealedMemtables = BTreeMap<MemtableId, Arc<MemTable>>;
 
 pub fn get_next_tree_id() -> TreeId {
