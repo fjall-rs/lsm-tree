@@ -68,7 +68,7 @@
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // When some disk segments have amassed, use compaction
-//! // to reduce the amount of disk segents
+//! // to reduce the amount of disk segments
 //!
 //! // Choose compaction strategy based on workload
 //! use lsm_tree::compaction::Levelled;
