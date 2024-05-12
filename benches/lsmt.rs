@@ -27,6 +27,55 @@ fn iterate_level_manifest(c: &mut Criterion) {
     }
 }
 
+fn find_segment(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Find segment in disjoint level");
+
+    for segment_count in [1u64, 5, 10, 20, 50, 100, 250, 500, 1_000] {
+        let folder = tempfile::tempdir().unwrap();
+        let tree = Config::new(folder).block_size(1_024).open().unwrap();
+
+        for x in 0..segment_count {
+            tree.insert(x.to_be_bytes(), "", x as u64);
+            tree.flush_active_memtable().unwrap();
+        }
+
+        let key = (segment_count / 2).to_be_bytes();
+
+        group.bench_function(
+            &format!("find segment in {segment_count} segments - binary search"),
+            |b| {
+                let levels = tree.levels.read().unwrap();
+
+                b.iter(|| {
+                    levels
+                        .levels
+                        .first()
+                        .expect("should exist")
+                        .get_segment_containing_key(&key)
+                        .expect("should exist")
+                });
+            },
+        );
+
+        group.bench_function(
+            &format!("find segment in {segment_count} segments - linear search"),
+            |b| {
+                let levels = tree.levels.read().unwrap();
+
+                b.iter(|| {
+                    levels
+                        .levels
+                        .first()
+                        .expect("should exist")
+                        .iter()
+                        .find(|x| x.metadata.key_range.contains_key(&key))
+                        .expect("should exist");
+                });
+            },
+        );
+    }
+}
+
 fn memtable_get_upper_bound(c: &mut Criterion) {
     let memtable = MemTable::default();
 
@@ -76,7 +125,7 @@ fn tli_find_item(c: &mut Criterion) {
                 let key = (item_count / 10 * 6).to_be_bytes();
                 let expected: Arc<[u8]> = (item_count / 10 * 6 + 1).to_be_bytes().into();
 
-                let block = index.get_lowest_block_containing_item(&key).unwrap();
+                let block = index.get_lowest_block_containing_key(&key).unwrap();
 
                 b.iter(|| {
                     assert_eq!(
@@ -95,10 +144,7 @@ fn tli_find_item(c: &mut Criterion) {
                 b.iter(|| {
                     assert_eq!(
                         key,
-                        &*index
-                            .get_lowest_block_containing_item(&key)
-                            .unwrap()
-                            .start_key
+                        &*index.get_lowest_block_containing_key(&key).unwrap().end_key
                     );
                 })
             },
@@ -131,7 +177,7 @@ fn value_block_size(c: &mut Criterion) {
     }
 }
 
-fn value_block_size_find(c: &mut Criterion) {
+/* fn value_block_size_find(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{block_handle::KeyedBlockHandle, IndexBlock};
 
     let mut group = c.benchmark_group("Find item in BlockHandleBlock");
@@ -153,7 +199,7 @@ fn value_block_size_find(c: &mut Criterion) {
             b.iter(|| block.get_lowest_block_containing_item(key))
         });
     }
-}
+} */
 
 fn load_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
@@ -358,7 +404,7 @@ criterion_group!(
     benches,
     tli_find_item,
     memtable_get_upper_bound,
-    value_block_size_find,
+    // value_block_size_find,
     value_block_size,
     load_block_from_disk,
     file_descriptor_table,
@@ -366,5 +412,6 @@ criterion_group!(
     bloom_filter_contains,
     tree_get_pairs,
     iterate_level_manifest,
+    find_segment,
 );
 criterion_main!(benches);

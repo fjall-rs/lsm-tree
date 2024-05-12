@@ -39,7 +39,7 @@ impl KeyRange {
         true
     }
 
-    pub(crate) fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
+    pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
         let (start, end) = &self.0;
         key >= start && key <= end
