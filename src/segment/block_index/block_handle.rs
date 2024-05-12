@@ -8,8 +8,8 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Eq, PartialEq, std::hash::Hash)]
 #[allow(clippy::module_name_repetitions)]
 pub struct KeyedBlockHandle {
-    /// Key of first item in block
-    pub start_key: UserKey,
+    /// Key of last item in block
+    pub end_key: UserKey,
 
     /// Position of block in file
     pub offset: u64,
@@ -26,7 +26,7 @@ impl PartialOrd for KeyedBlockHandle {
 
 impl Ord for KeyedBlockHandle {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.start_key, self.offset).cmp(&(&other.start_key, other.offset))
+        (&self.end_key, self.offset).cmp(&(&other.end_key, other.offset))
     }
 }
 
@@ -37,9 +37,9 @@ impl Serializable for KeyedBlockHandle {
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.start_key.len() as u16)?;
+        writer.write_u16::<BigEndian>(self.end_key.len() as u16)?;
 
-        writer.write_all(&self.start_key)?;
+        writer.write_all(&self.end_key)?;
 
         Ok(())
     }
@@ -61,7 +61,7 @@ impl Deserializable for KeyedBlockHandle {
         Ok(Self {
             offset,
             size,
-            start_key: Arc::from(key),
+            end_key: Arc::from(key),
         })
     }
 }

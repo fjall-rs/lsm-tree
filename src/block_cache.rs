@@ -54,7 +54,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
             Either::Right(block) => block
                 .items
                 .iter()
-                .map(|x| x.start_key.len() + std::mem::size_of::<KeyedBlockHandle>())
+                .map(|x| x.end_key.len() + std::mem::size_of::<KeyedBlockHandle>())
                 .sum::<usize>() as u32,
         }
     }

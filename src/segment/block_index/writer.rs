@@ -76,12 +76,12 @@ impl Writer {
             .write_all(&bytes)?;
 
         // Expect is fine, because the chunk is not empty
-        let first = block.items.first().expect("Chunk should not be empty");
+        let last = block.items.last().expect("Chunk should not be empty");
 
         let bytes_written = bytes.len();
 
         let index_block_handle = KeyedBlockHandle {
-            start_key: first.start_key.clone(),
+            end_key: last.end_key.clone(),
             offset: self.file_pos,
             size: bytes_written as u32,
         };
@@ -103,7 +103,7 @@ impl Writer {
         let block_handle_size = (start_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
         let block_handle = KeyedBlockHandle {
-            start_key,
+            end_key: start_key,
             offset,
             size,
         };

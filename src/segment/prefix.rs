@@ -55,7 +55,7 @@ impl PrefixedReader {
             .block_index
             .get_prefix_upper_bound(&self.prefix, self.cache_policy)?;
 
-        let upper_bound = upper_bound.map(|x| x.start_key).map_or(Unbounded, Excluded);
+        let upper_bound = upper_bound.map(|x| x.end_key).map_or(Unbounded, Excluded);
 
         let range = Range::new(
             self.descriptor_table.clone(),

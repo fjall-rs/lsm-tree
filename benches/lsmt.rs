@@ -59,7 +59,7 @@ fn tli_find_item(c: &mut Criterion) {
 
             for x in 0..item_count {
                 items.push(KeyedBlockHandle {
-                    start_key: x.to_be_bytes().into(),
+                    end_key: x.to_be_bytes().into(),
                     offset: x,
                     size: 0,
                 });
@@ -81,7 +81,7 @@ fn tli_find_item(c: &mut Criterion) {
                 b.iter(|| {
                     assert_eq!(
                         expected,
-                        index.get_next_block_handle(block.offset).unwrap().start_key
+                        index.get_next_block_handle(block.offset).unwrap().end_key
                     );
                 })
             },
@@ -141,7 +141,7 @@ fn value_block_size_find(c: &mut Criterion) {
         group.bench_function(format!("{item_count} items"), |b| {
             let items = (0u64..item_count)
                 .map(|x| KeyedBlockHandle {
-                    start_key: x.to_be_bytes().into(),
+                    end_key: x.to_be_bytes().into(),
                     offset: 56,
                     size: 635,
                 })

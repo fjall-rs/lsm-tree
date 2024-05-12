@@ -1,6 +1,7 @@
 use super::{
     block::CachePolicy,
     block_index::{block_handle::KeyedBlockHandle, BlockIndex},
+    data_block_handle_queue::DataBlockHandleQueue,
 };
 use crate::{
     descriptor_table::FileDescriptorTable, segment::block::load_by_block_handle, BlockCache,
@@ -23,7 +24,7 @@ pub struct IndexBlockConsumer {
     end_key: Option<UserKey>,
 
     /// Index block that is being consumed from both ends
-    data_block_handles: VecDeque<KeyedBlockHandle>,
+    data_block_handles: DataBlockHandleQueue,
 
     /// Keep track of lower and upper bounds
     current_lo: Option<KeyedBlockHandle>,
@@ -56,7 +57,7 @@ impl IndexBlockConsumer {
             start_key: None,
             end_key: None,
 
-            data_block_handles,
+            data_block_handles: data_block_handles.into(),
             current_lo: None,
             current_hi: None,
             data_blocks: HashMap::with_capacity(2),
@@ -120,79 +121,13 @@ impl IndexBlockConsumer {
         Ok(block.map(|block| block.items.clone().to_vec().into()))
     }
 
-    // TODO: see TLI
-    fn get_start_block(&self, key: &[u8]) -> Option<(usize, &KeyedBlockHandle)> {
-        let idx = self
-            .data_block_handles
-            .partition_point(|x| &*x.start_key < key);
-        let idx = idx.saturating_sub(1);
-
-        let block = self.data_block_handles.get(idx)?;
-
-        if &*block.start_key > key {
-            None
-        } else {
-            Some((idx, block))
-        }
-    }
-
-    // TODO: see TLI
-    fn get_end_block(&self, key: &[u8]) -> Option<(usize, &KeyedBlockHandle)> {
-        let idx = self
-            .data_block_handles
-            .partition_point(|x| &*x.start_key <= key);
-
-        let block = self.data_block_handles.get(idx)?;
-        Some((idx, block))
-    }
-
-    // TODO: reader.rs should be correct - index block consumer needs rewrite...
-
     fn initialize(&mut self) {
         if let Some(key) = &self.start_key {
-            // TODO: unit test
-
-            // TODO: only return index
-            let result = self.get_start_block(key);
-
-            if let Some((idx, _)) = result {
-                // IMPORTANT: Remove all handles lower and including eligible block handle
-                //
-                // If our block handles look like this:
-                //
-                // [a, b, c, d, e, f]
-                //
-                // and we want start at 'c', we would load data block 'c'
-                // and get rid of a, b, resulting in:
-                //
-                // current_lo = c
-                //
-                // [d, e, f]
-                self.data_block_handles.drain(..idx);
-            }
+            self.data_block_handles.truncate_start(key);
         }
 
         if let Some(key) = &self.end_key {
-            // TODO: unit test
-
-            // TODO: only return index
-            let result = self.get_end_block(key);
-
-            if let Some((idx, _)) = result {
-                // IMPORTANT: Remove all handles higher and including eligible block handle
-                //
-                // If our block handles look like this:
-                //
-                // [a, b, c, d, e, f]
-                //
-                // and we want end at 'c', we would load data block 'c'
-                // and get rid of d, e, f, resulting in:
-                //
-                // current_hi = c
-                //
-                // [a, b, c]
-                self.data_block_handles.drain((idx + 1)..);
-            }
+            self.data_block_handles.truncate_end(key);
         }
 
         self.is_initialized = true;

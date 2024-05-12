@@ -135,10 +135,10 @@ impl Writer {
         let bytes_written = bytes.len() as u32;
 
         // NOTE: Expect is fine, because the chunk is not empty
-        let first = block.items.first().expect("Chunk should not be empty");
+        let last = block.items.last().expect("Chunk should not be empty");
 
         self.index_writer
-            .register_block(first.key.clone(), self.file_pos, bytes_written)?;
+            .register_block(last.key.clone(), self.file_pos, bytes_written)?;
 
         // Adjust metadata
         self.file_pos += u64::from(bytes_written);
