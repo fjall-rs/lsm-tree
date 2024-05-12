@@ -396,14 +396,29 @@ impl Tree {
         drop(memtable_lock);
 
         // Now look in segments... this may involve disk I/O
-        let levels = self.levels.read().expect("lock is poisoned");
+        let level_manifest = self.levels.read().expect("lock is poisoned");
 
-        for segment in levels.iter() {
-            if let Some(item) = segment.get(&key, seqno)? {
-                if evict_tombstone {
-                    return Ok(ignore_tombstone_value(item));
+        for level in &level_manifest.levels {
+            if level.is_disjoint && level.len() > 1 {
+                let Some(segment) = level.get_segment_containing_key(&key) else {
+                    return Ok(None);
+                };
+
+                if let Some(item) = segment.get(&key, seqno)? {
+                    if evict_tombstone {
+                        return Ok(ignore_tombstone_value(item));
+                    }
+                    return Ok(Some(item));
                 }
-                return Ok(Some(item));
+            } else {
+                for segment in &level.segments {
+                    if let Some(item) = segment.get(&key, seqno)? {
+                        if evict_tombstone {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                        return Ok(Some(item));
+                    }
+                }
             }
         }
 

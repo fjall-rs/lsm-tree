@@ -29,14 +29,24 @@ impl Default for Level {
 impl Level {
     pub fn insert(&mut self, segment: Arc<Segment>) {
         self.segments.push(segment);
-        self.sort_by_seqno();
         self.set_disjoint_flag();
+
+        if self.is_disjoint {
+            self.sort_by_key_range();
+        } else {
+            self.sort_by_seqno();
+        }
     }
 
     pub fn remove(&mut self, segment_id: SegmentId) {
         self.segments.retain(|x| segment_id != x.metadata.id);
-        self.sort_by_seqno();
         self.set_disjoint_flag();
+
+        if self.is_disjoint {
+            self.sort_by_key_range();
+        } else {
+            self.sort_by_seqno();
+        }
     }
 
     pub fn sort_by_key_range(&mut self) {
@@ -78,6 +88,8 @@ impl Level {
 
     /// Checks if the level is disjoint and caches the result in `is_disjoint`
     fn set_disjoint_flag(&mut self) {
+        // TODO: calculate without heap allocation
+
         let ranges = self
             .segments
             .iter()
@@ -94,5 +106,19 @@ impl Level {
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
             .map(|x| x.metadata.id)
             .collect()
+    }
+
+    /// Returns the segment that possibly contains the key.
+    ///
+    /// This only works for disjoint levels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the level is not disjoint.
+    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
+        assert!(self.is_disjoint, "level is not disjoint");
+
+        let idx = self.partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
+        self.get(idx).cloned()
     }
 }
