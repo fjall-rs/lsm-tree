@@ -509,7 +509,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = Value::new(key.as_ref(), vec![], seqno, ValueType::Tombstone);
+        let value = Value::new_tombstone(key.as_ref(), seqno);
         self.append_entry(value)
     }
 
