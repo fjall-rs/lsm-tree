@@ -16,6 +16,14 @@ pub struct Strategy {
     base_size: u32,
 }
 
+impl Strategy {
+    /// Creates a new STCS strategy with custom base size
+    #[must_use]
+    pub fn new(base_size: u32) -> Self {
+        Self { base_size }
+    }
+}
+
 impl Default for Strategy {
     fn default() -> Self {
         Self {
