@@ -401,15 +401,13 @@ impl Tree {
         for level in &level_manifest.levels {
             // NOTE: Based on benchmarking, binary search is only worth it after ~5 segments
             if level.is_disjoint && level.len() > 5 {
-                let Some(segment) = level.get_segment_containing_key(&key) else {
-                    return Ok(None);
-                };
-
-                if let Some(item) = segment.get(&key, seqno)? {
-                    if evict_tombstone {
-                        return Ok(ignore_tombstone_value(item));
+                if let Some(segment) = level.get_segment_containing_key(&key) {
+                    if let Some(item) = segment.get(&key, seqno)? {
+                        if evict_tombstone {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                        return Ok(Some(item));
                     }
-                    return Ok(Some(item));
                 }
             } else {
                 for segment in &level.segments {

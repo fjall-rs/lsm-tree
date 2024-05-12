@@ -2,7 +2,7 @@ use lsm_tree::Config;
 use test_log::test;
 
 #[test]
-fn tree_read_mvcc() -> lsm_tree::Result<()> {
+fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
     let tree = Config::new(folder).block_size(1_024).open()?;
