@@ -1,3 +1,8 @@
+mod compression;
+mod table_type;
+
+pub use {compression::CompressionType, table_type::TableType};
+
 use super::writer::Writer;
 use crate::{
     file::{fsync_directory, SEGMENT_METADATA_FILE},
@@ -14,68 +19,6 @@ use std::{
     path::Path,
     sync::Arc,
 };
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "segment_history",
-    derive(serde::Deserialize, serde::Serialize)
-)]
-pub enum TableType {
-    Block,
-}
-
-impl From<TableType> for u8 {
-    fn from(val: TableType) -> Self {
-        match val {
-            TableType::Block => 0,
-        }
-    }
-}
-
-impl TryFrom<u8> for TableType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Block),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "segment_history",
-    derive(serde::Deserialize, serde::Serialize)
-)]
-pub enum CompressionType {
-    Lz4,
-}
-
-impl From<CompressionType> for u8 {
-    fn from(val: CompressionType) -> Self {
-        match val {
-            CompressionType::Lz4 => 1,
-        }
-    }
-}
-
-impl TryFrom<u8> for CompressionType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::Lz4),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::fmt::Display for CompressionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "lz4")
-    }
-}
 
 pub type SegmentId = u64;
 
