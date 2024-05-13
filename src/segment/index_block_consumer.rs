@@ -60,7 +60,7 @@ impl IndexBlockConsumer {
             data_block_handles: data_block_handles.into(),
             current_lo: None,
             current_hi: None,
-            data_blocks: HashMap::with_capacity(2),
+            data_blocks: HashMap::default(),
 
             cache_policy: CachePolicy::Write,
 
@@ -69,19 +69,6 @@ impl IndexBlockConsumer {
     }
 
     /// Sets the lower bound block, so that as many blocks as possible can be skipped.
-    ///
-    /// # Caveat
-    ///
-    /// That does not mean, the consumer will not return keys before the searched key
-    /// as it works on a per-block basis, consider:
-    ///
-    /// [a, b, c] [d, e, f] [g, h, i]
-    ///
-    /// If we searched for 'f', we would get:
-    ///
-    /// [a, b, c] [d, e, f] [g, h, i]
-    ///           ~~~~~~~~~~~~~~~~~~~
-    ///           iteration
     #[must_use]
     pub fn set_lower_bound(mut self, key: UserKey) -> Self {
         self.start_key = Some(key);
@@ -89,11 +76,6 @@ impl IndexBlockConsumer {
     }
 
     /// Sets the lower bound block, so that as many blocks as possible can be skipped.
-    ///
-    /// # Caveat
-    ///
-    /// That does not mean, the consumer will not return keys before the searched key
-    /// as it works on a per-block basis.
     #[must_use]
     pub fn set_upper_bound(mut self, key: UserKey) -> Self {
         self.end_key = Some(key);
@@ -118,7 +100,35 @@ impl IndexBlockConsumer {
             block_handle,
             self.cache_policy,
         )?;
-        Ok(block.map(|block| block.items.clone().to_vec().into()))
+
+        // Truncate as many items as possible
+        if let Some(block) = block {
+            let items = match (&self.start_key, &self.end_key) {
+                (Some(start), Some(end)) => block
+                    .items
+                    .iter()
+                    .filter(|item| &item.key >= start && &item.key <= end)
+                    .cloned()
+                    .collect(),
+                (Some(start), None) => block
+                    .items
+                    .iter()
+                    .filter(|item| &item.key >= start)
+                    .cloned()
+                    .collect(),
+                (None, Some(end)) => block
+                    .items
+                    .iter()
+                    .filter(|item| &item.key <= end)
+                    .cloned()
+                    .collect(),
+                (None, None) => block.items.clone().to_vec(),
+            };
+
+            Ok(Some(items.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn initialize(&mut self) {
@@ -166,8 +176,12 @@ impl Iterator for IndexBlockConsumer {
         if self.data_block_handles.is_empty() && self.data_blocks.len() == 1 {
             // We've reached the final block
             // Just consume from it instead
-            let block = self.data_blocks.values_mut().next();
-            return block.and_then(VecDeque::pop_front).map(Ok);
+            return self
+                .data_blocks
+                .values_mut()
+                .next()
+                .and_then(VecDeque::pop_front)
+                .map(Ok);
         }
 
         let current_lo = self.current_lo.as_ref().expect("lower bound uninitialized");
@@ -175,9 +189,7 @@ impl Iterator for IndexBlockConsumer {
         let block = self.data_blocks.get_mut(current_lo);
 
         if let Some(block) = block {
-            let item = block.pop_front();
-
-            if block.is_empty() {
+            let item = if block.is_empty() {
                 // Load next block
                 self.data_blocks.remove(current_lo);
 
@@ -187,6 +199,7 @@ impl Iterator for IndexBlockConsumer {
                     if Some(&next_data_block_handle) == self.current_hi.as_ref() {
                         // Do nothing
                         // Next item consumed will use the existing higher block
+                        None
                     } else {
                         let data_block = match self.load_data_block(&next_data_block_handle) {
                             Ok(block) => block,
@@ -194,12 +207,27 @@ impl Iterator for IndexBlockConsumer {
                         };
                         debug_assert!(data_block.is_some());
 
-                        if let Some(data_block) = data_block {
+                        if let Some(mut data_block) = data_block {
+                            let item = data_block.pop_front();
                             self.data_blocks.insert(next_data_block_handle, data_block);
+                            item
+                        } else {
+                            None
                         }
                     }
+                } else if self.data_block_handles.is_empty() {
+                    // We've reached the final block
+                    // Just consume from it instead
+                    self.data_blocks
+                        .values_mut()
+                        .next()
+                        .and_then(VecDeque::pop_front)
+                } else {
+                    None
                 }
-            }
+            } else {
+                block.pop_front()
+            };
 
             item.map(Ok)
         } else {
@@ -235,11 +263,15 @@ impl DoubleEndedIterator for IndexBlockConsumer {
             }
         }
 
-        if self.data_block_handles.is_empty() && self.data_blocks.len() == 1 {
+        if self.data_block_handles.is_empty() {
             // We've reached the final block
             // Just consume from it instead
-            let block = self.data_blocks.values_mut().next();
-            return block.and_then(VecDeque::pop_back).map(Ok);
+            return self
+                .data_blocks
+                .values_mut()
+                .next()
+                .and_then(VecDeque::pop_back)
+                .map(Ok);
         }
 
         let current_hi = self.current_hi.as_ref().expect("upper bound uninitialized");
@@ -247,9 +279,7 @@ impl DoubleEndedIterator for IndexBlockConsumer {
         let block = self.data_blocks.get_mut(current_hi);
 
         if let Some(block) = block {
-            let item = block.pop_back();
-
-            if block.is_empty() {
+            let item = if block.is_empty() {
                 // Load next block
                 self.data_blocks.remove(current_hi);
 
@@ -259,6 +289,7 @@ impl DoubleEndedIterator for IndexBlockConsumer {
                     if Some(&prev_data_block_handle) == self.current_lo.as_ref() {
                         // Do nothing
                         // Next item consumed will use the existing lower block
+                        None
                     } else {
                         let data_block = match self.load_data_block(&prev_data_block_handle) {
                             Ok(block) => block,
@@ -266,12 +297,27 @@ impl DoubleEndedIterator for IndexBlockConsumer {
                         };
                         debug_assert!(data_block.is_some());
 
-                        if let Some(data_block) = data_block {
+                        if let Some(mut data_block) = data_block {
+                            let item = data_block.pop_back();
                             self.data_blocks.insert(prev_data_block_handle, data_block);
+                            item
+                        } else {
+                            None
                         }
                     }
+                } else if self.data_block_handles.is_empty() {
+                    // We've reached the final block
+                    // Just consume from it instead
+                    self.data_blocks
+                        .values_mut()
+                        .next()
+                        .and_then(VecDeque::pop_back)
+                } else {
+                    None
                 }
-            }
+            } else {
+                block.pop_back()
+            };
 
             item.map(Ok)
         } else {

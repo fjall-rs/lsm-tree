@@ -130,10 +130,10 @@ impl Segment {
         }
 
         let iter = Reader::new(
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
         )
         .set_lower_bound(key.into());
 

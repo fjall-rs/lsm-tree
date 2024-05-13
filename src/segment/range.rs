@@ -652,7 +652,7 @@ mod tests {
 
                 let expected_range = (start_char..=end_char).collect::<Vec<_>>();
 
-                /*   let iter = SegmentReader::new(
+                let iter = SegmentReader::new(
                     table.clone(),
                     (0, 0).into(),
                     block_cache.clone(),
@@ -664,7 +664,7 @@ mod tests {
 
                 for &item in &expected_range {
                     assert_eq!(&*range.next().expect("should exist"), &[item]);
-                } */
+                }
 
                 let iter = SegmentReader::new(
                     table.clone(),

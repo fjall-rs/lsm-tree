@@ -47,7 +47,7 @@ impl Reader {
             start_key: None,
             end_key: None,
 
-            consumers: HashMap::with_capacity(2),
+            consumers: HashMap::default(),
             current_lo: None,
             current_hi: None,
 
@@ -79,12 +79,12 @@ impl Reader {
     }
 
     fn initialize(&mut self) -> crate::Result<()> {
-        if let Some(key) = self.start_key.clone() {
-            self.load_lower_bound(&key)?;
+        if let Some(key) = &self.start_key {
+            self.load_lower_bound(&key.clone())?;
         }
 
-        if let Some(key) = self.end_key.clone() {
-            self.load_upper_bound(&key)?;
+        if let Some(key) = &self.end_key {
+            self.load_upper_bound(&key.clone())?;
         }
 
         self.is_initialized = true;
