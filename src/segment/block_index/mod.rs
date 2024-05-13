@@ -19,7 +19,7 @@ pub type IndexBlock = DiskBlock<KeyedBlockHandle>;
 impl IndexBlock {
     /// Finds the block that (possibly) contains a key
     pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
-        self.items.iter().rev().find(|x| &*x.end_key <= key)
+        self.items.iter().find(|x| &*x.end_key >= key)
     }
 }
 
@@ -112,6 +112,7 @@ impl BlockIndex {
         };
 
         let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+
         Ok(index_block
             .get_lowest_data_block_containing_item(key)
             .cloned())

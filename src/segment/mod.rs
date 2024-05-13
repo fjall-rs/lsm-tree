@@ -18,6 +18,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     file::SEGMENT_METADATA_FILE,
+    segment::block::load_by_block_handle,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -110,6 +111,8 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
+        use block::CachePolicy;
+
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -128,6 +131,57 @@ impl Segment {
                 return Ok(None);
             }
         }
+
+        if seqno.is_none() {
+            // NOTE: Fastpath for non-seqno reads (which are most common)
+            // This avoids setting up a rather expensive block iterator
+            // (see explanation for that below)
+            // This only really works because sequence numbers are sorted
+            // in descending order
+
+            if let Some(data_block_handle) = self
+                .block_index
+                .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+            {
+                let block = load_by_block_handle(
+                    &self.descriptor_table,
+                    &self.block_cache,
+                    (self.tree_id, self.metadata.id).into(),
+                    &data_block_handle,
+                    CachePolicy::Write,
+                )?;
+
+                let item = block.map_or_else(
+                    || Ok(None),
+                    |block| {
+                        // TODO: maybe binary search can be used, but it needs to find the max seqno
+                        Ok(block
+                            .items
+                            .iter()
+                            .find(|item| item.key == key.as_ref().into())
+                            .cloned())
+                    },
+                );
+
+                return item;
+            }
+        }
+
+        // NOTE: For finding a specific seqno,
+        // we need to use a reader
+        // because nothing really prevents the version
+        // we are searching for to be in the next block
+        // after the one our key starts in
+        //
+        // Example (key:seqno), searching for a:2:
+        //
+        // [..., a:5, a:4] [a:3, a:2, b: 4, b:3]
+        // ^               ^
+        // Block A         Block B
+        //
+        // Based on get_lower_bound_block, "a" is in Block A
+        // However, we are searching for A with seqno 2, which
+        // unfortunately is in the next block
 
         let iter = Reader::new(
             self.descriptor_table.clone(),

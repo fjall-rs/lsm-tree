@@ -133,7 +133,11 @@ impl std::fmt::Debug for Value {
                 ValueType::Value => "V",
                 ValueType::Tombstone => "T",
             },
-            self.value
+            if self.value.len() >= 64 {
+                format!("[ ... {} bytes ]", self.value.len())
+            } else {
+                format!("{:?}", self.value)
+            }
         )
     }
 }
