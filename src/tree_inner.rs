@@ -4,9 +4,14 @@ use crate::{
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
-#[doc(hidden)]
+/// Unique tree ID
+///
+/// Tree IDs are monotonically increasing integers.
 pub type TreeId = u64;
 
+/// Unique memtable ID
+///
+/// Memtable IDs map one-to-one to some segment.
 pub type MemtableId = u64;
 
 #[derive(Default)]
