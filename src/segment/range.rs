@@ -51,8 +51,7 @@ impl Range {
         self
     }
 
-    // TODO: may not need initialize function anymore, just do in constructor...
-    fn initialize(&mut self) -> crate::Result<()> {
+    fn initialize(&mut self) {
         let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => Some(start),
@@ -79,8 +78,6 @@ impl Range {
         }
 
         self.iterator = Some(reader);
-
-        Ok(())
     }
 }
 
@@ -89,9 +86,7 @@ impl Iterator for Range {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.iterator.is_none() {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
+            self.initialize();
         }
 
         loop {
@@ -146,9 +141,7 @@ impl Iterator for Range {
 impl DoubleEndedIterator for Range {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.iterator.is_none() {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
+            self.initialize();
         }
 
         loop {
@@ -279,11 +272,29 @@ mod tests {
         );
         assert_eq!(chars.len(), iter.flatten().count());
 
-        // TODO: reverse
-
         for start_char in chars {
             let key = &[start_char][..];
             let key: Arc<[u8]> = Arc::from(key);
+
+            // NOTE: Forwards
+            let expected_range = (start_char..=b'z').collect::<Vec<_>>();
+
+            let iter = Range::new(
+                table.clone(),
+                (0, 0).into(),
+                block_cache.clone(),
+                block_index.clone(),
+                (Bound::Included(key.clone()), Bound::Unbounded),
+            );
+            let items = iter
+                .flatten()
+                .map(|x| x.key.first().copied().expect("is ok"))
+                .collect::<Vec<_>>();
+
+            assert_eq!(items, expected_range);
+
+            // NOTE: Reverse
+            let expected_range = (start_char..=b'z').rev().collect::<Vec<_>>();
 
             let iter = Range::new(
                 table.clone(),
@@ -292,13 +303,11 @@ mod tests {
                 block_index.clone(),
                 (Bound::Included(key), Bound::Unbounded),
             );
-
             let items = iter
+                .rev()
                 .flatten()
                 .map(|x| x.key.first().copied().expect("is ok"))
                 .collect::<Vec<_>>();
-
-            let expected_range = (start_char..=b'z').collect::<Vec<_>>();
 
             assert_eq!(items, expected_range);
         }

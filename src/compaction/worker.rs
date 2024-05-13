@@ -79,7 +79,6 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
             merge_segments(levels, opts, &payload)?;
         }
         Choice::DeleteSegments(payload) => {
-            // TODO: combine with tree ID
             drop_segments(
                 levels,
                 opts,

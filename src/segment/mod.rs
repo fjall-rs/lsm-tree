@@ -155,6 +155,7 @@ impl Segment {
                     || Ok(None),
                     |block| {
                         // TODO: maybe binary search can be used, but it needs to find the max seqno
+                        // TODO: if so, implement in ValueBlock
                         Ok(block
                             .items
                             .iter()

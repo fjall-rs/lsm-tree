@@ -87,8 +87,6 @@ impl DataBlockHandleQueue {
     }
 }
 
-// TODO: unit test
-
 #[cfg(test)]
 mod tests {
     use super::*;
