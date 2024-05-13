@@ -1,5 +1,5 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::PersistedConfig, levels::LevelManifest};
+use crate::{config::Config, levels::LevelManifest};
 
 /// Major compaction
 ///
@@ -31,7 +31,7 @@ impl Default for Strategy {
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &LevelManifest, _: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let segment_ids = levels.iter().map(|x| x.metadata.id).collect();
 
         Choice::DoCompact(CompactionInput {

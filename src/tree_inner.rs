@@ -1,18 +1,8 @@
 use crate::{
-    config::{Config, PersistedConfig},
-    descriptor_table::FileDescriptorTable,
-    file::LEVELS_MANIFEST_FILE,
-    levels::LevelManifest,
-    memtable::MemTable,
-    segment::meta::SegmentId,
-    snapshot::Counter as SnapshotCounter,
-    stop_signal::StopSignal,
-    BlockCache,
+    config::Config, file::LEVELS_MANIFEST_FILE, levels::LevelManifest, memtable::MemTable,
+    segment::meta::SegmentId, snapshot::Counter as SnapshotCounter, stop_signal::StopSignal,
 };
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicU64, Arc, RwLock},
-};
+use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
 #[doc(hidden)]
 pub type TreeId = u64;
@@ -44,8 +34,6 @@ pub fn get_next_tree_id() -> TreeId {
 pub struct TreeInner {
     pub id: TreeId,
 
-    pub path: PathBuf,
-
     pub(crate) segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
@@ -59,13 +47,7 @@ pub struct TreeInner {
     pub levels: Arc<RwLock<LevelManifest>>,
 
     /// Tree configuration
-    pub config: PersistedConfig,
-
-    /// Block cache
-    pub block_cache: Arc<BlockCache>,
-
-    /// File descriptor cache table
-    pub descriptor_table: Arc<FileDescriptorTable>,
+    pub config: Config,
 
     /// Keeps track of open snapshots
     pub(crate) open_snapshots: SnapshotCounter,
@@ -84,11 +66,8 @@ impl TreeInner {
 
         Ok(Self {
             id: get_next_tree_id(),
-            path: config.path,
             segment_id_counter: Arc::new(AtomicU64::default()),
-            config: config.inner,
-            block_cache: config.block_cache,
-            descriptor_table: config.descriptor_table,
+            config,
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),

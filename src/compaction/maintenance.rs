@@ -1,6 +1,6 @@
 use super::{Choice, CompactionStrategy};
 use crate::{
-    config::PersistedConfig,
+    config::Config,
     levels::LevelManifest,
     segment::{meta::SegmentId, Segment},
 };
@@ -41,7 +41,7 @@ pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> Ve
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &LevelManifest, _: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
         let mut first_level = resolved_view
@@ -77,7 +77,7 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         compaction::{Choice, CompactionStrategy},
-        config::PersistedConfig,
+        config::Config,
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
@@ -129,7 +129,7 @@ mod tests {
         let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         assert_eq!(
-            compactor.choose(&levels, &PersistedConfig::default()),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -147,7 +147,7 @@ mod tests {
         }
 
         assert_eq!(
-            compactor.choose(&levels, &PersistedConfig::default()),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -165,7 +165,7 @@ mod tests {
         }
 
         assert_eq!(
-            compactor.choose(&levels, &PersistedConfig::default()),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoCompact(crate::compaction::Input {
                 dest_level: 0,
                 segment_ids: vec![0, 1, 2],

@@ -54,15 +54,6 @@ pub struct PersistedConfig {
     /// Amount of levels of the LSM tree (depth of tree)
     pub level_count: u8,
 
-    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
-    ///
-    /// This is the exponential growth of the from one
-    /// level to the next
-    ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
-    #[allow(clippy::doc_markdown)]
-    pub level_ratio: u8,
-
     r#type: TreeType,
 
     /// What type of compression is used
@@ -78,7 +69,6 @@ impl Default for PersistedConfig {
         Self {
             block_size: 4_096,
             level_count: 7,
-            level_ratio: 8,
             r#type: TreeType::Standard,
             compression: CompressionType::Lz4,
             table_type: TableType::Block,
@@ -96,7 +86,6 @@ impl Serializable for PersistedConfig {
 
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
-        writer.write_u8(self.level_ratio)?;
 
         Ok(())
     }
@@ -115,7 +104,6 @@ impl Deserializable for PersistedConfig {
 
         let block_size = reader.read_u32::<BigEndian>()?;
         let level_count = reader.read_u8()?;
-        let level_ratio = reader.read_u8()?;
 
         Ok(Self {
             r#type: tree_type,
@@ -123,11 +111,11 @@ impl Deserializable for PersistedConfig {
             table_type,
             block_size,
             level_count,
-            level_ratio,
         })
     }
 }
 
+#[derive(Clone)]
 /// Tree configuration builder
 pub struct Config {
     /// Persistent configuration
@@ -147,6 +135,15 @@ pub struct Config {
     /// Descriptor table to use
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
+
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
+    ///
+    /// This is the exponential growth of the from one
+    /// level to the next
+    ///
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
+    pub level_ratio: u8,
 }
 
 impl Default for Config {
@@ -156,6 +153,7 @@ impl Default for Config {
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
             descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
+            level_ratio: 8,
         }
     }
 }
@@ -198,7 +196,7 @@ impl Config {
     pub fn level_ratio(mut self, n: u8) -> Self {
         assert!(n > 1);
 
-        self.inner.level_ratio = n;
+        self.level_ratio = n;
         self
     }
 
@@ -265,7 +263,6 @@ mod tests {
             compression: CompressionType::Lz4,
             table_type: TableType::Block,
             level_count: 7,
-            level_ratio: 8,
             r#type: TreeType::Standard,
         };
 

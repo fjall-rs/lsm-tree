@@ -59,7 +59,7 @@ impl Tree {
         log::debug!("Opening LSM-tree at {:?}", config.path);
 
         let tree = if config.path.join(LSM_MARKER).try_exists()? {
-            Self::recover(config.path, config.block_cache, config.descriptor_table)
+            Self::recover(config)
         } else {
             Self::create_new(config)
         }?;
@@ -178,17 +178,17 @@ impl Tree {
             return Ok(None);
         };
 
-        let segment_folder = self.path.join(SEGMENTS_FOLDER);
+        let segment_folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("flush: writing segment to {segment_folder:?}");
 
         let segment = flush_to_segment(Options {
             memtable: yanked_memtable,
-            block_cache: self.block_cache.clone(),
-            block_size: self.config.block_size,
+            block_cache: self.config.block_cache.clone(),
+            block_size: self.config.inner.block_size,
             folder: segment_folder.clone(),
             tree_id: self.id,
             segment_id,
-            descriptor_table: self.descriptor_table.clone(),
+            descriptor_table: self.config.descriptor_table.clone(),
         })?;
         let segment = Arc::new(segment);
 
@@ -749,23 +749,17 @@ impl Tree {
     /// # Errors
     ///
     /// Returns error, if an IO error occured.
-    fn recover<P: AsRef<Path>>(
-        path: P,
-        block_cache: Arc<BlockCache>,
-        descriptor_table: Arc<FileDescriptorTable>,
-    ) -> crate::Result<Self> {
+    fn recover(mut config: Config) -> crate::Result<Self> {
         use crate::{
             file::{CONFIG_FILE, LSM_MARKER},
             snapshot::Counter as SnapshotCounter,
             tree_inner::get_next_tree_id,
         };
 
-        let path = path.as_ref();
-
-        log::info!("Recovering LSM-tree at {path:?}");
+        log::info!("Recovering LSM-tree at {:?}", config.path);
 
         {
-            let bytes = std::fs::read(path.join(LSM_MARKER))?;
+            let bytes = std::fs::read(config.path.join(LSM_MARKER))?;
 
             if let Some(version) = Version::parse_file_header(&bytes) {
                 if version != Version::V0 {
@@ -778,11 +772,17 @@ impl Tree {
 
         let tree_id = get_next_tree_id();
 
-        let mut levels = Self::recover_levels(path, tree_id, &block_cache, &descriptor_table)?;
+        let mut levels = Self::recover_levels(
+            &config.path,
+            tree_id,
+            &config.block_cache,
+            &config.descriptor_table,
+        )?;
         levels.sort_levels();
 
-        let config = std::fs::read(path.join(CONFIG_FILE))?;
-        let config = PersistedConfig::deserialize(&mut Cursor::new(config))?;
+        let config_from_disk = std::fs::read(config.path.join(CONFIG_FILE))?;
+        let config_from_disk = PersistedConfig::deserialize(&mut Cursor::new(config_from_disk))?;
+        config.inner = config_from_disk;
 
         let highest_segment_id = levels
             .iter()
@@ -792,7 +792,6 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
-            path: path.to_path_buf(),
             segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
@@ -800,8 +799,8 @@ impl Tree {
             open_snapshots: SnapshotCounter::default(),
             stop_signal: StopSignal::default(),
             config,
-            block_cache,
-            descriptor_table,
+            /*  block_cache,
+            descriptor_table, */
         };
 
         Ok(Self(Arc::new(inner)))

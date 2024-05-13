@@ -1,7 +1,5 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{
-    config::PersistedConfig, key_range::KeyRange, levels::LevelManifest, segment::Segment,
-};
+use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
 use std::{ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
@@ -69,7 +67,7 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
 // TODO: instead of rewriting
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &LevelManifest, config: &PersistedConfig) -> Choice {
+    fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
         // If there are any levels that already have a compactor working on it
@@ -259,7 +257,7 @@ mod tests {
         let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -282,7 +280,7 @@ mod tests {
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -292,7 +290,7 @@ mod tests {
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -302,7 +300,7 @@ mod tests {
             128 * 1_024 * 1_024,
         ));
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -313,7 +311,7 @@ mod tests {
         ));
 
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
@@ -323,7 +321,7 @@ mod tests {
 
         levels.hide_segments(&[4]);
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -378,7 +376,7 @@ mod tests {
         );
 
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
@@ -437,7 +435,7 @@ mod tests {
         );
 
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoCompact(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4, 5, 6],
@@ -447,7 +445,7 @@ mod tests {
 
         levels.hide_segments(&[5]);
         assert_eq!(
-            compactor.choose(&levels, &Config::default().inner),
+            compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
         );
 
@@ -469,13 +467,13 @@ mod tests {
             2,
             fixture_segment(4, string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
             fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             1,
@@ -488,7 +486,7 @@ mod tests {
         );
 
         assert_eq!(
-            compactor.choose(&levels, &config.inner),
+            compactor.choose(&levels, &config),
             Choice::DoCompact(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1, 4],
@@ -514,25 +512,25 @@ mod tests {
             3,
             fixture_segment(5, string_key_range("f", "l"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
             fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
             fixture_segment(2, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
             fixture_segment(3, string_key_range("a", "g"), 128 * 1_024 * 1_024),
         );
-        assert_eq!(compactor.choose(&levels, &config.inner), Choice::DoNothing);
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
 
         levels.insert_into_level(
             2,
@@ -545,7 +543,7 @@ mod tests {
         );
 
         assert_eq!(
-            compactor.choose(&levels, &config.inner),
+            compactor.choose(&levels, &config),
             Choice::DoCompact(CompactionInput {
                 dest_level: 3,
                 segment_ids: vec![1, 5],
