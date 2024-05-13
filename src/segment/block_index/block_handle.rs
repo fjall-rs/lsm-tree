@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::sync::Arc;
 
 /// Points to a block on file
-#[derive(Clone, Debug, Eq, PartialEq, std::hash::Hash)]
+#[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct KeyedBlockHandle {
     /// Key of last item in block
@@ -16,6 +16,19 @@ pub struct KeyedBlockHandle {
 
     /// Size of block in bytes
     pub size: u32,
+}
+
+impl PartialEq for KeyedBlockHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.offset == other.offset
+    }
+}
+impl Eq for KeyedBlockHandle {}
+
+impl std::hash::Hash for KeyedBlockHandle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.offset);
+    }
 }
 
 impl PartialOrd for KeyedBlockHandle {
