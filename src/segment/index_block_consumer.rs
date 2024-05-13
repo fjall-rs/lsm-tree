@@ -215,15 +215,13 @@ impl Iterator for IndexBlockConsumer {
                             None
                         }
                     }
-                } else if self.data_block_handles.is_empty() {
+                } else {
                     // We've reached the final block
                     // Just consume from it instead
                     self.data_blocks
                         .values_mut()
                         .next()
                         .and_then(VecDeque::pop_front)
-                } else {
-                    None
                 }
             } else {
                 block.pop_front()
@@ -263,7 +261,7 @@ impl DoubleEndedIterator for IndexBlockConsumer {
             }
         }
 
-        if self.data_block_handles.is_empty() {
+        if self.data_block_handles.is_empty() && self.data_blocks.len() == 1 {
             // We've reached the final block
             // Just consume from it instead
             return self
@@ -305,15 +303,13 @@ impl DoubleEndedIterator for IndexBlockConsumer {
                             None
                         }
                     }
-                } else if self.data_block_handles.is_empty() {
+                } else {
                     // We've reached the final block
                     // Just consume from it instead
                     self.data_blocks
                         .values_mut()
                         .next()
                         .and_then(VecDeque::pop_back)
-                } else {
-                    None
                 }
             } else {
                 block.pop_back()
