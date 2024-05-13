@@ -15,7 +15,7 @@ impl std::fmt::Display for Version {
 impl From<Version> for u16 {
     fn from(value: Version) -> Self {
         match value {
-            //Version::V0 => 0,
+            // Version::V0 => 0,
             Version::V1 => 1,
         }
     }
@@ -25,7 +25,7 @@ impl TryFrom<u16> for Version {
     type Error = ();
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            //  0 => Ok(Self::V0),
+            // 0 => Ok(Self::V0),
             1 => Ok(Self::V1),
             _ => Err(()),
         }
