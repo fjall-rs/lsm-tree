@@ -120,7 +120,7 @@ impl Writer {
     }
 
     fn write_top_level_index(&mut self, block_file_size: u64) -> crate::Result<()> {
-        // TODO: I hate this, but we need to drop the writer
+        // IMPORTANT: I hate this, but we need to drop the writer
         // so the file is closed
         // so it can be replaced when using Windows
         self.block_writer = None;
