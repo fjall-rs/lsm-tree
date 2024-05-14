@@ -45,8 +45,6 @@ impl Deserializable for Header {
         let mut magic = [0u8; BLOCK_HEADER_MAGIC.len()];
         reader.read_exact(&mut magic)?;
 
-        log::error!("{magic:?}");
-
         if magic != BLOCK_HEADER_MAGIC {
             return Err(DeserializeError::InvalidBlockHeader);
         }
