@@ -48,18 +48,20 @@ impl TryFrom<u8> for TreeType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 pub struct PersistedConfig {
-    /// Block size of data and index blocks
-    pub block_size: u32,
-
-    /// Amount of levels of the LSM tree (depth of tree)
-    pub level_count: u8,
-
+    /// Tree type (unused)
     r#type: TreeType,
 
     /// What type of compression is used
     compression: CompressionType,
 
+    /// Table type (unused)
     table_type: TableType,
+
+    /// Block size of data and index blocks
+    pub block_size: u32,
+
+    /// Amount of levels of the LSM tree (depth of tree)
+    pub level_count: u8,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -79,11 +81,8 @@ impl Default for PersistedConfig {
 impl Serializable for PersistedConfig {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         writer.write_u8(self.r#type.into())?;
-
         writer.write_u8(self.compression.into())?;
-
         writer.write_u8(self.table_type.into())?;
-
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
 
@@ -106,6 +105,7 @@ impl Deserializable for PersistedConfig {
             .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
 
         let block_size = reader.read_u32::<BigEndian>()?;
+
         let level_count = reader.read_u8()?;
 
         Ok(Self {
@@ -146,6 +146,7 @@ pub struct Config {
     ///
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
     #[allow(clippy::doc_markdown)]
+    #[doc(hidden)]
     pub level_ratio: u8,
 }
 
@@ -260,13 +261,49 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn segment_metadata_serde_round_trip() -> crate::Result<()> {
+    fn tree_config_raw() -> crate::Result<()> {
         let config = PersistedConfig {
-            block_size: 4_096,
+            r#type: TreeType::Standard,
             compression: CompressionType::Lz4,
             table_type: TableType::Block,
+            block_size: 4_096,
             level_count: 7,
+        };
+
+        let mut bytes = vec![];
+        config.serialize(&mut bytes)?;
+
+        #[rustfmt::skip]
+        let raw = &[
+            // Tree type
+            0,
+
+            // Compression
+            1,
+
+            // Table type
+            0,
+
+            // Block size
+            0, 0, 0x10, 0x00,
+
+            // Levels
+            7,
+        ];
+
+        assert_eq!(bytes, raw);
+
+        Ok(())
+    }
+
+    #[test]
+    fn tree_config_serde_round_trip() -> crate::Result<()> {
+        let config = PersistedConfig {
             r#type: TreeType::Standard,
+            compression: CompressionType::Lz4,
+            table_type: TableType::Block,
+            block_size: 4_096,
+            level_count: 7,
         };
 
         let mut bytes = vec![];
