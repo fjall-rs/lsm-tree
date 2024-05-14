@@ -1,5 +1,5 @@
 use super::{
-    block::CachePolicy,
+    value_block::CachePolicy,
     block_index::{block_handle::KeyedBlockHandle, BlockIndex},
     id::GlobalSegmentId,
     index_block_consumer::IndexBlockConsumer,

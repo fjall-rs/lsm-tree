@@ -1,4 +1,4 @@
-use super::{block::CachePolicy, block_index::BlockIndex, id::GlobalSegmentId, range::Range};
+use super::{block_index::BlockIndex, id::GlobalSegmentId, range::Range, value_block::CachePolicy};
 use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
 };

@@ -1,5 +1,5 @@
 use super::{
-    block::{CachePolicy, ValueBlock},
+    value_block::{CachePolicy, ValueBlock},
     block_index::{block_handle::KeyedBlockHandle, BlockIndex},
     data_block_handle_queue::DataBlockHandleQueue,
 };

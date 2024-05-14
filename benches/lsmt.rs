@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, MemTable, Value,
+    bloom::BloomFilter, segment::value_block::ValueBlock, BlockCache, Config, MemTable, Value,
 };
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};

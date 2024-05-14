@@ -1,4 +1,4 @@
-use super::block::ValueBlock;
+use super::value_block::ValueBlock;
 use crate::{
     file::{fsync_directory, BLOCKS_FILE},
     segment::block_index::writer::Writer as IndexWriter,

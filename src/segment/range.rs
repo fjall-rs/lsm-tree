@@ -1,7 +1,7 @@
-use super::block::CachePolicy;
 use super::block_index::BlockIndex;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
+use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
 use crate::value::UserKey;

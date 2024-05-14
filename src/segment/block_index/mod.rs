@@ -3,7 +3,7 @@ pub mod top_level;
 pub mod writer;
 
 use self::block_handle::KeyedBlockHandle;
-use super::block::CachePolicy;
+use super::value_block::CachePolicy;
 use super::id::GlobalSegmentId;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;

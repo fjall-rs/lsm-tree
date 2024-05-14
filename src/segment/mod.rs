@@ -1,4 +1,4 @@
-pub mod block;
+pub mod value_block;
 pub mod block_index;
 pub mod data_block_handle_queue;
 pub mod id;
@@ -18,7 +18,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     file::SEGMENT_METADATA_FILE,
-    segment::block::ValueBlock,
+    segment::value_block::ValueBlock,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -119,7 +119,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        use block::CachePolicy;
+        use value_block::CachePolicy;
 
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {

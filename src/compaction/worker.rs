@@ -143,7 +143,7 @@ fn merge_segments(
             let iter = Box::new(
                 segment
                     .iter()
-                    .cache_policy(crate::segment::block::CachePolicy::Read),
+                    .cache_policy(crate::segment::value_block::CachePolicy::Read),
             );
             segment_readers.push(iter);
         }
