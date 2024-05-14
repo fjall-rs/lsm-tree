@@ -251,12 +251,16 @@ impl LevelManifest {
     /// Returns the amount of levels in the tree
     #[must_use]
     pub fn depth(&self) -> u8 {
-        self.levels.len() as u8
+        // NOTE: Level count is u8
+        #[allow(clippy::cast_possible_truncation)]
+        let len = self.levels.len() as u8;
+
+        len
     }
 
     #[must_use]
     pub fn first_level_segment_count(&self) -> usize {
-        self.levels.first().expect("L0 should always exist").len()
+        self.levels.first().map(Level::len).unwrap_or_default()
     }
 
     /// Returns the amount of levels in the tree
@@ -284,7 +288,11 @@ impl LevelManifest {
         for (idx, level) in self.levels.iter().enumerate() {
             for segment_id in level.ids() {
                 if self.hidden_set.contains(&segment_id) {
-                    output.insert(idx as u8);
+                    // NOTE: Level count is u8
+                    #[allow(clippy::cast_possible_truncation)]
+                    let idx = idx as u8;
+
+                    output.insert(idx);
                 }
             }
         }
