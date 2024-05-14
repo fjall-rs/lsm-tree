@@ -15,12 +15,24 @@ use top_level::TopLevelIndex;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 
-// TODO: benchmark using partition_point, as index block is sorted
 impl IndexBlock {
+    // TODO: same as TLI::get_lowest_block_containing_key
+
     /// Finds the block that (possibly) contains a key
     #[must_use]
-    pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
-        self.items.iter().find(|x| &*x.end_key >= key)
+    pub fn get_lowest_data_block_handle_containing_item(
+        &self,
+        key: &[u8],
+    ) -> Option<&KeyedBlockHandle> {
+        let idx = self.items.partition_point(|x| &*x.end_key < key);
+
+        let handle = self.items.get(idx)?;
+
+        if key > &*handle.end_key {
+            None
+        } else {
+            Some(handle)
+        }
     }
 }
 
@@ -115,7 +127,7 @@ impl BlockIndex {
         let index_block = self.load_index_block(index_block_handle, cache_policy)?;
 
         Ok(index_block
-            .get_lowest_data_block_containing_item(key)
+            .get_lowest_data_block_handle_containing_item(key)
             .cloned())
     }
 
