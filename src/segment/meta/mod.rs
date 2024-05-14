@@ -1,8 +1,6 @@
 mod compression;
 mod table_type;
 
-pub use {compression::CompressionType, table_type::TableType};
-
 use super::writer::Writer;
 use crate::{
     file::{fsync_directory, SEGMENT_METADATA_FILE},
@@ -17,8 +15,8 @@ use std::{
     fs::OpenOptions,
     io::{Cursor, Read, Write},
     path::Path,
-    sync::Arc,
 };
+pub use {compression::CompressionType, table_type::TableType};
 
 pub type SegmentId = u64;
 
@@ -98,15 +96,7 @@ impl Serializable for Metadata {
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
         writer.write_u64::<BigEndian>(self.seqnos.1)?;
 
-        // NOTE: Max key size = u16
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.key_range.0.len() as u16)?;
-        writer.write_all(&self.key_range.0)?;
-
-        // NOTE: Max key size = u16
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.key_range.1.len() as u16)?;
-        writer.write_all(&self.key_range.1)?;
+        self.key_range.serialize(writer)?;
 
         Ok(())
     }
@@ -140,15 +130,7 @@ impl Deserializable for Metadata {
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;
 
-        let key_min_len = reader.read_u16::<BigEndian>()?;
-        let mut key_min = vec![0; key_min_len.into()];
-        reader.read_exact(&mut key_min)?;
-        let key_min: Arc<[u8]> = Arc::from(key_min);
-
-        let key_max_len = reader.read_u16::<BigEndian>()?;
-        let mut key_max = vec![0; key_max_len.into()];
-        reader.read_exact(&mut key_max)?;
-        let key_max: Arc<[u8]> = Arc::from(key_max);
+        let key_range = KeyRange::deserialize(reader)?;
 
         Ok(Self {
             id,
@@ -170,7 +152,7 @@ impl Deserializable for Metadata {
 
             seqnos: (seqno_min, seqno_max),
 
-            key_range: KeyRange::new((key_min, key_max)),
+            key_range,
         })
     }
 }
