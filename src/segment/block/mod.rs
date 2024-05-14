@@ -36,9 +36,7 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         reader.seek(std::io::SeekFrom::Start(offset))?;
         Self::from_reader_compressed(reader, size)
     }
-}
 
-impl<T: Clone + Serializable + Deserializable> Block<T> {
     /// Calculates the CRC from a list of values
     pub fn create_crc(items: &[T]) -> crate::Result<u32> {
         let mut hasher = crc32fast::Hasher::new();
