@@ -4,7 +4,7 @@ use crate::either::{
 };
 use crate::segment::block_index::block_handle::KeyedBlockHandle;
 use crate::segment::id::GlobalSegmentId;
-use crate::segment::{value_block::ValueBlock, block_index::IndexBlock};
+use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
 use std::sync::Arc;
