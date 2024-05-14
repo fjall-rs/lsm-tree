@@ -111,7 +111,6 @@ mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
-mod disk_block;
 mod either;
 mod error;
 

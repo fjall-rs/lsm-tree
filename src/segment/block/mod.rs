@@ -3,16 +3,16 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
-/// Contains the items of a block after decompressing & deserializing.
+/// A disk-based block
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[derive(Clone, Debug)]
-pub struct DiskBlock<T: Clone + Serializable + Deserializable> {
+pub struct Block<T: Clone + Serializable + Deserializable> {
     pub items: Box<[T]>,
     pub crc: u32,
 }
 
-impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
+impl<T: Clone + Serializable + Deserializable> Block<T> {
     pub fn from_reader_compressed<R: Read>(reader: &mut R, size: u32) -> crate::Result<Self> {
         let mut bytes = vec![0u8; size as usize];
         reader.read_exact(&mut bytes)?;
@@ -35,7 +35,7 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
     }
 }
 
-impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
+impl<T: Clone + Serializable + Deserializable> Block<T> {
     /// Calculates the CRC from a list of values
     pub fn create_crc(items: &[T]) -> crate::Result<u32> {
         let mut hasher = crc32fast::Hasher::new();
@@ -70,7 +70,7 @@ impl<T: Clone + Serializable + Deserializable> DiskBlock<T> {
     }
 }
 
-impl<T: Clone + Serializable + Deserializable> Serializable for DiskBlock<T> {
+impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write CRC
         writer.write_u32::<BigEndian>(self.crc)?;
@@ -90,7 +90,7 @@ impl<T: Clone + Serializable + Deserializable> Serializable for DiskBlock<T> {
     }
 }
 
-impl<T: Clone + Serializable + Deserializable> Deserializable for DiskBlock<T> {
+impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         // Read CRC
         let crc = reader.read_u32::<BigEndian>()?;
@@ -123,9 +123,9 @@ mod tests {
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1.clone(), item2.clone()];
-        let crc = DiskBlock::create_crc(&items)?;
+        let crc = Block::create_crc(&items)?;
 
-        let block = DiskBlock {
+        let block = Block {
             items: items.into_boxed_slice(),
             crc,
         };
@@ -135,7 +135,7 @@ mod tests {
         block.serialize(&mut serialized)?;
 
         // Deserialize from bytes
-        let deserialized = DiskBlock::deserialize(&mut &serialized[..]);
+        let deserialized = Block::deserialize(&mut &serialized[..]);
 
         match deserialized {
             Ok(block) => {
@@ -155,7 +155,7 @@ mod tests {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
-        let block = DiskBlock {
+        let block = Block {
             items: [item1, item2].into(),
             crc: 12345,
         };
@@ -165,7 +165,7 @@ mod tests {
         block.serialize(&mut serialized)?;
 
         // Deserialize from bytes
-        let deserialized = DiskBlock::<Value>::deserialize(&mut &serialized[..])?;
+        let deserialized = Block::<Value>::deserialize(&mut &serialized[..])?;
 
         assert!(!deserialized.check_crc(54321)?);
 

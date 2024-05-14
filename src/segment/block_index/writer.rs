@@ -1,6 +1,5 @@
-use super::KeyedBlockHandle;
+use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
-    disk_block::DiskBlock,
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
     value::UserKey,
 };
@@ -59,15 +58,15 @@ impl Writer {
 
     fn write_block(&mut self) -> crate::Result<()> {
         // Prepare block
-        let mut block = DiskBlock::<KeyedBlockHandle> {
+        let mut block = IndexBlock {
             items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             crc: 0,
         };
 
         // Serialize block
-        block.crc = DiskBlock::<KeyedBlockHandle>::create_crc(&block.items)?;
-        let bytes = DiskBlock::to_bytes_compressed(&block);
+        block.crc = IndexBlock::create_crc(&block.items)?;
+        let bytes = IndexBlock::to_bytes_compressed(&block);
 
         // Write to file
         self.block_writer
@@ -137,15 +136,15 @@ impl Writer {
         }
 
         // Prepare block
-        let mut block = DiskBlock::<KeyedBlockHandle> {
+        let mut block = IndexBlock {
             items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             crc: 0,
         };
 
         // Serialize block
-        block.crc = DiskBlock::<KeyedBlockHandle>::create_crc(&block.items)?;
-        let bytes = DiskBlock::to_bytes_compressed(&block);
+        block.crc = IndexBlock::create_crc(&block.items)?;
+        let bytes = IndexBlock::to_bytes_compressed(&block);
 
         // Write to file
         self.index_writer.write_all(&bytes)?;

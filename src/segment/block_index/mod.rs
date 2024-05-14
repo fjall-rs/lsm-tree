@@ -3,17 +3,17 @@ pub mod top_level;
 pub mod writer;
 
 use self::block_handle::KeyedBlockHandle;
-use super::value_block::CachePolicy;
+use super::block::Block;
 use super::id::GlobalSegmentId;
+use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
-use crate::disk_block::DiskBlock;
 use crate::file::{BLOCKS_FILE, TOP_LEVEL_INDEX_FILE};
 use std::path::Path;
 use std::sync::Arc;
 use top_level::TopLevelIndex;
 
-pub type IndexBlock = DiskBlock<KeyedBlockHandle>;
+pub type IndexBlock = Block<KeyedBlockHandle>;
 
 // TODO: benchmark using partition_point, as index block is sorted
 impl IndexBlock {
@@ -154,7 +154,7 @@ impl BlockIndex {
         &self,
         block_handle: &KeyedBlockHandle,
         cache_policy: CachePolicy,
-    ) -> crate::Result<Arc<DiskBlock<KeyedBlockHandle>>> {
+    ) -> crate::Result<Arc<IndexBlock>> {
         if let Some(block) = self.blocks.get(self.segment_id, block_handle.offset) {
             // Cache hit: Copy from block
 

@@ -1,5 +1,5 @@
-use super::{block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
-use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
+use super::{block::Block, block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
+use crate::{descriptor_table::FileDescriptorTable, BlockCache, Value};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -16,7 +16,7 @@ pub enum CachePolicy {
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[allow(clippy::module_name_repetitions)]
-pub type ValueBlock = DiskBlock<Value>;
+pub type ValueBlock = Block<Value>;
 
 impl ValueBlock {
     pub fn size(&self) -> usize {

@@ -1,4 +1,4 @@
-pub mod value_block;
+pub mod block;
 pub mod block_index;
 pub mod data_block_handle_queue;
 pub mod id;
@@ -9,6 +9,7 @@ pub mod multi_writer;
 pub mod prefix;
 pub mod range;
 pub mod reader;
+pub mod value_block;
 pub mod writer;
 
 use self::{

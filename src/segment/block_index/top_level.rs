@@ -1,5 +1,5 @@
 use super::block_handle::KeyedBlockHandle;
-use crate::disk_block::DiskBlock;
+use crate::segment::block_index::IndexBlock;
 use std::{fs::File, io::BufReader, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their size
@@ -41,7 +41,7 @@ impl TopLevelIndex {
         #[allow(clippy::cast_possible_truncation)]
         let index_size = std::fs::metadata(path)?.len() as u32;
 
-        let items = DiskBlock::<KeyedBlockHandle>::from_file_compressed(
+        let items = IndexBlock::from_file_compressed(
             &mut BufReader::new(File::open(path)?),
             0,
             index_size,
