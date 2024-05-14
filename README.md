@@ -35,6 +35,14 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 engine, larger keys and values have a bigger performance impact.
 
+## Features
+
+#### bloom
+
+Uses bloom filters to reduce disk I/O for non-existing keys. Improves point read performance, but increases memory usage.
+
+*Disabled by default.*
+
 ## Stable disk format
 
 The disk format will be stable from 1.0.0 (oh, the dreaded 1.0.0...) onwards. As of 0.8.0 the disk format is generally stabilized, but will have one final breaking change going into 1.0.0.
