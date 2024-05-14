@@ -430,6 +430,9 @@ mod tests {
             hidden_set: HashSet::default(),
             levels: Vec::default(),
             path: "a".into(),
+
+            #[cfg(feature = "segment_history")]
+            segment_history_writer: segment_history::Writer::new()?,
         };
 
         let mut bytes = vec![];
