@@ -18,6 +18,7 @@ pub type IndexBlock = Block<KeyedBlockHandle>;
 // TODO: benchmark using partition_point, as index block is sorted
 impl IndexBlock {
     /// Finds the block that (possibly) contains a key
+    #[must_use]
     pub fn get_lowest_data_block_containing_item(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
         self.items.iter().find(|x| &*x.end_key >= key)
     }

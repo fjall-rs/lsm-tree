@@ -152,12 +152,11 @@ impl Writer {
             self.write_block()?;
         }
 
-        self.block_writer.as_mut().expect("should exist").flush()?;
-        self.block_writer
-            .as_mut()
-            .expect("should exist")
-            .get_mut()
-            .sync_all()?;
+        {
+            let block_writer = self.block_writer.as_mut().expect("should exist");
+            block_writer.flush()?;
+            block_writer.get_mut().sync_all()?;
+        }
 
         self.write_top_level_index(block_file_size)?;
 
