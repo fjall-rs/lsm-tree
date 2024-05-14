@@ -375,6 +375,7 @@ impl Serializable for LevelManifest {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
@@ -432,7 +433,7 @@ mod tests {
             path: "a".into(),
 
             #[cfg(feature = "segment_history")]
-            segment_history_writer: segment_history::Writer::new()?,
+            segment_history_writer: super::segment_history::Writer::new()?,
         };
 
         let mut bytes = vec![];
