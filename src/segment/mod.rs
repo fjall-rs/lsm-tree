@@ -96,9 +96,17 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
+            // TODO: only load bloom if file exists?
             #[cfg(feature = "bloom")]
             bloom_filter: BloomFilter::from_file(folder.join(BLOOM_FILTER_FILE))?,
         })
+    }
+
+    #[cfg(feature = "bloom")]
+    #[must_use]
+    /// Gets the bloom filter size
+    pub fn bloom_filter_size(&self) -> usize {
+        self.bloom_filter.len()
     }
 
     /// Retrieves an item from the segment.
