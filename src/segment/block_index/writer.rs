@@ -33,8 +33,8 @@ pub struct Writer {
     index_writer: BufWriter<File>,
     block_size: u32,
     block_counter: u32,
-    block_chunk: Vec<KeyedBlockHandle>,
-    index_chunk: Vec<KeyedBlockHandle>,
+    block_handles: Vec<KeyedBlockHandle>,
+    tli_pointers: Vec<KeyedBlockHandle>,
 }
 
 impl Writer {
@@ -52,15 +52,15 @@ impl Writer {
             index_writer,
             block_counter: 0,
             block_size,
-            block_chunk: Vec::with_capacity(1_000),
-            index_chunk: Vec::with_capacity(1_000),
+            block_handles: Vec::with_capacity(1_000),
+            tli_pointers: Vec::with_capacity(1_000),
         })
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
         // Prepare block
         let mut block = IndexBlock {
-            items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
+            items: std::mem::replace(&mut self.block_handles, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             header: BlockHeader {
                 crc: 0,
@@ -90,7 +90,7 @@ impl Writer {
             size: bytes_written as u32,
         };
 
-        self.index_chunk.push(index_block_handle);
+        self.tli_pointers.push(index_block_handle);
 
         self.block_counter = 0;
         self.file_pos += bytes_written as u64;
@@ -112,7 +112,7 @@ impl Writer {
             size,
         };
 
-        self.block_chunk.push(block_handle);
+        self.block_handles.push(block_handle);
 
         self.block_counter += block_handle_size;
 
@@ -136,13 +136,13 @@ impl Writer {
 
         log::trace!("Concatted index blocks onto blocks file");
 
-        for item in &mut self.index_chunk {
+        for item in &mut self.tli_pointers {
             item.offset += block_file_size;
         }
 
         // Prepare block
         let mut block = IndexBlock {
-            items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
+            items: std::mem::replace(&mut self.tli_pointers, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
             header: BlockHeader {
                 crc: 0,
