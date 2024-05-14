@@ -1,7 +1,8 @@
 use super::value_block::ValueBlock;
 use crate::{
     file::{fsync_directory, BLOCKS_FILE},
-    segment::block_index::writer::Writer as IndexWriter,
+    segment::{block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter},
+    serde::Serializable,
     value::{SeqNo, UserKey},
     Value,
 };
@@ -116,14 +117,12 @@ impl Writer {
         self.uncompressed_size += uncompressed_chunk_size;
 
         // Write to file
-        let bytes = ValueBlock::to_bytes_compressed(&self.chunk)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk)?;
 
-        self.block_writer.write_all(&bytes)?;
+        header.serialize(&mut self.block_writer)?;
+        self.block_writer.write_all(&data)?;
 
-        // NOTE: Blocks are never bigger than 4 GB anyway,
-        // so it's fine to just truncate it
-        #[allow(clippy::cast_possible_truncation)]
-        let bytes_written = bytes.len() as u32;
+        let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
         // NOTE: Expect is fine, because the chunk is not empty
         let last = self.chunk.last().expect("Chunk should not be empty");
@@ -132,7 +131,7 @@ impl Writer {
             .register_block(last.key.clone(), self.file_pos)?;
 
         // Adjust metadata
-        self.file_pos += u64::from(bytes_written);
+        self.file_pos += bytes_written;
         self.item_count += self.chunk.len();
         self.block_count += 1;
 

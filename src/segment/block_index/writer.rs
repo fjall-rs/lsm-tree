@@ -1,6 +1,8 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
+    segment::block::header::{Header as BlockHeader, BLOCK_HEADER_MAGIC},
+    serde::Serializable,
     value::UserKey,
 };
 use std::{
@@ -57,21 +59,21 @@ impl Writer {
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
-        // Write to file
-        let bytes = IndexBlock::to_bytes_compressed(&self.block_handles)?;
+        let mut block_writer = self.block_writer.as_mut().expect("should exist");
 
-        self.block_writer
-            .as_mut()
-            .expect("should exist")
-            .write_all(&bytes)?;
+        // Write to file
+        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles)?;
+
+        header.serialize(&mut block_writer)?;
+        block_writer.write_all(&data)?;
+
+        let bytes_written = BlockHeader::serialized_len() + data.len();
 
         // Expect is fine, because the chunk is not empty
         let last = self
             .block_handles
             .last()
             .expect("Chunk should not be empty");
-
-        let bytes_written = bytes.len();
 
         let index_block_handle = KeyedBlockHandle {
             end_key: last.end_key.clone(),
@@ -125,9 +127,13 @@ impl Writer {
         }
 
         // Write to file
-        let bytes = IndexBlock::to_bytes_compressed(&self.tli_pointers)?;
+        let (header, data) = IndexBlock::to_bytes_compressed(&self.tli_pointers)?;
 
-        self.index_writer.write_all(&bytes)?;
+        header.serialize(&mut self.index_writer)?;
+        self.index_writer.write_all(&data)?;
+
+        let bytes_written = BlockHeader::serialized_len() + data.len();
+
         self.index_writer.flush()?;
         self.index_writer.get_mut().sync_all()?;
 
@@ -135,7 +141,7 @@ impl Writer {
             "Written top level index to {}, with {} pointers ({} bytes)",
             self.path.join(TOP_LEVEL_INDEX_FILE).display(),
             self.tli_pointers.len(),
-            bytes.len(),
+            bytes_written,
         );
 
         Ok(())

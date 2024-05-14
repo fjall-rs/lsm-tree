@@ -21,6 +21,16 @@ pub struct Header {
     pub data_length: u32,
 }
 
+impl Header {
+    #[must_use]
+    pub const fn serialized_len() -> usize {
+        BLOCK_HEADER_MAGIC.len()
+            + std::mem::size_of::<u8>()
+            + std::mem::size_of::<u32>()
+            + std::mem::size_of::<u32>()
+    }
+}
+
 impl Serializable for Header {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
