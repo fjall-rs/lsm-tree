@@ -3,6 +3,7 @@
     feature = "segment_history",
     derive(serde::Deserialize, serde::Serialize)
 )]
+#[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
     Lz4,
 }

@@ -61,7 +61,8 @@ impl Deserializable for Header {
 
         // Read compression type
         let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression).expect("invalid compression type");
+        let compression = CompressionType::try_from(compression)
+            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
 
         // Read CRC
         let crc = reader.read_u32::<BigEndian>()?;

@@ -310,8 +310,7 @@ impl LevelManifest {
         output
     }
 
-    #[must_use]
-    pub fn iter(&self) -> LevelManifestIterator {
+    pub fn iter(&self) -> impl Iterator<Item = Arc<Segment>> + '_ {
         LevelManifestIterator::new(self)
     }
 
@@ -325,7 +324,7 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+    /* pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         let mut output = HashMap::new();
 
         for segment in self.iter() {
@@ -335,7 +334,7 @@ impl LevelManifest {
         }
 
         output
-    }
+    } */
 
     pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {

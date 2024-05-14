@@ -14,11 +14,9 @@ pub enum DeserializeError {
     Io(std::io::Error),
 
     /// Invalid enum tag
-    InvalidTag(u8),
+    InvalidTag((&'static str, u8)),
 
-    /// Invalid trailer
-    InvalidTrailer,
-
+    /// Invalid block header
     InvalidBlockHeader,
 }
 

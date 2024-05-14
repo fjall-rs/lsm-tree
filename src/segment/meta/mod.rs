@@ -130,10 +130,12 @@ impl Deserializable for Metadata {
         let block_count = reader.read_u32::<BigEndian>()?;
 
         let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression).expect("invalid compression type");
+        let compression = CompressionType::try_from(compression)
+            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
 
         let table_type = reader.read_u8()?;
-        let table_type = TableType::try_from(table_type).expect("invalid table type");
+        let table_type = TableType::try_from(table_type)
+            .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;

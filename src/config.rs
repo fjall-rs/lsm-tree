@@ -94,13 +94,16 @@ impl Serializable for PersistedConfig {
 impl Deserializable for PersistedConfig {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         let tree_type = reader.read_u8()?;
-        let tree_type = TreeType::try_from(tree_type).expect("invalid tree type");
+        let tree_type = TreeType::try_from(tree_type)
+            .map_err(|()| DeserializeError::InvalidTag(("TreeType", tree_type)))?;
 
         let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression).expect("invalid compression type");
+        let compression = CompressionType::try_from(compression)
+            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
 
         let table_type = reader.read_u8()?;
-        let table_type = TableType::try_from(table_type).expect("invalid table type");
+        let table_type = TableType::try_from(table_type)
+            .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
 
         let block_size = reader.read_u32::<BigEndian>()?;
         let level_count = reader.read_u8()?;
