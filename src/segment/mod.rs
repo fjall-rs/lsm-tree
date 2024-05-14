@@ -32,14 +32,15 @@ use crate::bloom::BloomFilter;
 #[cfg(feature = "bloom")]
 use crate::file::BLOOM_FILTER_FILE;
 
-/// Disk segment (a.k.a. `SSTable`, `sorted string table`) that is located on disk
+/// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
-/// A segment is an immutable list of key-value pairs, split into compressed blocks (see [`block::ValueBlock`]).
-/// The block offset and size in the file is saved in the "block index".
+/// A segment is an immutable list of key-value pairs, split into compressed blocks.
+/// A reference to the block (`block handle`) is saved in the "block index".
 ///
 /// Deleted entries are represented by tombstones.
 ///
-/// Segments can be merged together to remove duplicates, reducing disk space and improving read performance.
+/// Segments can be merged together to remove duplicate items, reducing disk space and improving read performance.
+#[doc(alias = "sstable")]
 pub struct Segment {
     pub(crate) tree_id: TreeId,
 

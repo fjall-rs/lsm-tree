@@ -10,8 +10,8 @@ use std::io::{Cursor, Read};
 ///
 /// A block is split into its header and a compressed blob of data.
 ///
-/// [ header ]
-/// [  data  ]
+/// \[ header \]
+/// \[  data  \]
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[derive(Clone, Debug)]

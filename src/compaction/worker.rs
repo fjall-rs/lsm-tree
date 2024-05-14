@@ -169,7 +169,7 @@ fn merge_segments(
         0 => 0.0001,
         1 => 0.001,
         2 => 0.01,
-        lvl => {
+        _ => {
             if is_last_level {
                 0.5
             } else {
