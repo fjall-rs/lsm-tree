@@ -18,7 +18,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     file::SEGMENT_METADATA_FILE,
-    segment::block::load_by_block_handle,
+    segment::block::ValueBlock,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -151,7 +151,7 @@ impl Segment {
                 .block_index
                 .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
             {
-                let block = load_by_block_handle(
+                let block = ValueBlock::load_by_block_handle(
                     &self.descriptor_table,
                     &self.block_cache,
                     (self.tree_id, self.metadata.id).into(),

@@ -2,6 +2,15 @@ use super::{block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
 use crate::{descriptor_table::FileDescriptorTable, disk_block::DiskBlock, BlockCache, Value};
 use std::sync::Arc;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CachePolicy {
+    /// Read cached blocks, but do not change cache
+    Read,
+
+    /// Read cached blocks, and update cache
+    Write,
+}
+
 /// Value blocks are the building blocks of a [`crate::segment::Segment`]. Each block is a sorted list of [`Value`]s,
 /// and stored in compressed form on disk, in sorted order.
 ///
@@ -13,51 +22,46 @@ impl ValueBlock {
     pub fn size(&self) -> usize {
         std::mem::size_of::<Self>() + self.items.iter().map(Value::size).sum::<usize>()
     }
-}
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CachePolicy {
-    /// Read cached blocks, but do not change cache
-    Read,
+    pub fn load_by_block_handle(
+        descriptor_table: &FileDescriptorTable,
+        block_cache: &BlockCache,
+        segment_id: GlobalSegmentId,
+        block_handle: &KeyedBlockHandle,
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<Arc<ValueBlock>>> {
+        Ok(
+            if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
+                // Cache hit: Copy from block
 
-    /// Read cached blocks, and update cache
-    Write,
-}
+                Some(block)
+            } else {
+                // Cache miss: load from disk
 
-pub fn load_by_block_handle(
-    descriptor_table: &FileDescriptorTable,
-    block_cache: &BlockCache,
-    segment_id: GlobalSegmentId,
-    block_handle: &KeyedBlockHandle,
-    cache_policy: CachePolicy,
-) -> crate::Result<Option<Arc<ValueBlock>>> {
-    Ok(
-        if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
-            // Cache hit: Copy from block
+                let file_guard = descriptor_table
+                    .access(&segment_id)?
+                    .expect("should acquire file handle");
 
-            Some(block)
-        } else {
-            // Cache miss: load from disk
+                let block = ValueBlock::from_file_compressed(
+                    &mut *file_guard.file.lock().expect("lock is poisoned"),
+                    block_handle.offset,
+                    block_handle.size,
+                )?;
 
-            let file_guard = descriptor_table
-                .access(&segment_id)?
-                .expect("should acquire file handle");
+                drop(file_guard);
 
-            let block = ValueBlock::from_file_compressed(
-                &mut *file_guard.file.lock().expect("lock is poisoned"),
-                block_handle.offset,
-                block_handle.size,
-            )?;
+                let block = Arc::new(block);
 
-            drop(file_guard);
+                if cache_policy == CachePolicy::Write {
+                    block_cache.insert_disk_block(
+                        segment_id,
+                        block_handle.offset,
+                        Arc::clone(&block),
+                    );
+                }
 
-            let block = Arc::new(block);
-
-            if cache_policy == CachePolicy::Write {
-                block_cache.insert_disk_block(segment_id, block_handle.offset, Arc::clone(&block));
-            }
-
-            Some(block)
-        },
-    )
+                Some(block)
+            },
+        )
+    }
 }
