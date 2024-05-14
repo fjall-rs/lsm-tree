@@ -18,6 +18,8 @@ pub enum DeserializeError {
 
     /// Invalid trailer
     InvalidTrailer,
+
+    InvalidBlockHeader,
 }
 
 impl From<std::io::Error> for SerializeError {

@@ -1,7 +1,7 @@
 use super::value_block::ValueBlock;
 use crate::{
     file::{fsync_directory, BLOCKS_FILE},
-    segment::block_index::writer::Writer as IndexWriter,
+    segment::{block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter},
     value::{SeqNo, UserKey},
     Value,
 };
@@ -119,11 +119,15 @@ impl Writer {
         let mut block = ValueBlock {
             items: std::mem::replace(&mut self.chunk, Vec::with_capacity(10_000))
                 .into_boxed_slice(),
-            crc: 0,
+            header: BlockHeader {
+                crc: 0,
+                compression: crate::segment::meta::CompressionType::Lz4,
+                data_length: 0, // TODO:
+            },
         };
 
         // Serialize block
-        block.crc = ValueBlock::create_crc(&block.items)?;
+        block.header.crc = ValueBlock::create_crc(&block.items)?;
         let bytes = ValueBlock::to_bytes_compressed(&block);
 
         // Write to file

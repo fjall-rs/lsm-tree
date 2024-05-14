@@ -1,6 +1,7 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
+    segment::block::header::Header as BlockHeader,
     value::UserKey,
 };
 use std::{
@@ -61,11 +62,15 @@ impl Writer {
         let mut block = IndexBlock {
             items: std::mem::replace(&mut self.block_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
-            crc: 0,
+            header: BlockHeader {
+                crc: 0,
+                compression: crate::segment::meta::CompressionType::Lz4,
+                data_length: 0, // TODO:
+            },
         };
 
         // Serialize block
-        block.crc = IndexBlock::create_crc(&block.items)?;
+        block.header.crc = IndexBlock::create_crc(&block.items)?;
         let bytes = IndexBlock::to_bytes_compressed(&block);
 
         // Write to file
@@ -139,11 +144,15 @@ impl Writer {
         let mut block = IndexBlock {
             items: std::mem::replace(&mut self.index_chunk, Vec::with_capacity(1_000))
                 .into_boxed_slice(),
-            crc: 0,
+            header: BlockHeader {
+                crc: 0,
+                compression: crate::segment::meta::CompressionType::Lz4,
+                data_length: 0, // TODO:
+            },
         };
 
         // Serialize block
-        block.crc = IndexBlock::create_crc(&block.items)?;
+        block.header.crc = IndexBlock::create_crc(&block.items)?;
         let bytes = IndexBlock::to_bytes_compressed(&block);
 
         // Write to file

@@ -1,5 +1,8 @@
+pub mod header;
+
 use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use header::Header as BlockHeader;
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
@@ -8,8 +11,8 @@ use std::io::{Cursor, Read, Write};
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[derive(Clone, Debug)]
 pub struct Block<T: Clone + Serializable + Deserializable> {
+    pub header: BlockHeader,
     pub items: Box<[T]>,
-    pub crc: u32,
 }
 
 impl<T: Clone + Serializable + Deserializable> Block<T> {
@@ -60,6 +63,7 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         Ok(crc == expected_crc)
     }
 
+    #[must_use]
     pub fn to_bytes_compressed(block: &Self) -> Vec<u8> {
         // Serialize block
         let mut bytes = Vec::with_capacity(u16::MAX.into());
@@ -72,8 +76,13 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
 
 impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        // Write CRC
-        writer.write_u32::<BigEndian>(self.crc)?;
+        // Write block header
+        BlockHeader {
+            crc: self.header.crc,
+            compression: super::meta::CompressionType::Lz4,
+            data_length: 0,
+        }
+        .serialize(writer)?;
 
         // Write number of items
 
@@ -92,8 +101,8 @@ impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
 
 impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        // Read CRC
-        let crc = reader.read_u32::<BigEndian>()?;
+        // Read block header
+        let header = BlockHeader::deserialize(reader)?;
 
         // Read number of items
         let item_count = reader.read_u32::<BigEndian>()? as usize;
@@ -105,8 +114,8 @@ impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
         }
 
         Ok(Self {
+            header,
             items: items.into_boxed_slice(),
-            crc,
         })
     }
 }
@@ -127,7 +136,11 @@ mod tests {
 
         let block = Block {
             items: items.into_boxed_slice(),
-            crc,
+            header: BlockHeader {
+                crc,
+                compression: crate::segment::meta::CompressionType::Lz4,
+                data_length: 0,
+            },
         };
 
         // Serialize to bytes
@@ -142,7 +155,7 @@ mod tests {
                 assert_eq!(2, block.items.len());
                 assert_eq!(block.items.first().cloned(), Some(item1));
                 assert_eq!(block.items.get(1).cloned(), Some(item2));
-                assert_eq!(crc, block.crc);
+                assert_eq!(crc, block.header.crc);
             }
             Err(error) => panic!("Deserialization failed: {error:?}"),
         }
@@ -157,7 +170,11 @@ mod tests {
 
         let block = Block {
             items: [item1, item2].into(),
-            crc: 12345,
+            header: BlockHeader {
+                crc: 12345,
+                compression: crate::segment::meta::CompressionType::Lz4,
+                data_length: 0,
+            },
         };
 
         // Serialize to bytes
