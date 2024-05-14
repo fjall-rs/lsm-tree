@@ -1,7 +1,6 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
-    segment::block::header::Header as BlockHeader,
     value::UserKey,
 };
 use std::{
@@ -58,36 +57,25 @@ impl Writer {
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
-        // Prepare block
-        let mut block = IndexBlock {
-            items: std::mem::replace(&mut self.block_handles, Vec::with_capacity(1_000))
-                .into_boxed_slice(),
-            header: BlockHeader {
-                crc: 0,
-                compression: crate::segment::meta::CompressionType::Lz4,
-                data_length: 0, // TODO:
-            },
-        };
-
-        // Serialize block
-        block.header.crc = IndexBlock::create_crc(&block.items)?;
-        let bytes = IndexBlock::to_bytes_compressed(&block);
-
         // Write to file
+        let bytes = IndexBlock::to_bytes_compressed(&self.block_handles)?;
+
         self.block_writer
             .as_mut()
             .expect("should exist")
             .write_all(&bytes)?;
 
         // Expect is fine, because the chunk is not empty
-        let last = block.items.last().expect("Chunk should not be empty");
+        let last = self
+            .block_handles
+            .last()
+            .expect("Chunk should not be empty");
 
         let bytes_written = bytes.len();
 
         let index_block_handle = KeyedBlockHandle {
             end_key: last.end_key.clone(),
             offset: self.file_pos,
-            size: bytes_written as u32,
         };
 
         self.tli_pointers.push(index_block_handle);
@@ -95,21 +83,17 @@ impl Writer {
         self.block_counter = 0;
         self.file_pos += bytes_written as u64;
 
+        self.block_handles.clear();
+
         Ok(())
     }
 
-    pub fn register_block(
-        &mut self,
-        start_key: UserKey,
-        offset: u64,
-        size: u32,
-    ) -> crate::Result<()> {
+    pub fn register_block(&mut self, start_key: UserKey, offset: u64) -> crate::Result<()> {
         let block_handle_size = (start_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
         let block_handle = KeyedBlockHandle {
             end_key: start_key,
             offset,
-            size,
         };
 
         self.block_handles.push(block_handle);
@@ -140,22 +124,9 @@ impl Writer {
             item.offset += block_file_size;
         }
 
-        // Prepare block
-        let mut block = IndexBlock {
-            items: std::mem::replace(&mut self.tli_pointers, Vec::with_capacity(1_000))
-                .into_boxed_slice(),
-            header: BlockHeader {
-                crc: 0,
-                compression: crate::segment::meta::CompressionType::Lz4,
-                data_length: 0, // TODO:
-            },
-        };
-
-        // Serialize block
-        block.header.crc = IndexBlock::create_crc(&block.items)?;
-        let bytes = IndexBlock::to_bytes_compressed(&block);
-
         // Write to file
+        let bytes = IndexBlock::to_bytes_compressed(&self.tli_pointers)?;
+
         self.index_writer.write_all(&bytes)?;
         self.index_writer.flush()?;
         self.index_writer.get_mut().sync_all()?;
@@ -163,7 +134,7 @@ impl Writer {
         log::trace!(
             "Written top level index to {}, with {} pointers ({} bytes)",
             self.path.join(TOP_LEVEL_INDEX_FILE).display(),
-            block.items.len(),
+            self.tli_pointers.len(),
             bytes.len(),
         );
 

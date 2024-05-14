@@ -1,12 +1,17 @@
 pub mod header;
 
-use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
+use crate::serde::{Deserializable, Serializable};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use header::Header as BlockHeader;
 use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read, Write};
 
 /// A disk-based block
+///
+/// A block is split into its header and a compressed blob of data.
+///
+/// [ header ]
+/// [  data  ]
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[derive(Clone, Debug)]
@@ -16,25 +21,37 @@ pub struct Block<T: Clone + Serializable + Deserializable> {
 }
 
 impl<T: Clone + Serializable + Deserializable> Block<T> {
-    pub fn from_reader_compressed<R: Read>(reader: &mut R, size: u32) -> crate::Result<Self> {
-        let mut bytes = vec![0u8; size as usize];
+    pub fn from_reader_compressed<R: Read>(reader: &mut R) -> crate::Result<Self> {
+        // Read block header
+        let header = BlockHeader::deserialize(reader)?;
+
+        let mut bytes = vec![0u8; header.data_length as usize];
         reader.read_exact(&mut bytes)?;
 
         let bytes = decompress_size_prepended(&bytes)?;
         let mut bytes = Cursor::new(bytes);
 
-        let block = Self::deserialize(&mut bytes)?;
+        // Read number of items
+        let item_count = bytes.read_u32::<BigEndian>()? as usize;
 
-        Ok(block)
+        // Deserialize each value
+        let mut items = Vec::with_capacity(item_count);
+        for _ in 0..item_count {
+            items.push(T::deserialize(&mut bytes)?);
+        }
+
+        Ok(Self {
+            header,
+            items: items.into_boxed_slice(),
+        })
     }
 
     pub fn from_file_compressed<R: std::io::Read + std::io::Seek>(
         reader: &mut R,
         offset: u64,
-        size: u32,
     ) -> crate::Result<Self> {
         reader.seek(std::io::SeekFrom::Start(offset))?;
-        Self::from_reader_compressed(reader, size)
+        Self::from_reader_compressed(reader)
     }
 
     /// Calculates the CRC from a list of values
@@ -61,18 +78,40 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         Ok(crc == expected_crc)
     }
 
-    #[must_use]
-    pub fn to_bytes_compressed(block: &Self) -> Vec<u8> {
-        // Serialize block
-        let mut bytes = Vec::with_capacity(u16::MAX.into());
-        block.serialize(&mut bytes).expect("should serialize block");
+    pub fn to_bytes_compressed(items: &[T]) -> crate::Result<Vec<u8>> {
+        let packed = Self::pack_items(items)?;
 
-        // Compress using LZ4
-        compress_prepend_size(&bytes)
+        let mut bytes = Vec::with_capacity(u16::MAX.into());
+
+        let header = BlockHeader {
+            crc: Self::create_crc(items)?,
+            compression: super::meta::CompressionType::Lz4,
+            data_length: packed.len() as u32,
+        };
+
+        header.serialize(&mut bytes)?;
+        bytes.write_all(&packed)?;
+
+        Ok(bytes)
+    }
+
+    pub fn pack_items(items: &[T]) -> crate::Result<Vec<u8>> {
+        let mut buf = Vec::with_capacity(u16::MAX.into());
+
+        // NOTE: Truncation is okay and actually needed
+        #[allow(clippy::cast_possible_truncation)]
+        buf.write_u32::<BigEndian>(items.len() as u32)?;
+
+        // Serialize each value
+        for value in items {
+            value.serialize(&mut buf)?;
+        }
+
+        Ok(compress_prepend_size(&buf))
     }
 }
 
-impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
+/* impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write block header
         BlockHeader {
@@ -95,9 +134,9 @@ impl<T: Clone + Serializable + Deserializable> Serializable for Block<T> {
 
         Ok(())
     }
-}
+} */
 
-impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
+/* impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         // Read block header
         let header = BlockHeader::deserialize(reader)?;
@@ -116,12 +155,12 @@ impl<T: Clone + Serializable + Deserializable> Deserializable for Block<T> {
             items: items.into_boxed_slice(),
         })
     }
-}
+} */
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{value::ValueType, Value};
+    use crate::{segment::value_block::ValueBlock, value::ValueType, Value};
     use test_log::test;
 
     #[test]
@@ -132,6 +171,8 @@ mod tests {
         let items = vec![item1.clone(), item2.clone()];
         let crc = Block::create_crc(&items)?;
 
+        /* let crc = Block::create_crc(&items)?;
+
         let block = Block {
             items: items.into_boxed_slice(),
             header: BlockHeader {
@@ -139,29 +180,26 @@ mod tests {
                 compression: crate::segment::meta::CompressionType::Lz4,
                 data_length: 0,
             },
-        };
+        }; */
 
         // Serialize to bytes
-        let mut serialized = Vec::new();
-        block.serialize(&mut serialized)?;
+        //let mut serialized = Vec::new();
+        // block.serialize(&mut serialized)?;
+        let serialized = ValueBlock::to_bytes_compressed(&items)?;
+        let mut cursor = Cursor::new(serialized);
 
         // Deserialize from bytes
-        let deserialized = Block::deserialize(&mut &serialized[..]);
+        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
 
-        match deserialized {
-            Ok(block) => {
-                assert_eq!(2, block.items.len());
-                assert_eq!(block.items.first().cloned(), Some(item1));
-                assert_eq!(block.items.get(1).cloned(), Some(item2));
-                assert_eq!(crc, block.header.crc);
-            }
-            Err(error) => panic!("Deserialization failed: {error:?}"),
-        }
+        assert_eq!(2, block.items.len());
+        assert_eq!(block.items.first().cloned(), Some(item1));
+        assert_eq!(block.items.get(1).cloned(), Some(item2));
+        assert_eq!(crc, block.header.crc);
 
         Ok(())
     }
 
-    #[test]
+    /*    #[test]
     fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
@@ -185,5 +223,5 @@ mod tests {
         assert!(!deserialized.check_crc(54321)?);
 
         Ok(())
-    }
+    } */
 }

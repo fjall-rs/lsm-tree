@@ -37,16 +37,8 @@ impl TopLevelIndex {
     pub fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        // NOTE: TLI is generally < 1 MB in size
-        #[allow(clippy::cast_possible_truncation)]
-        let index_size = std::fs::metadata(path)?.len() as u32;
-
-        let items = IndexBlock::from_file_compressed(
-            &mut BufReader::new(File::open(path)?),
-            0,
-            index_size,
-        )?
-        .items;
+        let items =
+            IndexBlock::from_file_compressed(&mut BufReader::new(File::open(path)?), 0)?.items;
 
         log::trace!("loaded TLI ({path:?}): {items:#?}");
 
@@ -141,11 +133,10 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    fn bh(start_key: Arc<[u8]>, offset: u64, size: u32) -> KeyedBlockHandle {
+    fn bh(start_key: Arc<[u8]>, offset: u64) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: start_key,
             offset,
-            size,
         }
     }
 
@@ -153,10 +144,10 @@ mod tests {
     #[allow(clippy::indexing_slicing)]
     fn tli_get_next_block_handle() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("l".as_bytes().into(), 20, 10),
-            bh("t".as_bytes().into(), 30, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("l".as_bytes().into(), 20),
+            bh("t".as_bytes().into(), 30),
         ]));
 
         let handle = index
@@ -172,10 +163,10 @@ mod tests {
     #[allow(clippy::indexing_slicing)]
     fn tli_get_prev_block_handle() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("l".as_bytes().into(), 20, 10),
-            bh("t".as_bytes().into(), 30, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("l".as_bytes().into(), 20),
+            bh("t".as_bytes().into(), 30),
         ]));
 
         let handle = index
@@ -191,11 +182,11 @@ mod tests {
     #[allow(clippy::indexing_slicing)]
     fn tli_get_prev_block_handle_2() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("g".as_bytes().into(), 20, 10),
-            bh("l".as_bytes().into(), 30, 10),
-            bh("t".as_bytes().into(), 40, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("g".as_bytes().into(), 20),
+            bh("l".as_bytes().into(), 30),
+            bh("t".as_bytes().into(), 40),
         ]));
 
         let handle = index
@@ -211,10 +202,10 @@ mod tests {
     #[test]
     fn tli_get_first_block_handle() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("l".as_bytes().into(), 20, 10),
-            bh("t".as_bytes().into(), 30, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("l".as_bytes().into(), 20),
+            bh("t".as_bytes().into(), 30),
         ]));
 
         let handle = index.get_first_block_handle();
@@ -224,10 +215,10 @@ mod tests {
     #[test]
     fn tli_get_last_block_handle() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("l".as_bytes().into(), 20, 10),
-            bh("t".as_bytes().into(), 30, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("l".as_bytes().into(), 20),
+            bh("t".as_bytes().into(), 30),
         ]));
 
         let handle = index.get_last_block_handle();
@@ -238,11 +229,11 @@ mod tests {
 
     fn tli_get_block_containing_key() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("c".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("g".as_bytes().into(), 20, 10),
-            bh("l".as_bytes().into(), 30, 10),
-            bh("t".as_bytes().into(), 40, 10),
+            bh("c".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("g".as_bytes().into(), 20),
+            bh("l".as_bytes().into(), 30),
+            bh("t".as_bytes().into(), 40),
         ]));
 
         let handle = index
@@ -292,10 +283,10 @@ mod tests {
 
     fn tli_get_block_not_containing_key() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("g".as_bytes().into(), 10, 10),
-            bh("l".as_bytes().into(), 20, 10),
-            bh("t".as_bytes().into(), 30, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("g".as_bytes().into(), 10),
+            bh("l".as_bytes().into(), 20),
+            bh("t".as_bytes().into(), 30),
         ]));
 
         // NOTE: "t" is in the last block, so there can be no block after that
@@ -323,14 +314,14 @@ mod tests {
 
     fn tli_get_prefix_upper_bound() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("abc".as_bytes().into(), 10, 10),
-            bh("abcabc".as_bytes().into(), 20, 10),
-            bh("abcabcabc".as_bytes().into(), 30, 10),
-            bh("abcysw".as_bytes().into(), 40, 10),
-            bh("basd".as_bytes().into(), 50, 10),
-            bh("cxy".as_bytes().into(), 70, 10),
-            bh("ewqeqw".as_bytes().into(), 60, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("abc".as_bytes().into(), 10),
+            bh("abcabc".as_bytes().into(), 20),
+            bh("abcabcabc".as_bytes().into(), 30),
+            bh("abcysw".as_bytes().into(), 40),
+            bh("basd".as_bytes().into(), 50),
+            bh("cxy".as_bytes().into(), 70),
+            bh("ewqeqw".as_bytes().into(), 60),
         ]));
 
         let handle = index.get_prefix_upper_bound(b"a").expect("should exist");
@@ -352,13 +343,13 @@ mod tests {
     #[test]
     fn tli_spanning_multi() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0, 10),
-            bh("a".as_bytes().into(), 10, 10),
-            bh("a".as_bytes().into(), 20, 10),
-            bh("a".as_bytes().into(), 30, 10),
-            bh("b".as_bytes().into(), 40, 10),
-            bh("b".as_bytes().into(), 50, 10),
-            bh("c".as_bytes().into(), 60, 10),
+            bh("a".as_bytes().into(), 0),
+            bh("a".as_bytes().into(), 10),
+            bh("a".as_bytes().into(), 20),
+            bh("a".as_bytes().into(), 30),
+            bh("b".as_bytes().into(), 40),
+            bh("b".as_bytes().into(), 50),
+            bh("c".as_bytes().into(), 60),
         ]));
 
         {

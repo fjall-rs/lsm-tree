@@ -1,7 +1,7 @@
 use super::value_block::ValueBlock;
 use crate::{
     file::{fsync_directory, BLOCKS_FILE},
-    segment::{block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter},
+    segment::block_index::writer::Writer as IndexWriter,
     value::{SeqNo, UserKey},
     Value,
 };
@@ -115,22 +115,9 @@ impl Writer {
 
         self.uncompressed_size += uncompressed_chunk_size;
 
-        // Prepare block
-        let mut block = ValueBlock {
-            items: std::mem::replace(&mut self.chunk, Vec::with_capacity(10_000))
-                .into_boxed_slice(),
-            header: BlockHeader {
-                crc: 0,
-                compression: crate::segment::meta::CompressionType::Lz4,
-                data_length: 0, // TODO:
-            },
-        };
-
-        // Serialize block
-        block.header.crc = ValueBlock::create_crc(&block.items)?;
-        let bytes = ValueBlock::to_bytes_compressed(&block);
-
         // Write to file
+        let bytes = ValueBlock::to_bytes_compressed(&self.chunk)?;
+
         self.block_writer.write_all(&bytes)?;
 
         // NOTE: Blocks are never bigger than 4 GB anyway,
@@ -139,15 +126,17 @@ impl Writer {
         let bytes_written = bytes.len() as u32;
 
         // NOTE: Expect is fine, because the chunk is not empty
-        let last = block.items.last().expect("Chunk should not be empty");
+        let last = self.chunk.last().expect("Chunk should not be empty");
 
         self.index_writer
-            .register_block(last.key.clone(), self.file_pos, bytes_written)?;
+            .register_block(last.key.clone(), self.file_pos)?;
 
         // Adjust metadata
         self.file_pos += u64::from(bytes_written);
-        self.item_count += block.items.len();
+        self.item_count += self.chunk.len();
         self.block_count += 1;
+
+        self.chunk.clear();
 
         Ok(())
     }

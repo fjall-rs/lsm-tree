@@ -172,7 +172,6 @@ impl BlockIndex {
             let block = IndexBlock::from_file_compressed(
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
                 block_handle.offset,
-                block_handle.size,
             )?;
 
             drop(file_guard);

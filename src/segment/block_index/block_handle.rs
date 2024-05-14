@@ -13,9 +13,6 @@ pub struct KeyedBlockHandle {
 
     /// Position of block in file
     pub offset: u64,
-
-    /// Size of block in bytes
-    pub size: u32,
 }
 
 impl PartialEq for KeyedBlockHandle {
@@ -46,7 +43,6 @@ impl Ord for KeyedBlockHandle {
 impl Serializable for KeyedBlockHandle {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), crate::SerializeError> {
         writer.write_u64::<BigEndian>(self.offset)?;
-        writer.write_u32::<BigEndian>(self.size)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
@@ -64,7 +60,6 @@ impl Deserializable for KeyedBlockHandle {
         Self: Sized,
     {
         let offset = reader.read_u64::<BigEndian>()?;
-        let size = reader.read_u32::<BigEndian>()?;
 
         let key_len = reader.read_u16::<BigEndian>()?;
 
@@ -73,7 +68,6 @@ impl Deserializable for KeyedBlockHandle {
 
         Ok(Self {
             offset,
-            size,
             end_key: Arc::from(key),
         })
     }

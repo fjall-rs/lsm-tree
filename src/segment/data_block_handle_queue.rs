@@ -93,11 +93,10 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    fn bh(start_key: Arc<[u8]>, offset: u64, size: u32) -> KeyedBlockHandle {
+    fn bh(start_key: Arc<[u8]>, offset: u64) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: start_key,
             offset,
-            size,
         }
     }
 
@@ -105,9 +104,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn dbh_queue_start() {
         let queue = vec![
-            bh("a".as_bytes().into(), 0, 0),
-            bh("f".as_bytes().into(), 0, 0),
-            bh("z".as_bytes().into(), 0, 0),
+            bh("a".as_bytes().into(), 0),
+            bh("f".as_bytes().into(), 0),
+            bh("z".as_bytes().into(), 0),
         ];
         let queue: VecDeque<KeyedBlockHandle> = queue.into();
         let mut queue = DataBlockHandleQueue::from(queue);
@@ -122,9 +121,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn dbh_queue_start_2() {
         let queue = vec![
-            bh("a".as_bytes().into(), 0, 0),
-            bh("f".as_bytes().into(), 0, 0),
-            bh("z".as_bytes().into(), 0, 0),
+            bh("a".as_bytes().into(), 0),
+            bh("f".as_bytes().into(), 0),
+            bh("z".as_bytes().into(), 0),
         ];
         let queue: VecDeque<KeyedBlockHandle> = queue.into();
         let mut queue = DataBlockHandleQueue::from(queue);
@@ -139,9 +138,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn dbh_queue_end() {
         let queue = vec![
-            bh("a".as_bytes().into(), 0, 0),
-            bh("f".as_bytes().into(), 0, 0),
-            bh("z".as_bytes().into(), 0, 0),
+            bh("a".as_bytes().into(), 0),
+            bh("f".as_bytes().into(), 0),
+            bh("z".as_bytes().into(), 0),
         ];
         let queue: VecDeque<KeyedBlockHandle> = queue.into();
         let mut queue = DataBlockHandleQueue::from(queue);
@@ -157,9 +156,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn dbh_queue_end_2() {
         let queue = vec![
-            bh("i".as_bytes().into(), 0, 0),
-            bh("p".as_bytes().into(), 0, 0),
-            bh("y".as_bytes().into(), 0, 0),
+            bh("i".as_bytes().into(), 0),
+            bh("p".as_bytes().into(), 0),
+            bh("y".as_bytes().into(), 0),
         ];
         let queue: VecDeque<KeyedBlockHandle> = queue.into();
         let mut queue = DataBlockHandleQueue::from(queue);
@@ -175,11 +174,11 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn dbh_queue_double_ended() {
         let queue = vec![
-            bh("a".as_bytes().into(), 0, 0),
-            bh("f".as_bytes().into(), 0, 0),
-            bh("k".as_bytes().into(), 0, 0),
-            bh("p".as_bytes().into(), 0, 0),
-            bh("y".as_bytes().into(), 0, 0),
+            bh("a".as_bytes().into(), 0),
+            bh("f".as_bytes().into(), 0),
+            bh("k".as_bytes().into(), 0),
+            bh("p".as_bytes().into(), 0),
+            bh("y".as_bytes().into(), 0),
         ];
         let queue: VecDeque<KeyedBlockHandle> = queue.into();
         let mut queue = DataBlockHandleQueue::from(queue);
