@@ -155,6 +155,8 @@ impl BlockIndex {
         block_handle: &KeyedBlockHandle,
         cache_policy: CachePolicy,
     ) -> crate::Result<Arc<IndexBlock>> {
+        log::trace!("loading index block {:?}/{block_handle:?}", self.segment_id);
+
         if let Some(block) = self.blocks.get(self.segment_id, block_handle.offset) {
             // Cache hit: Copy from block
 

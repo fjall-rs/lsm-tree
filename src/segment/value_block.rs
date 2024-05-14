@@ -30,6 +30,8 @@ impl ValueBlock {
         block_handle: &KeyedBlockHandle,
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<Arc<ValueBlock>>> {
+        log::trace!("loading value block {segment_id:?}/{block_handle:?}");
+
         Ok(
             if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
                 // Cache hit: Copy from block
