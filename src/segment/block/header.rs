@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'1'];
 
 /// Header of a disk-based block
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
     /// Compression type used
     pub compression: CompressionType,
@@ -74,5 +74,44 @@ impl Deserializable for Header {
             crc,
             data_length,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use test_log::test;
+
+    #[test]
+    fn block_header_raw() -> crate::Result<()> {
+        let header = Header {
+            compression: CompressionType::Lz4,
+            crc: 4,
+            data_length: 15,
+        };
+
+        #[rustfmt::skip]
+        let bytes = &[
+            // Header
+            b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'1',
+            
+            // Compression
+            1,
+            
+            // CRC
+            0, 0, 0, 4,
+            
+            // Data length
+            0, 0, 0, 0x0F,
+        ];
+
+        // Deserialize the empty Value
+        let deserialized = Header::deserialize(&mut Cursor::new(bytes))?;
+
+        // Check if deserialized Value is equivalent to the original empty Value
+        assert_eq!(header, deserialized);
+
+        Ok(())
     }
 }

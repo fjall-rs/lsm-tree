@@ -108,7 +108,6 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::header::BLOCK_HEADER_MAGIC;
     use super::*;
     use crate::{segment::value_block::ValueBlock, value::ValueType, Value};
     use std::io::Write;

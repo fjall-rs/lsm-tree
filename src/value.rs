@@ -279,9 +279,8 @@ impl Deserializable for Value {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
+    use std::io::Cursor;
     use test_log::test;
 
     #[test]

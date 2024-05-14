@@ -1,7 +1,7 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
-    segment::block::header::{Header as BlockHeader, BLOCK_HEADER_MAGIC},
+    segment::block::header::Header as BlockHeader,
     serde::Serializable,
     value::UserKey,
 };

@@ -144,7 +144,7 @@ impl Writer {
     ///
     /// # Note
     ///
-    /// It's important that the incoming stream of data is correctly
+    /// It's important that the incoming stream of items is correctly
     /// sorted as described by the [`UserKey`], otherwise the block layout will
     /// be non-sense.
     pub fn write(&mut self, item: Value) -> crate::Result<()> {
