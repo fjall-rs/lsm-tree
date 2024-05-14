@@ -158,6 +158,7 @@ impl Writer {
         // Write to file
         self.index_writer.write_all(&bytes)?;
         self.index_writer.flush()?;
+        self.index_writer.get_mut().sync_all()?;
 
         log::trace!(
             "Written top level index to {}, with {} pointers ({} bytes)",
@@ -175,9 +176,13 @@ impl Writer {
         }
 
         self.block_writer.as_mut().expect("should exist").flush()?;
-        self.write_top_level_index(block_file_size)?;
+        self.block_writer
+            .as_mut()
+            .expect("should exist")
+            .get_mut()
+            .sync_all()?;
 
-        self.index_writer.get_mut().sync_all()?;
+        self.write_top_level_index(block_file_size)?;
 
         // TODO: add test to make sure writer is deleting index_blocks
         std::fs::remove_file(self.path.join(INDEX_BLOCKS_FILE))?;
