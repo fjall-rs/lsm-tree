@@ -29,7 +29,7 @@ impl ValueBlock {
         segment_id: GlobalSegmentId,
         block_handle: &KeyedBlockHandle,
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<Arc<ValueBlock>>> {
+    ) -> crate::Result<Option<Arc<Self>>> {
         log::trace!("loading value block {segment_id:?}/{block_handle:?}");
 
         Ok(
@@ -44,7 +44,7 @@ impl ValueBlock {
                     .access(&segment_id)?
                     .expect("should acquire file handle");
 
-                let block = ValueBlock::from_file_compressed(
+                let block = Self::from_file_compressed(
                     &mut *file_guard.file.lock().expect("lock is poisoned"),
                     block_handle.offset,
                     block_handle.size,
