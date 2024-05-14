@@ -16,6 +16,8 @@ pub enum DeserializeError {
     /// Invalid enum tag
     InvalidTag((&'static str, u8)),
 
+    InvalidTrailer,
+
     /// Invalid block header
     InvalidBlockHeader,
 }
