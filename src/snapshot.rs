@@ -2,7 +2,7 @@ use crate::{
     prefix::Prefix,
     range::Range,
     value::{SeqNo, UserKey, UserValue},
-    Tree,
+    Tree, Value,
 };
 use std::{
     ops::RangeBounds,
@@ -56,8 +56,13 @@ impl Snapshot {
     /// Creates a snapshot
     pub(crate) fn new(tree: Tree, seqno: SeqNo) -> Self {
         tree.open_snapshots.increment();
-        log::debug!("Opening snapshot with seqno: {seqno}");
+        log::trace!("Opening snapshot with seqno: {seqno}");
         Self { tree, seqno }
+    }
+
+    #[doc(hidden)]
+    pub fn get_internal_entry<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Value>> {
+        self.tree.get_internal_entry(key, true, Some(self.seqno))
     }
 
     /// Retrieves an item from the snapshot.
@@ -83,10 +88,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self
-            .tree
-            .get_internal_entry(key, true, Some(self.seqno))?
-            .map(|x| x.value))
+        Ok(self.get_internal_entry(key)?.map(|x| x.value))
     }
 
     #[allow(clippy::iter_not_returning_iterator)]
@@ -351,7 +353,7 @@ impl Snapshot {
 
 impl Drop for Snapshot {
     fn drop(&mut self) {
-        log::debug!("Closing snapshot");
+        log::trace!("Closing snapshot");
         self.tree.open_snapshots.decrement();
     }
 }

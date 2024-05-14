@@ -60,3 +60,41 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?.into_path();
+
+    let tree = Config::new(folder).block_size(1_024).open()?;
+
+    let keys = [0, 1, 2]
+        .into_iter()
+        .map(u64::to_be_bytes)
+        .collect::<Vec<_>>();
+
+    for key in &keys {
+        for seqno in 0..ITEM_COUNT as u64 {
+            tree.insert(key, ITEM_COUNT.to_string(), seqno);
+        }
+    }
+    tree.flush_active_memtable()?;
+
+    for key in &keys {
+        let item = tree.get_internal_entry(key, true, None)?.unwrap();
+        assert_eq!(item.seqno, ITEM_COUNT as u64 - 1);
+    }
+
+    for key in &keys {
+        // NOTE: Need to start at seqno=1
+        for seqno in 1..ITEM_COUNT as u64 {
+            let snapshot = tree.snapshot(seqno);
+            let item = snapshot.get_internal_entry(key)?.unwrap();
+
+            // NOTE: When snapshot is =1, it will read any items with
+            // seqno less than 1
+            assert_eq!(item.seqno, seqno - 1);
+        }
+    }
+
+    Ok(())
+}
