@@ -73,6 +73,56 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
+    pub(crate) fn verify(&self) -> crate::Result<usize> {
+        let mut count = 0;
+        let mut broken_count = 0;
+
+        let guard = self
+            .descriptor_table
+            .access(&(self.tree_id, self.metadata.id).into())?
+            .expect("should have gotten file");
+
+        let mut f = guard.file.lock().expect("lock is poisoned");
+
+        for handle in self.block_index.top_level_index.data.iter() {
+            use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
+
+            let block = IndexBlock::from_file_compressed(&mut *f, handle.offset)?;
+
+            for handle in &*block.items {
+                let value_block = match ValueBlock::from_file_compressed(&mut *f, handle.offset) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!(
+                            "{handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                        );
+                        broken_count += 1;
+                        count += 1;
+                        continue;
+                    }
+                };
+
+                let expected_crc = value_block.header.crc;
+                let actual_crc = ValueBlock::create_crc(&value_block.items)?;
+
+                if expected_crc != actual_crc {
+                    log::error!("{handle:?} is corrupt, invalid CRC value");
+                    broken_count += 1;
+                }
+
+                count += 1;
+
+                if broken_count % 10_000 == 0 {
+                    log::info!("Checked {count} data blocks");
+                }
+            }
+        }
+
+        assert_eq!(count, self.metadata.block_count);
+
+        Ok(broken_count)
+    }
+
     /// Tries to recover a segment from a folder.
     pub fn recover<P: AsRef<Path>>(
         folder: P,

@@ -69,7 +69,7 @@ pub struct BlockIndex {
     /// Level-0 index. Is read-only and always fully loaded.
     ///
     /// This index points to index blocks inside the level-1 index.
-    top_level_index: TopLevelIndex,
+    pub(crate) top_level_index: TopLevelIndex,
 
     // TODO: block_cache instead of "blocks" i guess
     /// Level-1 index. This index is only partially loaded into memory, decreasing memory usage, compared to a fully loaded one.

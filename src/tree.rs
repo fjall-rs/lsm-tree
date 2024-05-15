@@ -67,6 +67,19 @@ impl Tree {
         Ok(tree)
     }
 
+    #[doc(hidden)]
+    pub fn verify(&self) -> crate::Result<()> {
+        let level_manifest = self.levels.read().expect("lock is poisoned");
+
+        for level in &level_manifest.levels {
+            for segment in &level.segments {
+                segment.verify()?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run compaction, blocking the caller until it's done.
     ///
     /// # Errors

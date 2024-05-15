@@ -8,7 +8,7 @@ fn tree_load_v1() -> lsm_tree::Result<()> {
     let tree = Config::new(folder).open()?;
     assert_eq!(8, tree.len()?);
 
-    // TODO: call Tree::verify
+    tree.verify()?;
 
     Ok(())
 }
