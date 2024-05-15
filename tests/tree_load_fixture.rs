@@ -12,3 +12,15 @@ fn tree_load_v1() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn tree_load_v1_corrupt() -> lsm_tree::Result<()> {
+    let folder = "test_fixture/v1_tree_corrupt";
+
+    let tree = Config::new(folder).open()?;
+    assert_eq!(8, tree.len()?);
+
+    assert_eq!(1, tree.verify()?);
+
+    Ok(())
+}
