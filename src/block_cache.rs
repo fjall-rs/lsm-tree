@@ -46,8 +46,9 @@ impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, &u64) {
 struct BlockWeighter;
 
 impl Weighter<CacheKey, Item> for BlockWeighter {
+    // TODO: replace .size() calls with block.header.data_length... remove Block::size(), not needed in code base and benches
     fn weight(&self, _: &CacheKey, block: &Item) -> u32 {
-        // NOTE: Truncation is fine: blocks are ~64K max
+        // NOTE: Truncation is fine: blocks are definitely below 4 GiB
         #[allow(clippy::cast_possible_truncation)]
         match block {
             Either::Left(block) => block.size() as u32,

@@ -61,8 +61,7 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
     assert_eq!(&*snapshot.get("c")?.unwrap(), b"c4");
 
-    let reader = tree.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = tree.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
@@ -70,40 +69,35 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(1);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a0");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b0");
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(2);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b1");
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(3);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b2");
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(4);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(5);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
@@ -111,8 +105,7 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(6);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
@@ -120,8 +113,7 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert!(iter.next().is_none());
 
     let snapshot = tree.snapshot(100);
-    let reader = snapshot.iter();
-    let mut iter = reader.into_iter();
+    let mut iter = snapshot.iter();
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");

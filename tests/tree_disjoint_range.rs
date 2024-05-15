@@ -36,8 +36,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let iter = tree.range("e".."i");
-    let mut iter = iter.into_iter();
+    let mut iter = tree.range("e".."i");
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
@@ -47,8 +46,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards inclusive
 
-    let iter = tree.range("e"..="i");
-    let mut iter = iter.into_iter();
+    let mut iter = tree.range("e"..="i");
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
@@ -59,8 +57,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Reverse
 
-    let iter = tree.range("e".."i");
-    let mut iter = iter.into_iter().rev();
+    let mut iter = tree.range("e".."i").rev();
 
     assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
@@ -70,8 +67,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Reverse inclusive
 
-    let iter = tree.range("e"..="i");
-    let mut iter = iter.into_iter().rev();
+    let mut iter = tree.range("e"..="i").rev();
 
     assert_eq!(Arc::from(*b"i"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
@@ -82,8 +78,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Ping Pong
 
-    let iter = tree.range("e".."i");
-    let mut iter = iter.into_iter();
+    let mut iter = tree.range("e".."i");
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap()?.0);
@@ -93,8 +88,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Ping Pong inclusive
 
-    let iter = tree.range("e"..="i");
-    let mut iter = iter.into_iter();
+    let mut iter = tree.range("e"..="i");
 
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"i"), iter.next_back().unwrap()?.0);

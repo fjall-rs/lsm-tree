@@ -80,10 +80,7 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "old".as_bytes().into()));
+    assert!(tree.iter().all(|x| x.unwrap().1 == "old".as_bytes().into()));
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -92,18 +89,12 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
     }
 
     assert_eq!(tree.len()?, ITEM_COUNT);
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "new".as_bytes().into()));
+    assert!(tree.iter().all(|x| x.unwrap().1 == "new".as_bytes().into()));
 
     tree.flush_active_memtable()?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "new".as_bytes().into()));
+    assert!(tree.iter().all(|x| x.unwrap().1 == "new".as_bytes().into()));
 
     Ok(())
 }
@@ -129,18 +120,9 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
 
     assert_eq!(tree.len()?, ITEM_COUNT * 2);
-    assert_eq!(
-        tree.prefix("pre".as_bytes()).into_iter().count(),
-        ITEM_COUNT * 2
-    );
-    assert_eq!(
-        tree.prefix("prefix".as_bytes()).into_iter().count(),
-        ITEM_COUNT
-    );
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "old".as_bytes().into()));
+    assert_eq!(tree.prefix("pre".as_bytes()).count(), ITEM_COUNT * 2);
+    assert_eq!(tree.prefix("prefix".as_bytes()).count(), ITEM_COUNT);
+    assert!(tree.iter().all(|x| x.unwrap().1 == "old".as_bytes().into()));
 
     for x in 0..ITEM_COUNT as u64 {
         let value = "new".as_bytes();
@@ -151,34 +133,16 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
     }
 
     assert_eq!(tree.len()?, ITEM_COUNT * 2);
-    assert_eq!(
-        tree.prefix("pre".as_bytes()).into_iter().count(),
-        ITEM_COUNT * 2
-    );
-    assert_eq!(
-        tree.prefix("prefix".as_bytes()).into_iter().count(),
-        ITEM_COUNT
-    );
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "new".as_bytes().into()));
+    assert_eq!(tree.prefix("pre".as_bytes()).count(), ITEM_COUNT * 2);
+    assert_eq!(tree.prefix("prefix".as_bytes()).count(), ITEM_COUNT);
+    assert!(tree.iter().all(|x| x.unwrap().1 == "new".as_bytes().into()));
 
     tree.flush_active_memtable()?;
 
     assert_eq!(tree.len()?, ITEM_COUNT * 2);
-    assert_eq!(
-        tree.prefix("pre".as_bytes()).into_iter().count(),
-        ITEM_COUNT * 2
-    );
-    assert_eq!(
-        tree.prefix("prefix".as_bytes()).into_iter().count(),
-        ITEM_COUNT
-    );
-    assert!(tree
-        .iter()
-        .into_iter()
-        .all(|x| x.unwrap().1 == "new".as_bytes().into()));
+    assert_eq!(tree.prefix("pre".as_bytes()).count(), ITEM_COUNT * 2);
+    assert_eq!(tree.prefix("prefix".as_bytes()).count(), ITEM_COUNT);
+    assert!(tree.iter().all(|x| x.unwrap().1 == "new".as_bytes().into()));
 
     Ok(())
 }

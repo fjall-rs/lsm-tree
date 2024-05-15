@@ -18,14 +18,8 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
     }
 
     assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(
-        tree.iter().into_iter().filter(|x| x.is_ok()).count(),
-        ITEM_COUNT
-    );
-    assert_eq!(
-        tree.iter().into_iter().rev().filter(|x| x.is_ok()).count(),
-        ITEM_COUNT
-    );
+    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
 
     Ok(())
 }
@@ -45,14 +39,8 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(
-        tree.iter().into_iter().filter(|x| x.is_ok()).count(),
-        ITEM_COUNT
-    );
-    assert_eq!(
-        tree.iter().into_iter().rev().filter(|x| x.is_ok()).count(),
-        ITEM_COUNT
-    );
+    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
 
     Ok(())
 }
@@ -81,7 +69,6 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
     loop {
         let chunk = tree
             .range(range.clone())
-            .into_iter()
             .take(10)
             .collect::<lsm_tree::Result<Vec<_>>>()?;
 

@@ -67,7 +67,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
     let snapshot = tree.snapshot(seqno.get());
 
     assert_eq!(tree.len()?, snapshot.len()?);
-    assert_eq!(tree.len()?, snapshot.iter().into_iter().rev().count());
+    assert_eq!(tree.len()?, snapshot.iter().rev().count());
 
     // This batch will be too new for snapshot (invisible)
     for batch in 0..BATCHES {
@@ -117,7 +117,7 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
     let snapshot = tree.snapshot(seqno.get());
 
     assert_eq!(tree.len()?, snapshot.len()?);
-    assert_eq!(tree.len()?, snapshot.iter().into_iter().rev().count());
+    assert_eq!(tree.len()?, snapshot.iter().rev().count());
 
     // This batch will be in memtable and too new for snapshot (invisible)
     for batch in 0..BATCHES {

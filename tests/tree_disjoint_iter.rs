@@ -31,8 +31,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let iter = tree.iter();
-    let mut iter = iter.into_iter();
+    let mut iter = tree.iter();
 
     assert_eq!(Arc::from(*b"a"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"b"), iter.next().unwrap()?.0);
@@ -44,8 +43,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Reverse
 
-    let iter = tree.iter();
-    let mut iter = iter.into_iter().rev();
+    let mut iter = tree.iter().rev();
 
     assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
@@ -57,8 +55,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Ping Pong
 
-    let iter = tree.iter();
-    let mut iter = iter.into_iter();
+    let mut iter = tree.iter();
 
     assert_eq!(Arc::from(*b"a"), iter.next().unwrap()?.0);
     assert_eq!(Arc::from(*b"f"), iter.next_back().unwrap()?.0);

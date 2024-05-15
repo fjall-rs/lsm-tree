@@ -1,6 +1,8 @@
 use crate::{value::SeqNo, UserKey, Value};
 use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
+// TODO: rename structs
+
 // TODO: use (ParsedInternalKey, UserValue) instead of Value...
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Value>> + 'a>;

@@ -85,7 +85,7 @@ mod tests {
 
             let multi_reader = MultiReader::new(readers);
 
-            let mut iter = multi_reader.into_iter().flatten();
+            let mut iter = multi_reader.flatten();
 
             assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key);
             assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key);
@@ -111,7 +111,7 @@ mod tests {
 
             let multi_reader = MultiReader::new(readers);
 
-            let mut iter = multi_reader.into_iter().rev().flatten();
+            let mut iter = multi_reader.rev().flatten();
 
             assert_eq!(Arc::from(*b"l"), iter.next().unwrap().key);
             assert_eq!(Arc::from(*b"k"), iter.next().unwrap().key);
@@ -137,7 +137,7 @@ mod tests {
 
             let multi_reader = MultiReader::new(readers);
 
-            let mut iter = multi_reader.into_iter().flatten();
+            let mut iter = multi_reader.flatten();
 
             assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key);
             assert_eq!(Arc::from(*b"l"), iter.next_back().unwrap().key);

@@ -1,6 +1,4 @@
 use crate::{
-    prefix::Prefix,
-    range::Range,
     value::{SeqNo, UserKey, UserValue},
     Tree, Value,
 };
@@ -110,7 +108,7 @@ impl Snapshot {
     ///
     /// tree.insert("g", "abc", 2);
     ///
-    /// assert_eq!(2, snapshot.iter().into_iter().count());
+    /// assert_eq!(2, snapshot.iter().count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -119,7 +117,9 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn iter(&self) -> Range {
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         self.tree.create_iter(Some(self.seqno))
     }
 
@@ -141,7 +141,7 @@ impl Snapshot {
     /// tree.insert("f", "abc", 1);
     /// tree.insert("g", "abc", 2);
     ///
-    /// assert_eq!(1, snapshot.range("a"..="f").into_iter().count());
+    /// assert_eq!(1, snapshot.range("a"..="f").count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -149,7 +149,10 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> Range {
+    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         self.tree.create_range(range, Some(self.seqno))
     }
 
@@ -171,7 +174,7 @@ impl Snapshot {
     ///
     /// tree.insert("abc", "abc", 2);
     ///
-    /// assert_eq!(2, snapshot.prefix("a").into_iter().count());
+    /// assert_eq!(2, snapshot.prefix("a").count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -179,8 +182,11 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn prefix<K: AsRef<[u8]>>(&self, prefix: K) -> Prefix {
-        self.tree.create_prefix(prefix.as_ref(), Some(self.seqno))
+    pub fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.tree.create_prefix(prefix, Some(self.seqno))
     }
 
     /// Returns the first key-value pair in the snapshot.
@@ -211,11 +217,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.tree
-            .create_iter(Some(self.seqno))
-            .into_iter()
-            .next()
-            .transpose()
+        self.tree.create_iter(Some(self.seqno)).next().transpose()
     }
 
     /// Returns the las key-value pair in the snapshot.
@@ -248,7 +250,6 @@ impl Snapshot {
     pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
         self.tree
             .create_iter(Some(self.seqno))
-            .into_iter()
             .next_back()
             .transpose()
     }
@@ -342,7 +343,7 @@ impl Snapshot {
         let mut count = 0;
 
         // TODO: shouldn't thrash block cache
-        for item in &self.iter() {
+        for item in self.iter() {
             let _ = item?;
             count += 1;
         }

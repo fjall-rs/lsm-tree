@@ -4,8 +4,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     levels::LevelManifest,
     memtable::MemTable,
-    prefix::Prefix,
-    range::{MemTableGuard, Range},
+    range::{NewMemtableGuard, NewRange},
     segment::Segment,
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
@@ -347,7 +346,7 @@ impl Tree {
         let mut count = 0;
 
         // TODO: shouldn't thrash block cache
-        for item in &self.iter() {
+        for item in self.iter() {
             let _ = item?;
             count += 1;
         }
@@ -550,7 +549,10 @@ impl Tree {
         self.get(key).map(|x| x.is_some())
     }
 
-    pub(crate) fn create_iter(&self, seqno: Option<SeqNo>) -> Range {
+    pub(crate) fn create_iter(
+        &self,
+        seqno: Option<SeqNo>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         self.create_range::<UserKey, _>(.., seqno)
     }
 
@@ -569,7 +571,7 @@ impl Tree {
     /// tree.insert("a", "abc", 0);
     /// tree.insert("f", "abc", 1);
     /// tree.insert("g", "abc", 2);
-    /// assert_eq!(3, tree.iter().into_iter().count());
+    /// assert_eq!(3, tree.iter().count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -579,7 +581,9 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    pub fn iter(&self) -> Range {
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         self.create_iter(None)
     }
 
@@ -587,7 +591,7 @@ impl Tree {
         &self,
         range: R,
         seqno: Option<SeqNo>,
-    ) -> Range {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -604,16 +608,14 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        Range::new(
-            crate::range::MemTableGuard {
-                active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
-                    .expect("lock is poisoned"),
-                sealed: guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
-                    .expect("lock is poisoned"),
+        NewRange::create_range(
+            NewMemtableGuard {
+                active: self.active_memtable.read().expect("lock is poisoned"),
+                sealed: self.sealed_memtables.read().expect("lock is poisoned"),
             },
             bounds,
             seqno,
-            self.levels.clone(),
+            self.levels.read().expect("lock is poisoned"),
         )
     }
 
@@ -632,7 +634,7 @@ impl Tree {
     /// tree.insert("a", "abc", 0);
     /// tree.insert("f", "abc", 1);
     /// tree.insert("g", "abc", 2);
-    /// assert_eq!(2, tree.range("a"..="f").into_iter().count());
+    /// assert_eq!(2, tree.range("a"..="f").count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -640,27 +642,28 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> Range {
+    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         self.create_range(range, None)
     }
 
-    pub(crate) fn create_prefix<K: Into<UserKey>>(
+    pub(crate) fn create_prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
         seqno: Option<SeqNo>,
-    ) -> Prefix {
-        let prefix = prefix.into();
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        let prefix = prefix.as_ref();
 
-        Prefix::new(
-            MemTableGuard {
-                active: guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
-                    .expect("lock is poisoned"),
-                sealed: guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
-                    .expect("lock is poisoned"),
+        NewRange::create_prefix(
+            NewMemtableGuard {
+                active: self.active_memtable.read().expect("lock is poisoned"),
+                sealed: self.sealed_memtables.read().expect("lock is poisoned"),
             },
-            prefix,
+            prefix.into(),
             seqno,
-            self.levels.clone(),
+            self.levels.read().expect("lock is poisoned"),
         )
     }
 
@@ -679,7 +682,7 @@ impl Tree {
     /// tree.insert("a", "abc", 0);
     /// tree.insert("ab", "abc", 1);
     /// tree.insert("abc", "abc", 2);
-    /// assert_eq!(2, tree.prefix("ab").into_iter().count());
+    /// assert_eq!(2, tree.prefix("ab").count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -687,8 +690,11 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn prefix<K: AsRef<[u8]>>(&self, prefix: K) -> Prefix {
-        self.create_prefix(prefix.as_ref(), None)
+    pub fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.create_prefix(prefix, None)
     }
 
     /// Returns the first key-value pair in the tree.
@@ -717,7 +723,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.iter().into_iter().next().transpose()
+        self.iter().next().transpose()
     }
 
     /// Returns the last key-value pair in the tree.
@@ -746,7 +752,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.iter().into_iter().next_back().transpose()
+        self.iter().next_back().transpose()
     }
 
     /// Adds an item to the active memtable.
