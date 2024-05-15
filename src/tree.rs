@@ -4,7 +4,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     levels::LevelManifest,
     memtable::MemTable,
-    range::{NewMemtableGuard, NewRange},
+    range::{MemtableLockGuard, TreeIter},
     segment::Segment,
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
@@ -608,8 +608,8 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        NewRange::create_range(
-            NewMemtableGuard {
+        TreeIter::create_range(
+            MemtableLockGuard {
                 active: self.active_memtable.read().expect("lock is poisoned"),
                 sealed: self.sealed_memtables.read().expect("lock is poisoned"),
             },
@@ -656,8 +656,8 @@ impl Tree {
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
         let prefix = prefix.as_ref();
 
-        NewRange::create_prefix(
-            NewMemtableGuard {
+        TreeIter::create_prefix(
+            MemtableLockGuard {
                 active: self.active_memtable.read().expect("lock is poisoned"),
                 sealed: self.sealed_memtables.read().expect("lock is poisoned"),
             },

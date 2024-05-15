@@ -10,7 +10,7 @@ use crate::{
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::RwLockReadGuard};
 
-pub struct NewMemtableGuard<'a> {
+pub struct MemtableLockGuard<'a> {
     pub(crate) active: RwLockReadGuard<'a, MemTable>,
     pub(crate) sealed: RwLockReadGuard<'a, SealedMemtables>,
 }
@@ -18,15 +18,15 @@ pub struct NewMemtableGuard<'a> {
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a>;
 
 self_cell!(
-    pub struct NewRange<'a> {
-        owner: NewMemtableGuard<'a>,
+    pub struct TreeIter<'a> {
+        owner: MemtableLockGuard<'a>,
 
         #[covariant]
         dependent: BoxedMerge,
     }
 );
 
-impl<'a> Iterator for NewRange<'a> {
+impl<'a> Iterator for TreeIter<'a> {
     type Item = crate::Result<(UserKey, UserValue)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -34,20 +34,21 @@ impl<'a> Iterator for NewRange<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for NewRange<'a> {
+impl<'a> DoubleEndedIterator for TreeIter<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next_back())
     }
 }
 
-impl<'a> NewRange<'a> {
+impl<'a> TreeIter<'a> {
+    #[must_use]
     pub fn create_prefix(
-        guard: NewMemtableGuard<'a>,
+        guard: MemtableLockGuard<'a>,
         prefix: UserKey,
         seqno: Option<SeqNo>,
         level_manifest: RwLockReadGuard<'a, LevelManifest>,
     ) -> Self {
-        NewRange::new(guard, |lock| {
+        TreeIter::new(guard, |lock| {
             let prefix = prefix.clone();
 
             let mut segment_iters: Vec<BoxedIterator<'_>> =
@@ -103,8 +104,6 @@ impl<'a> NewRange<'a> {
                 ));
             }
 
-            let prefix = prefix.clone();
-
             let memtable_iter = {
                 lock.active
                     .items
@@ -138,12 +137,12 @@ impl<'a> NewRange<'a> {
 
     #[must_use]
     pub fn create_range(
-        guard: NewMemtableGuard<'a>,
+        guard: MemtableLockGuard<'a>,
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
         level_manifest: RwLockReadGuard<'a, LevelManifest>,
     ) -> Self {
-        NewRange::new(guard, |lock| {
+        TreeIter::new(guard, |lock| {
             let lo = match &bounds.0 {
                 // NOTE: See memtable.rs for range explanation
                 Bound::Included(key) => Bound::Included(ParsedInternalKey::new(
