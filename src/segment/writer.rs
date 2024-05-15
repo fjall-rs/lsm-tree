@@ -213,6 +213,7 @@ impl Writer {
 
         // First, flush all data blocks
         self.block_writer.flush()?;
+        self.block_writer.get_mut().sync_all()?;
 
         // Append index blocks to file
         self.index_writer.finish(self.file_pos)?;
