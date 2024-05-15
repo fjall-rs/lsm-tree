@@ -12,16 +12,18 @@ use crate::{
     file::rewrite_atomic,
     segment::{meta::SegmentId, Segment},
     serde::Serializable,
-    SerializeError,
+    DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
 use std::{
     collections::{HashMap, HashSet},
-    io::{Cursor, Write},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'1'];
 
 pub type HiddenSet = HashSet<SegmentId>;
 
@@ -98,6 +100,16 @@ impl LevelManifest {
         path: P,
     ) -> crate::Result<Vec<Vec<SegmentId>>> {
         let mut level_manifest = Cursor::new(std::fs::read(&path)?);
+
+        // Check header
+        let mut magic = [0u8; LEVEL_MANIFEST_HEADER_MAGIC.len()];
+        level_manifest.read_exact(&mut magic)?;
+
+        if magic != LEVEL_MANIFEST_HEADER_MAGIC {
+            return Err(crate::Error::Deserialize(
+                DeserializeError::InvalidHeader,
+            ));
+        }
 
         let mut levels = vec![];
 
@@ -359,6 +371,9 @@ impl LevelManifest {
 
 impl Serializable for LevelManifest {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        // Write header
+        writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
+
         writer.write_u8(self.depth())?;
 
         for level in &self.levels {
@@ -440,6 +455,9 @@ mod tests {
 
         #[rustfmt::skip]
         let raw = &[
+            // Magic
+            b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'1',
+
             // Count
             0,
         ];

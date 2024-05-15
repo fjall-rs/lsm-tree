@@ -18,6 +18,8 @@ use std::{
 };
 pub use {compression::CompressionType, table_type::TableType};
 
+pub const METADATA_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'M', b'D', b'1'];
+
 pub type SegmentId = u64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,6 +77,9 @@ pub struct Metadata {
 
 impl Serializable for Metadata {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        // Write header
+        writer.write_all(METADATA_HEADER_MAGIC)?;
+
         writer.write_u64::<BigEndian>(self.id)?;
 
         writer.write_u128::<BigEndian>(self.created_at)?;
@@ -104,6 +109,14 @@ impl Serializable for Metadata {
 
 impl Deserializable for Metadata {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        // Check header
+        let mut magic = [0u8; METADATA_HEADER_MAGIC.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != METADATA_HEADER_MAGIC {
+            return Err(DeserializeError::InvalidHeader);
+        }
+
         let id = reader.read_u64::<BigEndian>()?;
 
         let created_at = reader.read_u128::<BigEndian>()?;

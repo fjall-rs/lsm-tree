@@ -20,6 +20,8 @@ fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .into()
 }
 
+pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'1'];
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum TreeType {
     Standard,
@@ -80,6 +82,9 @@ impl Default for PersistedConfig {
 
 impl Serializable for PersistedConfig {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        // Write header
+        writer.write_all(CONFIG_HEADER_MAGIC)?;
+
         writer.write_u8(self.r#type.into())?;
         writer.write_u8(self.compression.into())?;
         writer.write_u8(self.table_type.into())?;
@@ -92,6 +97,14 @@ impl Serializable for PersistedConfig {
 
 impl Deserializable for PersistedConfig {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        // Check header
+        let mut magic = [0u8; CONFIG_HEADER_MAGIC.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != CONFIG_HEADER_MAGIC {
+            return Err(DeserializeError::InvalidHeader);
+        }
+
         let tree_type = reader.read_u8()?;
         let tree_type = TreeType::try_from(tree_type)
             .map_err(|()| DeserializeError::InvalidTag(("TreeType", tree_type)))?;
@@ -275,6 +288,9 @@ mod tests {
 
         #[rustfmt::skip]
         let raw = &[
+            // Magic
+            b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'1',
+
             // Tree type
             0,
 

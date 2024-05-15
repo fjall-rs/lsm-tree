@@ -56,7 +56,7 @@ impl Deserializable for Header {
         reader.read_exact(&mut magic)?;
 
         if magic != BLOCK_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidBlockHeader);
+            return Err(DeserializeError::InvalidHeader);
         }
 
         // Read compression type
