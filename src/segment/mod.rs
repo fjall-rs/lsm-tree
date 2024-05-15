@@ -9,6 +9,7 @@ pub mod multi_writer;
 pub mod prefix;
 pub mod range;
 pub mod reader;
+pub mod value_block;
 pub mod writer;
 
 use self::{
@@ -18,7 +19,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     file::SEGMENT_METADATA_FILE,
-    segment::block::load_by_block_handle,
+    segment::value_block::ValueBlock,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -31,14 +32,15 @@ use crate::bloom::BloomFilter;
 #[cfg(feature = "bloom")]
 use crate::file::BLOOM_FILTER_FILE;
 
-/// Disk segment (a.k.a. `SSTable`, `sorted string table`) that is located on disk
+/// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
-/// A segment is an immutable list of key-value pairs, split into compressed blocks (see [`block::ValueBlock`]).
-/// The block offset and size in the file is saved in the "block index".
+/// A segment is an immutable list of key-value pairs, split into compressed blocks.
+/// A reference to the block (`block handle`) is saved in the "block index".
 ///
 /// Deleted entries are represented by tombstones.
 ///
-/// Segments can be merged together to remove duplicates, reducing disk space and improving read performance.
+/// Segments can be merged together to remove duplicate items, reducing disk space and improving read performance.
+#[doc(alias = "sstable")]
 pub struct Segment {
     pub(crate) tree_id: TreeId,
 
@@ -96,9 +98,17 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
+            // TODO: only load bloom if file exists?
             #[cfg(feature = "bloom")]
             bloom_filter: BloomFilter::from_file(folder.join(BLOOM_FILTER_FILE))?,
         })
+    }
+
+    #[cfg(feature = "bloom")]
+    #[must_use]
+    /// Gets the bloom filter size
+    pub fn bloom_filter_size(&self) -> usize {
+        self.bloom_filter.len()
     }
 
     /// Retrieves an item from the segment.
@@ -111,7 +121,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        use block::CachePolicy;
+        use value_block::CachePolicy;
 
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
@@ -143,7 +153,7 @@ impl Segment {
                 .block_index
                 .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
             {
-                let block = load_by_block_handle(
+                let block = ValueBlock::load_by_block_handle(
                     &self.descriptor_table,
                     &self.block_cache,
                     (self.tree_id, self.metadata.id).into(),

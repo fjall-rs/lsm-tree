@@ -11,12 +11,14 @@ use self::level::Level;
 use crate::{
     file::rewrite_atomic,
     segment::{meta::SegmentId, Segment},
+    serde::Serializable,
+    SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
 use std::{
     collections::{HashMap, HashSet},
-    io::Cursor,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -99,7 +101,7 @@ impl LevelManifest {
 
         let mut levels = vec![];
 
-        let level_count = level_manifest.read_u32::<BigEndian>()?;
+        let level_count = level_manifest.read_u8()?;
 
         for _ in 0..level_count {
             let mut level = vec![];
@@ -177,15 +179,7 @@ impl LevelManifest {
         log::trace!("Writing level manifest to {:?}", self.path);
 
         let mut serialized = vec![];
-        serialized.write_u32::<BigEndian>(self.levels.len() as u32)?;
-
-        for level in &self.levels {
-            serialized.write_u32::<BigEndian>(level.segments.len() as u32)?;
-
-            for segment in &level.segments {
-                serialized.write_u64::<BigEndian>(segment.metadata.id)?;
-            }
-        }
+        self.serialize(&mut serialized)?;
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -251,12 +245,16 @@ impl LevelManifest {
     /// Returns the amount of levels in the tree
     #[must_use]
     pub fn depth(&self) -> u8 {
-        self.levels.len() as u8
+        // NOTE: Level count is u8
+        #[allow(clippy::cast_possible_truncation)]
+        let len = self.levels.len() as u8;
+
+        len
     }
 
     #[must_use]
     pub fn first_level_segment_count(&self) -> usize {
-        self.levels.first().expect("L0 should always exist").len()
+        self.levels.first().map(Level::len).unwrap_or_default()
     }
 
     /// Returns the amount of levels in the tree
@@ -284,7 +282,11 @@ impl LevelManifest {
         for (idx, level) in self.levels.iter().enumerate() {
             for segment_id in level.ids() {
                 if self.hidden_set.contains(&segment_id) {
-                    output.insert(idx as u8);
+                    // NOTE: Level count is u8
+                    #[allow(clippy::cast_possible_truncation)]
+                    let idx = idx as u8;
+
+                    output.insert(idx);
                 }
             }
         }
@@ -310,8 +312,7 @@ impl LevelManifest {
         output
     }
 
-    #[must_use]
-    pub fn iter(&self) -> LevelManifestIterator {
+    pub fn iter(&self) -> impl Iterator<Item = Arc<Segment>> + '_ {
         LevelManifestIterator::new(self)
     }
 
@@ -325,7 +326,7 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+    /* pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         let mut output = HashMap::new();
 
         for segment in self.iter() {
@@ -335,7 +336,7 @@ impl LevelManifest {
         }
 
         output
-    }
+    } */
 
     pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
@@ -356,20 +357,38 @@ impl LevelManifest {
     }
 }
 
+impl Serializable for LevelManifest {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        writer.write_u8(self.depth())?;
+
+        for level in &self.levels {
+            writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
+
+            for segment in &level.segments {
+                writer.write_u64::<BigEndian>(segment.metadata.id)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
-        levels::level::Level,
+        levels::{level::Level, LevelManifest},
         segment::{
             block_index::BlockIndex,
             meta::{Metadata, SegmentId},
             Segment,
         },
+        serde::Serializable,
     };
-    use std::sync::Arc;
+    use std::{collections::HashSet, sync::Arc};
 
     #[cfg(feature = "bloom")]
     use crate::bloom::BloomFilter;
@@ -403,6 +422,31 @@ mod tests {
             #[cfg(feature = "bloom")]
             bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
         })
+    }
+
+    #[test]
+    fn level_manifest_raw_empty() -> crate::Result<()> {
+        let levels = LevelManifest {
+            hidden_set: HashSet::default(),
+            levels: Vec::default(),
+            path: "a".into(),
+
+            #[cfg(feature = "segment_history")]
+            segment_history_writer: super::segment_history::Writer::new()?,
+        };
+
+        let mut bytes = vec![];
+        levels.serialize(&mut bytes)?;
+
+        #[rustfmt::skip]
+        let raw = &[
+            // Count
+            0,
+        ];
+
+        assert_eq!(bytes, raw);
+
+        Ok(())
     }
 
     #[test]

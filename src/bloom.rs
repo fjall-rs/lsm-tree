@@ -47,6 +47,17 @@ impl Deserializable for BloomFilter {
 }
 
 impl BloomFilter {
+    /// Size of bloom filter in bytes
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Stores a bloom filter to a file
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), SerializeError> {
         let mut writer = BufWriter::new(File::create(path)?);

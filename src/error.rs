@@ -19,7 +19,7 @@ pub enum Error {
     /// Decompression failed
     Decompress(DecompressError),
 
-    /// Invalid data format version
+    /// Invalid or unparseable data format version
     InvalidVersion(Option<Version>),
 }
 

@@ -1,12 +1,9 @@
 use super::{
-    block::CachePolicy,
-    block_index::{block_handle::KeyedBlockHandle, BlockIndex},
+    block_index::block_handle::KeyedBlockHandle,
     data_block_handle_queue::DataBlockHandleQueue,
+    value_block::{CachePolicy, ValueBlock},
 };
-use crate::{
-    descriptor_table::FileDescriptorTable, segment::block::load_by_block_handle, BlockCache,
-    GlobalSegmentId, UserKey, Value,
-};
+use crate::{descriptor_table::FileDescriptorTable, BlockCache, GlobalSegmentId, UserKey, Value};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -16,10 +13,10 @@ use std::{
 /// data blocks it points to
 pub struct IndexBlockConsumer {
     descriptor_table: Arc<FileDescriptorTable>,
-    block_index: Arc<BlockIndex>,
     segment_id: GlobalSegmentId,
     block_cache: Arc<BlockCache>,
-
+    // TODO: replace descriptor_table, segment_id, block_cache with block_index: Arc<BlockIndex>,
+    //
     start_key: Option<UserKey>,
     end_key: Option<UserKey>,
 
@@ -45,15 +42,14 @@ impl IndexBlockConsumer {
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
-        block_index: Arc<BlockIndex>,
+        //  block_index: Arc<BlockIndex>,
         data_block_handles: VecDeque<KeyedBlockHandle>,
     ) -> Self {
         Self {
             descriptor_table,
             segment_id,
             block_cache,
-            block_index,
-
+            //  block_index,
             start_key: None,
             end_key: None,
 
@@ -93,7 +89,7 @@ impl IndexBlockConsumer {
         &mut self,
         block_handle: &KeyedBlockHandle,
     ) -> crate::Result<Option<VecDeque<Value>>> {
-        let block = load_by_block_handle(
+        let block = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
             self.segment_id,

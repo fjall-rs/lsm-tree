@@ -1,8 +1,8 @@
 use super::{
-    block::CachePolicy,
     block_index::{block_handle::KeyedBlockHandle, BlockIndex},
     id::GlobalSegmentId,
     index_block_consumer::IndexBlockConsumer,
+    value_block::CachePolicy,
 };
 use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable, UserKey, Value};
 use std::{collections::HashMap, sync::Arc};
@@ -107,7 +107,7 @@ impl Reader {
                 self.descriptor_table.clone(),
                 self.segment_id,
                 self.block_cache.clone(),
-                self.block_index.clone(),
+                // self.block_index.clone(),
                 index_block.items.to_vec().into(),
             )
             .cache_policy(self.cache_policy);
@@ -138,7 +138,7 @@ impl Reader {
                 self.descriptor_table.clone(),
                 self.segment_id,
                 self.block_cache.clone(),
-                self.block_index.clone(),
+                //  self.block_index.clone(),
                 index_block.items.to_vec().into(),
             )
             .cache_policy(self.cache_policy);
@@ -170,7 +170,7 @@ impl Reader {
                 self.descriptor_table.clone(),
                 self.segment_id,
                 self.block_cache.clone(),
-                self.block_index.clone(),
+                //   self.block_index.clone(),
                 index_block.items.to_vec().into(),
             )
             .cache_policy(self.cache_policy);
@@ -204,7 +204,7 @@ impl Reader {
                     self.descriptor_table.clone(),
                     self.segment_id,
                     self.block_cache.clone(),
-                    self.block_index.clone(),
+                    //   self.block_index.clone(),
                     index_block.items.to_vec().into(),
                 )
                 .cache_policy(self.cache_policy);
@@ -305,7 +305,7 @@ impl Iterator for Reader {
                     self.descriptor_table.clone(),
                     self.segment_id,
                     self.block_cache.clone(),
-                    self.block_index.clone(),
+                    //  self.block_index.clone(),
                     next_index_block.items.to_vec().into(),
                 )
                 .cache_policy(self.cache_policy);
@@ -408,7 +408,7 @@ impl DoubleEndedIterator for Reader {
                     self.descriptor_table.clone(),
                     self.segment_id,
                     self.block_cache.clone(),
-                    self.block_index.clone(),
+                    //  self.block_index.clone(),
                     prev_index_block.items.to_vec().into(),
                 )
                 .cache_policy(self.cache_policy);

@@ -143,7 +143,7 @@ fn merge_segments(
             let iter = Box::new(
                 segment
                     .iter()
-                    .cache_policy(crate::segment::block::CachePolicy::Read),
+                    .cache_policy(crate::segment::value_block::CachePolicy::Read),
             );
             segment_readers.push(iter);
         }
@@ -163,6 +163,21 @@ fn merge_segments(
 
     let start = Instant::now();
 
+    // TODO: MONKEY
+    #[cfg(feature = "bloom")]
+    let bloom_fp_rate = match payload.dest_level {
+        0 => 0.0001,
+        1 => 0.001,
+        2 => 0.01,
+        _ => {
+            if is_last_level {
+                0.5
+            } else {
+                0.1
+            }
+        }
+    };
+
     let mut segment_writer = MultiWriter::new(
         opts.segment_id_generator.clone(),
         payload.target_size,
@@ -172,7 +187,7 @@ fn merge_segments(
             folder: opts.config.path.join(SEGMENTS_FOLDER),
 
             #[cfg(feature = "bloom")]
-            bloom_fp_rate: if is_last_level { 0.1 } else { 0.01 }, // TODO: MONKEY
+            bloom_fp_rate,
         },
     )?;
 

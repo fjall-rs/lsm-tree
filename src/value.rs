@@ -13,14 +13,14 @@ pub type UserKey = Arc<[u8]>;
 #[allow(clippy::module_name_repetitions)]
 pub type UserValue = Arc<[u8]>;
 
-/// Sequence number, a monotonically increasing counter
+/// Sequence number - a monotonically increasing counter
 ///
 /// Values with the same seqno are part of the same batch.
 ///
 /// A value with a higher sequence number shadows an item with the
 /// same key and lower sequence number. This enables MVCC.
 ///
-/// Items are lazily garbage-bollected during compaction.
+/// Stale items are lazily garbage-collected during compaction.
 pub type SeqNo = u64;
 
 /// Value type (regular value or tombstone)
@@ -279,9 +279,8 @@ impl Deserializable for Value {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
+    use std::io::Cursor;
     use test_log::test;
 
     #[test]

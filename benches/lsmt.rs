@@ -1,6 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    bloom::BloomFilter, segment::block::ValueBlock, BlockCache, Config, MemTable, Value,
+    bloom::BloomFilter,
+    segment::{
+        block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
+    },
+    serde::Serializable,
+    BlockCache, Config, MemTable, Value,
 };
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
@@ -102,7 +107,7 @@ fn tli_find_item(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("TLI find item");
 
-    for item_count in [10u64, 100, 1_000, 10_000, 100_000, 1_000_000] {
+    for item_count in [10u64, 100, 1_000, 1_000_000] {
         let items = {
             let mut items = Vec::with_capacity(item_count as usize);
 
@@ -110,7 +115,6 @@ fn tli_find_item(c: &mut Criterion) {
                 items.push(KeyedBlockHandle {
                     end_key: x.to_be_bytes().into(),
                     offset: x,
-                    size: 0,
                 });
             }
 
@@ -168,7 +172,14 @@ fn value_block_size(c: &mut Criterion) {
                 })
                 .collect();
 
-            let block = ValueBlock { items, crc: 0 };
+            let block = ValueBlock {
+                items,
+                header: BlockHeader {
+                    compression: CompressionType::Lz4,
+                    crc: 0,
+                    data_length: 0,
+                },
+            };
 
             b.iter(|| {
                 block.size();
@@ -177,29 +188,35 @@ fn value_block_size(c: &mut Criterion) {
     }
 }
 
-/* fn value_block_size_find(c: &mut Criterion) {
+fn value_block_size_find(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{block_handle::KeyedBlockHandle, IndexBlock};
 
-    let mut group = c.benchmark_group("Find item in BlockHandleBlock");
+    let mut group = c.benchmark_group("Find item in IndexBlock");
 
     // NOTE: Anything above 1000 is unlikely
-    for item_count in [10, 100, 500, 1_000] {
+    for item_count in [10, 100, 500, 1_000, 5_000] {
         group.bench_function(format!("{item_count} items"), |b| {
             let items = (0u64..item_count)
                 .map(|x| KeyedBlockHandle {
                     end_key: x.to_be_bytes().into(),
                     offset: 56,
-                    size: 635,
                 })
                 .collect();
 
-            let block = IndexBlock { items, crc: 0 };
-            let key = &0u64.to_be_bytes();
+            let block = IndexBlock {
+                items,
+                header: BlockHeader {
+                    compression: CompressionType::Lz4,
+                    crc: 0,
+                    data_length: 0,
+                },
+            };
+            let key = &(item_count / 2).to_be_bytes();
 
-            b.iter(|| block.get_lowest_block_containing_item(key))
+            b.iter(|| block.get_lowest_data_block_handle_containing_item(key))
         });
     }
-} */
+}
 
 fn load_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
@@ -230,25 +247,27 @@ fn load_block_from_disk(c: &mut Criterion) {
             }
 
             let mut block = ValueBlock {
-                items: items.into_boxed_slice(),
-                crc: 0,
+                items: items.clone().into_boxed_slice(),
+                header: BlockHeader {
+                    compression: CompressionType::Lz4,
+                    crc: 0,
+                    data_length: 0,
+                },
             };
 
             // Serialize block
-            block.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let bytes = ValueBlock::to_bytes_compressed(&block);
-            let block_size_on_disk = bytes.len();
+            block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
+            let (header, data) = ValueBlock::to_bytes_compressed(&items).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
-            file.write_all(&bytes).unwrap();
+            header.serialize(&mut file).unwrap();
+            file.write_all(&data).unwrap();
 
             b.iter(|| {
-                let loaded_block =
-                    ValueBlock::from_file_compressed(&mut file, 0, block_size_on_disk as u32)
-                        .unwrap();
+                let loaded_block = ValueBlock::from_file_compressed(&mut file, 0).unwrap();
 
                 assert_eq!(loaded_block.items.len(), block.items.len());
-                assert_eq!(loaded_block.crc, block.crc);
+                assert_eq!(loaded_block.header.crc, block.header.crc);
             });
         });
     }
@@ -404,7 +423,7 @@ criterion_group!(
     benches,
     tli_find_item,
     memtable_get_upper_bound,
-    // value_block_size_find,
+    value_block_size_find,
     value_block_size,
     load_block_from_disk,
     file_descriptor_table,

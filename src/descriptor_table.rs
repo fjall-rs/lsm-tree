@@ -2,6 +2,7 @@ use crate::{lru_list::LruList, segment::id::GlobalSegmentId};
 use std::{
     collections::HashMap,
     fs::File,
+    io::BufReader,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicUsize},
@@ -28,7 +29,7 @@ impl Drop for FileGuard {
 }
 
 pub struct FileDescriptorWrapper {
-    pub file: Mutex<File>,
+    pub file: Mutex<BufReader<File>>,
     is_used: AtomicBool,
 }
 
@@ -117,14 +118,14 @@ impl FileDescriptorTable {
 
                 for _ in 0..(self.concurrency - 1) {
                     let fd = Arc::new(FileDescriptorWrapper {
-                        file: Mutex::new(File::open(&item.path)?),
+                        file: Mutex::new(BufReader::new(File::open(&item.path)?)),
                         is_used: AtomicBool::default(),
                     });
                     fd_lock.push(fd.clone());
                 }
 
                 let fd = Arc::new(FileDescriptorWrapper {
-                    file: Mutex::new(File::open(&item.path)?),
+                    file: Mutex::new(BufReader::new(File::open(&item.path)?)),
                     is_used: AtomicBool::new(true),
                 });
                 fd_lock.push(fd.clone());
