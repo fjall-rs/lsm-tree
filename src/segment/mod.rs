@@ -74,6 +74,8 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
+        use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
+
         let mut count = 0;
         let mut broken_count = 0;
 
@@ -85,8 +87,6 @@ impl Segment {
         let mut f = guard.file.lock().expect("lock is poisoned");
 
         for handle in self.block_index.top_level_index.data.iter() {
-            use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
-
             let block = IndexBlock::from_file_compressed(&mut *f, handle.offset)?;
 
             for handle in &*block.items {
