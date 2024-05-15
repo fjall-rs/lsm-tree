@@ -29,7 +29,7 @@ pub struct IndexBlockConsumer {
 
     /// Data block buffers that have been loaded and are being consumed
     pub(crate) data_blocks: HashMap<KeyedBlockHandle, VecDeque<Value>>,
-    // TODO: ^ maybe change to (MinBuf, MaxBuf)
+    // TODO: ^ maybe change to (Option<MinBuf>, Option<MaxBuf>)
     //
     cache_policy: CachePolicy,
 
