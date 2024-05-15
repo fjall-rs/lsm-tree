@@ -68,16 +68,18 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn verify(&self) -> crate::Result<()> {
+    pub fn verify(&self) -> crate::Result<usize> {
+        let mut sum = 0;
+
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
         for level in &level_manifest.levels {
             for segment in &level.segments {
-                segment.verify()?;
+                sum += segment.verify()?;
             }
         }
 
-        Ok(())
+        Ok(sum)
     }
 
     /// Run compaction, blocking the caller until it's done.
