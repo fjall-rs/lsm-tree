@@ -126,9 +126,6 @@ mod tests {
 
         let (header, data) = ValueBlock::to_bytes_compressed(&items)?;
 
-        let mut peter = vec![];
-        header.serialize(&mut peter)?;
-
         header.serialize(&mut serialized)?;
         serialized.write_all(&data)?;
 
@@ -146,29 +143,27 @@ mod tests {
         Ok(())
     }
 
-    /*    #[test]
+    #[test]
     fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
         let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
-        let block = Block {
-            items: [item1, item2].into(),
-            header: BlockHeader {
-                crc: 12345,
-                compression: crate::segment::meta::CompressionType::Lz4,
-                data_length: 0,
-            },
-        };
+        let items = vec![item1, item2];
 
         // Serialize to bytes
         let mut serialized = Vec::new();
-        block.serialize(&mut serialized)?;
+
+        let (header, data) = ValueBlock::to_bytes_compressed(&items)?;
+
+        header.serialize(&mut serialized)?;
+        serialized.write_all(&data)?;
 
         // Deserialize from bytes
-        let deserialized = Block::<Value>::deserialize(&mut &serialized[..])?;
+        let mut cursor = Cursor::new(serialized);
+        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
 
-        assert!(!deserialized.check_crc(54321)?);
+        assert!(!block.check_crc(54321)?);
 
         Ok(())
-    } */
+    }
 }
