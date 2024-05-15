@@ -8,6 +8,8 @@ use std::hash::Hasher;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
+pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'B', b'F', b'1'];
+
 /// A standard bloom filter
 ///
 /// Allows buffering the key hashes before actual filter construction
@@ -27,6 +29,12 @@ pub struct BloomFilter {
 
 impl Serializable for BloomFilter {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        // Write header
+        writer.write_all(BLOOM_HEADER_MAGIC)?;
+
+        // NOTE: Filter type (unused)
+        writer.write_u8(0)?;
+
         writer.write_u64::<BigEndian>(self.m as u64)?;
         writer.write_u64::<BigEndian>(self.k as u64)?;
         writer.write_all(self.inner.bytes())?;
@@ -36,6 +44,17 @@ impl Serializable for BloomFilter {
 
 impl Deserializable for BloomFilter {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        // Check header
+        let mut magic = [0u8; BLOOM_HEADER_MAGIC.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != BLOOM_HEADER_MAGIC {
+            return Err(DeserializeError::InvalidHeader);
+        }
+
+        // NOTE: Filter type (unused)
+        reader.read_u8()?;
+
         let m = reader.read_u64::<BigEndian>()? as usize;
         let k = reader.read_u64::<BigEndian>()? as usize;
 
