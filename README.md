@@ -35,7 +35,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 engine, larger keys and values have a bigger performance impact.
 
-## Features
+## Feature flags
 
 #### bloom
 
