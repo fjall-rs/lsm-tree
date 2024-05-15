@@ -14,6 +14,10 @@ pub type TreeId = u64;
 /// Memtable IDs map one-to-one to some segment.
 pub type MemtableId = u64;
 
+/// Stores references to all sealed memtables
+///
+/// Memtable IDs are monotonically increasing, so we don't really
+/// need a search tree; also there are only a handful of them at most.
 #[derive(Default)]
 pub struct SealedMemtables(Vec<(MemtableId, Arc<MemTable>)>);
 
@@ -31,14 +35,17 @@ impl SealedMemtables {
     }
 }
 
+/// Hands out a unique (monotonically increasing) tree ID
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 pub struct TreeInner {
+    /// Unique tree ID
     pub id: TreeId,
 
+    /// Hands out a unique (monotonically increasing) segment ID
     pub(crate) segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
