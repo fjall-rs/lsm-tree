@@ -1,12 +1,11 @@
 use lsm_tree::Config;
-use tempfile::tempdir;
 use test_log::test;
 
 #[test]
 fn tree_range_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 
-    let folder = tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).open()?;
 

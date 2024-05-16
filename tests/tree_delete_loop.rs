@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).block_size(1_024).open()?;
 
@@ -42,7 +42,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_delete_by_range() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).block_size(1_024).open()?;
 

@@ -1,13 +1,12 @@
 use lsm_tree::Config;
 use std::sync::Arc;
-use tempfile::tempdir;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn tree_memtable_count() -> lsm_tree::Result<()> {
-    let folder = tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).open()?;
 
@@ -26,7 +25,7 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flushed_count() -> lsm_tree::Result<()> {
-    let folder = tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).open()?;
 
@@ -49,7 +48,7 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 fn tree_non_locking_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 
-    let folder = tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).open()?;
 

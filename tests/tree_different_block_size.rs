@@ -1,12 +1,11 @@
 use lsm_tree::{Config, SequenceNumberCounter};
-use tempfile::tempdir;
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
-    let folder = tempdir()?.into_path();
+    let folder = tempfile::tempdir()?;
 
     {
         let tree = Config::new(&folder).block_size(2_048).open()?;
