@@ -18,9 +18,6 @@ use std::{
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-#[cfg(feature = "bloom")]
-use crate::file::BLOOM_FILTER_FILE;
-
 /// Serializes and compresses values into blocks and writes them to disk
 ///
 /// Also takes care of creating the block index
@@ -240,6 +237,8 @@ impl Writer {
         // Write bloom filter
         #[cfg(feature = "bloom")]
         let bloom_ptr = {
+            let bloom_ptr = self.block_writer.stream_position()?;
+
             let n = self.bloom_hash_buffer.len();
             log::trace!("Writing bloom filter with {n} hashes");
 
@@ -250,7 +249,10 @@ impl Writer {
             }
 
             // NOTE: BloomFilter::write_to_file fsyncs internally
-            filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
+            // filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
+            filter.serialize(&mut self.block_writer)?;
+
+            bloom_ptr
         };
 
         #[cfg(not(feature = "bloom"))]

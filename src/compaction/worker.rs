@@ -19,9 +19,6 @@ use std::{
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-#[cfg(feature = "bloom")]
-use crate::file::BLOOM_FILTER_FILE;
-
 /// Compaction options
 pub struct Options {
     pub tree_id: TreeId,
@@ -216,9 +213,7 @@ fn merge_segments(
         .into_iter()
         .map(|trailer| -> crate::Result<Segment> {
             let segment_id = trailer.metadata.id;
-
-            #[cfg(feature = "bloom")]
-            let bloom_filter = BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?;
+            let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
             Ok(Segment {
                 tree_id: opts.tree_id,
@@ -228,7 +223,7 @@ fn merge_segments(
 
                 // TODO: if L0, L1, preload block index (non-partitioned)
                 block_index: BlockIndex::from_file(
-                    segments_base_folder.join(segment_id.to_string()),
+                    segment_file_path,
                     trailer.offsets.tli_ptr,
                     (opts.tree_id, segment_id).into(),
                     opts.config.descriptor_table.clone(),
@@ -237,7 +232,16 @@ fn merge_segments(
                 .into(),
 
                 #[cfg(feature = "bloom")]
-                bloom_filter,
+                bloom_filter: {
+                    assert!(
+                        trailer.offsets.bloom_ptr > 0,
+                        "can not find bloom filter block"
+                    );
+
+                    let mut reader = std::fs::File::open(&segment_file_path)?;
+                    reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                    BloomFilter::deserialize(&mut reader)?
+                },
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;

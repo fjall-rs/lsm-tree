@@ -112,7 +112,7 @@ impl Deserializable for Metadata {
         reader.read_exact(&mut magic)?;
 
         if magic != METADATA_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidHeader);
+            return Err(DeserializeError::InvalidHeader("SegmentMetadata"));
         }
 
         let id = reader.read_u64::<BigEndian>()?;

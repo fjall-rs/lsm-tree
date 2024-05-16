@@ -3,10 +3,8 @@ use crate::serde::{Deserializable, Serializable};
 use crate::{DeserializeError, SerializeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use seahash::SeaHasher;
-use std::fs::File;
 use std::hash::Hasher;
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::io::{Read, Write};
 
 pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'B', b'F', b'1'];
 
@@ -49,7 +47,7 @@ impl Deserializable for BloomFilter {
         reader.read_exact(&mut magic)?;
 
         if magic != BLOOM_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidHeader);
+            return Err(DeserializeError::InvalidHeader("BloomFilter"));
         }
 
         // NOTE: Filter type (unused)
@@ -76,21 +74,6 @@ impl BloomFilter {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    /// Stores a bloom filter to a file
-    pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), SerializeError> {
-        let mut writer = BufWriter::new(File::create(path)?);
-        self.serialize(&mut writer)?;
-        writer.flush()?;
-        writer.get_mut().sync_all()?;
-        Ok(())
-    }
-
-    /*  /// Loads a bloom filter from a file
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, DeserializeError> {
-        let mut reader = BufReader::new(File::open(path)?);
-        Self::deserialize(&mut reader)
-    } */
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
         Self {
@@ -201,12 +184,15 @@ impl BloomFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use test_log::test;
 
     #[test]
     fn bloom_serde_round_trip() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
+
         let path = dir.path().join("bf");
+        let mut file = File::create(&path)?;
 
         let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
 
@@ -217,8 +203,12 @@ mod tests {
             filter.set_with_hash(BloomFilter::get_hash(key));
         }
 
-        filter.write_to_file(&path)?;
-        let filter_copy = BloomFilter::from_file(&path)?;
+        filter.serialize(&mut file)?;
+        file.sync_all()?;
+        drop(file);
+
+        let mut file = File::open(&path)?;
+        let filter_copy = BloomFilter::deserialize(&mut file)?;
 
         assert_eq!(filter, filter_copy);
 

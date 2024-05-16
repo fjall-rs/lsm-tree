@@ -106,7 +106,9 @@ impl LevelManifest {
         level_manifest.read_exact(&mut magic)?;
 
         if magic != LEVEL_MANIFEST_HEADER_MAGIC {
-            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader));
+            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+                "LevelManifest",
+            )));
         }
 
         let mut levels = vec![];

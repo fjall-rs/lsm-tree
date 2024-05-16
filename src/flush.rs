@@ -10,9 +10,6 @@ use std::{path::PathBuf, sync::Arc};
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-#[cfg(feature = "bloom")]
-use crate::file::BLOOM_FILTER_FILE;
-
 /// Flush options
 #[doc(hidden)]
 pub struct Options {
@@ -88,8 +85,18 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         block_index,
         block_cache: opts.block_cache,
 
+        // TODO: as Bloom method
         #[cfg(feature = "bloom")]
-        bloom_filter: BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?,
+        bloom_filter: {
+            assert!(
+                trailer.offsets.bloom_ptr > 0,
+                "can not find bloom filter block"
+            );
+
+            let mut reader = std::fs::File::open(&segment_file_path)?;
+            reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+            BloomFilter::deserialize(&mut reader)?
+        },
     };
 
     opts.descriptor_table.insert(

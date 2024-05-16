@@ -30,9 +30,6 @@ use std::{ops::Bound, path::Path, sync::Arc};
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-#[cfg(feature = "bloom")]
-use crate::file::BLOOM_FILTER_FILE;
-
 /// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
 /// A segment is an immutable list of key-value pairs, split into compressed blocks.
@@ -151,9 +148,18 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
-            // TODO: only load bloom if file exists?
+            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::from_file(folder.join(BLOOM_FILTER_FILE))?,
+            bloom_filter: {
+                assert!(
+                    trailer.offsets.bloom_ptr > 0,
+                    "can not find bloom filter block"
+                );
+
+                let mut reader = std::fs::File::open(file_path)?;
+                reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                BloomFilter::deserialize(&mut reader)?
+            },
         })
     }
 

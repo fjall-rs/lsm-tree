@@ -102,7 +102,7 @@ impl Deserializable for PersistedConfig {
         reader.read_exact(&mut magic)?;
 
         if magic != CONFIG_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidHeader);
+            return Err(DeserializeError::InvalidHeader("Config"));
         }
 
         let tree_type = reader.read_u8()?;
