@@ -220,6 +220,7 @@ impl Writer {
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
             std::fs::remove_file(&self.segment_file_path)?;
+
             if let Err(e) = std::fs::remove_file(&self.index_writer.index_block_tmp_file_path) {
                 debug_assert!(false, "should not happen");
                 log::warn!("Failed to delete tmp file: {e:?}");

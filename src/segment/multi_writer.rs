@@ -67,14 +67,11 @@ impl MultiWriter {
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating segment writer");
 
-        // Flush segment, and start new one
-        self.writer.finish()?;
-
         let new_segment_id = self.get_next_segment_id();
 
         let new_writer = Writer::new(Options {
             segment_id: new_segment_id,
-            folder: self.opts.folder.join(new_segment_id.to_string()),
+            folder: self.opts.folder.clone(),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
 

@@ -289,7 +289,7 @@ fn merge_segments(
     }
 
     for segment_id in &payload.segment_ids {
-        log::trace!("Closing file handles for segment data file");
+        log::trace!("Closing file handles for old segment file");
         opts.config
             .descriptor_table
             .remove((opts.tree_id, *segment_id).into());
