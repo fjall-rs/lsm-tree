@@ -1,12 +1,12 @@
 use super::{meta::Metadata, writer::FileOffsets};
 use crate::{
     serde::{Deserializable, Serializable},
-    SerializeError,
+    DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     fs::File,
-    io::{BufReader, Seek, Write},
+    io::{BufReader, Read, Seek, Write},
     path::Path,
 };
 
@@ -32,6 +32,19 @@ impl SegmentFileTrailer {
         let bloom_ptr = reader.read_u64::<BigEndian>()?;
         let range_tombstone_ptr = reader.read_u64::<BigEndian>()?;
         let metadata_ptr = reader.read_u64::<BigEndian>()?;
+
+        let remaining_padding = TRAILER_SIZE - 5 * std::mem::size_of::<u64>() - TRAILER_MAGIC.len();
+        reader.seek_relative(remaining_padding as i64)?;
+
+        // Check trailer magic
+        let mut magic = [0u8; TRAILER_MAGIC.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != TRAILER_MAGIC {
+            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+                "SegmentMetadata",
+            )));
+        }
 
         let offsets = FileOffsets {
             index_block_ptr,
