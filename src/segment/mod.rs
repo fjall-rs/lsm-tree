@@ -72,7 +72,7 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
-        use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
+        use crate::segment::block_index::IndexBlock;
 
         let mut count = 0;
         let mut broken_count = 0;
