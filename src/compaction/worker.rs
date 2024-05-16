@@ -207,8 +207,6 @@ fn merge_segments(
         writer_results.len()
     );
 
-    eprintln!("{writer_results:?}");
-
     let created_segments = writer_results
         .into_iter()
         .map(|trailer| -> crate::Result<Segment> {
