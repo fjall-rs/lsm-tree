@@ -1,37 +1,27 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
-    file::{BLOCKS_FILE, INDEX_BLOCKS_FILE, TOP_LEVEL_INDEX_FILE},
-    segment::block::header::Header as BlockHeader,
-    serde::Serializable,
-    value::UserKey,
+    segment::block::header::Header as BlockHeader, serde::Serializable, value::UserKey, SegmentId,
 };
 use std::{
-    fs::{File, OpenOptions},
-    io::{BufReader, BufWriter, Write},
+    fs::File,
+    io::{BufReader, BufWriter, Seek, Write},
     path::{Path, PathBuf},
 };
 
-fn concat_files<P: AsRef<Path>>(src_path: P, dest_path: P) -> crate::Result<()> {
+fn pipe_file_into_writer<P: AsRef<Path>, W: Write>(src_path: P, sink: &mut W) -> crate::Result<()> {
     let reader = File::open(src_path)?;
     let mut reader = BufReader::new(reader);
 
-    let writer = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dest_path)?;
-    let mut writer = BufWriter::new(writer);
-
-    std::io::copy(&mut reader, &mut writer)?;
-    writer.flush()?;
+    std::io::copy(&mut reader, sink)?;
+    sink.flush()?;
 
     Ok(())
 }
 
 pub struct Writer {
-    path: PathBuf,
+    pub index_block_tmp_file_path: PathBuf,
     file_pos: u64,
     block_writer: Option<BufWriter<File>>,
-    index_writer: BufWriter<File>,
     block_size: u32,
     block_counter: u32,
     block_handles: Vec<KeyedBlockHandle>,
@@ -39,18 +29,20 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new<P: AsRef<Path>>(path: P, block_size: u32) -> crate::Result<Self> {
-        let block_writer = File::create(path.as_ref().join(INDEX_BLOCKS_FILE))?;
+    pub fn new<P: AsRef<Path>>(
+        segment_id: SegmentId,
+        folder: P,
+        block_size: u32,
+    ) -> crate::Result<Self> {
+        let index_block_tmp_file_path = folder.as_ref().join(format!("tmp_ib{segment_id}"));
+
+        let block_writer = File::create(&index_block_tmp_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = File::create(path.as_ref().join(TOP_LEVEL_INDEX_FILE))?;
-        let index_writer = BufWriter::new(index_writer);
-
         Ok(Self {
-            path: path.as_ref().into(),
+            index_block_tmp_file_path,
             file_pos: 0,
             block_writer: Some(block_writer),
-            index_writer,
             block_counter: 0,
             block_size,
             block_handles: Vec::with_capacity(1_000),
@@ -109,45 +101,47 @@ impl Writer {
         Ok(())
     }
 
-    fn write_top_level_index(&mut self, block_file_size: u64) -> crate::Result<()> {
+    fn write_top_level_index(
+        &mut self,
+        block_file_writer: &mut BufWriter<File>,
+        file_offset: u64,
+    ) -> crate::Result<u64> {
         // IMPORTANT: I hate this, but we need to drop the writer
         // so the file is closed
         // so it can be replaced when using Windows
         self.block_writer = None;
 
-        concat_files(
-            self.path.join(INDEX_BLOCKS_FILE),
-            self.path.join(BLOCKS_FILE),
-        )?;
+        pipe_file_into_writer(&self.index_block_tmp_file_path, block_file_writer)?;
+        let tli_ptr = block_file_writer.stream_position()?;
 
         log::trace!("Concatted index blocks onto blocks file");
 
         for item in &mut self.tli_pointers {
-            item.offset += block_file_size;
+            item.offset += file_offset;
         }
 
         // Write to file
         let (header, data) = IndexBlock::to_bytes_compressed(&self.tli_pointers)?;
 
-        header.serialize(&mut self.index_writer)?;
-        self.index_writer.write_all(&data)?;
+        header.serialize(block_file_writer)?;
+        block_file_writer.write_all(&data)?;
 
         let bytes_written = BlockHeader::serialized_len() + data.len();
 
-        self.index_writer.flush()?;
-        self.index_writer.get_mut().sync_all()?;
+        block_file_writer.flush()?;
+        block_file_writer.get_mut().sync_all()?;
 
         log::trace!(
-            "Written top level index to {}, with {} pointers ({} bytes)",
-            self.path.join(TOP_LEVEL_INDEX_FILE).display(),
+            "Written top level index, with {} pointers ({} bytes)",
             self.tli_pointers.len(),
             bytes_written,
         );
 
-        Ok(())
+        Ok(tli_ptr)
     }
 
-    pub fn finish(&mut self, block_file_size: u64) -> crate::Result<()> {
+    /// Returns the offset in the file to TLI
+    pub fn finish(&mut self, block_file_writer: &mut BufWriter<File>) -> crate::Result<u64> {
         if self.block_counter > 0 {
             self.write_block()?;
         }
@@ -158,11 +152,12 @@ impl Writer {
             block_writer.get_mut().sync_all()?;
         }
 
-        self.write_top_level_index(block_file_size)?;
+        let index_block_ptr = block_file_writer.stream_position()?;
+        let tli_ptr = self.write_top_level_index(block_file_writer, index_block_ptr)?;
 
-        // TODO: add test to make sure writer is deleting index_blocks
-        std::fs::remove_file(self.path.join(INDEX_BLOCKS_FILE))?;
+        // TODO: add test to make sure writer is deleting this
+        std::fs::remove_file(&self.index_block_tmp_file_path)?;
 
-        Ok(())
+        Ok(tli_ptr)
     }
 }

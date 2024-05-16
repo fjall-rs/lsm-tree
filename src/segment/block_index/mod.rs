@@ -8,7 +8,6 @@ use super::id::GlobalSegmentId;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
-use crate::file::{BLOCKS_FILE, TOP_LEVEL_INDEX_FILE};
 use std::path::Path;
 use std::sync::Arc;
 use top_level::TopLevelIndex;
@@ -225,24 +224,16 @@ impl BlockIndex {
     } */
 
     pub fn from_file<P: AsRef<Path>>(
+        file_path: P,
+        offset: u64,
         segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
-        folder: P,
         block_cache: Arc<BlockCache>,
     ) -> crate::Result<Self> {
-        let folder = folder.as_ref();
+        let file_path = file_path.as_ref();
+        log::trace!("Reading block index from {file_path:?}");
 
-        log::trace!("Reading block index from {folder:?}");
-
-        debug_assert!(folder.try_exists()?, "{folder:?} missing");
-        debug_assert!(
-            folder.join(TOP_LEVEL_INDEX_FILE).try_exists()?,
-            "{folder:?} missing",
-        );
-        debug_assert!(folder.join(BLOCKS_FILE).try_exists()?, "{folder:?} missing");
-
-        let tli_path = folder.join(TOP_LEVEL_INDEX_FILE);
-        let top_level_index = TopLevelIndex::from_file(tli_path)?;
+        let top_level_index = TopLevelIndex::from_file(file_path, offset)?;
 
         Ok(Self {
             descriptor_table,

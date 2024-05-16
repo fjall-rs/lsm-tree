@@ -86,11 +86,11 @@ impl BloomFilter {
         Ok(())
     }
 
-    /// Loads a bloom filter from a file
+    /*  /// Loads a bloom filter from a file
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, DeserializeError> {
         let mut reader = BufReader::new(File::open(path)?);
         Self::deserialize(&mut reader)
-    }
+    } */
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
         Self {

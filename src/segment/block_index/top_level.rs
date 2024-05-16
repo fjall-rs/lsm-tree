@@ -1,6 +1,6 @@
 use super::block_handle::KeyedBlockHandle;
 use crate::segment::block_index::IndexBlock;
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::File, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their size
 ///
@@ -34,12 +34,13 @@ impl TopLevelIndex {
     }
 
     /// Loads a top-level index from disk
-    pub fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+    pub fn from_file<P: AsRef<Path>>(path: P, offset: u64) -> crate::Result<Self> {
         let path = path.as_ref();
+        log::trace!("reading TLI from {path:?}, offset={offset}");
 
-        let items =
-            IndexBlock::from_file_compressed(&mut BufReader::new(File::open(path)?), 0)?.items;
+        let mut file = File::open(path)?;
 
+        let items = IndexBlock::from_file_compressed(&mut file, offset)?.items;
         log::trace!("loaded TLI ({path:?}): {items:#?}");
 
         debug_assert!(!items.is_empty());

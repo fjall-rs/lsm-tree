@@ -925,7 +925,7 @@ impl Tree {
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
-            file::{BLOCKS_FILE, LEVELS_MANIFEST_FILE, SEGMENTS_FOLDER},
+            file::{LEVELS_MANIFEST_FILE, SEGMENTS_FOLDER},
             SegmentId,
         };
 
@@ -940,40 +940,37 @@ impl Tree {
 
         for dirent in std::fs::read_dir(tree_path.join(SEGMENTS_FOLDER))? {
             let dirent = dirent?;
-            let segment_path = dirent.path();
 
-            assert!(segment_path.is_dir());
+            let file_name = dirent.file_name();
+            let segment_file_name = file_name.to_str().expect("invalid segment folder name");
+            let segment_file_path = dirent.path();
 
-            let segment_id = dirent
-                .file_name()
-                .to_str()
-                .expect("invalid segment folder name")
+            assert!(!segment_file_path.is_dir());
+
+            if segment_file_name.starts_with("tmp_") {
+                log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
+                std::fs::remove_file(&segment_file_path)?;
+                continue;
+            }
+
+            log::debug!("Recovering segment from {segment_file_path:?}");
+
+            let segment_id = segment_file_name
                 .parse::<SegmentId>()
                 .expect("should be valid segment ID");
 
-            log::debug!("Recovering segment from {segment_path:?}");
-
             if segment_ids_to_recover.contains(&segment_id) {
                 let segment = Segment::recover(
-                    &segment_path,
+                    &segment_file_path,
                     tree_id,
                     Arc::clone(block_cache),
                     descriptor_table.clone(),
                 )?;
 
-                descriptor_table.insert(
-                    segment_path.join(BLOCKS_FILE),
-                    (tree_id, segment.metadata.id).into(),
-                );
+                descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
 
                 segments.push(Arc::new(segment));
-                log::debug!("Recovered segment from {segment_path:?}");
-            } else {
-                log::debug!(
-                    "Deleting unfinished segment (not part of level manifest): {}",
-                    segment_path.to_string_lossy()
-                );
-                std::fs::remove_dir_all(segment_path)?;
+                log::debug!("Recovered segment from {segment_file_path:?}");
             }
         }
 

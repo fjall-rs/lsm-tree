@@ -3,7 +3,6 @@ mod table_type;
 
 use super::writer::Writer;
 use crate::{
-    file::{fsync_directory, SEGMENT_METADATA_FILE},
     key_range::KeyRange,
     serde::{Deserializable, Serializable},
     time::unix_timestamp,
@@ -12,7 +11,6 @@ use crate::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    fs::OpenOptions,
     io::{Cursor, Read, Write},
     path::Path,
 };
@@ -50,7 +48,7 @@ pub struct Metadata {
     /// Number of range tombstones
     pub(crate) range_tombstone_count: u64,
 
-    /// compressed size in bytes (on disk)
+    /// compressed size in bytes (on disk) (without the fixed size trailer)
     pub file_size: u64,
 
     /// true size in bytes (if no compression were used)
@@ -172,7 +170,7 @@ impl Deserializable for Metadata {
 
 impl Metadata {
     /// Consumes a writer and its metadata to create the segment metadata
-    pub fn from_writer(id: SegmentId, writer: Writer) -> crate::Result<Self> {
+    pub fn from_writer(id: SegmentId, writer: &Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
             block_count: writer.block_count as u32,
@@ -191,9 +189,11 @@ impl Metadata {
             key_range: KeyRange::new((
                 writer
                     .first_key
+                    .clone()
                     .expect("should have written at least 1 item"),
                 writer
                     .last_key
+                    .clone()
                     .expect("should have written at least 1 item"),
             )),
 
@@ -204,7 +204,7 @@ impl Metadata {
         })
     }
 
-    /// Stores segment metadata at a folder
+    /*  /// Stores segment metadata at a folder
     pub fn write_to_file<P: AsRef<Path>>(&self, folder_path: P) -> crate::Result<()> {
         let mut writer = OpenOptions::new()
             .truncate(true)
@@ -220,7 +220,7 @@ impl Metadata {
         fsync_directory(&folder_path)?;
 
         Ok(())
-    }
+    } */
 
     /// Reads and parses a Segment metadata file
     pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {

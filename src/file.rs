@@ -6,14 +6,6 @@ pub const CONFIG_FILE: &str = "config";
 pub const SEGMENTS_FOLDER: &str = "segments";
 pub const LEVELS_MANIFEST_FILE: &str = "levels";
 
-pub const BLOCKS_FILE: &str = "blocks";
-pub const INDEX_BLOCKS_FILE: &str = "index_blocks";
-pub const TOP_LEVEL_INDEX_FILE: &str = "index";
-pub const SEGMENT_METADATA_FILE: &str = "meta";
-
-#[cfg(feature = "bloom")]
-pub const BLOOM_FILTER_FILE: &str = "bloom";
-
 /// Atomically rewrites a file
 pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Result<()> {
     let path = path.as_ref();

@@ -1,7 +1,7 @@
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::Choice,
-    file::{BLOCKS_FILE, SEGMENTS_FOLDER},
+    file::SEGMENTS_FOLDER,
     levels::LevelManifest,
     merge::{BoxedIterator, MergeIterator},
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
@@ -182,9 +182,11 @@ fn merge_segments(
         opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
+            segment_id: 0, // TODO: this is never used in MultiWriter
+
             block_size: opts.config.inner.block_size,
             evict_tombstones: should_evict_tombstones,
-            folder: opts.config.path.join(SEGMENTS_FOLDER),
+            folder: segments_base_folder.clone(),
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate,
@@ -200,21 +202,20 @@ fn merge_segments(
         }
     }
 
-    let created_segments = segment_writer.finish()?;
+    let writer_results = segment_writer.finish()?;
 
     log::debug!(
         "Compacted in {}ms ({} segments created)",
         start.elapsed().as_millis(),
-        created_segments.len()
+        writer_results.len()
     );
 
-    let created_segments = created_segments
-        .into_iter()
-        .map(|metadata| -> crate::Result<Segment> {
-            let segment_id = metadata.id;
+    eprintln!("{writer_results:?}");
 
-            let segment_folder = segments_base_folder.join(segment_id.to_string());
-            metadata.write_to_file(&segment_folder)?;
+    let created_segments = writer_results
+        .into_iter()
+        .map(|trailer| -> crate::Result<Segment> {
+            let segment_id = trailer.metadata.id;
 
             #[cfg(feature = "bloom")]
             let bloom_filter = BloomFilter::from_file(segment_folder.join(BLOOM_FILTER_FILE))?;
@@ -222,13 +223,15 @@ fn merge_segments(
             Ok(Segment {
                 tree_id: opts.tree_id,
                 descriptor_table: opts.config.descriptor_table.clone(),
-                metadata,
+                metadata: trailer.metadata,
                 block_cache: opts.config.block_cache.clone(),
+
                 // TODO: if L0, L1, preload block index (non-partitioned)
                 block_index: BlockIndex::from_file(
+                    segments_base_folder.join(segment_id.to_string()),
+                    trailer.offsets.tli_ptr,
                     (opts.tree_id, segment_id).into(),
                     opts.config.descriptor_table.clone(),
-                    segment_folder,
                     opts.config.block_cache.clone(),
                 )?
                 .into(),
@@ -246,10 +249,10 @@ fn merge_segments(
     for segment in created_segments {
         log::trace!("Persisting segment {}", segment.metadata.id);
 
-        let segment_folder = segments_base_folder.join(segment.metadata.id.to_string());
+        let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
 
         opts.config.descriptor_table.insert(
-            segment_folder.join(BLOCKS_FILE),
+            &segment_file_path,
             (opts.tree_id, segment.metadata.id).into(),
         );
 
@@ -274,15 +277,13 @@ fn merge_segments(
     levels.write_to_disk()?;
 
     for segment_id in &payload.segment_ids {
-        let segment_folder = segments_base_folder.join(segment_id.to_string());
-        log::trace!("rm -rf segment folder at {segment_folder:?}");
-
-        std::fs::remove_dir_all(segment_folder)?;
+        let segment_file_path = segments_base_folder.join(segment_id.to_string());
+        log::trace!("Removing old segment at {segment_file_path:?}");
+        std::fs::remove_file(segment_file_path)?;
     }
 
     for segment_id in &payload.segment_ids {
         log::trace!("Closing file handles for segment data file");
-
         opts.config
             .descriptor_table
             .remove((opts.tree_id, *segment_id).into());

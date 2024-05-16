@@ -9,16 +9,17 @@ pub mod multi_writer;
 pub mod prefix;
 pub mod range;
 pub mod reader;
+pub mod trailer;
 pub mod value_block;
 pub mod writer;
 
 use self::{
-    block_index::BlockIndex, meta::Metadata, prefix::PrefixedReader, range::Range, reader::Reader,
+    block_index::BlockIndex, prefix::PrefixedReader, range::Range, reader::Reader,
+    trailer::SegmentFileTrailer,
 };
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    file::SEGMENT_METADATA_FILE,
     segment::value_block::ValueBlock,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
@@ -123,20 +124,22 @@ impl Segment {
         Ok(broken_count)
     }
 
-    /// Tries to recover a segment from a folder.
+    /// Tries to recover a segment from a file.
     pub fn recover<P: AsRef<Path>>(
-        folder: P,
+        file_path: P,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
-        let folder = folder.as_ref();
+        let file_path = file_path.as_ref();
 
-        let metadata = Metadata::from_disk(folder.join(SEGMENT_METADATA_FILE))?;
+        let trailer = SegmentFileTrailer::from_file(file_path)?;
+
         let block_index = BlockIndex::from_file(
-            (tree_id, metadata.id).into(),
+            file_path,
+            trailer.offsets.tli_ptr,
+            (tree_id, trailer.metadata.id).into(),
             descriptor_table.clone(),
-            folder,
             Arc::clone(&block_cache),
         )?;
 
@@ -144,7 +147,7 @@ impl Segment {
             tree_id,
 
             descriptor_table,
-            metadata,
+            metadata: trailer.metadata,
             block_index: Arc::new(block_index),
             block_cache,
 

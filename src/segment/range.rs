@@ -199,10 +199,8 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
-        file::BLOCKS_FILE,
         segment::{
             block_index::BlockIndex,
-            meta::Metadata,
             range::Range,
             writer::{Options, Writer},
         },
@@ -226,6 +224,8 @@ mod tests {
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
+            segment_id: 0,
+
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 1000, // NOTE: Block size 1 to for each item to be its own block
@@ -247,19 +247,19 @@ mod tests {
             writer.write(item)?;
         }
 
-        writer.finish()?;
+        let trailer = writer.finish()?.expect("should exist");
 
-        let metadata = Metadata::from_writer(0, writer)?;
-        metadata.write_to_file(&folder)?;
+        let segment_file_path = folder.join("0");
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+        table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
+            segment_file_path,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            &folder,
             Arc::clone(&block_cache),
         )?);
 
@@ -321,6 +321,8 @@ mod tests {
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
+            segment_id: 0,
+
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
@@ -342,19 +344,19 @@ mod tests {
             writer.write(item)?;
         }
 
-        writer.finish()?;
+        let trailer = writer.finish()?.expect("should exist");
 
-        let metadata = Metadata::from_writer(0, writer)?;
-        metadata.write_to_file(&folder)?;
+        let segment_file_path = folder.join("0");
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+        table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
+            segment_file_path,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            &folder,
             Arc::clone(&block_cache),
         )?);
 
@@ -516,6 +518,8 @@ mod tests {
             let folder = tempfile::tempdir()?.into_path();
 
             let mut writer = Writer::new(Options {
+                segment_id: 0,
+
                 folder: folder.clone(),
                 evict_tombstones: false,
                 block_size,
@@ -537,19 +541,19 @@ mod tests {
                 writer.write(item)?;
             }
 
-            writer.finish()?;
+            let trailer = writer.finish()?.expect("should exist");
 
-            let metadata = Metadata::from_writer(0, writer)?;
-            metadata.write_to_file(&folder)?;
+            let segment_file_path = folder.join("0");
 
             let table = Arc::new(FileDescriptorTable::new(512, 1));
-            table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+            table.insert(&segment_file_path, (0, 0).into());
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
             let block_index = Arc::new(BlockIndex::from_file(
+                segment_file_path,
+                trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
-                &folder,
                 Arc::clone(&block_cache),
             )?);
 
@@ -618,6 +622,8 @@ mod tests {
         let folder = tempfile::tempdir()?.into_path();
 
         let mut writer = Writer::new(Options {
+            segment_id: 0,
+
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 250,
@@ -639,19 +645,19 @@ mod tests {
             writer.write(item)?;
         }
 
-        writer.finish()?;
+        let trailer = writer.finish()?.expect("should exist");
 
-        let metadata = Metadata::from_writer(0, writer)?;
-        metadata.write_to_file(&folder)?;
+        let segment_file_path = folder.join("0");
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), (0, 0).into());
+        table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
+            segment_file_path,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            &folder,
             Arc::clone(&block_cache),
         )?);
 

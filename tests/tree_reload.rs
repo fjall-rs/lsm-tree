@@ -1,5 +1,5 @@
 use lsm_tree::{Config, SequenceNumberCounter};
-use std::fs::create_dir_all;
+use std::fs::File;
 use test_log::test;
 
 const ITEM_COUNT: usize = 100_000;
@@ -75,10 +75,11 @@ fn tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let subfolder = path.join("segments").join("63364");
+    let file0 = path.join("segments").join("63364");
+    let file1 = path.join("segments").join("tmp_633244");
 
-    create_dir_all(&subfolder)?;
-    assert!(subfolder.try_exists()?);
+    File::create(&file0)?;
+    File::create(&file1)?;
 
     // Setup tree
     {
@@ -98,7 +99,8 @@ fn tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
         assert_eq!(tree.iter().rev().flatten().count(), 0);
     }
 
-    assert!(!subfolder.try_exists()?);
+    assert!(!file0.try_exists()?);
+    assert!(!file1.try_exists()?);
 
     Ok(())
 }

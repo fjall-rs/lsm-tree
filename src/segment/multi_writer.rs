@@ -1,8 +1,8 @@
 use super::{
-    meta::Metadata,
+    trailer::SegmentFileTrailer,
     writer::{Options, Writer},
 };
-use crate::{time::unix_timestamp, Value};
+use crate::Value;
 use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
@@ -17,7 +17,7 @@ pub struct MultiWriter {
     pub target_size: u64,
 
     pub opts: Options,
-    created_items: Vec<Metadata>,
+    created_items: Vec<SegmentFileTrailer>,
 
     segment_id_generator: Arc<AtomicU64>,
     current_segment_id: u64,
@@ -36,7 +36,8 @@ impl MultiWriter {
             segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let writer = Writer::new(Options {
-            folder: opts.folder.join(current_segment_id.to_string()),
+            segment_id: current_segment_id,
+            folder: opts.folder.clone(),
             evict_tombstones: opts.evict_tombstones,
             block_size: opts.block_size,
 
@@ -69,10 +70,10 @@ impl MultiWriter {
         // Flush segment, and start new one
         self.writer.finish()?;
 
-        let old_segment_id = self.current_segment_id;
         let new_segment_id = self.get_next_segment_id();
 
         let new_writer = Writer::new(Options {
+            segment_id: new_segment_id,
             folder: self.opts.folder.join(new_segment_id.to_string()),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
@@ -81,11 +82,12 @@ impl MultiWriter {
             bloom_fp_rate: self.opts.bloom_fp_rate,
         })?;
 
-        let old_writer = std::mem::replace(&mut self.writer, new_writer);
+        let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
         if old_writer.item_count > 0 {
-            let metadata = Metadata::from_writer(old_segment_id, old_writer)?;
-            self.created_items.push(metadata);
+            // NOTE: if-check checks for item count
+            self.created_items
+                .push(old_writer.finish()?.expect("writer should emit result"));
         }
 
         Ok(())
@@ -105,21 +107,9 @@ impl MultiWriter {
     /// Finishes the last segment, making sure all data is written durably
     ///
     /// Returns the metadata of created segments
-    pub fn finish(mut self) -> crate::Result<Vec<Metadata>> {
-        // Finish writer and consume it
-        // Don't use `rotate` because that will start a new writer, creating unneeded, empty segments
-        self.writer.finish()?;
-
-        if self.writer.item_count > 0 {
-            let metadata = Metadata::from_writer(self.current_segment_id, self.writer)?;
-            self.created_items.push(metadata);
-        }
-
-        let now = unix_timestamp();
-
-        // Set creation date of all segments to the same timestamp
-        for item in &mut self.created_items {
-            item.created_at = now.as_micros();
+    pub fn finish(mut self) -> crate::Result<Vec<SegmentFileTrailer>> {
+        if let Some(last_writer_result) = self.writer.finish()? {
+            self.created_items.push(last_writer_result);
         }
 
         Ok(self.created_items)

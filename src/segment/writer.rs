@@ -1,14 +1,17 @@
-use super::value_block::ValueBlock;
+use super::{trailer::SegmentFileTrailer, value_block::ValueBlock};
 use crate::{
-    file::{fsync_directory, BLOCKS_FILE},
-    segment::{block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter},
+    file::fsync_directory,
+    segment::{
+        block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter,
+        meta::Metadata,
+    },
     serde::Serializable,
     value::{SeqNo, UserKey},
-    Value,
+    SegmentId, Value,
 };
 use std::{
     fs::File,
-    io::{BufWriter, Write},
+    io::{BufWriter, Seek, Write},
     path::PathBuf,
 };
 
@@ -23,6 +26,8 @@ use crate::file::BLOOM_FILTER_FILE;
 /// Also takes care of creating the block index
 pub struct Writer {
     pub opts: Options,
+
+    segment_file_path: PathBuf,
 
     block_writer: BufWriter<File>,
     index_writer: IndexWriter,
@@ -58,24 +63,36 @@ pub struct Options {
     pub evict_tombstones: bool,
     pub block_size: u32,
 
+    pub segment_id: SegmentId,
+
     #[cfg(feature = "bloom")]
     pub bloom_fp_rate: f32,
+}
+
+#[derive(Debug)]
+pub struct FileOffsets {
+    pub(crate) index_block_ptr: u64,
+    pub(crate) tli_ptr: u64,
+    pub(crate) bloom_ptr: u64,
+    pub(crate) range_tombstone_ptr: u64,
 }
 
 impl Writer {
     /// Sets up a new `Writer` at the given folder
     pub fn new(opts: Options) -> crate::Result<Self> {
-        std::fs::create_dir_all(&opts.folder)?;
+        let segment_file_path = opts.folder.join(opts.segment_id.to_string());
 
-        let block_writer = File::create(opts.folder.join(BLOCKS_FILE))?;
+        let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(&opts.folder, opts.block_size)?;
+        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
         Ok(Self {
             opts,
+
+            segment_file_path,
 
             block_writer,
             index_writer,
@@ -195,37 +212,34 @@ impl Writer {
         Ok(())
     }
 
+    // TODO: should take mut self to avoid double finish
+
     /// Finishes the segment, making sure all data is written durably
-    pub fn finish(&mut self) -> crate::Result<()> {
+    pub fn finish(&mut self) -> crate::Result<Option<SegmentFileTrailer>> {
         if !self.chunk.is_empty() {
             self.write_block()?;
         }
 
         // No items written! Just delete segment folder and return nothing
         if self.item_count == 0 {
-            log::trace!(
-                "Deleting empty segment folder ({}) because no items were written",
-                self.opts.folder.display()
-            );
-            std::fs::remove_dir_all(&self.opts.folder)?;
-            return Ok(());
+            std::fs::remove_file(&self.segment_file_path)?;
+            if let Err(e) = std::fs::remove_file(&self.index_writer.index_block_tmp_file_path) {
+                debug_assert!(false, "should not happen");
+                log::warn!("Failed to delete tmp file: {e:?}");
+            };
+            return Ok(None);
         }
 
-        // First, flush all data blocks
-        self.block_writer.flush()?;
-
-        // TODO: sync is probably not necessary
-        self.block_writer.get_mut().sync_all()?;
+        let index_block_ptr = self.block_writer.stream_position()?;
+        log::trace!("index_block_ptr={index_block_ptr}");
 
         // Append index blocks to file
-        self.index_writer.finish(self.file_pos)?;
+        let tli_ptr = self.index_writer.finish(&mut self.block_writer)?;
+        log::trace!("tli_ptr={tli_ptr}");
 
-        // Then fsync the blocks file
-        self.block_writer.get_mut().sync_all()?;
-
-        // NOTE: BloomFilter::write_to_file fsyncs internally
+        // Write bloom filter
         #[cfg(feature = "bloom")]
-        {
+        let bloom_ptr = {
             let n = self.bloom_hash_buffer.len();
             log::trace!("Writing bloom filter with {n} hashes");
 
@@ -235,20 +249,45 @@ impl Writer {
                 filter.set_with_hash(hash);
             }
 
+            // NOTE: BloomFilter::write_to_file fsyncs internally
             filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
-        }
+        };
+
+        #[cfg(not(feature = "bloom"))]
+        let bloom_ptr = 0;
+        log::trace!("bloom_ptr={bloom_ptr}");
+
+        // TODO: Write range tombstones
+        let range_tombstone_ptr = 0;
+        log::trace!("range_tombstone_ptr={range_tombstone_ptr}");
+
+        let offsets = FileOffsets {
+            index_block_ptr,
+            tli_ptr,
+            bloom_ptr,
+            range_tombstone_ptr,
+        };
+        let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
+
+        // Write trailer
+        let trailer = SegmentFileTrailer { metadata, offsets };
+        trailer.serialize(&mut self.block_writer)?;
+
+        // Finally, flush & fsync the blocks file
+        self.block_writer.flush()?;
+        self.block_writer.get_mut().sync_all()?;
 
         // IMPORTANT: fsync folder on Unix
         fsync_directory(&self.opts.folder)?;
 
         log::debug!(
-            "Written {} items in {} blocks into new segment file, written {} MB",
+            "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
             self.item_count,
             self.block_count,
             self.file_pos / 1_024 / 1_024
         );
 
-        Ok(())
+        Ok(Some(trailer))
     }
 }
 
@@ -259,7 +298,7 @@ mod tests {
     use crate::value::ValueType;
     use crate::{
         block_cache::BlockCache,
-        segment::{block_index::BlockIndex, meta::Metadata, reader::Reader},
+        segment::{block_index::BlockIndex, reader::Reader},
         Value,
     };
     use std::sync::Arc;
@@ -271,10 +310,14 @@ mod tests {
 
         let folder = tempfile::tempdir()?.into_path();
 
+        let segment_id = 532;
+
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+
+            segment_id,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -293,23 +336,22 @@ mod tests {
             writer.write(item)?;
         }
 
-        writer.finish()?;
+        let trailer = writer.finish()?.expect("should exist");
 
-        let segment_id = 532;
+        assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
 
-        let metadata = Metadata::from_writer(segment_id, writer)?;
-        metadata.write_to_file(&folder)?;
-        assert_eq!(ITEM_COUNT, metadata.item_count);
-        assert_eq!(ITEM_COUNT, metadata.key_count);
+        let segment_file_path = folder.join(segment_id.to_string());
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
+        table.insert(&segment_file_path, (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
+            segment_file_path,
+            trailer.offsets.tli_ptr,
             (0, segment_id).into(),
             table.clone(),
-            &folder,
             Arc::clone(&block_cache),
         )?);
         let iter = Reader::new(
@@ -331,10 +373,14 @@ mod tests {
 
         let folder = tempfile::tempdir()?.into_path();
 
+        let segment_id = 532;
+
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+
+            segment_id,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -353,23 +399,22 @@ mod tests {
             }
         }
 
-        writer.finish()?;
+        let trailer = writer.finish()?.expect("should exist");
 
-        let segment_id = 532;
+        assert_eq!(ITEM_COUNT * VERSION_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
 
-        let metadata = Metadata::from_writer(segment_id, writer)?;
-        metadata.write_to_file(&folder)?;
-        assert_eq!(ITEM_COUNT * VERSION_COUNT, metadata.item_count);
-        assert_eq!(ITEM_COUNT, metadata.key_count);
+        let segment_file_path = folder.join(segment_id.to_string());
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(folder.join(BLOCKS_FILE), (0, segment_id).into());
+        table.insert(&segment_file_path, (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = Arc::new(BlockIndex::from_file(
+            segment_file_path,
+            trailer.offsets.tli_ptr,
             (0, segment_id).into(),
             table.clone(),
-            &folder,
             Arc::clone(&block_cache),
         )?);
 
