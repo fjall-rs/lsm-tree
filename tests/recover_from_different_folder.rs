@@ -50,18 +50,5 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
         let _tree = Config::new(&absolute_folder).open()?;
     }
 
-    /* let temp_folder = "/devssd/code/rust/fjall/def";
-
-    std::fs::create_dir_all(temp_folder)?;
-
-    for _ in 0..2 {
-        std::env::set_current_dir(&temp_folder)?;
-
-        let _keyspace = Config::new("/devssd/code/rust/fjall/asd")
-            .max_write_buffer_size(1)
-            .open()?;
-        std::thread::sleep(Duration::from_secs(1));
-    } */
-
     Ok(())
 }

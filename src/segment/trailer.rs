@@ -1,15 +1,14 @@
-use std::{
-    fs::File,
-    io::{BufReader, Seek, Write},
-    path::Path,
-};
-
 use super::{meta::Metadata, writer::FileOffsets};
 use crate::{
     serde::{Deserializable, Serializable},
     SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::{
+    fs::File,
+    io::{BufReader, Seek, Write},
+    path::Path,
+};
 
 pub const TRAILER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'T', b'R', b'L', b'1'];
 pub const TRAILER_SIZE: usize = 256;
@@ -27,22 +26,28 @@ impl SegmentFileTrailer {
         let mut reader = BufReader::new(file);
         reader.seek(std::io::SeekFrom::End(-(TRAILER_SIZE as i64)))?;
 
-        let metadata = Metadata::deserialize(&mut reader)?;
-
+        // Parse all pointers
         let index_block_ptr = reader.read_u64::<BigEndian>()?;
         let tli_ptr = reader.read_u64::<BigEndian>()?;
         let bloom_ptr = reader.read_u64::<BigEndian>()?;
         let range_tombstone_ptr = reader.read_u64::<BigEndian>()?;
+        let metadata_ptr = reader.read_u64::<BigEndian>()?;
 
-        Ok(Self {
-            metadata,
-            offsets: FileOffsets {
-                index_block_ptr,
-                tli_ptr,
-                bloom_ptr,
-                range_tombstone_ptr,
-            },
-        })
+        let offsets = FileOffsets {
+            index_block_ptr,
+            tli_ptr,
+            bloom_ptr,
+            range_tombstone_ptr,
+            metadata_ptr,
+        };
+
+        log::trace!("Trailer offsets: {offsets:#?}");
+
+        // Jump to metadata and parse
+        reader.seek(std::io::SeekFrom::Start(metadata_ptr))?;
+        let metadata = Metadata::deserialize(&mut reader)?;
+
+        Ok(Self { metadata, offsets })
     }
 }
 
@@ -50,13 +55,13 @@ impl Serializable for SegmentFileTrailer {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         let mut v = Vec::with_capacity(TRAILER_SIZE);
 
-        self.metadata.serialize(&mut v)?;
-
         v.write_u64::<BigEndian>(self.offsets.index_block_ptr)?;
         v.write_u64::<BigEndian>(self.offsets.tli_ptr)?;
         v.write_u64::<BigEndian>(self.offsets.bloom_ptr)?;
         v.write_u64::<BigEndian>(self.offsets.range_tombstone_ptr)?;
+        v.write_u64::<BigEndian>(self.offsets.metadata_ptr)?;
 
+        // Pad with remaining bytes
         v.resize(TRAILER_SIZE - TRAILER_MAGIC.len(), 0);
 
         v.write_all(TRAILER_MAGIC)?;

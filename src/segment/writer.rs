@@ -72,6 +72,9 @@ pub struct FileOffsets {
     pub(crate) tli_ptr: u64,
     pub(crate) bloom_ptr: u64,
     pub(crate) range_tombstone_ptr: u64,
+
+    #[allow(unused)]
+    pub(crate) metadata_ptr: u64,
 }
 
 impl Writer {
@@ -225,6 +228,7 @@ impl Writer {
                 debug_assert!(false, "should not happen");
                 log::warn!("Failed to delete tmp file: {e:?}");
             };
+
             return Ok(None);
         }
 
@@ -264,13 +268,20 @@ impl Writer {
         let range_tombstone_ptr = 0;
         log::trace!("range_tombstone_ptr={range_tombstone_ptr}");
 
+        // Write metadata
+        let metadata_ptr = self.block_writer.stream_position()?;
+
+        let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
+        metadata.serialize(&mut self.block_writer)?;
+
+        // Bundle all the file offsets
         let offsets = FileOffsets {
             index_block_ptr,
             tli_ptr,
             bloom_ptr,
             range_tombstone_ptr,
+            metadata_ptr,
         };
-        let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
 
         // Write trailer
         let trailer = SegmentFileTrailer { metadata, offsets };
