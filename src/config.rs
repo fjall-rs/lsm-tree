@@ -20,7 +20,7 @@ fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .into()
 }
 
-pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'1'];
+pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'1'];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum TreeType {
@@ -289,7 +289,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'1',
+            b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'1',
 
             // Tree type
             0,

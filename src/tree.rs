@@ -862,7 +862,7 @@ impl Tree {
 
         let inner = TreeInner::create_new(config)?;
 
-        // NOTE: Lastly, fsync .lsm marker, which contains the version
+        // NOTE: Lastly, fsync version marker, which contains the version
         // -> the LSM is fully initialized
         let mut file = File::create(marker_path)?;
         Version::V1.write_file_header(&mut file)?;

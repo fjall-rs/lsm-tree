@@ -23,7 +23,7 @@ use std::{
     sync::Arc,
 };
 
-pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'1'];
+pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1'];
 
 pub type HiddenSet = HashSet<SegmentId>;
 
@@ -456,7 +456,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'1',
+            b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1',
 
             // Count
             0,

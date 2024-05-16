@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-pub const TRAILER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'T', b'R', b'L', b'1'];
+pub const TRAILER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'T', b'R', b'L', b'1'];
 pub const TRAILER_SIZE: usize = 256;
 
 #[derive(Debug)]
