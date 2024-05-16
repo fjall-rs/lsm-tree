@@ -239,6 +239,7 @@ fn merge_segments(
         })
         .collect::<crate::Result<Vec<_>>>()?;
 
+    // IMPORTANT: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring levels manifest write lock");
     let mut levels = opts.levels.write().expect("lock is poisoned");
 
@@ -256,6 +257,7 @@ fn merge_segments(
     }
 
     // IMPORTANT: Write lock memtable(s), otherwise segments may get deleted while a range read is happening
+    // Mind lock order L -> M -> S
     log::trace!("compactor: acquiring sealed memtables write lock");
     let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
 
