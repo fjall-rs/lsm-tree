@@ -46,7 +46,8 @@ pub struct TreeInner {
     pub id: TreeId,
 
     /// Hands out a unique (monotonically increasing) segment ID
-    pub(crate) segment_id_counter: Arc<AtomicU64>,
+    #[doc(hidden)]
+    pub segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
     pub(crate) active_memtable: Arc<RwLock<MemTable>>,

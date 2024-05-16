@@ -29,7 +29,7 @@ fn ignore_tombstone_value(item: Value) -> Option<Value> {
 
 /// A log-structured merge tree (LSM-tree/LSMT)
 #[derive(Clone)]
-pub struct Tree(pub(crate) Arc<TreeInner>);
+pub struct Tree(#[doc(hidden)] pub Arc<TreeInner>);
 
 impl std::ops::Deref for Tree {
     type Target = TreeInner;
@@ -971,6 +971,9 @@ impl Tree {
 
                 segments.push(Arc::new(segment));
                 log::debug!("Recovered segment from {segment_file_path:?}");
+            } else {
+                log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
+                std::fs::remove_file(&segment_file_path)?;
             }
         }
 

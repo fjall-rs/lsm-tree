@@ -75,11 +75,16 @@ fn tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let file0 = path.join("segments").join("63364");
-    let file1 = path.join("segments").join("tmp_633244");
+    let segments_folder = path.join("segments");
+    let file0 = segments_folder.join("63364");
+    let file1 = segments_folder.join("tmp_633244");
 
+    std::fs::create_dir_all(segments_folder)?;
     File::create(&file0)?;
     File::create(&file1)?;
+
+    assert!(file0.try_exists()?);
+    assert!(file1.try_exists()?);
 
     // Setup tree
     {
