@@ -222,8 +222,9 @@ fn merge_segments(
                 block_cache: opts.config.block_cache.clone(),
 
                 // TODO: if L0, L1, preload block index (non-partitioned)
+                #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index: BlockIndex::from_file(
-                    segment_file_path,
+                    &segment_file_path,
                     trailer.offsets.tli_ptr,
                     (opts.tree_id, segment_id).into(),
                     opts.config.descriptor_table.clone(),
@@ -233,6 +234,9 @@ fn merge_segments(
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: {
+                    use crate::serde::Deserializable;
+                    use std::io::Seek;
+
                     assert!(
                         trailer.offsets.bloom_ptr > 0,
                         "can not find bloom filter block"

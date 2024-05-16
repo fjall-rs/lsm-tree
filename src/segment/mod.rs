@@ -151,6 +151,9 @@ impl Segment {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
+                use crate::serde::Deserializable;
+                use std::io::Seek;
+
                 assert!(
                     trailer.offsets.bloom_ptr > 0,
                     "can not find bloom filter block"
