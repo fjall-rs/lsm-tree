@@ -34,6 +34,8 @@ pub struct Writer {
     pub item_count: usize,
     pub file_pos: u64,
 
+    prev_pos: (u64, u64),
+
     /// Only takes user data into account
     pub uncompressed_size: u64,
 
@@ -68,13 +70,11 @@ pub struct Options {
 
 #[derive(Debug)]
 pub struct FileOffsets {
-    pub(crate) index_block_ptr: u64,
-    pub(crate) tli_ptr: u64,
-    pub(crate) bloom_ptr: u64,
-    pub(crate) range_tombstone_ptr: u64,
-
-    #[allow(unused)]
-    pub(crate) metadata_ptr: u64,
+    pub index_block_ptr: u64,
+    pub tli_ptr: u64,
+    pub bloom_ptr: u64,
+    pub range_tombstone_ptr: u64,
+    pub metadata_ptr: u64,
 }
 
 impl Writer {
@@ -101,6 +101,9 @@ impl Writer {
             block_count: 0,
             item_count: 0,
             file_pos: 0,
+
+            prev_pos: (0, 0),
+
             uncompressed_size: 0,
 
             first_key: None,
@@ -134,7 +137,7 @@ impl Writer {
         self.uncompressed_size += uncompressed_chunk_size;
 
         // Write to file
-        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk, self.file_pos)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0)?;
 
         header.serialize(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
@@ -151,6 +154,9 @@ impl Writer {
         self.file_pos += bytes_written;
         self.item_count += self.chunk.len();
         self.block_count += 1;
+
+        self.prev_pos.0 = self.prev_pos.1;
+        self.prev_pos.1 += bytes_written;
 
         self.chunk.clear();
 

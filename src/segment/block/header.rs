@@ -46,7 +46,7 @@ impl Serializable for Header {
         // Write CRC
         writer.write_u32::<BigEndian>(self.crc)?;
 
-        // Write CRC
+        // Write prev offset
         writer.write_u64::<BigEndian>(self.previous_block_offset)?;
 
         // Write data length
@@ -74,7 +74,7 @@ impl Deserializable for Header {
         // Read CRC
         let crc = reader.read_u32::<BigEndian>()?;
 
-        // Read prev
+        // Read prev offset
         let previous_block_offset = reader.read_u64::<BigEndian>()?;
 
         // Read data length

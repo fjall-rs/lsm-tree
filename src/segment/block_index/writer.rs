@@ -21,6 +21,9 @@ fn pipe_file_into_writer<P: AsRef<Path>, W: Write>(src_path: P, sink: &mut W) ->
 pub struct Writer {
     pub index_block_tmp_file_path: PathBuf,
     file_pos: u64,
+
+    prev_pos: (u64, u64),
+
     block_writer: Option<BufWriter<File>>,
     block_size: u32,
     block_counter: u32,
@@ -42,6 +45,7 @@ impl Writer {
         Ok(Self {
             index_block_tmp_file_path,
             file_pos: 0,
+            prev_pos: (0, 0),
             block_writer: Some(block_writer),
             block_counter: 0,
             block_size,
@@ -54,12 +58,12 @@ impl Writer {
         let mut block_writer = self.block_writer.as_mut().expect("should exist");
 
         // Write to file
-        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles, self.file_pos)?;
+        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles, self.prev_pos.0)?;
 
         header.serialize(&mut block_writer)?;
         block_writer.write_all(&data)?;
 
-        let bytes_written = BlockHeader::serialized_len() + data.len();
+        let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
         // Expect is fine, because the chunk is not empty
         let last = self
@@ -75,7 +79,10 @@ impl Writer {
         self.tli_pointers.push(index_block_handle);
 
         self.block_counter = 0;
-        self.file_pos += bytes_written as u64;
+        self.file_pos += bytes_written;
+
+        self.prev_pos.0 = self.prev_pos.1;
+        self.prev_pos.1 += bytes_written;
 
         self.block_handles.clear();
 

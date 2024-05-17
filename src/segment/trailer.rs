@@ -16,8 +16,11 @@ pub const TRAILER_SIZE: usize = 256;
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct SegmentFileTrailer {
-    pub(crate) metadata: Metadata,
-    pub(crate) offsets: FileOffsets,
+    #[doc(hidden)]
+    pub metadata: Metadata,
+
+    #[doc(hidden)]
+    pub offsets: FileOffsets,
 }
 
 impl SegmentFileTrailer {
@@ -79,7 +82,11 @@ impl Serializable for SegmentFileTrailer {
 
         v.write_all(TRAILER_MAGIC)?;
 
-        debug_assert_eq!(v.len(), TRAILER_SIZE);
+        assert_eq!(
+            v.len(),
+            TRAILER_SIZE,
+            "segment file trailer has invalid size"
+        );
 
         writer.write_all(&v)?;
 
