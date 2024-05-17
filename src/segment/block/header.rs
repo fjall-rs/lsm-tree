@@ -17,6 +17,9 @@ pub struct Header {
     /// CRC value to verify integrity of data
     pub crc: u32,
 
+    /// File offset of previous block - only used for data blocks
+    pub previous_block_offset: u64,
+
     /// Compressed size of data segment
     pub data_length: u32,
 }
@@ -27,6 +30,7 @@ impl Header {
         BLOCK_HEADER_MAGIC.len()
             + std::mem::size_of::<u8>()
             + std::mem::size_of::<u32>()
+            + std::mem::size_of::<u64>()
             + std::mem::size_of::<u32>()
     }
 }
@@ -41,6 +45,9 @@ impl Serializable for Header {
 
         // Write CRC
         writer.write_u32::<BigEndian>(self.crc)?;
+
+        // Write CRC
+        writer.write_u64::<BigEndian>(self.previous_block_offset)?;
 
         // Write data length
         writer.write_u32::<BigEndian>(self.data_length)?;
@@ -67,12 +74,16 @@ impl Deserializable for Header {
         // Read CRC
         let crc = reader.read_u32::<BigEndian>()?;
 
+        // Read prev
+        let previous_block_offset = reader.read_u64::<BigEndian>()?;
+
         // Read data length
         let data_length = reader.read_u32::<BigEndian>()?;
 
         Ok(Self {
             compression,
             crc,
+            previous_block_offset,
             data_length,
         })
     }
@@ -89,6 +100,7 @@ mod tests {
         let header = Header {
             compression: CompressionType::Lz4,
             crc: 4,
+            previous_block_offset: 2,
             data_length: 15,
         };
 
@@ -102,6 +114,8 @@ mod tests {
             
             // CRC
             0, 0, 0, 4,
+
+            0, 0, 0, 0, 0, 0, 0, 2, 
             
             // Data length
             0, 0, 0, 0x0F,

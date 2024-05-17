@@ -78,12 +78,16 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         Ok(crc == expected_crc)
     }
 
-    pub fn to_bytes_compressed(items: &[T]) -> crate::Result<(BlockHeader, Vec<u8>)> {
+    pub fn to_bytes_compressed(
+        items: &[T],
+        previous_block_offset: u64,
+    ) -> crate::Result<(BlockHeader, Vec<u8>)> {
         let packed = Self::pack_items(items)?;
 
         let header = BlockHeader {
             crc: Self::create_crc(items)?,
             compression: super::meta::CompressionType::Lz4,
+            previous_block_offset,
             data_length: packed.len() as u32,
         };
 
@@ -124,7 +128,7 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0)?;
 
         header.serialize(&mut serialized)?;
         serialized.write_all(&data)?;
@@ -153,7 +157,7 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0)?;
 
         header.serialize(&mut serialized)?;
         serialized.write_all(&data)?;

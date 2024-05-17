@@ -54,7 +54,7 @@ impl Writer {
         let mut block_writer = self.block_writer.as_mut().expect("should exist");
 
         // Write to file
-        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles)?;
+        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles, self.file_pos)?;
 
         header.serialize(&mut block_writer)?;
         block_writer.write_all(&data)?;
@@ -121,7 +121,7 @@ impl Writer {
         }
 
         // Write to file
-        let (header, data) = IndexBlock::to_bytes_compressed(&self.tli_pointers)?;
+        let (header, data) = IndexBlock::to_bytes_compressed(&self.tli_pointers, 0)?;
 
         header.serialize(block_file_writer)?;
         block_file_writer.write_all(&data)?;

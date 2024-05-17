@@ -134,7 +134,7 @@ impl Writer {
         self.uncompressed_size += uncompressed_chunk_size;
 
         // Write to file
-        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk, self.file_pos)?;
 
         header.serialize(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
