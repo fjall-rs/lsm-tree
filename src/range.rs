@@ -186,6 +186,8 @@ impl<'a> TreeIter<'a> {
                 Bound::Unbounded => Bound::Unbounded,
             };
 
+            eprintln!("{hi:?}");
+
             let range = (lo, hi);
 
             let mut segment_iters: Vec<BoxedIterator<'_>> =
