@@ -156,6 +156,7 @@ mod version;
 
 #[doc(hidden)]
 pub use {
+    merge::BoxedIterator,
     segment::{id::GlobalSegmentId, meta::SegmentId},
     tree_inner::TreeId,
 };

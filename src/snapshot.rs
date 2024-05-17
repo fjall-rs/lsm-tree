@@ -120,7 +120,7 @@ impl Snapshot {
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_iter(Some(self.seqno))
+        self.tree.create_iter(Some(self.seqno), None)
     }
 
     /// Returns an iterator over a range of items in the snapshot.
@@ -153,7 +153,7 @@ impl Snapshot {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_range(range, Some(self.seqno))
+        self.tree.create_range(range, Some(self.seqno), None)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -217,7 +217,10 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.tree.create_iter(Some(self.seqno)).next().transpose()
+        self.tree
+            .create_iter(Some(self.seqno), None)
+            .next()
+            .transpose()
     }
 
     /// Returns the las key-value pair in the snapshot.
@@ -249,7 +252,7 @@ impl Snapshot {
     /// Will return `Err` if an IO error occurs.
     pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
         self.tree
-            .create_iter(Some(self.seqno))
+            .create_iter(Some(self.seqno), None)
             .next_back()
             .transpose()
     }

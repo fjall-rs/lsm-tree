@@ -40,11 +40,16 @@ impl<'a> DoubleEndedIterator for TreeIter<'a> {
     }
 }
 
+// TODO: for seqno readsa: it would be better to filter out the seqno
+// for each iter by using .filter instead of doing it in the merge iterator
+// simplifies merge iterator logic & makes more sense & tx read set can use highest seqno
+// without having to build new merge iter
+
 impl<'a> TreeIter<'a> {
     #[must_use]
     pub fn create_prefix(
         guard: MemtableLockGuard<'a>,
-        prefix: UserKey,
+        prefix: &UserKey,
         seqno: Option<SeqNo>,
         level_manifest: RwLockReadGuard<'a, LevelManifest>,
     ) -> Self {
@@ -141,6 +146,7 @@ impl<'a> TreeIter<'a> {
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
         level_manifest: RwLockReadGuard<'a, LevelManifest>,
+        add_index: Option<&'a MemTable>,
     ) -> Self {
         TreeIter::new(guard, |lock| {
             let lo = match &bounds.0 {
@@ -180,7 +186,7 @@ impl<'a> TreeIter<'a> {
                 )),
                 Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
                     key.clone(),
-                    0,
+                    SeqNo::MAX,
                     crate::value::ValueType::Value,
                 )),
                 Bound::Unbounded => Bound::Unbounded,
@@ -231,11 +237,22 @@ impl<'a> TreeIter<'a> {
             let memtable_iter = {
                 lock.active
                     .items
-                    .range(range)
+                    .range(range.clone())
                     .map(|entry| Ok(Value::from((entry.key().clone(), entry.value().clone()))))
             };
 
             iters.push(Box::new(memtable_iter));
+
+            if let Some(index) = add_index {
+                eprintln!("{range:?}");
+
+                let iter =
+                    Box::new(index.items.range(range).map(|entry| {
+                        Ok(Value::from((entry.key().clone(), entry.value().clone())))
+                    }));
+
+                iters.push(iter);
+            }
 
             let mut iter = MergeIterator::new(iters).evict_old_versions(true);
 

@@ -6,7 +6,8 @@ use std::sync::atomic::AtomicU32;
 /// The memtable serves as an intermediary storage for new items
 #[derive(Default)]
 pub struct MemTable {
-    pub(crate) items: SkipMap<ParsedInternalKey, UserValue>,
+    #[doc(hidden)]
+    pub items: SkipMap<ParsedInternalKey, UserValue>,
 
     /// Approximate active memtable size
     ///

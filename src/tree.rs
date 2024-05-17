@@ -561,11 +561,14 @@ impl Tree {
         self.get(key).map(|x| x.is_some())
     }
 
-    pub(crate) fn create_iter(
-        &self,
+    #[doc(hidden)]
+    #[must_use]
+    pub fn create_iter<'a>(
+        &'a self,
         seqno: Option<SeqNo>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_range::<UserKey, _>(.., seqno)
+        index: Option<&'a MemTable>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a {
+        self.create_range::<UserKey, _>(.., seqno, index)
     }
 
     /// Returns an iterator that scans through the entire tree.
@@ -596,14 +599,16 @@ impl Tree {
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_iter(None)
+        self.create_iter(None, None)
     }
 
-    pub(crate) fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
+    #[doc(hidden)]
+    pub fn create_range<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &'a self,
         range: R,
         seqno: Option<SeqNo>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        add_index: Option<&'a MemTable>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -630,6 +635,7 @@ impl Tree {
             bounds,
             seqno,
             level_manifest_lock,
+            add_index,
         )
     }
 
@@ -660,7 +666,7 @@ impl Tree {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_range(range, None)
+        self.create_range(range, None, None)
     }
 
     pub(crate) fn create_prefix<K: AsRef<[u8]>>(
@@ -677,7 +683,7 @@ impl Tree {
 
         TreeIter::create_prefix(
             MemtableLockGuard { active, sealed },
-            prefix.into(),
+            &prefix.into(),
             seqno,
             level_manifest_lock,
         )
