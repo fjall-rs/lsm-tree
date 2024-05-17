@@ -244,8 +244,6 @@ impl<'a> TreeIter<'a> {
             iters.push(Box::new(memtable_iter));
 
             if let Some(index) = add_index {
-                eprintln!("{range:?}");
-
                 let iter =
                     Box::new(index.items.range(range).map(|entry| {
                         Ok(Value::from((entry.key().clone(), entry.value().clone())))
