@@ -2,6 +2,7 @@ use crate::{
     compaction::CompactionStrategy,
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
+    file::fsync_directory,
     levels::LevelManifest,
     memtable::MemTable,
     range::{MemtableLockGuard, TreeIter},
@@ -938,7 +939,14 @@ impl Tree {
 
         let mut segments = vec![];
 
-        for dirent in std::fs::read_dir(tree_path.join(SEGMENTS_FOLDER))? {
+        let segment_base_folder = tree_path.join(SEGMENTS_FOLDER);
+
+        if !segment_base_folder.try_exists()? {
+            std::fs::create_dir_all(&segment_base_folder)?;
+            fsync_directory(&segment_base_folder)?;
+        }
+
+        for dirent in std::fs::read_dir(&segment_base_folder)? {
             let dirent = dirent?;
 
             let file_name = dirent.file_name();
