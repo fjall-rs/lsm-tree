@@ -180,7 +180,7 @@ impl<'a> TreeIter<'a> {
                 )),
                 Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
                     key.clone(),
-                    0,
+                    SeqNo::MAX,
                     crate::value::ValueType::Value,
                 )),
                 Bound::Unbounded => Bound::Unbounded,
