@@ -88,33 +88,11 @@ impl<'a> TreeIter<'a> {
             for (_, memtable) in lock.sealed.iter() {
                 let prefix = prefix.clone();
 
-                iters.push(Box::new(
-                    memtable
-                        .items
-                        // NOTE: See memtable.rs for range explanation
-                        .range(
-                            ParsedInternalKey::new(
-                                prefix.clone(),
-                                SeqNo::MAX,
-                                ValueType::Tombstone,
-                            )..,
-                        )
-                        .filter(move |entry| entry.key().user_key.starts_with(&prefix))
-                        .map(|entry| Ok(Value::from((entry.key().clone(), entry.value().clone())))),
-                ));
+                iters.push(Box::new(memtable.prefix(prefix).map(Ok)));
             }
 
-            let memtable_iter = {
-                lock.active
-                    .items
-                    .range(
-                        ParsedInternalKey::new(prefix.clone(), SeqNo::MAX, ValueType::Tombstone)..,
-                    )
-                    .filter(move |entry| entry.key().user_key.starts_with(&prefix))
-                    .map(|entry| Ok(Value::from((entry.key().clone(), entry.value().clone()))))
-            };
-
-            iters.push(Box::new(memtable_iter));
+            // Active memtable
+            iters.push(Box::new(lock.active.prefix(prefix).map(Ok)));
 
             let mut iter = MergeIterator::new(iters).evict_old_versions(true);
 
@@ -123,6 +101,7 @@ impl<'a> TreeIter<'a> {
             }
 
             Box::new(
+                #[allow(clippy::option_if_let_else)]
                 iter.filter(|x| match x {
                     Ok(value) => value.value_type != ValueType::Tombstone,
                     Err(_) => true,
