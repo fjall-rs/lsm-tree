@@ -204,24 +204,6 @@ impl Metadata {
         })
     }
 
-    /*  /// Stores segment metadata at a folder
-    pub fn write_to_file<P: AsRef<Path>>(&self, folder_path: P) -> crate::Result<()> {
-        let mut writer = OpenOptions::new()
-            .truncate(true)
-            .create(true)
-            .write(true)
-            .open(folder_path.as_ref().join(SEGMENT_METADATA_FILE))?;
-
-        self.serialize(&mut writer)?;
-        writer.flush()?;
-        writer.sync_all()?;
-
-        // IMPORTANT: fsync folder on Unix
-        fsync_directory(&folder_path)?;
-
-        Ok(())
-    } */
-
     /// Reads and parses a Segment metadata file
     pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         let file_content = std::fs::read(path)?;
