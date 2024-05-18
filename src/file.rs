@@ -1,6 +1,5 @@
 use std::{fs::File, io::Write, path::Path};
 
-#[doc(hidden)]
 pub const LSM_MARKER: &str = "version";
 pub const CONFIG_FILE: &str = "config";
 pub const SEGMENTS_FOLDER: &str = "segments";
