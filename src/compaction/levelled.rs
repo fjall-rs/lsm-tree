@@ -522,12 +522,12 @@ mod tests {
 
         levels.insert_into_level(
             1,
-            fixture_segment(2, string_key_range("h", "t"), 128 * 1_024 * 1_024),
+            fixture_segment(2, string_key_range("h", "j"), 128 * 1_024 * 1_024),
         );
 
         levels.insert_into_level(
             1,
-            fixture_segment(3, string_key_range("h", "t"), 128 * 1_024 * 1_024),
+            fixture_segment(3, string_key_range("k", "t"), 128 * 1_024 * 1_024),
         );
 
         assert_eq!(
