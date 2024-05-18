@@ -62,10 +62,6 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
     (ratio as usize).pow(u32::from(level_idx)) * (target_size as usize)
 }
 
-// TODO: test with timeseries workload
-// TODO: time series are disjoint, so it should be possible to just move segments down
-// TODO: instead of rewriting
-
 impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
@@ -138,12 +134,16 @@ impl CompactionStrategy for Strategy {
 
                 segment_ids.extend(&overlapping_segment_ids);
 
-                // TODO: maybe only move segments, if there are no overlapping
-                return Choice::DoCompact(CompactionInput {
+                let choice = CompactionInput {
                     segment_ids,
                     dest_level: next_level_index,
                     target_size: u64::from(self.target_size),
-                });
+                };
+
+                if overlapping_segment_ids.is_empty() && level.is_disjoint {
+                    return Choice::Move(choice);
+                }
+                return Choice::Merge(choice);
             }
         }
 
@@ -175,7 +175,7 @@ impl CompactionStrategy for Strategy {
 
                 segment_ids.extend(overlapping_segment_ids);
 
-                return Choice::DoCompact(CompactionInput {
+                return Choice::Merge(CompactionInput {
                     segment_ids,
                     dest_level: 1,
                     target_size: u64::from(self.target_size),
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_levels() -> crate::Result<()> {
+    fn levelled_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn default_l0() -> crate::Result<()> {
+    fn levelled_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -312,7 +312,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
                 target_size: 128 * 1_024 * 1_024
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn more_than_min_no_overlap() -> crate::Result<()> {
+    fn levelled_more_than_min_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -377,7 +377,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
                 target_size: 128 * 1_024 * 1_024
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn more_than_min_with_overlap() -> crate::Result<()> {
+    fn levelled_more_than_min_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -436,7 +436,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4, 5, 6],
                 target_size: 128 * 1_024 * 1_024
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn deeper_level_with_overlap() -> crate::Result<()> {
+    fn levelled_deeper_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -487,7 +487,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1, 4],
                 target_size: 128 * 1_024 * 1_024
@@ -498,7 +498,52 @@ mod tests {
     }
 
     #[test]
-    fn last_level_with_overlap() -> crate::Result<()> {
+    fn levelled_deeper_level_no_overlap() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            target_size: 128 * 1_024 * 1_024,
+            ..Default::default()
+        };
+        let config = Config::default().level_ratio(2);
+
+        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+
+        levels.insert_into_level(
+            2,
+            fixture_segment(4, string_key_range("k", "l"), 128 * 1_024 * 1_024),
+        );
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
+
+        levels.insert_into_level(
+            1,
+            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
+        );
+        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
+
+        levels.insert_into_level(
+            1,
+            fixture_segment(2, string_key_range("h", "t"), 128 * 1_024 * 1_024),
+        );
+
+        levels.insert_into_level(
+            1,
+            fixture_segment(3, string_key_range("h", "t"), 128 * 1_024 * 1_024),
+        );
+
+        assert_eq!(
+            compactor.choose(&levels, &config),
+            Choice::Move(CompactionInput {
+                dest_level: 2,
+                segment_ids: vec![1],
+                target_size: 128 * 1_024 * 1_024
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn levelled_last_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -544,7 +589,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 3,
                 segment_ids: vec![1, 5],
                 target_size: 128 * 1_024 * 1_024

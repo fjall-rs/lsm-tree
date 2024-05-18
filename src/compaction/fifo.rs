@@ -92,7 +92,7 @@ impl CompactionStrategy for Strategy {
         if segment_ids_to_delete.is_empty() {
             super::maintenance::Strategy.choose(levels, config)
         } else {
-            Choice::DeleteSegments(segment_ids_to_delete)
+            Choice::Drop(segment_ids_to_delete)
         }
     }
 }
@@ -164,7 +164,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DeleteSegments(vec![1])
+            Choice::Drop(vec![1])
         );
 
         Ok(())
@@ -232,7 +232,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DeleteSegments(vec![1, 2])
+            Choice::Drop(vec![1, 2])
         );
 
         Ok(())

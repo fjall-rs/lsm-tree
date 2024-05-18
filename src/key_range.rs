@@ -31,7 +31,7 @@ impl KeyRange {
     }
 
     /// Returns `true` if the list of key ranges is disjoint
-    pub fn is_disjoint(ranges: &[Self]) -> bool {
+    pub fn is_disjoint(ranges: &[&Self]) -> bool {
         for i in 0..ranges.len() {
             let a = ranges.get(i).expect("should exist");
 
@@ -157,13 +157,13 @@ mod tests {
 
     #[test]
     fn key_range_number_disjoint() {
-        let ranges = [int_key_range(0, 4), int_key_range(0, 4)];
+        let ranges = [&int_key_range(0, 4), &int_key_range(0, 4)];
         assert!(!KeyRange::is_disjoint(&ranges));
     }
 
     #[test]
     fn key_range_disjoint() {
-        let ranges = [string_key_range("a", "d"), string_key_range("g", "z")];
+        let ranges = [&string_key_range("a", "d"), &string_key_range("g", "z")];
         assert!(KeyRange::is_disjoint(&ranges));
     }
 
@@ -190,13 +190,13 @@ mod tests {
 
     #[test]
     fn key_range_not_disjoint() {
-        let ranges = [string_key_range("a", "f"), string_key_range("b", "h")];
+        let ranges = [&string_key_range("a", "f"), &string_key_range("b", "h")];
         assert!(!KeyRange::is_disjoint(&ranges));
 
         let ranges = [
-            string_key_range("a", "d"),
-            string_key_range("d", "e"),
-            string_key_range("f", "z"),
+            &string_key_range("a", "d"),
+            &string_key_range("d", "e"),
+            &string_key_range("f", "z"),
         ];
         assert!(!KeyRange::is_disjoint(&ranges));
     }
