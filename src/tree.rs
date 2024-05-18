@@ -669,11 +669,13 @@ impl Tree {
         self.create_range(range, None, None)
     }
 
-    pub(crate) fn create_prefix<K: AsRef<[u8]>>(
-        &self,
+    #[doc(hidden)]
+    pub fn create_prefix<'a, K: AsRef<[u8]>>(
+        &'a self,
         prefix: K,
         seqno: Option<SeqNo>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        add_index: Option<&'a MemTable>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a {
         let prefix = prefix.as_ref();
 
         // IMPORTANT: Mind lock order L -> M -> S
@@ -686,6 +688,7 @@ impl Tree {
             &prefix.into(),
             seqno,
             level_manifest_lock,
+            add_index,
         )
     }
 
@@ -716,7 +719,7 @@ impl Tree {
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_prefix(prefix, None)
+        self.create_prefix(prefix, None, None)
     }
 
     /// Returns the first key-value pair in the tree.

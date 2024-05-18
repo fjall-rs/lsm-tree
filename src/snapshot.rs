@@ -186,7 +186,7 @@ impl Snapshot {
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_prefix(prefix, Some(self.seqno))
+        self.tree.create_prefix(prefix, Some(self.seqno), None)
     }
 
     /// Returns the first key-value pair in the snapshot.

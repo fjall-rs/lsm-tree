@@ -52,6 +52,7 @@ impl<'a> TreeIter<'a> {
         prefix: &UserKey,
         seqno: Option<SeqNo>,
         level_manifest: RwLockReadGuard<'a, LevelManifest>,
+        add_index: Option<&'a MemTable>,
     ) -> Self {
         TreeIter::new(guard, |lock| {
             let prefix = prefix.clone();
@@ -97,7 +98,11 @@ impl<'a> TreeIter<'a> {
             }
 
             // Active memtable
-            iters.push(Box::new(lock.active.prefix(prefix).map(Ok)));
+            iters.push(Box::new(lock.active.prefix(prefix.clone()).map(Ok)));
+
+            if let Some(index) = add_index {
+                iters.push(Box::new(index.prefix(prefix).map(Ok)));
+            }
 
             let mut iter = MergeIterator::new(iters).evict_old_versions(true);
 
