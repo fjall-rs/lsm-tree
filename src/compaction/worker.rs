@@ -112,7 +112,7 @@ fn merge_segments(
     );
 
     let merge_iter = {
-        let to_merge: Vec<Arc<Segment>> = {
+        let to_merge: Vec<_> = {
             let segments = levels.get_all_segments();
 
             payload
