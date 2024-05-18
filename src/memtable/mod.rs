@@ -1,5 +1,5 @@
 use crate::value::{ParsedInternalKey, SeqNo, UserValue, ValueType};
-use crate::Value;
+use crate::{UserKey, Value};
 use crossbeam_skiplist::SkipMap;
 use std::sync::atomic::AtomicU32;
 
@@ -16,6 +16,15 @@ pub struct MemTable {
 }
 
 impl MemTable {
+    /// Creates an iterator over a prefixed set of items
+    pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = Value> + '_ {
+        self.items
+            // TODO: compute upper bound
+            .range(ParsedInternalKey::new(prefix.clone(), SeqNo::MAX, ValueType::Tombstone)..)
+            .filter(move |entry| entry.key().user_key.starts_with(&prefix))
+            .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
+    }
+
     /// Returns the item by key if it exists
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None
