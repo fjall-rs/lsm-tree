@@ -130,8 +130,13 @@ impl Segment {
     ) -> crate::Result<Self> {
         let file_path = file_path.as_ref();
 
+        log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
 
+        log::debug!(
+            "Creating block index, with tli_ptr={}",
+            trailer.offsets.tli_ptr
+        );
         let block_index = BlockIndex::from_file(
             file_path,
             trailer.offsets.tli_ptr,
