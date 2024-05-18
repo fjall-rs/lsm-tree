@@ -1,10 +1,10 @@
-use super::{trailer::SegmentFileTrailer, value_block::ValueBlock};
+use super::{
+    block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter,
+    file_offsets::FileOffsets, meta::Metadata, trailer::SegmentFileTrailer,
+    value_block::ValueBlock,
+};
 use crate::{
     file::fsync_directory,
-    segment::{
-        block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter,
-        meta::Metadata,
-    },
     serde::Serializable,
     value::{SeqNo, UserKey},
     SegmentId, Value,
@@ -66,15 +66,6 @@ pub struct Options {
 
     #[cfg(feature = "bloom")]
     pub bloom_fp_rate: f32,
-}
-
-#[derive(Debug)]
-pub struct FileOffsets {
-    pub index_block_ptr: u64,
-    pub tli_ptr: u64,
-    pub bloom_ptr: u64,
-    pub range_tombstone_ptr: u64,
-    pub metadata_ptr: u64,
 }
 
 impl Writer {

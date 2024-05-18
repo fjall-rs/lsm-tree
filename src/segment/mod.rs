@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_index;
 pub mod data_block_handle_queue;
+pub mod file_offsets;
 pub mod id;
 pub mod index_block_consumer;
 pub mod meta;
