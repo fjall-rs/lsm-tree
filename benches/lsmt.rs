@@ -178,6 +178,7 @@ fn value_block_size(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
 
@@ -209,6 +210,7 @@ fn value_block_size_find(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
             let key = &(item_count / 2).to_be_bytes();
@@ -252,12 +254,13 @@ fn load_block_from_disk(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
 
             // Serialize block
             block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let (header, data) = ValueBlock::to_bytes_compressed(&items).unwrap();
+            let (header, data) = ValueBlock::to_bytes_compressed(&items, 0).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
             header.serialize(&mut file).unwrap();
