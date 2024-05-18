@@ -34,7 +34,7 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let segment_ids = levels.iter().map(|x| x.metadata.id).collect();
 
-        Choice::DoCompact(CompactionInput {
+        Choice::Merge(CompactionInput {
             segment_ids,
             dest_level: levels.last_level_index(),
             target_size: self.target_size,

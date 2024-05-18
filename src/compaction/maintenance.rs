@@ -60,7 +60,7 @@ impl CompactionStrategy for Strategy {
 
             let segment_ids = choose_least_effort_compaction(&first_level, segments_to_merge);
 
-            Choice::DoCompact(super::Input {
+            Choice::Merge(super::Input {
                 dest_level: 0,
                 segment_ids,
                 target_size: u64::MAX,
@@ -166,7 +166,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::DoCompact(crate::compaction::Input {
+            Choice::Merge(crate::compaction::Input {
                 dest_level: 0,
                 segment_ids: vec![0, 1, 2],
                 target_size: u64::MAX

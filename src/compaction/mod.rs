@@ -34,14 +34,17 @@ pub enum Choice {
     /// Just do nothing.
     DoNothing,
 
+    /// Moves segments into another level without rewriting.
+    Move(Input),
+
     /// Compacts some segments into a new level.
-    DoCompact(Input),
+    Merge(Input),
 
     /// Delete segments without doing compaction.
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].
-    DeleteSegments(Vec<SegmentId>),
+    Drop(Vec<SegmentId>),
 }
 
 /// Trait for a compaction strategy

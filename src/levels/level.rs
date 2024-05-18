@@ -81,20 +81,19 @@ impl Level {
         self.segments.len()
     }
 
-    /// Gets the level (compressed) size in bytes
+    /// Gets the level size in bytes
     pub fn size(&self) -> u64 {
         self.segments.iter().map(|x| x.metadata.file_size).sum()
     }
 
     /// Checks if the level is disjoint and caches the result in `is_disjoint`
     fn set_disjoint_flag(&mut self) {
-        // TODO: calculate without heap allocation
+        // TODO: calculate without heap allocation? possible?
 
         let ranges = self
             .segments
             .iter()
             .map(|x| &x.metadata.key_range)
-            .cloned()
             .collect::<Vec<_>>();
 
         self.is_disjoint = KeyRange::is_disjoint(&ranges);

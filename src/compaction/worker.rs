@@ -66,16 +66,30 @@ impl Options {
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("compactor: acquiring levels manifest lock");
-    let levels = opts.levels.write().expect("lock is poisoned");
+    let mut levels = opts.levels.write().expect("lock is poisoned");
 
     log::trace!("compactor: consulting compaction strategy");
     let choice = opts.strategy.choose(&levels, &opts.config);
 
     match choice {
-        Choice::DoCompact(payload) => {
+        Choice::Merge(payload) => {
             merge_segments(levels, opts, &payload)?;
         }
-        Choice::DeleteSegments(payload) => {
+        Choice::Move(payload) => {
+            let segment_map = levels.get_all_segments();
+
+            // NOTE: This all happens in an atomic operation as we still have a lock on the
+            // level manifest
+            for segment_id in payload.segment_ids {
+                if let Some(segment) = segment_map.get(&segment_id) {
+                    levels.remove(segment_id);
+                    levels.insert_into_level(payload.dest_level, segment.clone());
+                }
+            }
+
+            levels.write_to_disk()?;
+        }
+        Choice::Drop(payload) => {
             drop_segments(
                 levels,
                 opts,

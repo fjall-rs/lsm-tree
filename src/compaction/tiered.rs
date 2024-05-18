@@ -77,7 +77,7 @@ impl CompactionStrategy for Strategy {
                     .copied()
                     .collect();
 
-                return Choice::DoCompact(CompactionInput {
+                return Choice::Merge(CompactionInput {
                     segment_ids,
                     dest_level: next_level_index,
                     target_size: u64::MAX,
@@ -194,7 +194,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
                 target_size: u64::MAX,
@@ -221,7 +221,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2],
                 target_size: u64::MAX,
@@ -252,7 +252,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![5, 6, 7, 8],
                 target_size: u64::MAX,
@@ -278,7 +278,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2],
                 target_size: u64::MAX,
@@ -304,7 +304,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![2, 3],
                 target_size: u64::MAX,
@@ -319,7 +319,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::DoCompact(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 3,
                 segment_ids: vec![2, 3],
                 target_size: u64::MAX,
