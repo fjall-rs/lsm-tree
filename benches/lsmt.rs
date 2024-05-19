@@ -9,11 +9,179 @@ use lsm_tree::{
 };
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
+use tempfile::tempdir;
+
+fn full_scan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scan all");
+    group.sample_size(10);
+
+    for item_count in [10_000, 100_000, 1_000_000] {
+        group.bench_function(format!("scan all uncached, {item_count} items"), |b| {
+            let path = tempdir().unwrap();
+
+            let tree = Config::new(path)
+                .block_cache(BlockCache::with_capacity_bytes(0).into())
+                .open()
+                .unwrap();
+
+            for x in 0_u32..item_count {
+                let key = x.to_be_bytes();
+                let value = nanoid::nanoid!();
+                tree.insert(key, value, 0);
+            }
+
+            tree.flush_active_memtable().unwrap();
+
+            b.iter(|| {
+                assert_eq!(tree.len().unwrap(), item_count as usize);
+            })
+        });
+
+        group.bench_function(format!("scan all cached, {item_count} items"), |b| {
+            let path = tempdir().unwrap();
+
+            let tree = Config::new(path).open().unwrap();
+
+            for x in 0_u32..item_count {
+                let key = x.to_be_bytes();
+                let value = nanoid::nanoid!();
+                tree.insert(key, value, 0);
+            }
+
+            tree.flush_active_memtable().unwrap();
+            assert_eq!(tree.len().unwrap(), item_count as usize);
+
+            b.iter(|| {
+                assert_eq!(tree.len().unwrap(), item_count as usize);
+            })
+        });
+    }
+}
+
+fn scan_vs_query(c: &mut Criterion) {
+    use std::ops::Bound::*;
+
+    let mut group = c.benchmark_group("scan vs query");
+
+    for size in [100_000, 1_000_000] {
+        let path = tempdir().unwrap();
+
+        let tree = Config::new(path)
+            .block_cache(BlockCache::with_capacity_bytes(0).into())
+            .open()
+            .unwrap();
+
+        for x in 0..size as u64 {
+            let key = x.to_be_bytes().to_vec();
+            let value = nanoid::nanoid!().as_bytes().to_vec();
+            tree.insert(key, value, 0);
+        }
+
+        tree.flush_active_memtable().unwrap();
+        assert_eq!(tree.len().unwrap(), size);
+
+        group.sample_size(10);
+        group.bench_function(format!("scan {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.iter();
+                let iter = iter.into_iter();
+                let count = iter
+                    .filter(|x| match x {
+                        Ok((key, _)) => {
+                            let buf = &key[..8];
+                            let (int_bytes, _rest) = buf.split_at(std::mem::size_of::<u64>());
+                            let num = u64::from_be_bytes(int_bytes.try_into().unwrap());
+                            (60000..61000).contains(&num)
+                        }
+                        Err(_) => false,
+                    })
+                    .count();
+                assert_eq!(count, 1000);
+            })
+        });
+        group.bench_function(format!("query {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.range((
+                    Included(60000_u64.to_be_bytes().to_vec()),
+                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                ));
+                let iter = iter.into_iter();
+                assert_eq!(iter.count(), 1000);
+            })
+        });
+        group.bench_function(format!("query rev {}", size), |b| {
+            b.iter(|| {
+                let iter = tree.range((
+                    Included(60000_u64.to_be_bytes().to_vec()),
+                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                ));
+                let iter = iter.into_iter();
+                assert_eq!(iter.rev().count(), 1000);
+            })
+        });
+    }
+}
+
+fn scan_vs_prefix(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scan vs prefix");
+
+    for size in [10_000, 100_000, 1_000_000] {
+        let path = tempdir().unwrap();
+
+        let tree = Config::new(path)
+            .block_cache(BlockCache::with_capacity_bytes(0).into())
+            .open()
+            .unwrap();
+
+        for _ in 0..size {
+            let key = nanoid::nanoid!();
+            let value = nanoid::nanoid!();
+            tree.insert(key, value, 0);
+        }
+
+        let prefix = "hello$$$";
+
+        for _ in 0..1000_u64 {
+            let key = format!("{}:{}", prefix, nanoid::nanoid!());
+            let value = nanoid::nanoid!();
+            tree.insert(key, value, 0);
+        }
+
+        tree.flush_active_memtable().unwrap();
+        assert_eq!(tree.len().unwrap() as u64, size + 1000);
+
+        group.sample_size(10);
+        group.bench_function(format!("scan {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.iter();
+                let iter = iter.into_iter().filter(|x| match x {
+                    Ok((key, _)) => key.starts_with(prefix.as_bytes()),
+                    Err(_) => false,
+                });
+                assert_eq!(iter.count(), 1000);
+            });
+        });
+        group.bench_function(format!("prefix {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.prefix(prefix);
+                let iter = iter.into_iter();
+                assert_eq!(iter.count(), 1000);
+            });
+        });
+        group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.prefix(prefix);
+                let iter = iter.into_iter();
+                assert_eq!(iter.rev().count(), 1000);
+            });
+        });
+    }
+}
 
 fn iterate_level_manifest(c: &mut Criterion) {
     let mut group = c.benchmark_group("Iterate level manifest");
 
-    for segment_count in [0, 1, 5, 10, 20, 50, 100, 250, 500, 1_000] {
+    for segment_count in [0, 1, 5, 10, 100, 500, 1_000] {
         let folder = tempfile::tempdir().unwrap();
         let tree = Config::new(folder).block_size(1_024).open().unwrap();
 
@@ -35,7 +203,7 @@ fn iterate_level_manifest(c: &mut Criterion) {
 fn find_segment(c: &mut Criterion) {
     let mut group = c.benchmark_group("Find segment in disjoint level");
 
-    for segment_count in [1u64, 5, 10, 20, 50, 100, 250, 500, 1_000] {
+    for segment_count in [1u64, 5, 10, 100, 500, 1_000] {
         let folder = tempfile::tempdir().unwrap();
         let tree = Config::new(folder).block_size(1_024).open().unwrap();
 
@@ -82,18 +250,18 @@ fn find_segment(c: &mut Criterion) {
 }
 
 fn memtable_get_upper_bound(c: &mut Criterion) {
-    let memtable = MemTable::default();
-
-    for _ in 0..1_000_000 {
-        memtable.insert(Value {
-            key: format!("abc_{}", nanoid!()).as_bytes().into(),
-            value: vec![].into(),
-            seqno: 0,
-            value_type: lsm_tree::ValueType::Value,
-        });
-    }
-
     c.bench_function("memtable get", |b| {
+        let memtable = MemTable::default();
+
+        for _ in 0..1_000_000 {
+            memtable.insert(Value {
+                key: format!("abc_{}", nanoid!()).as_bytes().into(),
+                value: vec![].into(),
+                seqno: 0,
+                value_type: lsm_tree::ValueType::Value,
+            });
+        }
+
         b.iter(|| {
             memtable.get("abc", None);
         });
@@ -424,6 +592,9 @@ fn tree_get_pairs(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    full_scan,
+    scan_vs_query,
+    scan_vs_prefix,
     tli_find_item,
     memtable_get_upper_bound,
     value_block_size_find,
