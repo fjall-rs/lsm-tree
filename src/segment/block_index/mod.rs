@@ -130,6 +130,21 @@ impl BlockIndex {
             .cloned())
     }
 
+    pub fn get_lowest_data_block_handle_not_containing_item(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<KeyedBlockHandle>> {
+        let Some(index_block_handle) = self.get_lowest_index_block_handle_not_containing_key(key)
+        else {
+            return Ok(Some(self.get_last_data_block_handle(cache_policy)?));
+        };
+
+        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+
+        Ok(index_block.items.first().cloned())
+    }
+
     /// Returns the next index block's key, if it exists, or None
     #[must_use]
     pub fn get_next_index_block_handle(
@@ -155,9 +170,39 @@ impl BlockIndex {
         self.top_level_index.get_first_block_handle()
     }
 
-    /// Returns the last block handle
+    pub fn get_first_data_block_handle(
+        &self,
+        cache_policy: CachePolicy,
+    ) -> crate::Result<KeyedBlockHandle> {
+        let index_block_handle = self.top_level_index.get_first_block_handle();
+
+        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+
+        Ok(index_block
+            .items
+            .first()
+            .expect("index block should not be empty")
+            .clone())
+    }
+
+    pub fn get_last_data_block_handle(
+        &self,
+        cache_policy: CachePolicy,
+    ) -> crate::Result<KeyedBlockHandle> {
+        let index_block_handle = self.top_level_index.get_last_block_handle();
+
+        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+
+        Ok(index_block
+            .items
+            .last()
+            .expect("index block should not be empty")
+            .clone())
+    }
+
+    /// Returns the last index_block handle
     #[must_use]
-    pub fn get_last_block_handle(&self) -> &KeyedBlockHandle {
+    pub fn get_last_index_block_handle(&self) -> &KeyedBlockHandle {
         self.top_level_index.get_last_block_handle()
     }
 

@@ -1,6 +1,6 @@
 use super::block_index::BlockIndex;
 use super::id::GlobalSegmentId;
-use super::reader::Reader;
+use super::new_segment_reader::NewSegmentReader;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -11,33 +11,41 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 pub struct Range {
-    descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
-    block_cache: Arc<BlockCache>,
-    segment_id: GlobalSegmentId,
+
+    is_initialized: bool,
 
     range: (Bound<UserKey>, Bound<UserKey>),
 
-    iterator: Option<Reader>,
+    reader: NewSegmentReader,
 
     cache_policy: CachePolicy,
 }
 
 impl Range {
     pub fn new(
+        data_block_boundary: u64,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
         block_index: Arc<BlockIndex>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
-        Self {
+        let reader = NewSegmentReader::new(
+            data_block_boundary,
             descriptor_table,
-            block_cache,
-            block_index,
             segment_id,
+            block_cache,
+            0,
+            None,
+        );
 
-            iterator: None,
+        Self {
+            is_initialized: false,
+
+            block_index,
+
+            reader,
             range,
 
             cache_policy: CachePolicy::Write,
@@ -51,33 +59,53 @@ impl Range {
         self
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&mut self) -> crate::Result<()> {
         let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
-            Bound::Included(start) | Bound::Excluded(start) => Some(start),
+            Bound::Included(start) | Bound::Excluded(start) => {
+                if let Some(lower_bound) = self
+                    .block_index
+                    .get_lowest_data_block_handle_containing_item(start, CachePolicy::Write)?
+                {
+                    self.reader.lo_block_offset = lower_bound.offset;
+                }
+
+                Some(start)
+            }
         };
 
         let end_key: Option<&Arc<[u8]>> = match self.range.end_bound() {
-            Bound::Unbounded => None,
-            Bound::Included(end) | Bound::Excluded(end) => Some(end),
+            Bound::Unbounded => {
+                let upper_bound = self
+                    .block_index
+                    .get_last_data_block_handle(CachePolicy::Write)?;
+
+                self.reader.hi_block_offset = Some(upper_bound.offset);
+
+                None
+            }
+            Bound::Included(end) | Bound::Excluded(end) => {
+                if let Some(upper_bound) = self
+                    .block_index
+                    .get_lowest_data_block_handle_not_containing_item(end, CachePolicy::Write)?
+                {
+                    self.reader.hi_block_offset = Some(upper_bound.offset);
+                }
+
+                Some(end)
+            }
         };
 
-        let mut reader = Reader::new(
-            self.descriptor_table.clone(),
-            self.segment_id,
-            self.block_cache.clone(),
-            self.block_index.clone(),
-        )
-        .cache_policy(self.cache_policy);
-
         if let Some(key) = start_key.cloned() {
-            reader = reader.set_lower_bound(key);
+            self.reader.set_lower_bound(key);
         }
         if let Some(key) = end_key.cloned() {
-            reader = reader.set_upper_bound(key);
+            self.reader.set_upper_bound(key);
         }
 
-        self.iterator = Some(reader);
+        self.is_initialized = true;
+
+        Ok(())
     }
 }
 
@@ -85,16 +113,14 @@ impl Iterator for Range {
     type Item = crate::Result<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.iterator.is_none() {
-            self.initialize();
+        if !self.is_initialized {
+            if let Err(e) = self.initialize() {
+                return Some(Err(e));
+            };
         }
 
         loop {
-            let entry_result = self
-                .iterator
-                .as_mut()
-                .expect("should be initialized")
-                .next()?;
+            let entry_result = self.reader.next()?;
 
             match entry_result {
                 Ok(entry) => {
@@ -140,16 +166,14 @@ impl Iterator for Range {
 
 impl DoubleEndedIterator for Range {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.iterator.is_none() {
-            self.initialize();
+        if !self.is_initialized {
+            if let Err(e) = self.initialize() {
+                return Some(Err(e));
+            };
         }
 
         loop {
-            let entry_result = self
-                .iterator
-                .as_mut()
-                .expect("should be initialized")
-                .next_back()?;
+            let entry_result = self.reader.next_back()?;
 
             match entry_result {
                 Ok(entry) => {
@@ -195,7 +219,7 @@ impl DoubleEndedIterator for Range {
 
 #[cfg(test)]
 mod tests {
-    use super::Reader as SegmentReader;
+    // use super::Reader as SegmentReader;
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
@@ -264,6 +288,7 @@ mod tests {
         )?);
 
         let iter = Range::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             block_cache.clone(),
@@ -276,10 +301,13 @@ mod tests {
             let key = &[start_char][..];
             let key: Arc<[u8]> = Arc::from(key);
 
+            log::debug!("{}..=z", start_char as char);
+
             // NOTE: Forwards
             let expected_range = (start_char..=b'z').collect::<Vec<_>>();
 
             let iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 block_cache.clone(),
@@ -297,6 +325,7 @@ mod tests {
             let expected_range = (start_char..=b'z').rev().collect::<Vec<_>>();
 
             let iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 block_cache.clone(),
@@ -362,6 +391,7 @@ mod tests {
 
         {
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -375,6 +405,7 @@ mod tests {
             }
 
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -394,6 +425,7 @@ mod tests {
             let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -411,6 +443,7 @@ mod tests {
             let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -430,6 +463,7 @@ mod tests {
             let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -448,6 +482,7 @@ mod tests {
             let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
+                trailer.offsets.index_block_ptr,
                 table,
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -575,6 +610,7 @@ mod tests {
                 let range = std::ops::Range { start, end };
 
                 let mut iter = Range::new(
+                    trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
                     Arc::clone(&block_cache),
@@ -594,6 +630,7 @@ mod tests {
                 let range = std::ops::Range { start, end };
 
                 let mut iter = Range::new(
+                    trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
                     Arc::clone(&block_cache),
@@ -667,28 +704,36 @@ mod tests {
 
                 let expected_range = (start_char..=end_char).collect::<Vec<_>>();
 
-                let iter = SegmentReader::new(
+                let iter = Range::new(
+                    trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    block_cache.clone(),
-                    block_index.clone(),
-                )
-                .set_lower_bound(Arc::new([start_char]))
-                .set_upper_bound(Arc::new([end_char]));
+                    Arc::clone(&block_cache),
+                    Arc::clone(&block_index),
+                    (
+                        Included(Arc::new([start_char])),
+                        Included(Arc::new([end_char])),
+                    ),
+                );
+
                 let mut range = iter.flatten().map(|x| x.key);
 
                 for &item in &expected_range {
                     assert_eq!(&*range.next().expect("should exist"), &[item]);
                 }
 
-                let iter = SegmentReader::new(
+                let iter = Range::new(
+                    trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    block_cache.clone(),
-                    block_index.clone(),
-                )
-                .set_lower_bound(Arc::new([start_char]))
-                .set_upper_bound(Arc::new([end_char]));
+                    Arc::clone(&block_cache),
+                    Arc::clone(&block_index),
+                    (
+                        Included(Arc::new([start_char])),
+                        Included(Arc::new([end_char])),
+                    ),
+                );
+
                 let mut range = iter.flatten().map(|x| x.key);
 
                 for &item in expected_range.iter().rev() {

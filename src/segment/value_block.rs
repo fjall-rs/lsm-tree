@@ -1,4 +1,4 @@
-use super::{block::Block, block_index::block_handle::KeyedBlockHandle, id::GlobalSegmentId};
+use super::{block::Block, id::GlobalSegmentId};
 use crate::{descriptor_table::FileDescriptorTable, BlockCache, Value};
 use std::sync::Arc;
 
@@ -27,18 +27,18 @@ impl ValueBlock {
         descriptor_table: &FileDescriptorTable,
         block_cache: &BlockCache,
         segment_id: GlobalSegmentId,
-        block_handle: &KeyedBlockHandle,
+        offset: u64,
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<Arc<Self>>> {
-        log::trace!("loading value block {segment_id:?}/{block_handle:?}");
-
         Ok(
-            if let Some(block) = block_cache.get_disk_block(segment_id, block_handle.offset) {
+            if let Some(block) = block_cache.get_disk_block(segment_id, offset) {
                 // Cache hit: Copy from block
 
                 Some(block)
             } else {
                 // Cache miss: load from disk
+
+                log::trace!("loading value block from disk: {segment_id:?}/{offset:?}");
 
                 let file_guard = descriptor_table
                     .access(&segment_id)?
@@ -46,7 +46,7 @@ impl ValueBlock {
 
                 let block = Self::from_file_compressed(
                     &mut *file_guard.file.lock().expect("lock is poisoned"),
-                    block_handle.offset,
+                    offset,
                 )?;
 
                 drop(file_guard);
@@ -54,11 +54,7 @@ impl ValueBlock {
                 let block = Arc::new(block);
 
                 if cache_policy == CachePolicy::Write {
-                    block_cache.insert_disk_block(
-                        segment_id,
-                        block_handle.offset,
-                        Arc::clone(&block),
-                    );
+                    block_cache.insert_disk_block(segment_id, offset, Arc::clone(&block));
                 }
 
                 Some(block)

@@ -157,7 +157,7 @@ impl Reader {
     }
 
     fn load_last_block(&mut self) -> crate::Result<()> {
-        let block_handle = self.block_index.get_last_block_handle();
+        let block_handle = self.block_index.get_last_index_block_handle();
 
         self.current_hi = Some(block_handle.clone());
 
@@ -439,7 +439,8 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::BlockIndex,
-            reader::Reader,
+            new_segment_reader::NewSegmentReader,
+            value_block::CachePolicy,
             writer::{Options, Writer},
         },
         value::ValueType,
@@ -448,7 +449,65 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    // TODO: rev test with seqnos...
+    #[test]
+    fn segment_reader_ping_pong() -> crate::Result<()> {
+        for block_size in [1, 10, 50, 100, 200, 500, 1_000, 2_000, 4_000] {
+            let folder = tempfile::tempdir()?.into_path();
+
+            let mut writer = Writer::new(Options {
+                segment_id: 0,
+
+                folder: folder.clone(),
+                evict_tombstones: false,
+                block_size,
+
+                #[cfg(feature = "bloom")]
+                bloom_fp_rate: 0.01,
+            })?;
+
+            writer.write(Value::new(*b"a", vec![], 0, ValueType::Value))?;
+            writer.write(Value::new(*b"b", vec![], 0, ValueType::Value))?;
+            writer.write(Value::new(*b"c", vec![], 0, ValueType::Value))?;
+            writer.write(Value::new(*b"d", vec![], 0, ValueType::Value))?;
+            writer.write(Value::new(*b"e", vec![], 0, ValueType::Value))?;
+
+            let trailer = writer.finish()?.expect("should exist");
+
+            let segment_file_path = folder.join("0");
+
+            let table = Arc::new(FileDescriptorTable::new(512, 1));
+            table.insert(&segment_file_path, (0, 0).into());
+
+            let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+            let block_index = Arc::new(BlockIndex::from_file(
+                &segment_file_path,
+                trailer.offsets.tli_ptr,
+                (0, 0).into(),
+                table.clone(),
+                Arc::clone(&block_cache),
+            )?);
+
+            let last_data_block_handle =
+                block_index.get_last_data_block_handle(CachePolicy::Write)?;
+
+            let mut iter = NewSegmentReader::new(
+                trailer.offsets.index_block_ptr,
+                table.clone(),
+                (0, 0).into(),
+                block_cache.clone(),
+                0,
+                Some(last_data_block_handle.offset),
+            );
+
+            assert_eq!(*b"a", &*iter.next().expect("should exist")?.key);
+            assert_eq!(*b"e", &*iter.next_back().expect("should exist")?.key);
+            assert_eq!(*b"b", &*iter.next().expect("should exist")?.key);
+            assert_eq!(*b"d", &*iter.next_back().expect("should exist")?.key);
+            assert_eq!(*b"c", &*iter.next().expect("should exist")?.key);
+        }
+
+        Ok(())
+    }
 
     #[test]
     #[allow(clippy::expect_used)]
@@ -498,19 +557,26 @@ mod tests {
                 Arc::clone(&block_cache),
             )?);
 
-            let iter = Reader::new(
+            let iter = NewSegmentReader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 block_cache.clone(),
-                block_index.clone(),
+                0,
+                None,
             );
             assert_eq!(item_count as usize, iter.flatten().count());
 
-            let iter = Reader::new(
+            let last_data_block_handle =
+                block_index.get_last_data_block_handle(CachePolicy::Write)?;
+
+            let iter = NewSegmentReader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 block_cache.clone(),
-                block_index.clone(),
+                0,
+                Some(last_data_block_handle.offset),
             );
             assert_eq!(item_count as usize, iter.rev().flatten().count());
         }
@@ -565,15 +631,26 @@ mod tests {
             Arc::clone(&block_cache),
         )?);
 
-        let iter = Reader::new(
+        let iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             block_cache.clone(),
-            block_index.clone(),
+            0,
+            None,
         );
         assert_eq!(ITEM_COUNT as usize, iter.flatten().count());
 
-        let iter = Reader::new(table, (0, 0).into(), block_cache, block_index);
+        let last_data_block_handle = block_index.get_last_data_block_handle(CachePolicy::Write)?;
+
+        let iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
+            table,
+            (0, 0).into(),
+            block_cache,
+            0,
+            Some(last_data_block_handle.offset),
+        );
         assert_eq!(ITEM_COUNT as usize, iter.rev().flatten().count());
 
         Ok(())
@@ -642,15 +719,26 @@ mod tests {
             Arc::clone(&block_cache),
         )?);
 
-        let iter = Reader::new(
+        let iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             block_cache.clone(),
-            block_index.clone(),
+            0,
+            None,
         );
         assert_eq!(1 + 250 + chars.len(), iter.flatten().count());
 
-        let iter = Reader::new(table, (0, 0).into(), block_cache, block_index);
+        let last_data_block_handle = block_index.get_last_data_block_handle(CachePolicy::Write)?;
+
+        let iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
+            table,
+            (0, 0).into(),
+            block_cache,
+            0,
+            Some(last_data_block_handle.offset),
+        );
         assert_eq!(1 + 250 + chars.len(), iter.rev().flatten().count());
 
         Ok(())
@@ -724,18 +812,33 @@ mod tests {
             Arc::clone(&block_cache),
         )?);
 
-        let iter = Reader::new(
+        let lower_bound = block_index
+            .get_lowest_data_block_handle_containing_item(b"b", CachePolicy::Write)?
+            .expect("should exist");
+
+        let mut iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             block_cache.clone(),
-            block_index.clone(),
-        )
-        .set_lower_bound(Arc::new(*b"b"));
+            lower_bound.offset,
+            None,
+        );
+        iter.set_lower_bound(Arc::new(*b"b"));
 
         assert_eq!(100 + chars.len(), iter.flatten().count());
 
-        let iter = Reader::new(table, (0, 0).into(), block_cache, block_index)
-            .set_lower_bound(Arc::new(*b"b"));
+        let last_data_block_handle = block_index.get_last_data_block_handle(CachePolicy::Write)?;
+
+        let mut iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
+            table,
+            (0, 0).into(),
+            block_cache,
+            lower_bound.offset,
+            Some(last_data_block_handle.offset),
+        );
+        iter.set_lower_bound(Arc::new(*b"b"));
 
         assert_eq!(100 + chars.len(), iter.rev().flatten().count());
 
@@ -810,133 +913,33 @@ mod tests {
             Arc::clone(&block_cache),
         )?);
 
-        let iter = Reader::new(
+        let upper_bound = block_index
+            .get_lowest_data_block_handle_not_containing_item(b"b", CachePolicy::Write)?
+            .expect("should exist");
+
+        let mut iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             block_cache.clone(),
-            block_index.clone(),
-        )
-        .set_upper_bound(Arc::new(*b"b"));
+            0,
+            Some(upper_bound.offset),
+        );
+        iter.set_upper_bound(Arc::new(*b"b"));
 
         assert_eq!(500 + 100, iter.flatten().count());
 
-        let iter = Reader::new(table, (0, 0).into(), block_cache, block_index)
-            .set_upper_bound(Arc::new(*b"b"));
-
-        assert_eq!(500 + 100, iter.rev().flatten().count());
-
-        Ok(())
-    }
-
-    #[test]
-    #[allow(clippy::expect_used)]
-    fn segment_reader_memory_big_scan() -> crate::Result<()> {
-        const ITEM_COUNT: u64 = 1_000_000;
-
-        let folder = tempfile::tempdir()?.into_path();
-
-        let mut writer = Writer::new(Options {
-            segment_id: 0,
-
-            folder: folder.clone(),
-            evict_tombstones: false,
-            block_size: 4096,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
-        })?;
-
-        let items = (0u64..ITEM_COUNT)
-            .map(|i| Value::new(i.to_be_bytes(), *b"asd", 1000 + i, ValueType::Value));
-
-        for item in items {
-            writer.write(item)?;
-        }
-
-        let trailer = writer.finish()?.expect("should exist");
-
-        let segment_file_path = folder.join("0");
-
-        let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(&segment_file_path, (0, 0).into());
-
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
-            segment_file_path,
-            trailer.offsets.tli_ptr,
-            (0, 0).into(),
-            table.clone(),
-            Arc::clone(&block_cache),
-        )?);
-
-        let mut iter = Reader::new(
-            table.clone(),
-            (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
-        );
-
-        for key in (0u64..ITEM_COUNT).map(u64::to_be_bytes) {
-            let item = iter.next().expect("item should exist")?;
-            assert_eq!(key, &*item.key);
-            assert!(iter.consumers.len() <= 2); // TODO: should be 1?
-            assert!(iter.consumers.capacity() <= 5);
-            assert!(
-                iter.consumers
-                    .values()
-                    .next()
-                    .expect("should exist")
-                    .data_blocks
-                    .len()
-                    <= 1
-            );
-        }
-
-        let mut iter = Reader::new(
-            table.clone(),
-            (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
-        );
-
-        for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
-            let item = iter.next_back().expect("item should exist")?;
-            assert_eq!(key, &*item.key);
-            assert!(iter.consumers.len() <= 2); // TODO: should be 1?
-            assert!(iter.consumers.capacity() <= 5);
-            assert!(
-                iter.consumers
-                    .values()
-                    .next()
-                    .expect("should exist")
-                    .data_blocks
-                    .len()
-                    <= 2
-            );
-        }
-
-        let mut iter = Reader::new(
+        let mut iter = NewSegmentReader::new(
+            trailer.offsets.index_block_ptr,
             table,
             (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            block_cache,
+            0,
+            Some(upper_bound.offset),
         );
+        iter.set_upper_bound(Arc::new(*b"b"));
 
-        for i in 0u64..ITEM_COUNT {
-            if i % 2 == 0 {
-                iter.next().expect("item should exist")?
-            } else {
-                iter.next_back().expect("item should exist")?
-            };
-
-            assert!(iter.consumers.len() <= 2);
-            assert!(iter.consumers.capacity() <= 5);
-
-            assert!(iter
-                .consumers
-                .values()
-                .all(|x| { x.data_blocks.len() <= 2 }));
-        }
+        assert_eq!(500 + 100, iter.rev().flatten().count());
 
         Ok(())
     }

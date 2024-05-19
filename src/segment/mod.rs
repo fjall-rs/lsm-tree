@@ -7,6 +7,8 @@ pub mod index_block_consumer;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
+pub mod new_block_consumer;
+pub mod new_segment_reader;
 pub mod prefix;
 pub mod range;
 pub mod reader;
@@ -15,8 +17,8 @@ pub mod value_block;
 pub mod writer;
 
 use self::{
-    block_index::BlockIndex, prefix::PrefixedReader, range::Range, reader::Reader,
-    trailer::SegmentFileTrailer,
+    block_index::BlockIndex, file_offsets::FileOffsets, prefix::PrefixedReader, range::Range,
+    reader::Reader, trailer::SegmentFileTrailer,
 };
 use crate::{
     block_cache::BlockCache,
@@ -48,6 +50,8 @@ pub struct Segment {
 
     /// Segment metadata object
     pub metadata: meta::Metadata,
+
+    pub offsets: FileOffsets,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
@@ -146,11 +150,16 @@ impl Segment {
             Arc::clone(&block_cache),
         )?;
 
+        #[cfg(feature = "bloom")]
+        let bloom_ptr = trailer.offsets.bloom_ptr;
+
         Ok(Self {
             tree_id,
 
             descriptor_table,
             metadata: trailer.metadata,
+            offsets: trailer.offsets,
+
             block_index: Arc::new(block_index),
             block_cache,
 
@@ -160,13 +169,10 @@ impl Segment {
                 use crate::serde::Deserializable;
                 use std::io::Seek;
 
-                assert!(
-                    trailer.offsets.bloom_ptr > 0,
-                    "can not find bloom filter block"
-                );
+                assert!(bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = std::fs::File::open(file_path)?;
-                reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
                 BloomFilter::deserialize(&mut reader)?
             },
         })
@@ -225,7 +231,7 @@ impl Segment {
                     &self.descriptor_table,
                     &self.block_cache,
                     (self.tree_id, self.metadata.id).into(),
-                    &data_block_handle,
+                    data_block_handle.offset,
                     CachePolicy::Write,
                 )?;
 
@@ -234,6 +240,7 @@ impl Segment {
                     |block| {
                         // TODO: maybe binary search can be used, but it needs to find the max seqno
                         // TODO: if so, implement in ValueBlock
+                        // TODO: and benchmark
                         Ok(block
                             .items
                             .iter()
@@ -261,6 +268,8 @@ impl Segment {
         // Based on get_lower_bound_block, "a" is in Block A
         // However, we are searching for A with seqno 2, which
         // unfortunately is in the next block
+
+        // TODO: replace with NewReader
 
         let iter = Reader::new(
             self.descriptor_table.clone(),
@@ -297,12 +306,14 @@ impl Segment {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Reader {
-        Reader::new(
+    pub fn iter(&self) -> Range {
+        Range::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
+            (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
         )
     }
 
@@ -314,6 +325,7 @@ impl Segment {
     #[must_use]
     pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
@@ -330,6 +342,7 @@ impl Segment {
     #[must_use]
     pub fn prefix<K: Into<UserKey>>(&self, prefix: K) -> PrefixedReader {
         PrefixedReader::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),

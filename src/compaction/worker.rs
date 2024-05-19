@@ -227,17 +227,25 @@ fn merge_segments(
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
+            let tli_offset = trailer.offsets.tli_ptr;
+
+            #[cfg(feature = "bloom")]
+            let bloom_ptr = trailer.offsets.bloom_ptr;
+
             Ok(Segment {
                 tree_id: opts.tree_id,
+
                 descriptor_table: opts.config.descriptor_table.clone(),
-                metadata: trailer.metadata,
                 block_cache: opts.config.block_cache.clone(),
+
+                metadata: trailer.metadata,
+                offsets: trailer.offsets,
 
                 // TODO: if L0, L1, preload block index (non-partitioned)
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index: BlockIndex::from_file(
                     &segment_file_path,
-                    trailer.offsets.tli_ptr,
+                    tli_offset,
                     (opts.tree_id, segment_id).into(),
                     opts.config.descriptor_table.clone(),
                     opts.config.block_cache.clone(),
@@ -249,13 +257,10 @@ fn merge_segments(
                     use crate::serde::Deserializable;
                     use std::io::Seek;
 
-                    assert!(
-                        trailer.offsets.bloom_ptr > 0,
-                        "can not find bloom filter block"
-                    );
+                    assert!(bloom_ptr > 0, "can not find bloom filter block");
 
                     let mut reader = std::fs::File::open(&segment_file_path)?;
-                    reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                    reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
                     BloomFilter::deserialize(&mut reader)?
                 },
             })

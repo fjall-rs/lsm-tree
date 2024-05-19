@@ -93,7 +93,7 @@ impl IndexBlockConsumer {
             &self.descriptor_table,
             &self.block_cache,
             self.segment_id,
-            block_handle,
+            block_handle.offset,
             self.cache_policy,
         )?;
 

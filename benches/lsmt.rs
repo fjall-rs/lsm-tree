@@ -502,6 +502,7 @@ fn bloom_filter_contains(c: &mut Criterion) {
 }
 
 // TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
+// TODO: benchmark point read disjoint vs non-disjoint level
 
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
@@ -588,10 +589,45 @@ fn tree_get_pairs(c: &mut Criterion) {
     }
 }
 
-// TODO: benchmark point read disjoint vs non-disjoint level
+fn disk_point_read(c: &mut Criterion) {
+    let folder = tempdir().unwrap();
+
+    let tree = Config::new(folder)
+        .block_size(1_024)
+        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
+
+    for seqno in 0..5 {
+        tree.insert("a", "b", seqno);
+    }
+    tree.flush_active_memtable().unwrap();
+
+    for seqno in 5..10 {
+        tree.insert("a", "b", seqno);
+    }
+    tree.flush_active_memtable().unwrap();
+
+    c.bench_function("point read latest (uncached)", |b| {
+        let tree = tree.clone();
+
+        b.iter(|| {
+            tree.get("a").unwrap().unwrap();
+        });
+    });
+
+    c.bench_function("point read w/ seqno latest (uncached)", |b| {
+        let snapshot = tree.snapshot(5);
+
+        b.iter(|| {
+            snapshot.get("a").unwrap().unwrap();
+        });
+    });
+}
 
 criterion_group!(
     benches,
+    disk_point_read,
     full_scan,
     scan_vs_query,
     scan_vs_prefix,

@@ -88,6 +88,13 @@ impl TopLevelIndex {
         }
     }
 
+    /// Returns a handle to the last index block which can possibly contain a key
+    #[must_use]
+    pub fn get_last_block_containing_key(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
+        let idx = self.data.partition_point(|x| &*x.end_key <= key);
+        self.data.get(idx)
+    }
+
     /// Returns a handle to the first index block
     #[must_use]
     pub fn get_first_block_handle(&self) -> &KeyedBlockHandle {
