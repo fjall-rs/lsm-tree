@@ -299,6 +299,9 @@ fn merge_segments(
     // Otherwise the folder is deleted, but the segment is still referenced!
     levels.write_to_disk()?;
 
+    // NOTE: If the application were to crash >here< it's fine
+    // The segments are not referenced anymore, and will be
+    // cleaned up upon recovery
     for segment_id in &payload.segment_ids {
         let segment_file_path = segments_base_folder.join(segment_id.to_string());
         log::trace!("Removing old segment at {segment_file_path:?}");
@@ -335,7 +338,6 @@ fn drop_segments(
     for key in segment_ids {
         let segment_id = key.segment_id();
         log::trace!("Removing segment {segment_id}");
-
         levels.remove(segment_id);
     }
 
@@ -346,6 +348,9 @@ fn drop_segments(
     drop(memtable_lock);
     drop(levels);
 
+    // NOTE: If the application were to crash >here< it's fine
+    // The segments are not referenced anymore, and will be
+    // cleaned up upon recovery
     for key in segment_ids {
         let segment_id = key.segment_id();
         log::trace!("rm -rf segment folder {segment_id}");
