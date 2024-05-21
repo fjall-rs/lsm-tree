@@ -280,7 +280,7 @@ impl LevelManifest {
         Self::write_to_disk(&self.path, &level_working_copy)?;
         self.levels = level_working_copy;
 
-        log::error!("Swapped level manifest to:\n{self}");
+        log::trace!("Swapped level manifest to:\n{self}");
 
         Ok(())
     }
@@ -319,14 +319,14 @@ impl LevelManifest {
         self.write_segment_history_entry("insert").ok();
     }
 
-    pub(crate) fn remove(&mut self, segment_id: SegmentId) {
+    /* pub(crate) fn remove(&mut self, segment_id: SegmentId) {
         for level in &mut self.levels {
             level.remove(segment_id);
         }
 
         #[cfg(feature = "segment_history")]
         self.write_segment_history_entry("remove").ok();
-    }
+    } */
 
     /// Returns `true` if there are no segments
     #[must_use]
