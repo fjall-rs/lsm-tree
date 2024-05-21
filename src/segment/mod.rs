@@ -14,14 +14,10 @@ pub mod trailer;
 pub mod value_block;
 pub mod writer;
 
-use self::{
-    block_index::BlockIndex, prefix::PrefixedReader, range::Range, reader::Reader,
-    trailer::SegmentFileTrailer,
-};
+use self::{block_index::BlockIndex, prefix::PrefixedReader, range::Range, reader::Reader};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::value_block::ValueBlock,
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -73,7 +69,8 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
-        use crate::segment::block_index::IndexBlock;
+        use block_index::IndexBlock;
+        use value_block::ValueBlock;
 
         let mut count = 0;
         let mut broken_count = 0;
@@ -129,6 +126,8 @@ impl Segment {
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
+        use trailer::SegmentFileTrailer;
+
         let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
@@ -158,15 +157,18 @@ impl Segment {
             #[cfg(feature = "bloom")]
             bloom_filter: {
                 use crate::serde::Deserializable;
-                use std::io::Seek;
+                use std::{
+                    fs::File,
+                    io::{Seek, SeekFrom},
+                };
 
                 assert!(
                     trailer.offsets.bloom_ptr > 0,
                     "can not find bloom filter block"
                 );
 
-                let mut reader = std::fs::File::open(file_path)?;
-                reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                let mut reader = File::open(file_path)?;
+                reader.seek(SeekFrom::Start(trailer.offsets.bloom_ptr))?;
                 BloomFilter::deserialize(&mut reader)?
             },
         })
@@ -189,7 +191,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        use value_block::CachePolicy;
+        use value_block::{CachePolicy, ValueBlock};
 
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {

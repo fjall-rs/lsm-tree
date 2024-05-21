@@ -247,15 +247,18 @@ fn merge_segments(
                 #[cfg(feature = "bloom")]
                 bloom_filter: {
                     use crate::serde::Deserializable;
-                    use std::io::Seek;
+                    use std::{
+                        fs::File,
+                        io::{Seek, SeekFrom},
+                    };
 
                     assert!(
                         trailer.offsets.bloom_ptr > 0,
                         "can not find bloom filter block"
                     );
 
-                    let mut reader = std::fs::File::open(&segment_file_path)?;
-                    reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                    let mut reader = File::open(&segment_file_path)?;
+                    reader.seek(SeekFrom::Start(trailer.offsets.bloom_ptr))?;
                     BloomFilter::deserialize(&mut reader)?
                 },
             })
