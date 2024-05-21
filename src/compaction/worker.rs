@@ -66,45 +66,47 @@ impl Options {
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("compactor: acquiring levels manifest lock");
-    let mut levels = opts.levels.write().expect("lock is poisoned");
+    let mut original_levels = opts.levels.write().expect("lock is poisoned");
 
     log::trace!("compactor: consulting compaction strategy");
-    let choice = opts.strategy.choose(&levels, &opts.config);
+    let choice = opts.strategy.choose(&original_levels, &opts.config);
 
     match choice {
-        Choice::Merge(payload) => {
-            merge_segments(levels, opts, &payload)?;
-        }
+        Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
         Choice::Move(payload) => {
-            let segment_map = levels.get_all_segments();
+            let segment_map = original_levels.get_all_segments();
 
-            // NOTE: This all happens in an atomic operation as we still have a lock on the
-            // level manifest
-            for segment_id in payload.segment_ids {
-                if let Some(segment) = segment_map.get(&segment_id) {
-                    levels.remove(segment_id);
-                    levels.insert_into_level(payload.dest_level, segment.clone());
+            original_levels.atomic_swap(|recipe| {
+                for segment_id in &payload.segment_ids {
+                    if let Some(segment) = segment_map.get(segment_id).cloned() {
+                        for level in recipe.iter_mut() {
+                            level.remove(*segment_id);
+                        }
+
+                        recipe
+                            .get_mut(payload.dest_level as usize)
+                            .expect("destination level should exist")
+                            .insert(segment);
+                    }
                 }
-            }
-
-            levels.write_to_disk()?;
+            })
         }
         Choice::Drop(payload) => {
             drop_segments(
-                levels,
+                original_levels,
                 opts,
                 &payload
                     .into_iter()
                     .map(|x| (opts.tree_id, x).into())
                     .collect::<Vec<_>>(),
             )?;
+            Ok(())
         }
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
+            Ok(())
         }
     }
-
-    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -223,11 +225,11 @@ fn merge_segments(
 
     let created_segments = writer_results
         .into_iter()
-        .map(|trailer| -> crate::Result<Segment> {
+        .map(|trailer| -> crate::Result<Arc<Segment>> {
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
-            Ok(Segment {
+            Ok(Arc::new(Segment {
                 tree_id: opts.tree_id,
                 descriptor_table: opts.config.descriptor_table.clone(),
                 metadata: trailer.metadata,
@@ -261,43 +263,55 @@ fn merge_segments(
                     reader.seek(SeekFrom::Start(trailer.offsets.bloom_ptr))?;
                     BloomFilter::deserialize(&mut reader)?
                 },
-            })
+            }))
         })
         .collect::<crate::Result<Vec<_>>>()?;
 
-    // IMPORTANT: Mind lock order L -> M -> S
+    // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring levels manifest write lock");
-    let mut levels = opts.levels.write().expect("lock is poisoned");
-
-    for segment in created_segments {
-        log::trace!("Persisting segment {}", segment.metadata.id);
-
-        let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
-
-        opts.config.descriptor_table.insert(
-            &segment_file_path,
-            (opts.tree_id, segment.metadata.id).into(),
-        );
-
-        levels.insert_into_level(payload.dest_level, segment.into());
-    }
+    let mut original_levels = opts.levels.write().expect("lock is poisoned");
 
     // IMPORTANT: Write lock memtable(s), otherwise segments may get deleted while a range read is happening
-    // Mind lock order L -> M -> S
+    // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring sealed memtables write lock");
     let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
 
-    for segment_id in &payload.segment_ids {
-        log::trace!("Removing segment {segment_id}");
-        levels.remove(*segment_id);
-    }
+    let swap_result = original_levels.atomic_swap(|recipe| {
+        for segment in created_segments.iter().cloned() {
+            log::trace!("Persisting segment {}", segment.metadata.id);
 
-    // NOTE: Segments are registered, we can unlock the memtable(s) safely
-    drop(sealed_memtables_guard);
+            let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
+
+            opts.config.descriptor_table.insert(
+                &segment_file_path,
+                (opts.tree_id, segment.metadata.id).into(),
+            );
+
+            recipe
+                .get_mut(payload.dest_level as usize)
+                .expect("destination level should exist")
+                .insert(segment);
+        }
+
+        for segment_id in &payload.segment_ids {
+            log::trace!("Removing segment {segment_id}");
+
+            for level in recipe.iter_mut() {
+                level.remove(*segment_id);
+            }
+        }
+    });
 
     // IMPORTANT: Write the segment with the removed segments first
     // Otherwise the folder is deleted, but the segment is still referenced!
-    levels.write_to_disk()?;
+    if let Err(e) = swap_result {
+        // IMPORTANT: Show the segments again, because compaction failed
+        original_levels.show_segments(&payload.segment_ids);
+        return Err(e);
+    };
+
+    // NOTE: Segments are registered, we can unlock the memtable(s) safely
+    drop(sealed_memtables_guard);
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
@@ -315,9 +329,9 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    levels.show_segments(&payload.segment_ids);
+    original_levels.show_segments(&payload.segment_ids);
 
-    drop(levels);
+    drop(original_levels);
 
     log::debug!("compactor: done");
 
@@ -325,7 +339,7 @@ fn merge_segments(
 }
 
 fn drop_segments(
-    mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    mut original_levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
     segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
@@ -335,18 +349,21 @@ fn drop_segments(
     log::trace!("compaction: acquiring sealed memtables write lock");
     let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
 
-    for key in segment_ids {
-        let segment_id = key.segment_id();
-        log::trace!("Removing segment {segment_id}");
-        levels.remove(segment_id);
-    }
-
     // IMPORTANT: Write the segment with the removed segments first
     // Otherwise the folder is deleted, but the segment is still referenced!
-    levels.write_to_disk()?;
+    original_levels.atomic_swap(|recipe| {
+        for key in segment_ids {
+            let segment_id = key.segment_id();
+            log::trace!("Removing segment {segment_id}");
+
+            for level in recipe.iter_mut() {
+                level.remove(segment_id);
+            }
+        }
+    })?;
 
     drop(memtable_lock);
-    drop(levels);
+    drop(original_levels);
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be

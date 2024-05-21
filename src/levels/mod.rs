@@ -29,7 +29,7 @@ pub type HiddenSet = HashSet<SegmentId>;
 
 /// Represents the levels of a log-structured merge tree.
 pub struct LevelManifest {
-    path: PathBuf,
+    pub path: PathBuf,
 
     #[doc(hidden)]
     pub levels: Vec<Level>,
@@ -117,7 +117,7 @@ impl LevelManifest {
             .map(|_| Level::default())
             .collect::<Vec<_>>();
 
-        let mut levels = Self {
+        let levels = Self {
             path: path.as_ref().to_path_buf(),
             levels,
             hidden_set: HashSet::with_capacity(10),
@@ -125,7 +125,7 @@ impl LevelManifest {
             #[cfg(feature = "segment_history")]
             segment_history_writer: segment_history::Writer::new()?,
         };
-        levels.write_to_disk()?;
+        Self::write_to_disk(path, &levels.levels)?;
 
         #[cfg(feature = "segment_history")]
         levels.write_segment_history_entry("create_new")?;
@@ -248,11 +248,13 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn write_to_disk(&mut self) -> crate::Result<()> {
-        log::trace!("Writing level manifest to {:?}", self.path);
+    pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
+        let path = path.as_ref();
+
+        log::trace!("Writing level manifest to {path:?}",);
 
         let mut serialized = vec![];
-        self.serialize(&mut serialized)?;
+        levels.serialize(&mut serialized)?;
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -261,7 +263,24 @@ impl LevelManifest {
         //
         // a) truncating is not an option, because for a short moment, the file is empty
         // b) just overwriting corrupts the file content
-        rewrite_atomic(&self.path, &serialized)?;
+        rewrite_atomic(path, &serialized)?;
+
+        Ok(())
+    }
+
+    pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+        // NOTE: Create a copy of the levels we can operate on
+        // without mutating the current level manifest
+        // If persisting to disk fails, this way the level manifest
+        // is unchanged
+        let mut level_working_copy = self.levels.clone();
+
+        f(&mut level_working_copy);
+
+        Self::write_to_disk(&self.path, &level_working_copy)?;
+        self.levels = level_working_copy;
+
+        log::error!("Swapped level manifest to:\n{self}");
 
         Ok(())
     }
@@ -430,14 +449,14 @@ impl LevelManifest {
     }
 }
 
-impl Serializable for LevelManifest {
+impl Serializable for Vec<Level> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
         writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
 
-        writer.write_u8(self.depth())?;
+        writer.write_u8(self.len() as u8)?;
 
-        for level in &self.levels {
+        for level in self {
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
@@ -512,7 +531,7 @@ mod tests {
         };
 
         let mut bytes = vec![];
-        levels.serialize(&mut bytes)?;
+        levels.levels.serialize(&mut bytes)?;
 
         #[rustfmt::skip]
         let raw = &[
