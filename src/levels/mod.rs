@@ -29,7 +29,7 @@ pub type HiddenSet = HashSet<SegmentId>;
 
 /// Represents the levels of a log-structured merge tree.
 pub struct LevelManifest {
-    pub path: PathBuf,
+    path: PathBuf,
 
     #[doc(hidden)]
     pub levels: Vec<Level>,
@@ -117,7 +117,7 @@ impl LevelManifest {
             .map(|_| Level::default())
             .collect::<Vec<_>>();
 
-        let levels = Self {
+        let mut levels = Self {
             path: path.as_ref().to_path_buf(),
             levels,
             hidden_set: HashSet::with_capacity(10),
