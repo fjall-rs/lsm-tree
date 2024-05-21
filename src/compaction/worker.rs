@@ -280,13 +280,6 @@ fn merge_segments(
         for segment in created_segments.iter().cloned() {
             log::trace!("Persisting segment {}", segment.metadata.id);
 
-            let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
-
-            opts.config.descriptor_table.insert(
-                &segment_file_path,
-                (opts.tree_id, segment.metadata.id).into(),
-            );
-
             recipe
                 .get_mut(payload.dest_level as usize)
                 .expect("destination level should exist")
@@ -309,6 +302,15 @@ fn merge_segments(
         original_levels.show_segments(&payload.segment_ids);
         return Err(e);
     };
+
+    for segment in &created_segments {
+        let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
+
+        opts.config.descriptor_table.insert(
+            &segment_file_path,
+            (opts.tree_id, segment.metadata.id).into(),
+        );
+    }
 
     // NOTE: Segments are registered, we can unlock the memtable(s) safely
     drop(sealed_memtables_guard);
