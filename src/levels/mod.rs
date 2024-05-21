@@ -44,6 +44,67 @@ pub struct LevelManifest {
     segment_history_writer: segment_history::Writer,
 }
 
+impl std::fmt::Display for LevelManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (idx, level) in self.levels.iter().enumerate() {
+            write!(f, "{idx}: ")?;
+
+            if level.segments.is_empty() {
+                write!(f, "{{empty}}")?;
+            } else if level.segments.len() >= 24 {
+                #[allow(clippy::indexing_slicing)]
+                for segment in level.segments.iter().take(2) {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+                write!(f, " . . . . . ")?;
+
+                #[allow(clippy::indexing_slicing)]
+                for segment in level.segments.iter().rev().take(2).rev() {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+            } else {
+                for segment in &level.segments {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        /*       segment.metadata.file_size / 1_024 / 1_024, */
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+            }
+
+            writeln!(
+                f,
+                " | # = {}, {} MiB",
+                level.len(),
+                level.size() / 1_024 / 1_024
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
 impl LevelManifest {
     pub(crate) fn is_compacting(&self) -> bool {
         !self.hidden_set.is_empty()
