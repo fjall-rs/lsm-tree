@@ -71,6 +71,8 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("compactor: consulting compaction strategy");
     let choice = opts.strategy.choose(&original_levels, &opts.config);
 
+    log::debug!("compactor: choice: {choice:?}");
+
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
         Choice::Move(payload) => {
@@ -120,12 +122,6 @@ fn merge_segments(
     }
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
-
-    log::debug!(
-        "compactor: Chosen {} segments to compact into a single new segment at level {}",
-        payload.segment_ids.len(),
-        payload.dest_level
-    );
 
     let merge_iter = {
         let to_merge: Vec<_> = {
@@ -345,8 +341,6 @@ fn drop_segments(
     opts: &Options,
     segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
-    log::debug!("compactor: Chosen {} segments to drop", segment_ids.len());
-
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
     log::trace!("compaction: acquiring sealed memtables write lock");
     let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
