@@ -520,6 +520,40 @@ mod tests {
     }
 
     #[test]
+    fn level_manifest_atomicity() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(folder).open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 1);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 2);
+        tree.flush_active_memtable()?;
+
+        assert_eq!(3, tree.approximate_len());
+
+        tree.major_compact(u64::MAX)?;
+
+        assert_eq!(1, tree.segment_count());
+
+        tree.insert("a", "a", 3);
+        tree.flush_active_memtable()?;
+
+        let segment_count_before_major_compact = tree.segment_count();
+
+        // NOTE: Purposefully change level manifest to have invalid path
+        // to force an I/O error
+        tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
+
+        assert!(tree.major_compact(u64::MAX).is_err());
+        assert_eq!(segment_count_before_major_compact, tree.segment_count());
+
+        Ok(())
+    }
+
+    #[test]
     fn level_manifest_raw_empty() -> crate::Result<()> {
         let levels = LevelManifest {
             hidden_set: HashSet::default(),
