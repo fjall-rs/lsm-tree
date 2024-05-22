@@ -1,6 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    bloom::BloomFilter,
     segment::{
         block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
     },
@@ -175,77 +174,6 @@ fn scan_vs_prefix(c: &mut Criterion) {
                 assert_eq!(iter.rev().count(), 1000);
             });
         });
-    }
-}
-
-fn iterate_level_manifest(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Iterate level manifest");
-
-    for segment_count in [0, 1, 5, 10, 100, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
-
-        for x in 0..segment_count {
-            tree.insert("a", "b", x as u64);
-            tree.flush_active_memtable().unwrap();
-        }
-
-        group.bench_function(&format!("iterate {segment_count} segments"), |b| {
-            let levels = tree.levels.read().unwrap();
-
-            b.iter(|| {
-                assert_eq!(levels.iter().count(), segment_count);
-            });
-        });
-    }
-}
-
-fn find_segment(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Find segment in disjoint level");
-
-    for segment_count in [1u64, 5, 10, 100, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
-
-        for x in 0..segment_count {
-            tree.insert(x.to_be_bytes(), "", x as u64);
-            tree.flush_active_memtable().unwrap();
-        }
-
-        let key = (segment_count / 2).to_be_bytes();
-
-        group.bench_function(
-            &format!("find segment in {segment_count} segments - binary search"),
-            |b| {
-                let levels = tree.levels.read().unwrap();
-
-                b.iter(|| {
-                    levels
-                        .levels
-                        .first()
-                        .expect("should exist")
-                        .get_segment_containing_key(&key)
-                        .expect("should exist")
-                });
-            },
-        );
-
-        group.bench_function(
-            &format!("find segment in {segment_count} segments - linear search"),
-            |b| {
-                let levels = tree.levels.read().unwrap();
-
-                b.iter(|| {
-                    levels
-                        .levels
-                        .first()
-                        .expect("should exist")
-                        .iter()
-                        .find(|x| x.metadata.key_range.contains_key(&key))
-                        .expect("should exist");
-                });
-            },
-        );
     }
 }
 
@@ -469,40 +397,6 @@ fn file_descriptor_table(c: &mut Criterion) {
     });
 }
 
-fn bloom_filter_construction(c: &mut Criterion) {
-    let mut filter = BloomFilter::with_fp_rate(1_000_000, 0.001);
-
-    c.bench_function("bloom filter add key", |b| {
-        b.iter(|| {
-            let key = nanoid::nanoid!();
-            filter.set_with_hash(BloomFilter::get_hash(key.as_bytes()));
-        });
-    });
-}
-
-fn bloom_filter_contains(c: &mut Criterion) {
-    let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
-
-    for key in [
-        b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7", b"item8",
-        b"item9",
-    ] {
-        filter.set_with_hash(BloomFilter::get_hash(key));
-
-        assert!(!filter.contains(nanoid::nanoid!().as_bytes()));
-    }
-
-    c.bench_function("bloom filter contains key, true positive", |b| {
-        b.iter(|| filter.contains(b"item4"));
-    });
-
-    c.bench_function("bloom filter contains key, true negative", |b| {
-        b.iter(|| filter.contains(b"sdfafdas"));
-    });
-}
-
-// TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
-
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
     group.sample_size(10);
@@ -588,7 +482,9 @@ fn tree_get_pairs(c: &mut Criterion) {
     }
 }
 
-// TODO: benchmark point read disjoint vs non-disjoint level
+// TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
+
+// TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
 criterion_group!(
     benches,
@@ -601,10 +497,6 @@ criterion_group!(
     value_block_size,
     load_block_from_disk,
     file_descriptor_table,
-    bloom_filter_construction,
-    bloom_filter_contains,
     tree_get_pairs,
-    iterate_level_manifest,
-    find_segment,
 );
 criterion_main!(benches);
