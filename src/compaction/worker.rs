@@ -225,6 +225,11 @@ fn merge_segments(
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
+            let tli_ptr = trailer.offsets.tli_ptr;
+
+            #[cfg(feature = "bloom")]
+            let bloom_ptr = trailer.offsets.bloom_ptr;
+
             Ok(Arc::new(Segment {
                 tree_id: opts.tree_id,
 
@@ -238,7 +243,7 @@ fn merge_segments(
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index: BlockIndex::from_file(
                     &segment_file_path,
-                    tli_offset,
+                    tli_ptr,
                     (opts.tree_id, segment_id).into(),
                     opts.config.descriptor_table.clone(),
                     opts.config.block_cache.clone(),
@@ -256,7 +261,7 @@ fn merge_segments(
                     assert!(bloom_ptr > 0, "can not find bloom filter block");
 
                     let mut reader = File::open(&segment_file_path)?;
-                    reader.seek(SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                    reader.seek(SeekFrom::Start(bloom_ptr))?;
                     BloomFilter::deserialize(&mut reader)?
                 },
             }))

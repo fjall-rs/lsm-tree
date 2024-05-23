@@ -156,8 +156,8 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::BlockIndex,
-            new_segment_reader::NewSegmentReader,
             prefix::PrefixedReader,
+            reader::Reader,
             writer::{Options, Writer},
         },
         value::{SeqNo, ValueType},
@@ -240,7 +240,7 @@ mod tests {
                 Arc::clone(&block_cache),
             )?);
 
-            let iter = NewSegmentReader::new(
+            let iter = Reader::new(
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),

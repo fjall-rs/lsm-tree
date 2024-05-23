@@ -2,13 +2,13 @@ use super::value_block::ValueBlock;
 use crate::{UserKey, Value};
 use std::sync::Arc;
 
-pub struct NewBlockConsumer {
+pub struct ValueBlockConsumer {
     pub(crate) inner: Arc<ValueBlock>,
     lo: usize,
     hi: usize,
 }
 
-impl NewBlockConsumer {
+impl ValueBlockConsumer {
     #[must_use]
     pub fn new(inner: Arc<ValueBlock>) -> Self {
         Self::with_bounds(inner, &None, &None)
@@ -48,7 +48,7 @@ impl NewBlockConsumer {
     }
 }
 
-impl Iterator for NewBlockConsumer {
+impl Iterator for ValueBlockConsumer {
     type Item = Value;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -63,7 +63,7 @@ impl Iterator for NewBlockConsumer {
     }
 }
 
-impl DoubleEndedIterator for NewBlockConsumer {
+impl DoubleEndedIterator for ValueBlockConsumer {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.hi < self.lo {
             None
@@ -120,7 +120,7 @@ mod tests {
             Value::new(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter = NewBlockConsumer::new(block.into());
+        let mut iter = ValueBlockConsumer::new(block.into());
         assert_eq!(*b"a", &*iter.next().expect("should exist").key);
         assert_eq!(*b"b", &*iter.next().expect("should exist").key);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key);
@@ -139,7 +139,7 @@ mod tests {
             Value::new(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter = NewBlockConsumer::new(block.into());
+        let mut iter = ValueBlockConsumer::new(block.into());
         assert_eq!(*b"e", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"d", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"c", &*iter.next_back().expect("should exist").key);
@@ -158,7 +158,7 @@ mod tests {
             Value::new(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter = NewBlockConsumer::new(block.clone().into());
+        let mut iter = ValueBlockConsumer::new(block.clone().into());
         assert_eq!(*b"a", &*iter.next().expect("should exist").key);
         assert_eq!(*b"e", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"b", &*iter.next().expect("should exist").key);
@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(*b"c", &*iter.next().expect("should exist").key);
         iter_closed!(iter);
 
-        let mut iter = NewBlockConsumer::new(block.into());
+        let mut iter = ValueBlockConsumer::new(block.into());
         assert_eq!(*b"e", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"a", &*iter.next().expect("should exist").key);
         assert_eq!(*b"d", &*iter.next_back().expect("should exist").key);
@@ -186,13 +186,14 @@ mod tests {
         ]);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"c")), &None);
+            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"c")), &None);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key);
         assert_eq!(*b"d", &*iter.next().expect("should exist").key);
         assert_eq!(*b"e", &*iter.next().expect("should exist").key);
         iter_closed!(iter);
 
-        let mut iter = NewBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"c")), &None);
+        let mut iter =
+            ValueBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"c")), &None);
         assert_eq!(*b"e", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"d", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"c", &*iter.next_back().expect("should exist").key);
@@ -210,13 +211,14 @@ mod tests {
         ]);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"c")));
+            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"c")));
         assert_eq!(*b"a", &*iter.next().expect("should exist").key);
         assert_eq!(*b"b", &*iter.next().expect("should exist").key);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key);
         iter_closed!(iter);
 
-        let mut iter = NewBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"c")));
+        let mut iter =
+            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"c")));
         assert_eq!(*b"c", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"b", &*iter.next_back().expect("should exist").key);
         assert_eq!(*b"a", &*iter.next_back().expect("should exist").key);
@@ -233,11 +235,11 @@ mod tests {
         ]);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"a")));
+            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"a")));
         iter_closed!(iter);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"a"))).rev();
+            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"a"))).rev();
         iter_closed!(iter);
     }
 
@@ -252,11 +254,11 @@ mod tests {
         ]);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"f")), &None);
+            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"f")), &None);
         iter_closed!(iter);
 
         let mut iter =
-            NewBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"f")), &None).rev();
+            ValueBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"f")), &None).rev();
         iter_closed!(iter);
     }
 }

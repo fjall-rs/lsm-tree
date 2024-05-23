@@ -484,7 +484,6 @@ fn tree_get_pairs(c: &mut Criterion) {
 
 fn disk_point_read(c: &mut Criterion) {
     let folder = tempdir().unwrap();
-// TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
 
     let tree = Config::new(folder)
         .block_size(1_024)
@@ -519,6 +518,7 @@ fn disk_point_read(c: &mut Criterion) {
     });
 }
 
+// TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
 // TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
 criterion_group!(

@@ -1,28 +1,25 @@
 pub mod block;
 pub mod block_index;
-pub mod data_block_handle_queue;
 pub mod file_offsets;
 pub mod id;
-pub mod index_block_consumer;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
-pub mod new_block_consumer;
-pub mod new_segment_reader;
 pub mod prefix;
 pub mod range;
 pub mod reader;
 pub mod trailer;
 pub mod value_block;
+pub mod value_block_consumer;
 pub mod writer;
 
 use self::{
     block_index::BlockIndex, file_offsets::FileOffsets, prefix::PrefixedReader, range::Range,
-    reader::Reader, trailer::SegmentFileTrailer,
 };
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
+    segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -87,13 +84,14 @@ impl Segment {
             .access(&(self.tree_id, self.metadata.id).into())?
             .expect("should have gotten file");
 
-        let mut f = guard.file.lock().expect("lock is poisoned");
+        let mut file = guard.file.lock().expect("lock is poisoned");
 
         for handle in self.block_index.top_level_index.data.iter() {
-            let block = IndexBlock::from_file_compressed(&mut *f, handle.offset)?;
+            let block = IndexBlock::from_file_compressed(&mut *file, handle.offset)?;
 
             for handle in &*block.items {
-                let value_block = match ValueBlock::from_file_compressed(&mut *f, handle.offset) {
+                let value_block = match ValueBlock::from_file_compressed(&mut *file, handle.offset)
+                {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(
@@ -177,7 +175,7 @@ impl Segment {
                 assert!(bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                reader.seek(SeekFrom::Start(bloom_ptr))?;
                 BloomFilter::deserialize(&mut reader)?
             },
         })
@@ -221,42 +219,52 @@ impl Segment {
             }
         }
 
+        let Some(first_block_handle) = self
+            .block_index
+            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+        else {
+            return Ok(None);
+        };
+
+        let Some(block) = ValueBlock::load_by_block_handle(
+            &self.descriptor_table,
+            &self.block_cache,
+            (self.tree_id, self.metadata.id).into(),
+            first_block_handle.offset,
+            CachePolicy::Write,
+        )?
+        else {
+            return Ok(None);
+        };
+
         if seqno.is_none() {
             // NOTE: Fastpath for non-seqno reads (which are most common)
             // This avoids setting up a rather expensive block iterator
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-
-            if let Some(data_block_handle) = self
-                .block_index
-                .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
-            {
-                let block = ValueBlock::load_by_block_handle(
-                    &self.descriptor_table,
-                    &self.block_cache,
-                    (self.tree_id, self.metadata.id).into(),
-                    data_block_handle.offset,
-                    CachePolicy::Write,
-                )?;
-
-                let item = block.map_or_else(
-                    || Ok(None),
-                    |block| {
-                        // TODO: maybe binary search can be used, but it needs to find the max seqno
-                        // TODO: if so, implement in ValueBlock
-                        // TODO: and benchmark
-                        Ok(block
-                            .items
-                            .iter()
-                            .find(|item| item.key == key.as_ref().into())
-                            .cloned())
-                    },
-                );
-
-                return item;
-            }
+            return Ok(block
+                .items
+                .iter()
+                .find(|item| item.key == key.as_ref().into())
+                .cloned());
         }
+
+        let mut new_reader = Reader::new(
+            self.offsets.index_block_ptr,
+            self.descriptor_table.clone(),
+            (self.tree_id, self.metadata.id).into(),
+            self.block_cache.clone(),
+            first_block_handle.offset,
+            None,
+        );
+        new_reader.lo_block_size = block.header.data_length.into();
+        new_reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
+            block,
+            &Some(key.into()),
+            &None,
+        ));
+        new_reader.lo_initialized = true;
 
         // NOTE: For finding a specific seqno,
         // we need to use a reader
@@ -276,15 +284,15 @@ impl Segment {
 
         // TODO: replace with NewReader
 
-        let iter = Reader::new(
+        /* let iter = Reader::new(
             self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
             self.block_cache.clone(),
             self.block_index.clone(),
         )
-        .set_lower_bound(key.into());
+        .set_lower_bound(key.into()); */
 
-        for item in iter {
+        for item in new_reader {
             let item = item?;
 
             // Just stop iterating once we go past our desired key

@@ -306,7 +306,7 @@ impl Writer {
 mod tests {
     use super::*;
     use crate::descriptor_table::FileDescriptorTable;
-    use crate::segment::new_segment_reader::NewSegmentReader;
+    use crate::segment::reader::Reader;
     use crate::value::ValueType;
     use crate::{block_cache::BlockCache, Value};
     use std::sync::Arc;
@@ -356,7 +356,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        let iter = NewSegmentReader::new(
+        let iter = Reader::new(
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
@@ -415,7 +415,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        let iter = NewSegmentReader::new(
+        let iter = Reader::new(
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),

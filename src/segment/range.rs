@@ -1,6 +1,6 @@
 use super::block_index::BlockIndex;
 use super::id::GlobalSegmentId;
-use super::new_segment_reader::NewSegmentReader;
+use super::reader::Reader;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -17,7 +17,7 @@ pub struct Range {
 
     range: (Bound<UserKey>, Bound<UserKey>),
 
-    reader: NewSegmentReader,
+    reader: Reader,
 
     cache_policy: CachePolicy,
 }
@@ -31,7 +31,7 @@ impl Range {
         block_index: Arc<BlockIndex>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
-        let reader = NewSegmentReader::new(
+        let reader = Reader::new(
             data_block_boundary,
             descriptor_table,
             segment_id,
