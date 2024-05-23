@@ -29,8 +29,10 @@ pub type HiddenSet = HashSet<SegmentId>;
 
 /// Represents the levels of a log-structured merge tree.
 pub struct LevelManifest {
+    /// Path of level manifest file
     path: PathBuf,
 
+    /// Actual levels containing segments
     #[doc(hidden)]
     pub levels: Vec<Level>,
 
