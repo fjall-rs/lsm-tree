@@ -44,6 +44,67 @@ pub struct LevelManifest {
     segment_history_writer: segment_history::Writer,
 }
 
+impl std::fmt::Display for LevelManifest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (idx, level) in self.levels.iter().enumerate() {
+            write!(f, "{idx}: ")?;
+
+            if level.segments.is_empty() {
+                write!(f, "{{empty}}")?;
+            } else if level.segments.len() >= 24 {
+                #[allow(clippy::indexing_slicing)]
+                for segment in level.segments.iter().take(2) {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+                write!(f, " . . . . . ")?;
+
+                #[allow(clippy::indexing_slicing)]
+                for segment in level.segments.iter().rev().take(2).rev() {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+            } else {
+                for segment in &level.segments {
+                    let id = segment.metadata.id;
+                    let is_hidden = self.hidden_set.contains(&id);
+
+                    write!(
+                        f,
+                        "{}{id}{}",
+                        if is_hidden { "(" } else { "[" },
+                        /*       segment.metadata.file_size / 1_024 / 1_024, */
+                        if is_hidden { ")" } else { "]" },
+                    )?;
+                }
+            }
+
+            writeln!(
+                f,
+                " | # = {}, {} MiB",
+                level.len(),
+                level.size() / 1_024 / 1_024
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
 impl LevelManifest {
     pub(crate) fn is_compacting(&self) -> bool {
         !self.hidden_set.is_empty()
@@ -64,7 +125,7 @@ impl LevelManifest {
             #[cfg(feature = "segment_history")]
             segment_history_writer: segment_history::Writer::new()?,
         };
-        levels.write_to_disk()?;
+        Self::write_to_disk(path, &levels.levels)?;
 
         #[cfg(feature = "segment_history")]
         levels.write_segment_history_entry("create_new")?;
@@ -187,11 +248,13 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn write_to_disk(&mut self) -> crate::Result<()> {
-        log::trace!("Writing level manifest to {:?}", self.path);
+    pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
+        let path = path.as_ref();
+
+        log::trace!("Writing level manifest to {path:?}",);
 
         let mut serialized = vec![];
-        self.serialize(&mut serialized)?;
+        levels.serialize(&mut serialized)?;
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -200,7 +263,24 @@ impl LevelManifest {
         //
         // a) truncating is not an option, because for a short moment, the file is empty
         // b) just overwriting corrupts the file content
-        rewrite_atomic(&self.path, &serialized)?;
+        rewrite_atomic(path, &serialized)?;
+
+        Ok(())
+    }
+
+    pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+        // NOTE: Create a copy of the levels we can operate on
+        // without mutating the current level manifest
+        // If persisting to disk fails, this way the level manifest
+        // is unchanged
+        let mut level_working_copy = self.levels.clone();
+
+        f(&mut level_working_copy);
+
+        Self::write_to_disk(&self.path, &level_working_copy)?;
+        self.levels = level_working_copy;
+
+        log::trace!("Swapped level manifest to:\n{self}");
 
         Ok(())
     }
@@ -239,14 +319,14 @@ impl LevelManifest {
         self.write_segment_history_entry("insert").ok();
     }
 
-    pub(crate) fn remove(&mut self, segment_id: SegmentId) {
+    /* pub(crate) fn remove(&mut self, segment_id: SegmentId) {
         for level in &mut self.levels {
             level.remove(segment_id);
         }
 
         #[cfg(feature = "segment_history")]
         self.write_segment_history_entry("remove").ok();
-    }
+    } */
 
     /// Returns `true` if there are no segments
     #[must_use]
@@ -369,14 +449,14 @@ impl LevelManifest {
     }
 }
 
-impl Serializable for LevelManifest {
+impl Serializable for Vec<Level> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
         writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
 
-        writer.write_u8(self.depth())?;
+        writer.write_u8(self.len() as u8)?;
 
-        for level in &self.levels {
+        for level in self {
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
@@ -450,6 +530,40 @@ mod tests {
     }
 
     #[test]
+    fn level_manifest_atomicity() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(folder).open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 1);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 2);
+        tree.flush_active_memtable()?;
+
+        assert_eq!(3, tree.approximate_len());
+
+        tree.major_compact(u64::MAX)?;
+
+        assert_eq!(1, tree.segment_count());
+
+        tree.insert("a", "a", 3);
+        tree.flush_active_memtable()?;
+
+        let segment_count_before_major_compact = tree.segment_count();
+
+        // NOTE: Purposefully change level manifest to have invalid path
+        // to force an I/O error
+        tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
+
+        assert!(tree.major_compact(u64::MAX).is_err());
+        assert_eq!(segment_count_before_major_compact, tree.segment_count());
+
+        Ok(())
+    }
+
+    #[test]
     fn level_manifest_raw_empty() -> crate::Result<()> {
         let levels = LevelManifest {
             hidden_set: HashSet::default(),
@@ -461,7 +575,7 @@ mod tests {
         };
 
         let mut bytes = vec![];
-        levels.serialize(&mut bytes)?;
+        levels.levels.serialize(&mut bytes)?;
 
         #[rustfmt::skip]
         let raw = &[

@@ -2,7 +2,7 @@
 name = "lsm-tree"
 description = "A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs)"
 license = "MIT OR Apache-2.0"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 rust-version = "1.74.0"
 readme = "README.md"
@@ -43,7 +43,13 @@ nanoid = "0.4.0"
 test-log = "0.2.16"
 
 [[bench]]
-name = "lsmt"
+name = "bloom"
 harness = false
-path = "benches/lsmt.rs"
+path = "benches/bloom.rs"
 required-features = ["bloom"]
+
+[[bench]]
+name = "level_manifest"
+harness = false
+path = "benches/level_manifest.rs"
+required-features = []

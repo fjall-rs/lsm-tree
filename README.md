@@ -13,10 +13,6 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 > For example, it does not ship with a write-ahead log.
 > You probably want to use https://github.com/fjall-rs/fjall instead.
 
-```bash
-cargo add lsm-tree
-```
-
 ## About
 
 This is the most feature-rich LSM-tree implementation in Rust! It features:
