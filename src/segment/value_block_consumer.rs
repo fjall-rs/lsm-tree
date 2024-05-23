@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_simple() {
+    fn block_consumer_simple() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_simple_rev() {
+    fn block_consumer_simple_rev() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_simple_ping_pong() {
+    fn block_consumer_simple_ping_pong() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_start_key() {
+    fn block_consumer_start_key() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_end_key() {
+    fn block_consumer_end_key() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_no_range_end() {
+    fn block_consumer_no_range_end() {
         let block = block(vec![
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
             Value::new(*b"c", vec![], 0, crate::ValueType::Value),
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn new_block_consumer_no_range_start() {
+    fn block_consumer_no_range_start() {
         let block = block(vec![
             Value::new(*b"a", vec![], 0, crate::ValueType::Value),
             Value::new(*b"b", vec![], 0, crate::ValueType::Value),
