@@ -243,6 +243,9 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
+
+            // TODO: maybe use partition_point for binary search
+            // TODO: implement & test in ValueBlock
             return Ok(block
                 .items
                 .iter()
@@ -250,7 +253,7 @@ impl Segment {
                 .cloned());
         }
 
-        let mut new_reader = Reader::new(
+        let mut reader = Reader::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
@@ -258,19 +261,19 @@ impl Segment {
             first_block_handle.offset,
             None,
         );
-        new_reader.lo_block_size = block.header.data_length.into();
-        new_reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
+        reader.lo_block_size = block.header.data_length.into();
+        reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
             block,
             &Some(key.into()),
             &None,
         ));
-        new_reader.lo_initialized = true;
+        reader.lo_initialized = true;
 
         // NOTE: For finding a specific seqno,
         // we need to use a reader
         // because nothing really prevents the version
         // we are searching for to be in the next block
-        // after the one our key starts in
+        // after the one our key starts in, or the block after that
         //
         // Example (key:seqno), searching for a:2:
         //
@@ -281,18 +284,7 @@ impl Segment {
         // Based on get_lower_bound_block, "a" is in Block A
         // However, we are searching for A with seqno 2, which
         // unfortunately is in the next block
-
-        // TODO: replace with NewReader
-
-        /* let iter = Reader::new(
-            self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
-            self.block_cache.clone(),
-            self.block_index.clone(),
-        )
-        .set_lower_bound(key.into()); */
-
-        for item in new_reader {
+        for item in reader {
             let item = item?;
 
             // Just stop iterating once we go past our desired key
