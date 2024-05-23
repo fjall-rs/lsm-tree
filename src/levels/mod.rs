@@ -117,7 +117,7 @@ impl LevelManifest {
             .map(|_| Level::default())
             .collect::<Vec<_>>();
 
-        let mut levels = Self {
+        let levels = Self {
             path: path.as_ref().to_path_buf(),
             levels,
             hidden_set: HashSet::with_capacity(10),

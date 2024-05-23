@@ -202,6 +202,7 @@ impl BlockIndex {
 
     /// Returns the last index_block handle
     #[must_use]
+    #[allow(clippy::doc_markdown)]
     pub fn get_last_index_block_handle(&self) -> &KeyedBlockHandle {
         self.top_level_index.get_last_block_handle()
     }
