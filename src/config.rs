@@ -131,6 +131,8 @@ impl Deserializable for PersistedConfig {
     }
 }
 
+// TODO: breaking, prefix all config setters with set_?
+
 #[derive(Clone)]
 /// Tree configuration builder
 pub struct Config {

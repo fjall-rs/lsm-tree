@@ -149,24 +149,26 @@ impl Tree {
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables
     pub fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()> {
+        // NOTE: Mind lock order L -> M -> S
         log::trace!("flush: acquiring levels manifest write lock");
-        let mut levels = self.levels.write().expect("lock is poisoned");
+        let mut original_levels = self.levels.write().expect("lock is poisoned");
 
-        for segment in segments {
-            levels.add(segment.clone());
-        }
-
+        // NOTE: Mind lock order L -> M -> S
         log::trace!("flush: acquiring sealed memtables write lock");
         let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
+
+        original_levels.atomic_swap(|recipe| {
+            for segment in segments.iter().cloned() {
+                recipe
+                    .first_mut()
+                    .expect("first level should exist")
+                    .insert(segment);
+            }
+        })?;
 
         for segment in segments {
             memtable_lock.remove(segment.metadata.id);
         }
-
-        // NOTE: Segments are registered, we can unlock the memtable(s) safely
-        drop(memtable_lock);
-
-        levels.write_to_disk()?;
 
         Ok(())
     }
@@ -241,7 +243,7 @@ impl Tree {
     /// Approximates the amount of items in the tree.
     #[must_use]
     pub fn approximate_len(&self) -> u64 {
-        // IMPORTANT: Mind lock order L -> M -> S
+        // NOTE: Mind lock order L -> M -> S
         let levels = self.levels.read().expect("lock is poisoned");
 
         let level_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
@@ -625,7 +627,7 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        // IMPORTANT: Mind lock order L -> M -> S
+        // NOTE: Mind lock order L -> M -> S
         let level_manifest_lock = self.levels.read().expect("lock is poisoned");
         let active = self.active_memtable.read().expect("lock is poisoned");
         let sealed = self.sealed_memtables.read().expect("lock is poisoned");
@@ -678,7 +680,7 @@ impl Tree {
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a {
         let prefix = prefix.as_ref();
 
-        // IMPORTANT: Mind lock order L -> M -> S
+        // NOTE: Mind lock order L -> M -> S
         let level_manifest_lock = self.levels.read().expect("lock is poisoned");
         let active = self.active_memtable.read().expect("lock is poisoned");
         let sealed = self.sealed_memtables.read().expect("lock is poisoned");

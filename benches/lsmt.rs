@@ -1,6 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    bloom::BloomFilter,
     segment::{
         block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
     },
@@ -9,91 +8,188 @@ use lsm_tree::{
 };
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};
+use tempfile::tempdir;
 
-fn iterate_level_manifest(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Iterate level manifest");
+fn full_scan(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scan all");
+    group.sample_size(10);
 
-    for segment_count in [0, 1, 5, 10, 20, 50, 100, 250, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
+    for item_count in [10_000, 100_000, 1_000_000] {
+        group.bench_function(format!("scan all uncached, {item_count} items"), |b| {
+            let path = tempdir().unwrap();
 
-        for x in 0..segment_count {
-            tree.insert("a", "b", x as u64);
+            let tree = Config::new(path)
+                .block_cache(BlockCache::with_capacity_bytes(0).into())
+                .open()
+                .unwrap();
+
+            for x in 0_u32..item_count {
+                let key = x.to_be_bytes();
+                let value = nanoid::nanoid!();
+                tree.insert(key, value, 0);
+            }
+
             tree.flush_active_memtable().unwrap();
-        }
-
-        group.bench_function(&format!("iterate {segment_count} segments"), |b| {
-            let levels = tree.levels.read().unwrap();
 
             b.iter(|| {
-                assert_eq!(levels.iter().count(), segment_count);
+                assert_eq!(tree.len().unwrap(), item_count as usize);
+            })
+        });
+
+        group.bench_function(format!("scan all cached, {item_count} items"), |b| {
+            let path = tempdir().unwrap();
+
+            let tree = Config::new(path).open().unwrap();
+
+            for x in 0_u32..item_count {
+                let key = x.to_be_bytes();
+                let value = nanoid::nanoid!();
+                tree.insert(key, value, 0);
+            }
+
+            tree.flush_active_memtable().unwrap();
+            assert_eq!(tree.len().unwrap(), item_count as usize);
+
+            b.iter(|| {
+                assert_eq!(tree.len().unwrap(), item_count as usize);
+            })
+        });
+    }
+}
+
+fn scan_vs_query(c: &mut Criterion) {
+    use std::ops::Bound::*;
+
+    let mut group = c.benchmark_group("scan vs query");
+
+    for size in [100_000, 1_000_000] {
+        let path = tempdir().unwrap();
+
+        let tree = Config::new(path)
+            .block_cache(BlockCache::with_capacity_bytes(0).into())
+            .open()
+            .unwrap();
+
+        for x in 0..size as u64 {
+            let key = x.to_be_bytes().to_vec();
+            let value = nanoid::nanoid!().as_bytes().to_vec();
+            tree.insert(key, value, 0);
+        }
+
+        tree.flush_active_memtable().unwrap();
+        assert_eq!(tree.len().unwrap(), size);
+
+        group.sample_size(10);
+        group.bench_function(format!("scan {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.iter();
+                let iter = iter.into_iter();
+                let count = iter
+                    .filter(|x| match x {
+                        Ok((key, _)) => {
+                            let buf = &key[..8];
+                            let (int_bytes, _rest) = buf.split_at(std::mem::size_of::<u64>());
+                            let num = u64::from_be_bytes(int_bytes.try_into().unwrap());
+                            (60000..61000).contains(&num)
+                        }
+                        Err(_) => false,
+                    })
+                    .count();
+                assert_eq!(count, 1000);
+            })
+        });
+        group.bench_function(format!("query {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.range((
+                    Included(60000_u64.to_be_bytes().to_vec()),
+                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                ));
+                let iter = iter.into_iter();
+                assert_eq!(iter.count(), 1000);
+            })
+        });
+        group.bench_function(format!("query rev {}", size), |b| {
+            b.iter(|| {
+                let iter = tree.range((
+                    Included(60000_u64.to_be_bytes().to_vec()),
+                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                ));
+                let iter = iter.into_iter();
+                assert_eq!(iter.rev().count(), 1000);
+            })
+        });
+    }
+}
+
+fn scan_vs_prefix(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scan vs prefix");
+
+    for size in [10_000, 100_000, 1_000_000] {
+        let path = tempdir().unwrap();
+
+        let tree = Config::new(path)
+            .block_cache(BlockCache::with_capacity_bytes(0).into())
+            .open()
+            .unwrap();
+
+        for _ in 0..size {
+            let key = nanoid::nanoid!();
+            let value = nanoid::nanoid!();
+            tree.insert(key, value, 0);
+        }
+
+        let prefix = "hello$$$";
+
+        for _ in 0..1000_u64 {
+            let key = format!("{}:{}", prefix, nanoid::nanoid!());
+            let value = nanoid::nanoid!();
+            tree.insert(key, value, 0);
+        }
+
+        tree.flush_active_memtable().unwrap();
+        assert_eq!(tree.len().unwrap() as u64, size + 1000);
+
+        group.sample_size(10);
+        group.bench_function(format!("scan {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.iter();
+                let iter = iter.into_iter().filter(|x| match x {
+                    Ok((key, _)) => key.starts_with(prefix.as_bytes()),
+                    Err(_) => false,
+                });
+                assert_eq!(iter.count(), 1000);
+            });
+        });
+        group.bench_function(format!("prefix {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.prefix(prefix);
+                let iter = iter.into_iter();
+                assert_eq!(iter.count(), 1000);
+            });
+        });
+        group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
+            b.iter(|| {
+                let iter = tree.prefix(prefix);
+                let iter = iter.into_iter();
+                assert_eq!(iter.rev().count(), 1000);
             });
         });
     }
 }
 
-fn find_segment(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Find segment in disjoint level");
+fn memtable_get_upper_bound(c: &mut Criterion) {
+    c.bench_function("memtable get", |b| {
+        let memtable = MemTable::default();
 
-    for segment_count in [1u64, 5, 10, 20, 50, 100, 250, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
-
-        for x in 0..segment_count {
-            tree.insert(x.to_be_bytes(), "", x as u64);
-            tree.flush_active_memtable().unwrap();
+        for _ in 0..1_000_000 {
+            memtable.insert(Value {
+                key: format!("abc_{}", nanoid!()).as_bytes().into(),
+                value: vec![].into(),
+                seqno: 0,
+                value_type: lsm_tree::ValueType::Value,
+            });
         }
 
-        let key = (segment_count / 2).to_be_bytes();
-
-        group.bench_function(
-            &format!("find segment in {segment_count} segments - binary search"),
-            |b| {
-                let levels = tree.levels.read().unwrap();
-
-                b.iter(|| {
-                    levels
-                        .levels
-                        .first()
-                        .expect("should exist")
-                        .get_segment_containing_key(&key)
-                        .expect("should exist")
-                });
-            },
-        );
-
-        group.bench_function(
-            &format!("find segment in {segment_count} segments - linear search"),
-            |b| {
-                let levels = tree.levels.read().unwrap();
-
-                b.iter(|| {
-                    levels
-                        .levels
-                        .first()
-                        .expect("should exist")
-                        .iter()
-                        .find(|x| x.metadata.key_range.contains_key(&key))
-                        .expect("should exist");
-                });
-            },
-        );
-    }
-}
-
-fn memtable_get_upper_bound(c: &mut Criterion) {
-    let memtable = MemTable::default();
-
-    for _ in 0..1_000_000 {
-        memtable.insert(Value {
-            key: format!("abc_{}", nanoid!()).as_bytes().into(),
-            value: vec![].into(),
-            seqno: 0,
-            value_type: lsm_tree::ValueType::Value,
-        });
-    }
-
-    c.bench_function("memtable get", |b| {
         b.iter(|| {
             memtable.get("abc", None);
         });
@@ -178,6 +274,7 @@ fn value_block_size(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
 
@@ -209,6 +306,7 @@ fn value_block_size_find(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
             let key = &(item_count / 2).to_be_bytes();
@@ -252,12 +350,13 @@ fn load_block_from_disk(c: &mut Criterion) {
                     compression: CompressionType::Lz4,
                     crc: 0,
                     data_length: 0,
+                    previous_block_offset: 0,
                 },
             };
 
             // Serialize block
             block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let (header, data) = ValueBlock::to_bytes_compressed(&items).unwrap();
+            let (header, data) = ValueBlock::to_bytes_compressed(&items, 0).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
             header.serialize(&mut file).unwrap();
@@ -297,40 +396,6 @@ fn file_descriptor_table(c: &mut Criterion) {
         });
     });
 }
-
-fn bloom_filter_construction(c: &mut Criterion) {
-    let mut filter = BloomFilter::with_fp_rate(1_000_000, 0.001);
-
-    c.bench_function("bloom filter add key", |b| {
-        b.iter(|| {
-            let key = nanoid::nanoid!();
-            filter.set_with_hash(BloomFilter::get_hash(key.as_bytes()));
-        });
-    });
-}
-
-fn bloom_filter_contains(c: &mut Criterion) {
-    let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
-
-    for key in [
-        b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7", b"item8",
-        b"item9",
-    ] {
-        filter.set_with_hash(BloomFilter::get_hash(key));
-
-        assert!(!filter.contains(nanoid::nanoid!().as_bytes()));
-    }
-
-    c.bench_function("bloom filter contains key, true positive", |b| {
-        b.iter(|| filter.contains(b"item4"));
-    });
-
-    c.bench_function("bloom filter contains key, true negative", |b| {
-        b.iter(|| filter.contains(b"sdfafdas"));
-    });
-}
-
-// TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
@@ -417,20 +482,57 @@ fn tree_get_pairs(c: &mut Criterion) {
     }
 }
 
-// TODO: benchmark point read disjoint vs non-disjoint level
+fn disk_point_read(c: &mut Criterion) {
+    let folder = tempdir().unwrap();
+
+    let tree = Config::new(folder)
+        .block_size(1_024)
+        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
+
+    for seqno in 0..5 {
+        tree.insert("a", "b", seqno);
+    }
+    tree.flush_active_memtable().unwrap();
+
+    for seqno in 5..10 {
+        tree.insert("a", "b", seqno);
+    }
+    tree.flush_active_memtable().unwrap();
+
+    c.bench_function("point read latest (uncached)", |b| {
+        let tree = tree.clone();
+
+        b.iter(|| {
+            tree.get("a").unwrap().unwrap();
+        });
+    });
+
+    c.bench_function("point read w/ seqno latest (uncached)", |b| {
+        let snapshot = tree.snapshot(5);
+
+        b.iter(|| {
+            snapshot.get("a").unwrap().unwrap();
+        });
+    });
+}
+
+// TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
+// TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
 criterion_group!(
     benches,
+    disk_point_read,
+    full_scan,
+    scan_vs_query,
+    scan_vs_prefix,
     tli_find_item,
     memtable_get_upper_bound,
     value_block_size_find,
     value_block_size,
     load_block_from_disk,
     file_descriptor_table,
-    bloom_filter_construction,
-    bloom_filter_contains,
     tree_get_pairs,
-    iterate_level_manifest,
-    find_segment,
 );
 criterion_main!(benches);

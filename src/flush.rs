@@ -77,11 +77,16 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         opts.block_cache.clone(),
     )?);
 
+    #[cfg(feature = "bloom")]
+    let bloom_ptr = trailer.offsets.bloom_ptr;
+
     let created_segment = Segment {
         tree_id: opts.tree_id,
 
-        descriptor_table: opts.descriptor_table.clone(),
         metadata: trailer.metadata,
+        offsets: trailer.offsets,
+
+        descriptor_table: opts.descriptor_table.clone(),
         block_index,
         block_cache: opts.block_cache,
 
@@ -91,13 +96,10 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
             use crate::serde::Deserializable;
             use std::io::Seek;
 
-            assert!(
-                trailer.offsets.bloom_ptr > 0,
-                "can not find bloom filter block"
-            );
+            assert!(bloom_ptr > 0, "can not find bloom filter block");
 
             let mut reader = std::fs::File::open(&segment_file_path)?;
-            reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+            reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
             BloomFilter::deserialize(&mut reader)?
         },
     };

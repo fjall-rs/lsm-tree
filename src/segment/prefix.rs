@@ -9,6 +9,8 @@ use std::{
 
 #[allow(clippy::module_name_repetitions)]
 pub struct PrefixedReader {
+    data_block_boundary: u64,
+
     descriptor_table: Arc<FileDescriptorTable>,
     block_index: Arc<BlockIndex>,
     block_cache: Arc<BlockCache>,
@@ -16,13 +18,14 @@ pub struct PrefixedReader {
 
     prefix: UserKey,
 
-    iterator: Option<Range>,
+    reader: Option<Range>,
 
     cache_policy: CachePolicy,
 }
 
 impl PrefixedReader {
     pub fn new<K: Into<UserKey>>(
+        data_block_boundary: u64,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
@@ -30,12 +33,14 @@ impl PrefixedReader {
         prefix: K,
     ) -> Self {
         Self {
+            data_block_boundary,
+
             block_cache,
             block_index,
             descriptor_table,
             segment_id,
 
-            iterator: None,
+            reader: None,
 
             prefix: prefix.into(),
 
@@ -58,6 +63,7 @@ impl PrefixedReader {
         let upper_bound = upper_bound.map(|x| x.end_key).map_or(Unbounded, Excluded);
 
         let range = Range::new(
+            self.data_block_boundary,
             self.descriptor_table.clone(),
             self.segment_id,
             self.block_cache.clone(),
@@ -66,7 +72,7 @@ impl PrefixedReader {
         )
         .cache_policy(self.cache_policy);
 
-        self.iterator = Some(range);
+        self.reader = Some(range);
 
         Ok(())
     }
@@ -76,7 +82,7 @@ impl Iterator for PrefixedReader {
     type Item = crate::Result<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.iterator.is_none() {
+        if self.reader.is_none() {
             if let Err(e) = self.initialize() {
                 return Some(Err(e));
             };
@@ -84,7 +90,7 @@ impl Iterator for PrefixedReader {
 
         loop {
             let item_result = self
-                .iterator
+                .reader
                 .as_mut()
                 .expect("should be initialized")
                 .next()?;
@@ -111,7 +117,7 @@ impl Iterator for PrefixedReader {
 
 impl DoubleEndedIterator for PrefixedReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.iterator.is_none() {
+        if self.reader.is_none() {
             if let Err(e) = self.initialize() {
                 return Some(Err(e));
             };
@@ -119,7 +125,7 @@ impl DoubleEndedIterator for PrefixedReader {
 
         loop {
             let entry_result = self
-                .iterator
+                .reader
                 .as_mut()
                 .expect("should be initialized")
                 .next_back()?;
@@ -144,6 +150,7 @@ impl DoubleEndedIterator for PrefixedReader {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use crate::{
         block_cache::BlockCache,
@@ -235,14 +242,17 @@ mod tests {
             )?);
 
             let iter = Reader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                0,
+                None,
             );
             assert_eq!(iter.count() as u64, item_count * 3);
 
             let iter = PrefixedReader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -253,6 +263,7 @@ mod tests {
             assert_eq!(iter.count() as u64, item_count);
 
             let iter = PrefixedReader::new(
+                trailer.offsets.index_block_ptr,
                 table,
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -338,6 +349,7 @@ mod tests {
 
         for (prefix_key, item_count) in &expected {
             let iter = PrefixedReader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -350,6 +362,7 @@ mod tests {
 
         for (prefix_key, item_count) in &expected {
             let iter = PrefixedReader::new(
+                trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
                 Arc::clone(&block_cache),
@@ -413,6 +426,7 @@ mod tests {
         )?);
 
         let iter = PrefixedReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             Arc::clone(&block_cache),
@@ -422,6 +436,7 @@ mod tests {
         assert_eq!(3, iter.count());
 
         let iter = PrefixedReader::new(
+            trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
             Arc::clone(&block_cache),
@@ -431,6 +446,7 @@ mod tests {
         assert_eq!(3, iter.rev().count());
 
         let mut iter = PrefixedReader::new(
+            trailer.offsets.index_block_ptr,
             table,
             (0, 0).into(),
             Arc::clone(&block_cache),

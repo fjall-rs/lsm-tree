@@ -1,11 +1,15 @@
 use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment};
 use std::sync::Arc;
 
+/// Level of an LSM-tree
 #[derive(Clone, Debug)]
 pub struct Level {
+    /// List of segments
     #[doc(hidden)]
     pub segments: Vec<Arc<Segment>>,
 
+    /// If the level is disjoint - is only recomputed
+    /// when the level is changed
     pub is_disjoint: bool,
 }
 

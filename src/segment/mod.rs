@@ -1,9 +1,7 @@
 pub mod block;
 pub mod block_index;
-pub mod data_block_handle_queue;
 pub mod file_offsets;
 pub mod id;
-pub mod index_block_consumer;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
@@ -12,16 +10,16 @@ pub mod range;
 pub mod reader;
 pub mod trailer;
 pub mod value_block;
+pub mod value_block_consumer;
 pub mod writer;
 
 use self::{
-    block_index::BlockIndex, prefix::PrefixedReader, range::Range, reader::Reader,
-    trailer::SegmentFileTrailer,
+    block_index::BlockIndex, file_offsets::FileOffsets, prefix::PrefixedReader, range::Range,
 };
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::value_block::ValueBlock,
+    segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
     tree_inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
@@ -49,6 +47,8 @@ pub struct Segment {
     /// Segment metadata object
     pub metadata: meta::Metadata,
 
+    pub offsets: FileOffsets,
+
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
     pub block_index: Arc<BlockIndex>,
@@ -73,7 +73,8 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
-        use crate::segment::block_index::IndexBlock;
+        use block_index::IndexBlock;
+        use value_block::ValueBlock;
 
         let mut count = 0;
         let mut broken_count = 0;
@@ -83,13 +84,14 @@ impl Segment {
             .access(&(self.tree_id, self.metadata.id).into())?
             .expect("should have gotten file");
 
-        let mut f = guard.file.lock().expect("lock is poisoned");
+        let mut file = guard.file.lock().expect("lock is poisoned");
 
         for handle in self.block_index.top_level_index.data.iter() {
-            let block = IndexBlock::from_file_compressed(&mut *f, handle.offset)?;
+            let block = IndexBlock::from_file_compressed(&mut *file, handle.offset)?;
 
             for handle in &*block.items {
-                let value_block = match ValueBlock::from_file_compressed(&mut *f, handle.offset) {
+                let value_block = match ValueBlock::from_file_compressed(&mut *file, handle.offset)
+                {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(
@@ -129,6 +131,8 @@ impl Segment {
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
+        use trailer::SegmentFileTrailer;
+
         let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
@@ -146,11 +150,16 @@ impl Segment {
             Arc::clone(&block_cache),
         )?;
 
+        #[cfg(feature = "bloom")]
+        let bloom_ptr = trailer.offsets.bloom_ptr;
+
         Ok(Self {
             tree_id,
 
             descriptor_table,
             metadata: trailer.metadata,
+            offsets: trailer.offsets,
+
             block_index: Arc::new(block_index),
             block_cache,
 
@@ -158,15 +167,15 @@ impl Segment {
             #[cfg(feature = "bloom")]
             bloom_filter: {
                 use crate::serde::Deserializable;
-                use std::io::Seek;
+                use std::{
+                    fs::File,
+                    io::{Seek, SeekFrom},
+                };
 
-                assert!(
-                    trailer.offsets.bloom_ptr > 0,
-                    "can not find bloom filter block"
-                );
+                assert!(bloom_ptr > 0, "can not find bloom filter block");
 
-                let mut reader = std::fs::File::open(file_path)?;
-                reader.seek(std::io::SeekFrom::Start(trailer.offsets.bloom_ptr))?;
+                let mut reader = File::open(file_path)?;
+                reader.seek(SeekFrom::Start(bloom_ptr))?;
                 BloomFilter::deserialize(&mut reader)?
             },
         })
@@ -189,7 +198,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        use value_block::CachePolicy;
+        use value_block::{CachePolicy, ValueBlock};
 
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
@@ -210,6 +219,24 @@ impl Segment {
             }
         }
 
+        let Some(first_block_handle) = self
+            .block_index
+            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+        else {
+            return Ok(None);
+        };
+
+        let Some(block) = ValueBlock::load_by_block_handle(
+            &self.descriptor_table,
+            &self.block_cache,
+            (self.tree_id, self.metadata.id).into(),
+            first_block_handle.offset,
+            CachePolicy::Write,
+        )?
+        else {
+            return Ok(None);
+        };
+
         if seqno.is_none() {
             // NOTE: Fastpath for non-seqno reads (which are most common)
             // This avoids setting up a rather expensive block iterator
@@ -217,40 +244,36 @@ impl Segment {
             // This only really works because sequence numbers are sorted
             // in descending order
 
-            if let Some(data_block_handle) = self
-                .block_index
-                .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
-            {
-                let block = ValueBlock::load_by_block_handle(
-                    &self.descriptor_table,
-                    &self.block_cache,
-                    (self.tree_id, self.metadata.id).into(),
-                    &data_block_handle,
-                    CachePolicy::Write,
-                )?;
-
-                let item = block.map_or_else(
-                    || Ok(None),
-                    |block| {
-                        // TODO: maybe binary search can be used, but it needs to find the max seqno
-                        // TODO: if so, implement in ValueBlock
-                        Ok(block
-                            .items
-                            .iter()
-                            .find(|item| item.key == key.as_ref().into())
-                            .cloned())
-                    },
-                );
-
-                return item;
-            }
+            // TODO: maybe use partition_point for binary search
+            // TODO: implement & test in ValueBlock
+            return Ok(block
+                .items
+                .iter()
+                .find(|item| item.key == key.as_ref().into())
+                .cloned());
         }
+
+        let mut reader = Reader::new(
+            self.offsets.index_block_ptr,
+            self.descriptor_table.clone(),
+            (self.tree_id, self.metadata.id).into(),
+            self.block_cache.clone(),
+            first_block_handle.offset,
+            None,
+        );
+        reader.lo_block_size = block.header.data_length.into();
+        reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
+            block,
+            &Some(key.into()),
+            &None,
+        ));
+        reader.lo_initialized = true;
 
         // NOTE: For finding a specific seqno,
         // we need to use a reader
         // because nothing really prevents the version
         // we are searching for to be in the next block
-        // after the one our key starts in
+        // after the one our key starts in, or the block after that
         //
         // Example (key:seqno), searching for a:2:
         //
@@ -261,16 +284,7 @@ impl Segment {
         // Based on get_lower_bound_block, "a" is in Block A
         // However, we are searching for A with seqno 2, which
         // unfortunately is in the next block
-
-        let iter = Reader::new(
-            self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
-            self.block_cache.clone(),
-            self.block_index.clone(),
-        )
-        .set_lower_bound(key.into());
-
-        for item in iter {
+        for item in reader {
             let item = item?;
 
             // Just stop iterating once we go past our desired key
@@ -297,12 +311,14 @@ impl Segment {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Reader {
-        Reader::new(
+    pub fn iter(&self) -> Range {
+        Range::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
+            (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
         )
     }
 
@@ -314,6 +330,7 @@ impl Segment {
     #[must_use]
     pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),
@@ -330,6 +347,7 @@ impl Segment {
     #[must_use]
     pub fn prefix<K: Into<UserKey>>(&self, prefix: K) -> PrefixedReader {
         PrefixedReader::new(
+            self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
             (self.tree_id, self.metadata.id).into(),
             Arc::clone(&self.block_cache),

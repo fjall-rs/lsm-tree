@@ -112,6 +112,7 @@ mod tests {
         levels::LevelManifest,
         segment::{
             block_index::BlockIndex,
+            file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             Segment,
         },
@@ -131,6 +132,15 @@ mod tests {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
+
+            offsets: FileOffsets {
+                bloom_ptr: 0,
+                index_block_ptr: 0,
+                metadata_ptr: 0,
+                range_tombstone_ptr: 0,
+                tli_ptr: 0,
+            },
+
             metadata: Metadata {
                 block_count: 0,
                 block_size: 0,

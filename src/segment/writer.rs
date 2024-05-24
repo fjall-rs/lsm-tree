@@ -303,15 +303,13 @@ impl Writer {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::descriptor_table::FileDescriptorTable;
+    use crate::segment::reader::Reader;
     use crate::value::ValueType;
-    use crate::{
-        block_cache::BlockCache,
-        segment::{block_index::BlockIndex, reader::Reader},
-        Value,
-    };
+    use crate::{block_cache::BlockCache, Value};
     use std::sync::Arc;
     use test_log::test;
 
@@ -355,21 +353,17 @@ mod tests {
         let segment_file_path = folder.join(segment_id.to_string());
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(&segment_file_path, (0, segment_id).into());
+        table.insert(segment_file_path, (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
-            segment_file_path,
-            trailer.offsets.tli_ptr,
-            (0, segment_id).into(),
-            table.clone(),
-            Arc::clone(&block_cache),
-        )?);
+
         let iter = Reader::new(
+            trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
             Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            0,
+            None,
         );
 
         assert_eq!(ITEM_COUNT, iter.count() as u64);
@@ -418,22 +412,17 @@ mod tests {
         let segment_file_path = folder.join(segment_id.to_string());
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
-        table.insert(&segment_file_path, (0, segment_id).into());
+        table.insert(segment_file_path, (0, segment_id).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
-            segment_file_path,
-            trailer.offsets.tli_ptr,
-            (0, segment_id).into(),
-            table.clone(),
-            Arc::clone(&block_cache),
-        )?);
 
         let iter = Reader::new(
+            trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
             Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            0,
+            None,
         );
 
         assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);
