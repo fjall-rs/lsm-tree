@@ -31,7 +31,7 @@ pub struct Options {
     /// Levels manifest.
     pub levels: Arc<RwLock<LevelManifest>>,
 
-    /// sealed memtables (required for temporarily locking).
+    /// Sealed memtables (required for temporarily locking).
     pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
     /// Snapshot counter (required for checking if there are open snapshots).

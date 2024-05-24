@@ -150,6 +150,7 @@ impl DoubleEndedIterator for PrefixedReader {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use crate::{
         block_cache::BlockCache,

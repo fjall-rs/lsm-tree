@@ -218,6 +218,7 @@ impl DoubleEndedIterator for Range {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     // use super::Reader as SegmentReader;
     use crate::{

@@ -303,6 +303,7 @@ impl Writer {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::descriptor_table::FileDescriptorTable;
