@@ -5,6 +5,11 @@ use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Value>> + 'a>;
 
+#[must_use]
+pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
+    item_seqno < seqno
+}
+
 /// Merges multiple iterators
 ///
 /// This iterator can iterate through N iterators simultaneously in order
@@ -16,7 +21,6 @@ pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Va
 pub struct MergeIterator<'a> {
     iterators: Vec<DoubleEndedPeekable<BoxedIterator<'a>>>,
     evict_old_versions: bool,
-    seqno: Option<SeqNo>,
 }
 
 impl<'a> MergeIterator<'a> {
@@ -30,7 +34,6 @@ impl<'a> MergeIterator<'a> {
         Self {
             iterators,
             evict_old_versions: false,
-            seqno: None,
         }
     }
 
@@ -38,12 +41,6 @@ impl<'a> MergeIterator<'a> {
     #[must_use]
     pub fn evict_old_versions(mut self, v: bool) -> Self {
         self.evict_old_versions = v;
-        self
-    }
-
-    #[must_use]
-    pub fn snapshot_seqno(mut self, v: SeqNo) -> Self {
-        self.seqno = Some(v);
         self
     }
 
@@ -254,94 +251,63 @@ impl<'a> Iterator for MergeIterator<'a> {
     type Item = crate::Result<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.get_min()? {
-                Ok((_, min_item)) => {
-                    if let Some(seqno) = self.seqno {
-                        if min_item.seqno >= seqno {
-                            // Filter out seqnos that are too high
-                            continue;
-                        }
-                    }
-
-                    // Tombstone marker OR we want to GC old versions
-                    // As long as items beneath tombstone are the same key, ignore them
-                    if self.evict_old_versions {
-                        if let Err(e) = self.drain_key_min(&min_item.key) {
-                            return Some(Err(e));
-                        };
-                    }
-
-                    return Some(Ok(min_item));
+        match self.get_min()? {
+            Ok((_, min_item)) => {
+                // Tombstone marker OR we want to GC old versions
+                // As long as items beneath tombstone are the same key, ignore them
+                if self.evict_old_versions {
+                    if let Err(e) = self.drain_key_min(&min_item.key) {
+                        return Some(Err(e));
+                    };
                 }
-                Err(e) => return Some(Err(e)),
+
+                Some(Ok(min_item))
             }
+            Err(e) => Some(Err(e)),
         }
     }
 }
 
 impl<'a> DoubleEndedIterator for MergeIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        loop {
-            let mut head;
+        let mut head;
 
-            match self.get_max()? {
-                Ok((_, max_item)) => {
-                    head = max_item;
+        match self.get_max()? {
+            Ok((_, max_item)) => {
+                head = max_item;
 
-                    if let Some(seqno) = self.seqno {
-                        if head.seqno >= seqno {
-                            // Filter out seqnos that are too high
-                            continue;
-                        }
-                    }
+                if self.evict_old_versions {
+                    'inner: while let Some(head_result) = self.peek_max() {
+                        match head_result {
+                            Ok((_, next)) => {
+                                if next.key == head.key {
+                                    let next = self.get_max().expect("should exist");
 
-                    if self.evict_old_versions {
-                        'inner: while let Some(head_result) = self.peek_max() {
-                            match head_result {
-                                Ok((_, next)) => {
-                                    if next.key == head.key {
-                                        let next = self.get_max().expect("should exist");
-
-                                        let next = match next {
-                                            Ok((_, v)) => v,
-                                            Err(e) => {
-                                                return Some(Err(e));
-                                            }
-                                        };
-
-                                        if let Some(seqno) = self.seqno {
-                                            if next.seqno < seqno {
-                                                head = next;
-                                            }
-                                        } else {
-                                            // Keep popping off heap until we reach the next key
-                                            // Because the seqno's are stored in descending order
-                                            // The next item will definitely have a higher seqno, so
-                                            // we can just take it
-                                            head = next;
+                                    let next = match next {
+                                        Ok((_, v)) => v,
+                                        Err(e) => {
+                                            return Some(Err(e));
                                         }
-                                    } else {
-                                        // Reached next user key now
-                                        break 'inner;
-                                    }
+                                    };
+
+                                    // Keep popping off heap until we reach the next key
+                                    // Because the seqno's are stored in descending order
+                                    // The next item will definitely have a higher seqno, so
+                                    // we can just take it
+                                    head = next;
+                                } else {
+                                    // Reached next user key now
+                                    break 'inner;
                                 }
-                                Err(e) => return Some(Err(e)),
                             }
+                            Err(e) => return Some(Err(e)),
                         }
                     }
-
-                    if let Some(seqno) = self.seqno {
-                        if head.seqno >= seqno {
-                            // Filter out seqnos that are too high
-                            continue;
-                        }
-                    }
-
-                    return Some(Ok(head));
                 }
-                Err(e) => return Some(Err(e)),
+
+                Some(Ok(head))
             }
+            Err(e) => Some(Err(e)),
         }
     }
 }
@@ -683,14 +649,17 @@ mod tests {
             Value::new(*b"c", *b"old", 0, ValueType::Value),
         ];
 
-        let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+        let iter0 = Box::new(
+            vec0.iter()
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .filter(|x| seqno_filter(x.seqno, 1))
+                .cloned()
+                .map(Ok),
+        );
 
-        let mut iter = MergeIterator::new(vec![iter0])
-            .evict_old_versions(true)
-            // NOTE: "1" because the seqno starts at 0
-            // When we insert an item, the tree LSN is at 1
-            // So the snapshot to get all items with seqno = 0 should have seqno = 1
-            .snapshot_seqno(1);
+        let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
             Value::new(*b"a", *b"old", 0, ValueType::Value),
@@ -722,14 +691,17 @@ mod tests {
             Value::new(*b"c", *b"old", 0, ValueType::Value),
         ];
 
-        let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+        let iter0 = Box::new(
+            vec0.iter()
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .filter(|x| seqno_filter(x.seqno, 1))
+                .cloned()
+                .map(Ok),
+        );
 
-        let mut iter = MergeIterator::new(vec![iter0])
-            .evict_old_versions(true)
-            // NOTE: "1" because the seqno starts at 0
-            // When we insert an item, the tree LSN is at 1
-            // So the snapshot to get all items with seqno = 0 should have seqno = 1
-            .snapshot_seqno(1);
+        let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
             Value::new(*b"c", *b"old", 0, ValueType::Value),
@@ -842,14 +814,17 @@ mod tests {
         ];
 
         {
-            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+            let iter0 = Box::new(
+                vec0.iter()
+                    // NOTE: "1" because the seqno starts at 0
+                    // When we insert an item, the tree LSN is at 1
+                    // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                    .filter(|x| seqno_filter(x.seqno, 1))
+                    .cloned()
+                    .map(Ok),
+            );
 
-            let mut iter = MergeIterator::new(vec![iter0])
-                // NOTE: "1" because the seqno starts at 0
-                // When we insert an item, the tree LSN is at 1
-                // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .snapshot_seqno(1)
-                .evict_old_versions(true);
+            let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
                 Value::new(*b"a", *b"", 0, ValueType::Value),
@@ -860,14 +835,14 @@ mod tests {
         }
 
         {
-            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+            let iter0 = Box::new(
+                vec0.iter()
+                    .filter(|x| seqno_filter(x.seqno, 2))
+                    .cloned()
+                    .map(Ok),
+            );
 
-            let mut iter = MergeIterator::new(vec![iter0])
-                // NOTE: "1" because the seqno starts at 0
-                // When we insert an item, the tree LSN is at 1
-                // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .snapshot_seqno(2)
-                .evict_old_versions(true);
+            let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
                 Value::new(*b"a", *b"", 1, ValueType::Value),
@@ -891,14 +866,17 @@ mod tests {
         ];
 
         {
-            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+            let iter0 = Box::new(
+                vec0.iter()
+                    // NOTE: "1" because the seqno starts at 0
+                    // When we insert an item, the tree LSN is at 1
+                    // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                    .filter(|x| seqno_filter(x.seqno, 1))
+                    .cloned()
+                    .map(Ok),
+            );
 
-            let mut iter = MergeIterator::new(vec![iter0])
-                // NOTE: "1" because the seqno starts at 0
-                // When we insert an item, the tree LSN is at 1
-                // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .snapshot_seqno(1)
-                .evict_old_versions(true);
+            let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
                 Value::new(*b"a", *b"", 0, ValueType::Value),
@@ -909,14 +887,14 @@ mod tests {
         }
 
         {
-            let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+            let iter0 = Box::new(
+                vec0.iter()
+                    .filter(|x| seqno_filter(x.seqno, 2))
+                    .cloned()
+                    .map(Ok),
+            );
 
-            let mut iter = MergeIterator::new(vec![iter0])
-                // NOTE: "1" because the seqno starts at 0
-                // When we insert an item, the tree LSN is at 1
-                // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .snapshot_seqno(2)
-                .evict_old_versions(true);
+            let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
                 Value::new(*b"a", *b"", 1, ValueType::Value),
@@ -1093,13 +1071,17 @@ mod tests {
             Value::new(*b"b", *b"", 0, ValueType::Value),
         ];
 
-        let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+        let iter0 = Box::new(
+            vec0.iter()
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .filter(|x| seqno_filter(x.seqno, 1))
+                .cloned()
+                .map(Ok),
+        );
 
-        let mut iter = MergeIterator::new(vec![iter0])
-            // NOTE: "1" because the seqno starts at 0
-            // When we insert an item, the tree LSN is at 1
-            // So the snapshot to get all items with seqno = 0 should have seqno = 1
-            .snapshot_seqno(1);
+        let mut iter = MergeIterator::new(vec![iter0]);
 
         assert_eq!(*b"a", &*iter.next().unwrap()?.key);
         assert_eq!(*b"b", &*iter.next().unwrap()?.key);
@@ -1119,13 +1101,17 @@ mod tests {
             Value::new(*b"b", *b"", 0, ValueType::Value),
         ];
 
-        let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+        let iter0 = Box::new(
+            vec0.iter()
+                // NOTE: "1" because the seqno starts at 0
+                // When we insert an item, the tree LSN is at 1
+                // So the snapshot to get all items with seqno = 0 should have seqno = 1
+                .filter(|x| seqno_filter(x.seqno, 1))
+                .cloned()
+                .map(Ok),
+        );
 
-        let mut iter = MergeIterator::new(vec![iter0])
-            // NOTE: "1" because the seqno starts at 0
-            // When we insert an item, the tree LSN is at 1
-            // So the snapshot to get all items with seqno = 0 should have seqno = 1
-            .snapshot_seqno(1);
+        let mut iter = MergeIterator::new(vec![iter0]);
 
         assert_eq!(*b"b", &*iter.next_back().unwrap()?.key);
         assert_eq!(*b"a", &*iter.next_back().unwrap()?.key);

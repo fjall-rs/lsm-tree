@@ -1,7 +1,7 @@
 use crate::{
     levels::LevelManifest,
     memtable::MemTable,
-    merge::{BoxedIterator, MergeIterator},
+    merge::{seqno_filter, BoxedIterator, MergeIterator},
     segment::multi_reader::MultiReader,
     tree_inner::SealedMemtables,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
@@ -40,10 +40,9 @@ impl<'a> DoubleEndedIterator for TreeIter<'a> {
     }
 }
 
-// TODO: for seqno readsa: it would be better to filter out the seqno
-// for each iter by using .filter instead of doing it in the merge iterator
-// simplifies merge iterator logic & makes more sense & tx read set can use highest seqno
-// without having to build new merge iter
+/* fn filter_by_seqno(item_seqno: SeqNo, seqno: Option<SeqNo>) -> bool {
+    seqno.map_or(true, |seqno| item_seqno < seqno)
+} */
 
 impl<'a> TreeIter<'a> {
     #[must_use]
@@ -70,18 +69,41 @@ impl<'a> TreeIter<'a> {
 
                     for segment in &level.segments {
                         if segment.metadata.key_range.contains_prefix(&prefix) {
-                            let range = segment.prefix(prefix.clone());
-                            readers.push_back(Box::new(range));
+                            let reader = segment.prefix(prefix.clone());
+                            readers.push_back(Box::new(reader));
                         }
                     }
 
                     if !readers.is_empty() {
-                        segment_iters.push(Box::new(MultiReader::new(readers)));
+                        let multi_reader = MultiReader::new(readers);
+
+                        if let Some(seqno) = seqno {
+                            segment_iters.push(Box::new(multi_reader.filter(
+                                move |item| match item {
+                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Err(_) => true,
+                                },
+                            )));
+                        } else {
+                            segment_iters.push(Box::new(multi_reader));
+                        }
                     }
                 } else {
                     for segment in &level.segments {
                         if segment.metadata.key_range.contains_prefix(&prefix) {
-                            segment_iters.push(Box::new(segment.prefix(prefix.clone())));
+                            let reader = segment.prefix(prefix.clone());
+
+                            if let Some(seqno) = seqno {
+                                #[allow(clippy::option_if_let_else)]
+                                segment_iters.push(Box::new(reader.filter(
+                                    move |item| match item {
+                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Err(_) => true,
+                                    },
+                                )));
+                            } else {
+                                segment_iters.push(Box::new(reader));
+                            }
                         }
                     }
                 }
@@ -91,24 +113,42 @@ impl<'a> TreeIter<'a> {
 
             let mut iters: Vec<_> = segment_iters;
 
+            // Sealed memtables
             for (_, memtable) in lock.sealed.iter() {
                 let prefix = prefix.clone();
 
-                iters.push(Box::new(memtable.prefix(prefix).map(Ok)));
+                let iter = memtable.prefix(prefix);
+
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(
+                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                            .map(Ok),
+                    ));
+                } else {
+                    iters.push(Box::new(iter.map(Ok)));
+                }
             }
 
             // Active memtable
-            iters.push(Box::new(lock.active.prefix(prefix.clone()).map(Ok)));
+            {
+                let iter = lock.active.prefix(prefix.clone());
 
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(
+                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                            .map(Ok),
+                    ));
+                } else {
+                    iters.push(Box::new(iter.map(Ok)));
+                }
+            }
+
+            // Add index
             if let Some(index) = add_index {
                 iters.push(Box::new(index.prefix(prefix).map(Ok)));
             }
 
-            let mut iter = MergeIterator::new(iters).evict_old_versions(true);
-
-            if let Some(seqno) = seqno {
-                iter = iter.snapshot_seqno(seqno);
-            }
+            let iter = MergeIterator::new(iters).evict_old_versions(true);
 
             Box::new(
                 #[allow(clippy::option_if_let_else)]
@@ -125,6 +165,7 @@ impl<'a> TreeIter<'a> {
     }
 
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn create_range(
         guard: MemtableLockGuard<'a>,
         bounds: (Bound<UserKey>, Bound<UserKey>),
@@ -197,12 +238,35 @@ impl<'a> TreeIter<'a> {
                     }
 
                     if !readers.is_empty() {
-                        segment_iters.push(Box::new(MultiReader::new(readers)));
+                        let multi_reader = MultiReader::new(readers);
+
+                        if let Some(seqno) = seqno {
+                            segment_iters.push(Box::new(multi_reader.filter(
+                                move |item| match item {
+                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Err(_) => true,
+                                },
+                            )));
+                        } else {
+                            segment_iters.push(Box::new(multi_reader));
+                        }
                     }
                 } else {
                     for segment in &level.segments {
                         if segment.check_key_range_overlap(&bounds) {
-                            segment_iters.push(Box::new(segment.range(bounds.clone())));
+                            let reader = segment.range(bounds.clone());
+
+                            if let Some(seqno) = seqno {
+                                #[allow(clippy::option_if_let_else)]
+                                segment_iters.push(Box::new(reader.filter(
+                                    move |item| match item {
+                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Err(_) => true,
+                                    },
+                                )));
+                            } else {
+                                segment_iters.push(Box::new(reader));
+                            }
                         }
                     }
                 }
@@ -212,20 +276,40 @@ impl<'a> TreeIter<'a> {
 
             let mut iters: Vec<_> = segment_iters;
 
+            // Sealed memtables
             for (_, memtable) in lock.sealed.iter() {
-                iters.push(Box::new(memtable.items.range(range.clone()).map(|entry| {
-                    Ok(Value::from((entry.key().clone(), entry.value().clone())))
-                })));
-            }
-
-            let memtable_iter = {
-                lock.active
+                let iter = memtable
                     .items
                     .range(range.clone())
-                    .map(|entry| Ok(Value::from((entry.key().clone(), entry.value().clone()))))
-            };
+                    .map(|entry| Value::from((entry.key().clone(), entry.value().clone())));
 
-            iters.push(Box::new(memtable_iter));
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(
+                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                            .map(Ok),
+                    ));
+                } else {
+                    iters.push(Box::new(iter.map(Ok)));
+                }
+            }
+
+            // Active memtable
+            {
+                let iter = lock
+                    .active
+                    .items
+                    .range(range.clone())
+                    .map(|entry| Value::from((entry.key().clone(), entry.value().clone())));
+
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(
+                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                            .map(Ok),
+                    ));
+                } else {
+                    iters.push(Box::new(iter.map(Ok)));
+                }
+            }
 
             if let Some(index) = add_index {
                 let iter =
@@ -236,11 +320,7 @@ impl<'a> TreeIter<'a> {
                 iters.push(iter);
             }
 
-            let mut iter = MergeIterator::new(iters).evict_old_versions(true);
-
-            if let Some(seqno) = seqno {
-                iter = iter.snapshot_seqno(seqno);
-            }
+            let iter = MergeIterator::new(iters).evict_old_versions(true);
 
             Box::new(
                 iter.filter(|x| match x {
