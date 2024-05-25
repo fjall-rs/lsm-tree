@@ -296,8 +296,6 @@ fn merge_segments(
         }
     });
 
-    // IMPORTANT: Write the segment with the removed segments first
-    // Otherwise the folder is deleted, but the segment is still referenced!
     if let Err(e) = swap_result {
         // IMPORTANT: Show the segments again, because compaction failed
         original_levels.show_segments(&payload.segment_ids);
