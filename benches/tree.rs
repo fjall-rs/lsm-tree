@@ -285,7 +285,51 @@ fn value_block_size(c: &mut Criterion) {
     }
 }
 
-fn value_block_size_find(c: &mut Criterion) {
+fn value_block_find(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ValueBlock::find_latest");
+
+    for item_count in [10, 100, 1_000, 10_000] {
+        let mut items = vec![];
+
+        for seqno in (0..(item_count - 2)).rev() {
+            items.push(Value::new(*b"a", *b"a", seqno, lsm_tree::ValueType::Value));
+        }
+        for seqno in (0..2).rev() {
+            items.push(Value::new(*b"b", *b"b", seqno, lsm_tree::ValueType::Value));
+        }
+
+        let block = ValueBlock {
+            items: items.into_boxed_slice(),
+            header: BlockHeader {
+                compression: CompressionType::Lz4,
+                crc: 0,
+                data_length: 0,
+                previous_block_offset: 0,
+            },
+        };
+
+        group.bench_function(format!("{item_count} items (linear)"), |b| {
+            b.iter(|| {
+                let item = block
+                    .items
+                    .iter()
+                    .find(|item| &*item.key == b"b")
+                    .cloned()
+                    .unwrap();
+                assert_eq!(item.seqno, 1);
+            })
+        });
+
+        group.bench_function(format!("{item_count} items (binary search)"), |b| {
+            b.iter(|| {
+                let item = block.get_latest(b"b").unwrap();
+                assert_eq!(item.seqno, 1);
+            })
+        });
+    }
+}
+
+fn index_block_find_handle(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{block_handle::KeyedBlockHandle, IndexBlock};
 
     let mut group = c.benchmark_group("Find item in IndexBlock");
@@ -523,14 +567,15 @@ fn disk_point_read(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    value_block_find,
+    index_block_find_handle,
+    value_block_size,
     disk_point_read,
     full_scan,
     scan_vs_query,
     scan_vs_prefix,
     tli_find_item,
     memtable_get_upper_bound,
-    value_block_size_find,
-    value_block_size,
     load_block_from_disk,
     file_descriptor_table,
     tree_get_pairs,

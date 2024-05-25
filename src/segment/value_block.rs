@@ -19,6 +19,12 @@ pub enum CachePolicy {
 pub type ValueBlock = Block<Value>;
 
 impl ValueBlock {
+    #[must_use]
+    pub fn get_latest(&self, key: &[u8]) -> Option<&Value> {
+        let idx = self.items.partition_point(|item| &*item.key < key);
+        self.items.get(idx).filter(|&item| &*item.key == key)
+    }
+
     pub fn size(&self) -> usize {
         std::mem::size_of::<Self>() + self.items.iter().map(Value::size).sum::<usize>()
     }
@@ -60,5 +66,52 @@ impl ValueBlock {
                 Some(block)
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        segment::{block::header::Header as BlockHeader, meta::CompressionType},
+        ValueType,
+    };
+    use test_log::test;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn value_block_find_latest() {
+        let items = vec![
+            Value::new(*b"b", *b"b", 2, ValueType::Value),
+            Value::new(*b"b", *b"b", 1, ValueType::Value),
+            Value::new(*b"b", *b"b", 0, ValueType::Value),
+            Value::new(*b"c", *b"c", 0, ValueType::Value),
+            Value::new(*b"d", *b"d", 5, ValueType::Value),
+        ];
+
+        let block = ValueBlock {
+            items: items.into_boxed_slice(),
+            header: BlockHeader {
+                compression: CompressionType::Lz4,
+                crc: 0,
+                data_length: 0,
+                previous_block_offset: 0,
+            },
+        };
+
+        assert_eq!(block.get_latest(b"a"), None);
+        assert_eq!(
+            block.get_latest(b"b"),
+            Some(&Value::new(*b"b", *b"b", 2, ValueType::Value))
+        );
+        assert_eq!(
+            block.get_latest(b"c"),
+            Some(&Value::new(*b"c", *b"c", 0, ValueType::Value))
+        );
+        assert_eq!(
+            block.get_latest(b"d"),
+            Some(&Value::new(*b"d", *b"d", 5, ValueType::Value))
+        );
+        assert_eq!(block.get_latest(b"e"), None);
     }
 }
