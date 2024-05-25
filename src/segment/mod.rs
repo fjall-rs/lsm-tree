@@ -20,7 +20,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
-    tree_inner::TreeId,
+    tree::inner::TreeId,
     value::{SeqNo, UserKey},
     Value,
 };

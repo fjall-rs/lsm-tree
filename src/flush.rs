@@ -2,7 +2,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     memtable::MemTable,
     segment::{block_index::BlockIndex, meta::SegmentId, writer::Writer, Segment},
-    tree_inner::TreeId,
+    tree::inner::TreeId,
     BlockCache,
 };
 use std::{path::PathBuf, sync::Arc};

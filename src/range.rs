@@ -3,7 +3,7 @@ use crate::{
     memtable::MemTable,
     merge::{seqno_filter, BoxedIterator, MergeIterator},
     segment::multi_reader::MultiReader,
-    tree_inner::SealedMemtables,
+    tree::inner::SealedMemtables,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
     Value,
 };
