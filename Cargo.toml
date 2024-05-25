@@ -23,7 +23,7 @@ segment_history = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 byteorder = "1.5.0"
-crc32fast = "1.4.0"
+crc32fast = "1.4.2"
 crossbeam-skiplist = "0.1.3"
 double-ended-peekable = "0.1.0"
 log = "0.4.21"
