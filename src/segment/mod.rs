@@ -243,14 +243,7 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-
-            // TODO: maybe use partition_point for binary search
-            // TODO: implement & test in ValueBlock
-            return Ok(block
-                .items
-                .iter()
-                .find(|item| item.key == key.as_ref().into())
-                .cloned());
+            return Ok(block.get_latest(key.as_ref()).cloned());
         }
 
         let mut reader = Reader::new(

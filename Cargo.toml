@@ -43,16 +43,16 @@ nanoid = "0.4.0"
 test-log = "0.2.16"
 
 [[bench]]
-name = "lsmt"
-harness = false
-path = "benches/lsmt.rs"
-required-features = ["bloom"]
-
-[[bench]]
 name = "bloom"
 harness = false
 path = "benches/bloom.rs"
 required-features = ["bloom"]
+
+[[bench]]
+name = "tree"
+harness = false
+path = "benches/tree.rs"
+required-features = []
 
 [[bench]]
 name = "level_manifest"
