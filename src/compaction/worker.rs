@@ -322,11 +322,15 @@ fn merge_segments(
     for segment_id in &payload.segment_ids {
         let segment_file_path = segments_base_folder.join(segment_id.to_string());
         log::trace!("Removing old segment at {segment_file_path:?}");
-        std::fs::remove_file(segment_file_path)?;
+
+        if let Err(e) = std::fs::remove_file(segment_file_path) {
+            log::error!("Failed to cleanup file of deleted segment: {e:?}");
+        }
     }
 
     for segment_id in &payload.segment_ids {
         log::trace!("Closing file handles for old segment file");
+
         opts.config
             .descriptor_table
             .remove((opts.tree_id, *segment_id).into());
@@ -346,6 +350,8 @@ fn drop_segments(
     opts: &Options,
     segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
+    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
     log::trace!("compaction: acquiring sealed memtables write lock");
     let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
@@ -371,14 +377,13 @@ fn drop_segments(
     // cleaned up upon recovery
     for key in segment_ids {
         let segment_id = key.segment_id();
-        log::trace!("rm -rf segment folder {segment_id}");
 
-        std::fs::remove_dir_all(
-            opts.config
-                .path
-                .join(SEGMENTS_FOLDER)
-                .join(segment_id.to_string()),
-        )?;
+        let segment_file_path = segments_base_folder.join(segment_id.to_string());
+        log::trace!("Removing old segment at {segment_file_path:?}");
+
+        if let Err(e) = std::fs::remove_file(segment_file_path) {
+            log::error!("Failed to cleanup file of deleted segment: {e:?}");
+        }
     }
 
     for key in segment_ids {
