@@ -2,7 +2,7 @@ use super::{
     trailer::SegmentFileTrailer,
     writer::{Options, Writer},
 };
-use crate::Value;
+use crate::{segment::meta::CompressionType, Value};
 use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
@@ -40,6 +40,7 @@ impl MultiWriter {
             folder: opts.folder.clone(),
             evict_tombstones: opts.evict_tombstones,
             block_size: opts.block_size,
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: opts.bloom_fp_rate,
@@ -74,6 +75,7 @@ impl MultiWriter {
             folder: self.opts.folder.clone(),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: self.opts.bloom_fp_rate,

@@ -1,7 +1,12 @@
 use crate::{
     descriptor_table::FileDescriptorTable,
     memtable::MemTable,
-    segment::{block_index::BlockIndex, meta::SegmentId, writer::Writer, Segment},
+    segment::{
+        block_index::BlockIndex,
+        meta::{CompressionType, SegmentId},
+        writer::Writer,
+        Segment,
+    },
     tree_inner::TreeId,
     BlockCache,
 };
@@ -51,6 +56,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         folder: opts.folder.clone(),
         evict_tombstones: false,
         block_size: opts.block_size,
+        compression: CompressionType::None,
 
         #[cfg(feature = "bloom")]
         bloom_fp_rate: 0.0001,

@@ -400,7 +400,8 @@ fn load_block_from_disk(c: &mut Criterion) {
 
             // Serialize block
             block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let (header, data) = ValueBlock::to_bytes_compressed(&items, 0).unwrap();
+            let (header, data) =
+                ValueBlock::to_bytes_compressed(&items, 0, CompressionType::Lz4).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
             header.serialize(&mut file).unwrap();

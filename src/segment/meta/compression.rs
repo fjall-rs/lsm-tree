@@ -5,12 +5,14 @@
 )]
 #[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
+    None,
     Lz4,
 }
 
 impl From<CompressionType> for u8 {
     fn from(val: CompressionType) -> Self {
         match val {
+            CompressionType::None => 0,
             CompressionType::Lz4 => 1,
         }
     }
@@ -21,6 +23,7 @@ impl TryFrom<u8> for CompressionType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
+            0 => Ok(Self::None),
             1 => Ok(Self::Lz4),
             _ => Err(()),
         }

@@ -1,6 +1,9 @@
 use super::{
-    block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter,
-    file_offsets::FileOffsets, meta::Metadata, trailer::SegmentFileTrailer,
+    block::header::Header as BlockHeader,
+    block_index::writer::Writer as IndexWriter,
+    file_offsets::FileOffsets,
+    meta::{CompressionType, Metadata},
+    trailer::SegmentFileTrailer,
     value_block::ValueBlock,
 };
 use crate::{
@@ -61,6 +64,7 @@ pub struct Options {
     pub folder: PathBuf,
     pub evict_tombstones: bool,
     pub block_size: u32,
+    pub compression: CompressionType,
 
     pub segment_id: SegmentId,
 
@@ -76,7 +80,12 @@ impl Writer {
         let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.block_size)?;
+        let index_writer = IndexWriter::new(
+            opts.segment_id,
+            &opts.folder,
+            opts.block_size,
+            opts.compression,
+        )?;
 
         let chunk = Vec::with_capacity(10_000);
 
@@ -128,7 +137,8 @@ impl Writer {
         self.uncompressed_size += uncompressed_chunk_size;
 
         // Write to file
-        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0)?;
+        let (header, data) =
+            ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.opts.compression)?;
 
         header.serialize(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
@@ -325,6 +335,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+            compression: CompressionType::Lz4,
 
             segment_id,
 
@@ -384,6 +395,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+            compression: CompressionType::Lz4,
 
             segment_id,
 

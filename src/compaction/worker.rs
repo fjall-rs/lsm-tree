@@ -4,7 +4,10 @@ use crate::{
     file::SEGMENTS_FOLDER,
     levels::LevelManifest,
     merge::{BoxedIterator, MergeIterator},
-    segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
+    segment::{
+        block_index::BlockIndex, id::GlobalSegmentId, meta::CompressionType,
+        multi_writer::MultiWriter, Segment,
+    },
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     tree_inner::{SealedMemtables, TreeId},
@@ -196,6 +199,7 @@ fn merge_segments(
             block_size: opts.config.inner.block_size,
             evict_tombstones: should_evict_tombstones,
             folder: segments_base_folder.clone(),
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate,

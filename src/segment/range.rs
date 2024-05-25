@@ -226,6 +226,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::BlockIndex,
+            meta::CompressionType,
             range::Range,
             writer::{Options, Writer},
         },
@@ -254,6 +255,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 1000, // NOTE: Block size 1 to for each item to be its own block
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -356,6 +358,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -559,6 +562,7 @@ mod tests {
                 folder: folder.clone(),
                 evict_tombstones: false,
                 block_size,
+                compression: CompressionType::Lz4,
 
                 #[cfg(feature = "bloom")]
                 bloom_fp_rate: 0.01,
@@ -665,6 +669,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 250,
+            compression: CompressionType::Lz4,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
