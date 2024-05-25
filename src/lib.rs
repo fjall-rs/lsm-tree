@@ -31,7 +31,7 @@
 //! # Example usage
 //!
 //! ```
-//! use lsm_tree::{Tree, Config};
+//! use lsm_tree::{AbstractTree, Config, Tree};
 //! #
 //! # let folder = tempfile::tempdir()?;
 //!
@@ -96,6 +96,10 @@
 compile_error!("compilation is only allowed for 64-bit targets");
 
 mod r#abstract;
+
+#[cfg(feature = "kv-sep")]
+#[doc(hidden)]
+pub mod blob_tree;
 
 mod block_cache;
 

@@ -17,7 +17,8 @@ name = "lsm_tree"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["kv-sep"]
+kv-sep = ["dep:value-log"]
 bloom = ["dep:seahash"]
 segment_history = ["dep:serde", "dep:serde_json"]
 
@@ -35,6 +36,7 @@ self_cell = "1.0.4"
 serde = { version = "1.0.200", features = ["derive", "rc"], optional = true }
 serde_json = { version = "1.0.116", optional = true }
 tempfile = "3.10.1"
+value-log = { path = "../value-log", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
