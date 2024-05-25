@@ -7,7 +7,7 @@ use crate::{
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
-    tree_inner::{SealedMemtables, TreeId},
+    tree::inner::{SealedMemtables, TreeId},
     Config,
 };
 use std::{

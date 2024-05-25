@@ -1,3 +1,5 @@
+pub mod inner;
+
 use crate::{
     compaction::CompactionStrategy,
     config::{Config, PersistedConfig},
@@ -9,10 +11,10 @@ use crate::{
     segment::Segment,
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
-    tree_inner::{MemtableId, SealedMemtables, TreeId, TreeInner},
     version::Version,
     BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
+use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::RangeBounds,
@@ -801,8 +803,8 @@ impl Tree {
         use crate::{
             file::{CONFIG_FILE, LSM_MARKER},
             snapshot::Counter as SnapshotCounter,
-            tree_inner::get_next_tree_id,
         };
+        use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {:?}", config.path);
 

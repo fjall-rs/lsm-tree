@@ -1,5 +1,5 @@
 use super::meta::SegmentId;
-use crate::tree_inner::TreeId;
+use crate::tree::inner::TreeId;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(clippy::module_name_repetitions)]

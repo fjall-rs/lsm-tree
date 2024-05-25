@@ -95,6 +95,8 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("compilation is only allowed for 64-bit targets");
 
+mod r#abstract;
+
 mod block_cache;
 
 #[doc(hidden)]
@@ -150,7 +152,6 @@ pub mod stop_signal;
 
 mod time;
 mod tree;
-mod tree_inner;
 mod value;
 mod version;
 
@@ -158,7 +159,7 @@ mod version;
 pub use {
     merge::BoxedIterator,
     segment::{id::GlobalSegmentId, meta::SegmentId},
-    tree_inner::TreeId,
+    tree::inner::TreeId,
 };
 
 pub use {
@@ -166,6 +167,7 @@ pub use {
     config::Config,
     error::{Error, Result},
     memtable::MemTable,
+    r#abstract::AbstractTree,
     segment::Segment,
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
