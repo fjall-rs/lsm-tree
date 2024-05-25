@@ -233,6 +233,30 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>>;
 
+    /// Returns `true` if the tree contains the specified key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// # use lsm_tree::{AbstractTree, Config, Tree};
+    /// #
+    /// let tree = Config::new(folder).open()?;
+    /// assert!(!tree.contains_key("a")?);
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// assert!(tree.contains_key("a")?);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<bool> {
+        self.get(key).map(|x| x.is_some())
+    }
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.
