@@ -271,6 +271,7 @@ impl LevelManifest {
         Ok(())
     }
 
+    /// Modifies the level manifest atomically.
     pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
         // NOTE: Create a copy of the levels we can operate on
         // without mutating the current level manifest
