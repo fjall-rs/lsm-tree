@@ -1,4 +1,4 @@
-use lsm_tree::Config;
+use lsm_tree::{AbstractTree, Config};
 
 #[test]
 fn tree_recover_segment_counter() -> lsm_tree::Result<()> {

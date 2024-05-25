@@ -1,4 +1,4 @@
-use lsm_tree::{Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use std::fs::File;
 use test_log::test;
 

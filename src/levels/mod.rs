@@ -475,7 +475,6 @@ impl Serializable for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
@@ -488,6 +487,7 @@ mod tests {
             Segment,
         },
         serde::Serializable,
+        AbstractTree,
     };
     use std::{collections::HashSet, sync::Arc};
 

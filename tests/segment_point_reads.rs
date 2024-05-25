@@ -1,4 +1,4 @@
-use lsm_tree::Config;
+use lsm_tree::{AbstractTree, Config};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;

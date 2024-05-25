@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::Config;
+use lsm_tree::{AbstractTree, Config};
 
 fn iterate_segments(c: &mut Criterion) {
     let mut group = c.benchmark_group("Iterate level manifest");

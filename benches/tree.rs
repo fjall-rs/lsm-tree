@@ -4,7 +4,7 @@ use lsm_tree::{
         block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
     },
     serde::Serializable,
-    BlockCache, Config, MemTable, Value,
+    AbstractTree, BlockCache, Config, MemTable, Value,
 };
 use nanoid::nanoid;
 use std::{io::Write, sync::Arc};

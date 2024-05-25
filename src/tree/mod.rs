@@ -12,7 +12,7 @@ use crate::{
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     version::Version,
-    BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
+    AbstractTree, BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -39,6 +39,36 @@ impl std::ops::Deref for Tree {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl AbstractTree for Tree {
+    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
+        Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
+    }
+
+    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.create_range(range, None, None)
+    }
+
+    fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.create_prefix(prefix, None, None)
+    }
+
+    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
+        let value = Value::new(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
+        self.append_entry(value)
+    }
+
+    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = Value::new_tombstone(key.as_ref(), seqno);
+        self.append_entry(value)
     }
 }
 
@@ -454,93 +484,6 @@ impl Tree {
         Ok(None)
     }
 
-    /// Retrieves an item from the tree.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    /// tree.insert("a", "my_value", 0);
-    ///
-    /// let item = tree.get("a")?;
-    /// assert_eq!(Some("my_value".as_bytes().into()), item);
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
-    }
-
-    /// Inserts a key-value pair into the tree.
-    ///
-    /// If the key already exists, the item will be overwritten.
-    ///
-    /// Returns the added item's size and new size of the memtable.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    /// tree.insert("a", "abc", 0);
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &self,
-        key: K,
-        value: V,
-        seqno: SeqNo,
-    ) -> (u32, u32) {
-        let value = Value::new(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
-        self.append_entry(value)
-    }
-
-    /// Removes an item from the tree.
-    ///
-    /// Returns the added item's size and new size of the memtable.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// # use lsm_tree::{Config, Tree};
-    /// #
-    /// # let tree = Config::new(folder).open()?;
-    /// tree.insert("a", "abc", 0);
-    ///
-    /// let item = tree.get("a")?.expect("should have item");
-    /// assert_eq!("abc".as_bytes(), &*item);
-    ///
-    /// tree.remove("a", 1);
-    ///
-    /// let item = tree.get("a")?;
-    /// assert_eq!(None, item);
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = Value::new_tombstone(key.as_ref(), seqno);
-        self.append_entry(value)
-    }
-
     /// Returns `true` if the tree contains the specified key.
     ///
     /// # Examples
@@ -643,36 +586,6 @@ impl Tree {
         )
     }
 
-    /// Returns an iterator over a range of items.
-    ///
-    /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("f", "abc", 1);
-    /// tree.insert("g", "abc", 2);
-    /// assert_eq!(2, tree.range("a"..="f").count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_range(range, None, None)
-    }
-
     #[doc(hidden)]
     pub fn create_prefix<'a, K: AsRef<[u8]>>(
         &'a self,
@@ -694,36 +607,6 @@ impl Tree {
             level_manifest_lock,
             add_index,
         )
-    }
-
-    /// Returns an iterator over a prefixed set of items.
-    ///
-    /// Avoid using an empty prefix as it may scan a lot of items (unless limited).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("ab", "abc", 1);
-    /// tree.insert("abc", "abc", 2);
-    /// assert_eq!(2, tree.prefix("ab").count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn prefix<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.create_prefix(prefix, None, None)
     }
 
     /// Returns the first key-value pair in the tree.

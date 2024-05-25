@@ -1,4 +1,4 @@
-use lsm_tree::{BlockCache, Config};
+use lsm_tree::{AbstractTree, BlockCache, Config};
 use std::sync::Arc;
 use test_log::test;
 
