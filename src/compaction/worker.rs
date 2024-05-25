@@ -199,7 +199,7 @@ fn merge_segments(
             block_size: opts.config.inner.block_size,
             evict_tombstones: should_evict_tombstones,
             folder: segments_base_folder.clone(),
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate,

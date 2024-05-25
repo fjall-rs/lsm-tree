@@ -179,7 +179,7 @@ mod tests {
                 folder: folder.clone(),
                 evict_tombstones: false,
                 block_size: 4096,
-                compression: CompressionType::Lz4,
+                compression: CompressionType::None,
 
                 #[cfg(feature = "bloom")]
                 bloom_fp_rate: 0.01,
@@ -289,7 +289,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -389,7 +389,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,

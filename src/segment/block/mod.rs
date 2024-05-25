@@ -1,12 +1,10 @@
 pub mod header;
 
+use super::meta::CompressionType;
 use crate::serde::{Deserializable, Serializable};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use header::Header as BlockHeader;
-use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read};
-
-use super::meta::CompressionType;
 
 /// A disk-based block
 ///
@@ -32,7 +30,14 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
 
         let bytes = match header.compression {
             super::meta::CompressionType::None => bytes,
-            super::meta::CompressionType::Lz4 => decompress_size_prepended(&bytes)?,
+
+            #[cfg(feature = "lz4")]
+            super::meta::CompressionType::Lz4 => lz4_flex::decompress_size_prepended(&bytes)
+                .map_err(|_| crate::Error::Decompress(header.compression))?,
+
+            #[cfg(feature = "miniz")]
+            super::meta::CompressionType::Miniz => miniz_oxide::inflate::decompress_to_vec(&bytes)
+                .map_err(|_| crate::Error::Decompress(header.compression))?,
         };
         let mut bytes = Cursor::new(bytes);
 
@@ -113,7 +118,12 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
 
         Ok(match compression {
             CompressionType::None => buf,
-            CompressionType::Lz4 => compress_prepend_size(&buf),
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => lz4_flex::compress_prepend_size(&buf),
+
+            #[cfg(feature = "miniz")]
+            CompressionType::Miniz => miniz_oxide::deflate::compress_to_vec(&buf, 10),
         })
     }
 }
@@ -136,7 +146,7 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::Lz4)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
         header.serialize(&mut serialized)?;
         serialized.write_all(&data)?;
@@ -165,7 +175,7 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::Lz4)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
         header.serialize(&mut serialized)?;
         serialized.write_all(&data)?;

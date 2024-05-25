@@ -74,8 +74,13 @@ impl Default for PersistedConfig {
             block_size: 4_096,
             level_count: 7,
             r#type: TreeType::Standard,
-            compression: CompressionType::Lz4,
             table_type: TableType::Block,
+
+            #[cfg(not(feature = "lz4"))]
+            compression: CompressionType::None,
+
+            #[cfg(feature = "lz4")]
+            compression: CompressionType::Lz4,
         }
     }
 }
@@ -279,7 +284,7 @@ mod tests {
     fn tree_config_raw() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
@@ -318,7 +323,7 @@ mod tests {
     fn tree_config_serde_round_trip() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
