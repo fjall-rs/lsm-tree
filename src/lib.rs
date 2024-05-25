@@ -167,7 +167,6 @@ pub use {
     config::Config,
     error::{Error, Result},
     memtable::MemTable,
-    r#abstract::AbstractTree,
     segment::Segment,
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
