@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="/logo.png" height="128">
+  <img src="/logo.png" height="160">
 </p>
 
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
