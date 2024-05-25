@@ -41,6 +41,9 @@ pub struct Options {
 
     // Descriptor table
     pub descriptor_table: Arc<FileDescriptorTable>,
+
+    // Compression to use
+    pub compression: CompressionType,
 }
 
 /// Flushes a memtable, creating a segment in the given folder
@@ -56,7 +59,7 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         folder: opts.folder.clone(),
         evict_tombstones: false,
         block_size: opts.block_size,
-        compression: CompressionType::None,
+        compression: opts.compression,
 
         #[cfg(feature = "bloom")]
         bloom_fp_rate: 0.0001,

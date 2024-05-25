@@ -206,6 +206,7 @@ impl Tree {
             tree_id: self.id,
             segment_id,
             descriptor_table: self.config.descriptor_table.clone(),
+            compression: crate::segment::meta::CompressionType::None,
         })?;
         let segment = Arc::new(segment);
 
