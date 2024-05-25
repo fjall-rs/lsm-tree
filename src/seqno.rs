@@ -12,7 +12,7 @@ use std::sync::{
 /// # Examples
 ///
 /// ```
-/// # use lsm_tree::{Config, SequenceNumberCounter};
+/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
 /// let tree = Config::new(path).open()?;
