@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -74,7 +74,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
     for key in &keys {
         for seqno in 0..ITEM_COUNT as u64 {
-            tree.insert(key, ITEM_COUNT.to_string(), seqno);
+            tree.insert(key, seqno.to_string(), seqno);
         }
     }
     tree.flush_active_memtable()?;
@@ -88,11 +88,58 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
         // NOTE: Need to start at seqno=1
         for seqno in 1..ITEM_COUNT as u64 {
             let snapshot = tree.snapshot(seqno);
-            let item = snapshot.get_internal_entry(key)?.unwrap();
+            let item = snapshot.get(key)?.unwrap();
 
             // NOTE: When snapshot is =1, it will read any items with
             // seqno less than 1
-            assert_eq!(item.seqno, seqno - 1);
+            assert_eq!(
+                String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
+                seqno - 1
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?.into_path();
+
+    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+
+    let keys = [0, 1, 2]
+        .into_iter()
+        .map(u64::to_be_bytes)
+        .collect::<Vec<_>>();
+
+    for key in &keys {
+        for seqno in 0..ITEM_COUNT as u64 {
+            tree.insert(key, seqno.to_string(), seqno);
+        }
+    }
+    tree.flush_active_memtable()?;
+
+    for key in &keys {
+        let item = tree.get(key)?.unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
+            ITEM_COUNT as u64 - 1
+        );
+    }
+
+    for key in &keys {
+        // NOTE: Need to start at seqno=1
+        for seqno in 1..ITEM_COUNT as u64 {
+            let snapshot = tree.snapshot(seqno);
+            let item = snapshot.get(key)?.unwrap();
+
+            // NOTE: When snapshot is =1, it will read any items with
+            // seqno less than 1
+            assert_eq!(
+                String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
+                seqno - 1
+            );
         }
     }
 

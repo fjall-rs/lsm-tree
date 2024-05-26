@@ -1,5 +1,5 @@
 use super::value::MaybeInlineValue;
-use crate::{serde::Deserializable, AbstractTree, Tree as LsmTree};
+use crate::{serde::Deserializable, AbstractTree, SeqNo, Tree as LsmTree};
 use std::io::Cursor;
 use value_log::ValueHandle;
 
@@ -7,8 +7,31 @@ use value_log::ValueHandle;
 #[derive(Clone)]
 pub struct IndexTree(#[doc(hidden)] pub LsmTree);
 
+impl std::ops::Deref for IndexTree {
+    type Target = LsmTree;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl IndexTree {
-    pub fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
+    pub(crate) fn get_internal_with_seqno(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<MaybeInlineValue>> {
+        let Some(item) = self.0.get_with_seqno(key, seqno)? else {
+            return Ok(None);
+        };
+
+        let mut cursor = Cursor::new(item);
+        let item = MaybeInlineValue::deserialize(&mut cursor)?;
+
+        Ok(Some(item))
+    }
+
+    pub(crate) fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
         let Some(item) = self.0.get(key)? else {
             return Ok(None);
         };

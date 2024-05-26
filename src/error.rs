@@ -23,7 +23,7 @@ pub enum Error {
     InvalidVersion(Option<Version>),
 
     /// Value log errors
-    #[cfg(feature = "kv-sep")]
+    #[cfg(feature = "kv_sep")]
     ValueLog(value_log::Error),
 }
 
@@ -59,7 +59,7 @@ impl From<DecompressError> for Error {
     }
 }
 
-#[cfg(feature = "kv-sep")]
+#[cfg(feature = "kv_sep")]
 impl From<value_log::Error> for Error {
     fn from(value: value_log::Error) -> Self {
         Self::ValueLog(value)

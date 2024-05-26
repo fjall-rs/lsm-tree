@@ -17,8 +17,8 @@ name = "lsm_tree"
 path = "src/lib.rs"
 
 [features]
-default = ["kv-sep"]
-kv-sep = ["dep:value-log"]
+default = ["kv_sep"]
+kv_sep = ["dep:value-log"]
 bloom = ["dep:seahash"]
 segment_history = ["dep:serde", "dep:serde_json"]
 

@@ -18,7 +18,7 @@ use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::RangeBounds,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
 };
 
@@ -43,8 +43,122 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)> {
+        log::trace!("rotate: acquiring active memtable write lock");
+        let mut active_memtable = self.lock_active_memtable();
+
+        if active_memtable.items.is_empty() {
+            return None;
+        }
+
+        log::trace!("rotate: acquiring sealed memtables write lock");
+        let mut sealed_memtables = self.lock_sealed_memtables();
+
+        let yanked_memtable = std::mem::take(&mut *active_memtable);
+        let yanked_memtable = Arc::new(yanked_memtable);
+
+        let tmp_memtable_id = self.get_next_segment_id();
+        sealed_memtables.add(tmp_memtable_id, yanked_memtable.clone());
+
+        Some((tmp_memtable_id, yanked_memtable))
+    }
+
+    fn segment_count(&self) -> usize {
+        self.levels.read().expect("lock is poisoned").len()
+    }
+
+    fn first_level_segment_count(&self) -> usize {
+        self.levels
+            .read()
+            .expect("lock is poisoned")
+            .first_level_segment_count()
+    }
+
+    fn approximate_len(&self) -> u64 {
+        // NOTE: Mind lock order L -> M -> S
+        let levels = self.levels.read().expect("lock is poisoned");
+
+        let level_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
+        let segments_item_count = level_iter.map(|x| x.metadata.item_count).sum::<u64>();
+        drop(levels);
+
+        let sealed_count = self
+            .sealed_memtables
+            .read()
+            .expect("lock is poisoned")
+            .iter()
+            .map(|(_, mt)| mt.len())
+            .sum::<usize>() as u64;
+
+        self.active_memtable.read().expect("lock is poisoned").len() as u64
+            + sealed_count
+            + segments_item_count
+    }
+
+    fn disk_space(&self) -> u64 {
+        let levels = self.levels.read().expect("lock is poisoned");
+        levels.iter().map(|x| x.metadata.file_size).sum()
+    }
+
+    fn get_memtable_lsn(&self) -> Option<SeqNo> {
+        self.active_memtable
+            .read()
+            .expect("lock is poisoned")
+            .get_lsn()
+    }
+
+    fn get_segment_lsn(&self) -> Option<SeqNo> {
+        let levels = self.levels.read().expect("lock is poisoned");
+        levels.iter().map(|s| s.get_lsn()).max()
+    }
+
+    fn register_snapshot(&self) {
+        self.open_snapshots.increment();
+    }
+
+    fn deregister_snapshot(&self) {
+        self.open_snapshots.decrement();
+    }
+
+    fn snapshot(&self, seqno: SeqNo) -> Snapshot<Self> {
+        Snapshot::new(self.clone(), seqno)
+    }
+
+    fn get_with_seqno<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: SeqNo,
+    ) -> crate::Result<Option<UserValue>> {
+        Ok(self
+            .get_internal_entry(key, true, Some(seqno))?
+            .map(|x| x.value))
+    }
+
     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
         Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
+    }
+
+    fn iter_with_seqno(
+        &self,
+        seqno: SeqNo,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.range_with_seqno::<UserKey, _>(.., seqno)
+    }
+
+    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: SeqNo,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.create_range(range, Some(seqno), None)
+    }
+
+    fn prefix_with_seqno<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+        self.create_prefix(prefix, Some(seqno), None)
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
@@ -145,39 +259,6 @@ impl Tree {
         log::info!("Starting major compaction");
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
         self.compact(strategy)
-    }
-
-    /// Opens a read-only point-in-time snapshot of the tree
-    ///
-    /// Dropping the snapshot will close the snapshot
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    ///
-    /// let snapshot = tree.snapshot(1);
-    /// assert_eq!(snapshot.len()?, tree.len()?);
-    ///
-    /// tree.insert("b", "abc", 1);
-    ///
-    /// assert_eq!(2, tree.len()?);
-    /// assert_eq!(1, snapshot.len()?);
-    ///
-    /// assert!(snapshot.contains_key("a")?);
-    /// assert!(!snapshot.contains_key("b")?);
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    #[must_use]
-    pub fn snapshot(&self, seqno: SeqNo) -> Snapshot {
-        // TODO: move into AbstractTree
-        Snapshot::new(self.clone(), seqno)
     }
 
     pub(crate) fn consume_writer(
@@ -334,44 +415,6 @@ impl Tree {
         levels.is_compacting()
     }
 
-    /// Returns the amount of disk segments in the first level.
-    #[must_use]
-    pub fn first_level_segment_count(&self) -> usize {
-        self.levels
-            .read()
-            .expect("lock is poisoned")
-            .first_level_segment_count()
-    }
-
-    /// Returns the amount of disk segments currently in the tree.
-    #[must_use]
-    pub fn segment_count(&self) -> usize {
-        self.levels.read().expect("lock is poisoned").len()
-    }
-
-    /// Approximates the amount of items in the tree.
-    #[must_use]
-    pub fn approximate_len(&self) -> u64 {
-        // NOTE: Mind lock order L -> M -> S
-        let levels = self.levels.read().expect("lock is poisoned");
-
-        let level_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
-        let segments_item_count = level_iter.map(|x| x.metadata.item_count).sum::<u64>();
-        drop(levels);
-
-        let sealed_count = self
-            .sealed_memtables
-            .read()
-            .expect("lock is poisoned")
-            .iter()
-            .map(|(_, mt)| mt.len())
-            .sum::<usize>() as u64;
-
-        self.active_memtable.read().expect("lock is poisoned").len() as u64
-            + sealed_count
-            + segments_item_count
-    }
-
     /// Returns the approximate size of the active memtable in bytes.
     ///
     /// May be used to flush the memtable if it grows too large.
@@ -394,28 +437,6 @@ impl Tree {
     /// Write-locks the sealed memtables for exclusive access
     fn lock_sealed_memtables(&self) -> RwLockWriteGuard<'_, SealedMemtables> {
         self.sealed_memtables.write().expect("lock is poisoned")
-    }
-
-    /// Seals the active memtable, and returns a reference to it
-    #[must_use]
-    pub fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)> {
-        log::trace!("rotate: acquiring active memtable write lock");
-        let mut active_memtable = self.lock_active_memtable();
-
-        if active_memtable.items.is_empty() {
-            return None;
-        }
-
-        log::trace!("rotate: acquiring sealed memtables write lock");
-        let mut sealed_memtables = self.lock_sealed_memtables();
-
-        let yanked_memtable = std::mem::take(&mut *active_memtable);
-        let yanked_memtable = Arc::new(yanked_memtable);
-
-        let tmp_memtable_id = self.get_next_segment_id();
-        sealed_memtables.add(tmp_memtable_id, yanked_memtable.clone());
-
-        Some((tmp_memtable_id, yanked_memtable))
     }
 
     /// Sets the active memtable.
@@ -668,20 +689,6 @@ impl Tree {
         Ok(Self(Arc::new(inner)))
     }
 
-    /// Returns the disk space usage
-    #[must_use]
-    pub fn disk_space(&self) -> u64 {
-        let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(|x| x.metadata.file_size).sum()
-    }
-
-    /// Returns the highest sequence number that is flushed to disk
-    #[must_use]
-    pub fn get_segment_lsn(&self) -> Option<SeqNo> {
-        let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(|s| s.get_lsn()).max()
-    }
-
     /// Returns the highest sequence number
     #[must_use]
     pub fn get_lsn(&self) -> Option<SeqNo> {
@@ -698,16 +705,6 @@ impl Tree {
             (Some(x), None) | (None, Some(x)) => Some(x),
             (None, None) => None,
         }
-    }
-
-    /// Returns the highest sequence number of the active memtable
-    #[must_use]
-    #[doc(hidden)]
-    pub fn get_memtable_lsn(&self) -> Option<SeqNo> {
-        self.active_memtable
-            .read()
-            .expect("lock is poisoned")
-            .get_lsn()
     }
 
     /// Recovers the level manifest, loading all segments from disk.

@@ -1,6 +1,6 @@
 use crate::{
     value::{SeqNo, UserKey, UserValue},
-    Tree, Value,
+    AbstractTree,
 };
 use std::{
     ops::RangeBounds,
@@ -9,8 +9,6 @@ use std::{
         Arc,
     },
 };
-
-// TODO: snapshot on blob tree
 
 // TODO: merge this and seqno generator into new AtomicCounter
 // and create newtypes
@@ -47,23 +45,23 @@ impl Counter {
 ///
 /// Snapshots do not persist across restarts.
 #[derive(Clone)]
-pub struct Snapshot {
-    tree: Tree,
+pub struct Snapshot<T: AbstractTree> {
+    tree: T,
     seqno: SeqNo,
 }
 
-impl Snapshot {
+impl<T: AbstractTree> Snapshot<T> {
     /// Creates a snapshot
-    pub(crate) fn new(tree: Tree, seqno: SeqNo) -> Self {
-        tree.open_snapshots.increment();
+    pub(crate) fn new(tree: T, seqno: SeqNo) -> Self {
+        tree.register_snapshot();
         log::trace!("Opening snapshot with seqno: {seqno}");
         Self { tree, seqno }
     }
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     pub fn get_internal_entry<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Value>> {
         self.tree.get_internal_entry(key, true, Some(self.seqno))
-    }
+    } */
 
     /// Retrieves an item from the snapshot.
     ///
@@ -88,7 +86,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key)?.map(|x| x.value))
+        self.tree.get_with_seqno(key, self.seqno)
     }
 
     #[allow(clippy::iter_not_returning_iterator)]
@@ -122,7 +120,7 @@ impl Snapshot {
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_iter(Some(self.seqno), None)
+        self.tree.iter_with_seqno(self.seqno)
     }
 
     /// Returns an iterator over a range of items in the snapshot.
@@ -155,7 +153,7 @@ impl Snapshot {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_range(range, Some(self.seqno), None)
+        self.tree.range_with_seqno(range, self.seqno)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -188,7 +186,7 @@ impl Snapshot {
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_prefix(prefix, Some(self.seqno), None)
+        self.tree.prefix_with_seqno(prefix, self.seqno)
     }
 
     /// Returns the first key-value pair in the snapshot.
@@ -219,10 +217,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.tree
-            .create_iter(Some(self.seqno), None)
-            .next()
-            .transpose()
+        self.iter().next().transpose()
     }
 
     /// Returns the las key-value pair in the snapshot.
@@ -253,10 +248,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
-        self.tree
-            .create_iter(Some(self.seqno), None)
-            .next_back()
-            .transpose()
+        self.iter().next_back().transpose()
     }
 
     /// Returns `true` if the snapshot contains the specified key.
@@ -357,9 +349,9 @@ impl Snapshot {
     }
 }
 
-impl Drop for Snapshot {
+impl<T: AbstractTree> Drop for Snapshot<T> {
     fn drop(&mut self) {
         log::trace!("Closing snapshot");
-        self.tree.open_snapshots.decrement();
+        self.tree.deregister_snapshot();
     }
 }
