@@ -25,7 +25,7 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
 
     assert!(tree.get("xyz")?.is_none());
 
-    // TODO: tree.flush_active_memtable()?;
+    tree.flush_active_memtable()?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
