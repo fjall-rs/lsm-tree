@@ -8,11 +8,11 @@ use crate::{
     levels::LevelManifest,
     memtable::MemTable,
     range::{MemtableLockGuard, TreeIter},
-    segment::Segment,
+    segment::{block_index::BlockIndex, Segment},
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     version::Version,
-    AbstractTree, BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
+    AbstractTree, BlockCache, SegmentId, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -176,7 +176,69 @@ impl Tree {
     /// ```
     #[must_use]
     pub fn snapshot(&self, seqno: SeqNo) -> Snapshot {
+        // TODO: move into AbstractTree
         Snapshot::new(self.clone(), seqno)
+    }
+
+    pub(crate) fn consume_writer(
+        &self,
+        segment_id: SegmentId,
+        mut writer: crate::segment::writer::Writer,
+    ) -> crate::Result<Arc<Segment>> {
+        #[cfg(feature = "bloom")]
+        use crate::bloom::BloomFilter;
+
+        let segment_folder = writer.opts.folder.clone();
+        let segment_file_path = segment_folder.join(segment_id.to_string());
+
+        let trailer = writer.finish()?.expect("memtable should not be empty");
+
+        log::debug!("Finalized segment write at {segment_folder:?}");
+
+        // TODO: if L0, L1, preload block index (non-partitioned)
+        let block_index = Arc::new(BlockIndex::from_file(
+            &segment_file_path,
+            trailer.offsets.tli_ptr,
+            (self.id, segment_id).into(),
+            self.config.descriptor_table.clone(),
+            self.config.block_cache.clone(),
+        )?);
+
+        let created_segment: Arc<_> = Segment {
+            tree_id: self.id,
+
+            metadata: trailer.metadata,
+            offsets: trailer.offsets,
+
+            descriptor_table: self.config.descriptor_table.clone(),
+            block_index,
+            block_cache: self.config.block_cache.clone(),
+
+            // TODO: as Bloom method
+            #[cfg(feature = "bloom")]
+            bloom_filter: {
+                use crate::serde::Deserializable;
+                use std::io::Seek;
+
+                assert!(bloom_ptr > 0, "can not find bloom filter block");
+
+                let mut reader = std::fs::File::open(&segment_file_path)?;
+                reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
+                BloomFilter::deserialize(&mut reader)?
+            },
+        }
+        .into();
+
+        self.config.descriptor_table.insert(
+            segment_file_path,
+            (self.id, created_segment.metadata.id).into(),
+        );
+
+        log::debug!("Flushed segment to {segment_folder:?}");
+
+        self.register_segments(&[created_segment.clone()])?;
+
+        Ok(created_segment)
     }
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables
@@ -215,38 +277,53 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn flush_active_memtable(&self) -> crate::Result<Option<PathBuf>> {
-        use crate::{
-            file::SEGMENTS_FOLDER,
-            flush::{flush_to_segment, Options},
-        };
-
+    pub fn flush_active_memtable(&self) -> crate::Result<Option<Arc<Segment>>> {
         log::debug!("flush: flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
             return Ok(None);
         };
 
-        let segment_folder = self.config.path.join(SEGMENTS_FOLDER);
-        log::debug!("flush: writing segment to {segment_folder:?}");
+        Ok(Some(self.flush_memtable(segment_id, &yanked_memtable)?))
+    }
 
-        let segment = flush_to_segment(Options {
-            memtable: yanked_memtable,
-            block_cache: self.config.block_cache.clone(),
-            block_size: self.config.inner.block_size,
-            folder: segment_folder.clone(),
-            tree_id: self.id,
+    /// Synchronously flushes a memtable to a disk segment.
+    ///
+    /// The result will contain the disk segment's path, relative to the tree's base path.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn flush_memtable(
+        &self,
+        segment_id: SegmentId,
+        memtable: &Arc<MemTable>,
+    ) -> crate::Result<Arc<Segment>> {
+        use crate::{
+            file::SEGMENTS_FOLDER,
+            segment::writer::{Options, Writer},
+        };
+
+        let folder = self.config.path.join(SEGMENTS_FOLDER);
+        log::debug!("writing segment to {folder:?}");
+
+        let mut writer = Writer::new(Options {
             segment_id,
-            descriptor_table: self.config.descriptor_table.clone(),
+            folder,
+            evict_tombstones: false,
+            block_size: self.config.inner.block_size,
+
+            #[cfg(feature = "bloom")]
+            bloom_fp_rate: 0.0001,
         })?;
-        let segment = Arc::new(segment);
 
-        // Once we have written the segment, we need to add it to the level manifest
-        // and remove it from the sealed memtables
-        self.register_segments(&[segment])?;
+        for entry in &memtable.items {
+            let key = entry.key();
+            let value = entry.value();
+            writer.write(crate::Value::from(((key.clone()), value.clone())))?;
+        }
 
-        log::debug!("flush: thread done");
-        Ok(Some(segment_folder))
+        self.consume_writer(segment_id, writer)
     }
 
     /// Returns `true` if there are some segments that are being compacted.

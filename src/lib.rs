@@ -123,9 +123,6 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
-#[doc(hidden)]
-pub mod flush;
-
 mod key_range;
 
 #[doc(hidden)]
