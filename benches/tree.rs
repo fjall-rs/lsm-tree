@@ -12,7 +12,6 @@ use tempfile::tempdir;
 
 fn full_scan(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan all");
-    group.sample_size(10);
 
     for item_count in [10_000, 100_000, 1_000_000] {
         group.bench_function(format!("scan all uncached, {item_count} items"), |b| {
@@ -39,7 +38,10 @@ fn full_scan(c: &mut Criterion) {
         group.bench_function(format!("scan all cached, {item_count} items"), |b| {
             let path = tempdir().unwrap();
 
-            let tree = Config::new(path).open().unwrap();
+            let tree = Config::new(path)
+                .block_cache(BlockCache::with_capacity_bytes(100_000_000).into())
+                .open()
+                .unwrap();
 
             for x in 0_u32..item_count {
                 let key = x.to_be_bytes();
