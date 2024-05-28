@@ -245,9 +245,8 @@ impl BlockIndex {
         }
     }
 
-    /// Only used for tests
+    #[cfg(test)]
     #[allow(dead_code, clippy::expect_used)]
-    #[doc(hidden)]
     pub(crate) fn new(segment_id: GlobalSegmentId, block_cache: Arc<BlockCache>) -> Self {
         let index_block_index = IndexBlockFetcher(block_cache);
 
