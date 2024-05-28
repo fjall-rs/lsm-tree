@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_level() -> crate::Result<()> {
+    fn maintenance_empty_level() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn below_limit() -> crate::Result<()> {
+    fn maintenance_below_limit() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn l0_too_large() -> crate::Result<()> {
+    fn maintenance_l0_too_large() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy;
 

@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn ttl() -> crate::Result<()> {
+    fn fifo_ttl() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(u64::MAX, Some(5_000));
 
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_levels() -> crate::Result<()> {
+    fn fifo_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(1, None);
 
@@ -196,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn below_limit() -> crate::Result<()> {
+    fn fifo_below_limit() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(4, None);
 
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn more_than_limit() -> crate::Result<()> {
+    fn fifo_more_than_limit() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::new(2, None);
 
