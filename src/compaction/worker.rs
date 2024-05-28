@@ -390,3 +390,31 @@ fn drop_segments(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use test_log::test;
+
+    #[test]
+    fn compaction_drop_segments() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(folder).open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 1);
+        tree.flush_active_memtable()?;
+        tree.insert("a", "a", 2);
+        tree.flush_active_memtable()?;
+
+        assert_eq!(3, tree.approximate_len());
+
+        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)))?;
+
+        assert_eq!(0, tree.segment_count());
+
+        Ok(())
+    }
+}

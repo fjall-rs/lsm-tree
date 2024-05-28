@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_levels() -> crate::Result<()> {
+    fn tiered_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn default_l0() -> crate::Result<()> {
+    fn tiered_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn ordering() -> crate::Result<()> {
+    fn tiered_ordering() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn more_than_min() -> crate::Result<()> {
+    fn tiered_more_than_min() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn many_segments() -> crate::Result<()> {
+    fn tiered_many_segments() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn deeper_level() -> crate::Result<()> {
+    fn tiered_deeper_level() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn last_level() -> crate::Result<()> {
+    fn tiered_last_level() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
