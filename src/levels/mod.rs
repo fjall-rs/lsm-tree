@@ -563,6 +563,14 @@ mod tests {
         tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
 
         assert!(tree.major_compact(u64::MAX).is_err());
+
+        assert!(tree
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .hidden_set
+            .is_empty());
+
         assert_eq!(segment_count_before_major_compact, tree.segment_count());
 
         Ok(())
