@@ -396,6 +396,7 @@ fn drop_segments(
 
 #[cfg(test)]
 mod tests {
+    use crate::AbstractTree;
     use std::sync::Arc;
     use test_log::test;
 

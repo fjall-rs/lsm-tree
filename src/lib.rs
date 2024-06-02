@@ -165,7 +165,7 @@ pub use {
 
 pub use {
     block_cache::BlockCache,
-    config::Config,
+    config::{Config, TreeType},
     error::{Error, Result},
     memtable::MemTable,
     r#abstract::AbstractTree,
@@ -174,8 +174,26 @@ pub use {
     serde::{DeserializeError, SerializeError},
     snapshot::Snapshot,
     tree::Tree,
-    value::{SeqNo, UserKey, UserValue, Value, ValueType},
+    value::{KvPair, SeqNo, UserKey, UserValue, Value, ValueType},
 };
 
 #[cfg(feature = "kv_sep")]
 pub use blob_tree::BlobTree;
+
+use enum_dispatch::enum_dispatch;
+
+use crate::compaction::CompactionStrategy;
+use crate::tree::inner::MemtableId;
+use std::ops::RangeBounds;
+use std::sync::{Arc, RwLockWriteGuard};
+
+/// May be a standard [`Tree`] or a [`BlobTree`]
+#[derive(Clone)]
+#[enum_dispatch(AbstractTree)]
+pub enum AnyTree {
+    /// Standard LSM-tree, see [`Tree`]
+    Standard(Tree),
+
+    /// Key-value separated LSM-tree, see [`BlobTree`]
+    Blob(BlobTree),
+}

@@ -23,9 +23,13 @@ fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
 
 pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'1'];
 
+/// LSM-tree type
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum TreeType {
+pub enum TreeType {
+    /// Standard LSM-tree, see [`Tree`]
     Standard,
+
+    /// Key-value separated LSM-tree, see [`BlobTree`]
     Blob,
 }
 
@@ -55,10 +59,10 @@ impl TryFrom<u8> for TreeType {
 #[allow(clippy::module_name_repetitions)]
 pub struct PersistedConfig {
     /// Tree type (unused)
-    r#type: TreeType,
+    pub r#type: TreeType,
 
     /// What type of compression is used
-    compression: CompressionType,
+    pub compression: CompressionType,
 
     /// Table type (unused)
     table_type: TableType,

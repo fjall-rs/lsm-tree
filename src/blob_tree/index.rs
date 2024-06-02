@@ -51,7 +51,7 @@ impl value_log::ExternalIndex for IndexTree {
 
         match item {
             MaybeInlineValue::Inline(_) => Ok(None),
-            MaybeInlineValue::Indirect(handle) => Ok(Some(handle)),
+            MaybeInlineValue::Indirect { handle, .. } => Ok(Some(handle)),
         }
     }
 }

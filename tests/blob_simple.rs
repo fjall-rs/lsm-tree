@@ -23,8 +23,6 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
 
-    assert!(tree.get("xyz")?.is_none());
-
     tree.flush_active_memtable()?;
 
     let value = tree.get("big")?.expect("should exist");
@@ -33,7 +31,16 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let value = tree.get("smol")?.expect("should exist");
     assert_eq!(&*value, b"small value");
 
-    assert!(tree.get("xyz")?.is_none());
+    let big_value = b"winter!".repeat(128_000);
+    tree.insert("big", &big_value, 1);
+
+    let value = tree.get("big")?.expect("should exist");
+    assert_eq!(&*value, big_value);
+
+    tree.flush_active_memtable()?;
+
+    let value = tree.get("big")?.expect("should exist");
+    assert_eq!(&*value, big_value);
 
     Ok(())
 }

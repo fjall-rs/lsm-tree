@@ -13,6 +13,9 @@ pub type UserKey = Arc<[u8]>;
 #[allow(clippy::module_name_repetitions)]
 pub type UserValue = Arc<[u8]>;
 
+/// Key-value pair (tuple)
+pub type KvPair = (crate::UserKey, crate::UserValue);
+
 /// Sequence number - a monotonically increasing counter
 ///
 /// Values with the same seqno are part of the same batch.

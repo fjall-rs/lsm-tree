@@ -1,6 +1,6 @@
 use crate::{
     value::{SeqNo, UserKey, UserValue},
-    AbstractTree,
+    AbstractTree, AnyTree,
 };
 use std::{
     ops::RangeBounds,
@@ -45,14 +45,14 @@ impl Counter {
 ///
 /// Snapshots do not persist across restarts.
 #[derive(Clone)]
-pub struct Snapshot<T: AbstractTree> {
-    tree: T,
+pub struct Snapshot {
+    tree: AnyTree,
     seqno: SeqNo,
 }
 
-impl<T: AbstractTree> Snapshot<T> {
+impl Snapshot {
     /// Creates a snapshot
-    pub(crate) fn new(tree: T, seqno: SeqNo) -> Self {
+    pub(crate) fn new(tree: AnyTree, seqno: SeqNo) -> Self {
         tree.register_snapshot();
         log::trace!("Opening snapshot with seqno: {seqno}");
         Self { tree, seqno }
@@ -120,7 +120,7 @@ impl<T: AbstractTree> Snapshot<T> {
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.iter_with_seqno(self.seqno)
+        self.tree.iter_with_seqno(self.seqno, None)
     }
 
     /// Returns an iterator over a range of items in the snapshot.
@@ -153,7 +153,7 @@ impl<T: AbstractTree> Snapshot<T> {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.range_with_seqno(range, self.seqno)
+        self.tree.range_with_seqno(range, self.seqno, None)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -186,7 +186,7 @@ impl<T: AbstractTree> Snapshot<T> {
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.prefix_with_seqno(prefix, self.seqno)
+        self.tree.prefix_with_seqno(prefix, self.seqno, None)
     }
 
     /// Returns the first key-value pair in the snapshot.
@@ -349,7 +349,7 @@ impl<T: AbstractTree> Snapshot<T> {
     }
 }
 
-impl<T: AbstractTree> Drop for Snapshot<T> {
+impl Drop for Snapshot {
     fn drop(&mut self) {
         log::trace!("Closing snapshot");
         self.tree.deregister_snapshot();

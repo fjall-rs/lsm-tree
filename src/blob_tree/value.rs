@@ -16,7 +16,7 @@ pub enum MaybeInlineValue {
     Inline(UserValue),
 
     /// The value is a handle (pointer) into the value log
-    Indirect(ValueHandle),
+    Indirect { handle: ValueHandle, size: u32 },
 }
 
 impl Serializable for ValueHandle {
@@ -44,9 +44,10 @@ impl Serializable for MaybeInlineValue {
                 writer.write_u64::<BigEndian>(bytes.len() as u64)?;
                 writer.write_all(bytes)?;
             }
-            Self::Indirect(value_handle) => {
+            Self::Indirect { handle, size } => {
                 writer.write_u8(1)?;
-                value_handle.serialize(writer)?;
+                handle.serialize(writer)?;
+                writer.write_u32::<BigEndian>(*size)?;
             }
         }
         Ok(())
@@ -67,7 +68,9 @@ impl Deserializable for MaybeInlineValue {
             }
             1 => {
                 let handle = ValueHandle::deserialize(reader)?;
-                Ok(Self::Indirect(handle))
+                let size = reader.read_u32::<BigEndian>()?;
+
+                Ok(Self::Indirect { handle, size })
             }
             x => Err(DeserializeError::InvalidTag(("MaybeInlineValue", x))),
         }

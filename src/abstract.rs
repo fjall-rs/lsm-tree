@@ -1,10 +1,74 @@
-use crate::{tree::inner::MemtableId, MemTable, SeqNo, Snapshot, UserKey, UserValue};
-use std::{ops::RangeBounds, sync::Arc};
+use crate::{
+    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, Config, KvPair,
+    MemTable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+};
+use enum_dispatch::enum_dispatch;
+use std::{
+    ops::RangeBounds,
+    sync::{Arc, RwLockWriteGuard},
+};
+
+pub type RangeItem = crate::Result<KvPair>;
 
 /// Generic Tree API
 #[allow(clippy::module_name_repetitions)]
+#[enum_dispatch]
 pub trait AbstractTree {
-    /// Seals the active memtable, and returns a reference to it
+    /// Synchronously flushes a memtable to a disk segment.
+    ///
+    /// The result will contain the disk segment's path, relative to the tree's base path.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn flush_memtable(
+        &self,
+        segment_id: SegmentId,
+        memtable: &Arc<MemTable>,
+    ) -> crate::Result<Arc<Segment>>;
+
+    /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables
+    fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()>;
+
+    /// Write-locks the active memtable for exclusive access
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, MemTable>;
+
+    /// Sets the active memtable.
+    ///
+    /// May be used to restore the LSM-tree's in-memory state from a write-ahead log
+    /// after tree recovery.
+    fn set_active_memtable(&self, memtable: MemTable);
+
+    /// Adds a sealed memtables.
+    ///
+    /// May be used to restore the LSM-tree's in-memory state from some journals.
+    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>);
+
+    /// Performs compaction on the tree's levels, blocking the caller until it's done.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()>;
+
+    /// Returns the next segment's ID.
+    fn get_next_segment_id(&self) -> SegmentId;
+
+    /// Returns the tree config.
+    fn tree_config(&self) -> &Config;
+
+    /// Returns the highest sequence number.
+    fn get_lsn(&self) -> Option<SeqNo>;
+
+    /// Returns the approximate size of the active memtable in bytes.
+    ///
+    /// May be used to flush the memtable if it grows too large.
+    fn active_memtable_size(&self) -> u32;
+
+    /// Returns the tree type.
+    fn tree_type(&self) -> TreeType;
+
+    /// Seals the active memtable, and returns a reference to it.
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)>;
 
     /// Returns the amount of disk segments currently in the tree.
@@ -16,19 +80,19 @@ pub trait AbstractTree {
     /// Approximates the amount of items in the tree.
     fn approximate_len(&self) -> u64;
 
-    /// Returns the disk space usage
+    /// Returns the disk space usage.
     fn disk_space(&self) -> u64;
 
-    /// Returns the highest sequence number of the active memtable
+    /// Returns the highest sequence number of the active memtable.
     fn get_memtable_lsn(&self) -> Option<SeqNo>;
 
-    /// Returns the highest sequence number that is flushed to disk
+    /// Returns the highest sequence number that is flushed to disk.
     fn get_segment_lsn(&self) -> Option<SeqNo>;
 
-    /// Register snapshot
+    /// Registers snapshot.
     fn register_snapshot(&self);
 
-    /// Deregister snapshot
+    /// Deregisters snapshot.
     fn deregister_snapshot(&self);
 
     /// Scans the entire tree, returning the amount of items.
@@ -124,7 +188,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    fn first_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.iter().next().transpose()
     }
 
@@ -153,7 +217,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    fn last_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.iter().next_back().transpose()
     }
 
@@ -182,29 +246,32 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
         self.range::<UserKey, _>(..)
     }
 
     /// Creates an iterator over a snapshot instant.
-    fn iter_with_seqno(
-        &self,
+    fn iter_with_seqno<'a>(
+        &'a self,
         seqno: SeqNo,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_;
+        index: Option<&'a MemTable>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
 
     /// Creates an bounded iterator over a snapshot instant.
-    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
+    fn range_with_seqno<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &'a self,
         range: R,
         seqno: SeqNo,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_;
+        index: Option<&'a MemTable>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
 
     /// Creates a prefix iterator over a snapshot instant.
-    fn prefix_with_seqno<K: AsRef<[u8]>>(
-        &self,
+    fn prefix_with_seqno<'a, K: AsRef<[u8]>>(
+        &'a self,
         prefix: K,
         seqno: SeqNo,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_;
+        index: Option<&'a MemTable>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
 
     /// Returns an iterator over a range of items.
     ///
@@ -228,7 +295,7 @@ pub trait AbstractTree {
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_>;
 
     /// Returns an iterator over a prefixed set of items.
     ///
@@ -256,7 +323,7 @@ pub trait AbstractTree {
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_>;
 
     /// Retrieves an item from the tree.
     ///
@@ -314,16 +381,11 @@ pub trait AbstractTree {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    fn snapshot(&self, seqno: SeqNo) -> Snapshot<Self>
-    where
-        Self: Sized;
+    fn snapshot(&self, seqno: SeqNo) -> Snapshot;
 
     /// Opens a snapshot of this partition with a given sequence number
     #[must_use]
-    fn snapshot_at(&self, seqno: SeqNo) -> Snapshot<Self>
-    where
-        Self: Sized,
-    {
+    fn snapshot_at(&self, seqno: SeqNo) -> Snapshot {
         self.snapshot(seqno)
     }
 
