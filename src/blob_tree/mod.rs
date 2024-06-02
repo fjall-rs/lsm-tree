@@ -27,7 +27,8 @@ pub struct BlobTree {
     pub index: IndexTree,
 
     /// Log-structured value-log that stores large values
-    blobs: ValueLog,
+    #[doc(hidden)]
+    pub blobs: ValueLog,
 }
 
 impl BlobTree {
