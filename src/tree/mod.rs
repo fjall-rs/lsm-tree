@@ -315,10 +315,6 @@ impl AbstractTree for Tree {
         seqno: SeqNo,
         r#type: ValueType,
     ) -> (u32, u32) {
-        if r#type == ValueType::Tombstone {
-            log::error!("batch remove {:?}", String::from_utf8_lossy(key.as_ref()));
-        }
-
         let value = Value::new(key.as_ref(), value.as_ref(), seqno, r#type);
         lock.insert(value)
     }
