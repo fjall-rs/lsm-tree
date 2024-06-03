@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn block_header_raw() -> crate::Result<()> {
         let header = Header {
-            compression: CompressionType::None,
+            compression: CompressionType::Lz4,
             crc: 4,
             previous_block_offset: 2,
             data_length: 15,

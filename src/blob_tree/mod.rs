@@ -170,6 +170,7 @@ impl AbstractTree for BlobTree {
             block_size: self.index.config.inner.block_size,
             evict_tombstones: false,
             folder: lsm_segment_folder,
+            compression: self.index.config.inner.compression,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.0001,

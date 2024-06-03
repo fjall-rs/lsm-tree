@@ -18,6 +18,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["kv_sep", "lz4"]
+kv_sep = ["dep:value-log"]
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
 bloom = ["dep:seahash"]

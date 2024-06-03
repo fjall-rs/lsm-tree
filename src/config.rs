@@ -61,6 +61,7 @@ pub struct PersistedConfig {
     /// Tree type (unused)
     pub r#type: TreeType,
 
+    // TODO: move into ephemeral, when different types of compression per level is supported
     /// What type of compression is used
     pub compression: CompressionType,
 
@@ -302,7 +303,7 @@ mod tests {
     fn tree_config_raw() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::None,
+            compression: CompressionType::Lz4,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
@@ -341,7 +342,7 @@ mod tests {
     fn tree_config_serde_round_trip() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::None,
+            compression: CompressionType::Lz4,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
