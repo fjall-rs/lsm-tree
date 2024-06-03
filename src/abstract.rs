@@ -1,6 +1,6 @@
 use crate::{
     compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, Config, KvPair,
-    MemTable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    MemTable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -440,6 +440,16 @@ pub trait AbstractTree {
     ///
     /// Will return `Err` if an IO error occurs.
     fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32);
+
+    /// Inserts a key-value pair.
+    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &self,
+        lock: &RwLockWriteGuard<'_, MemTable>,
+        key: K,
+        value: V,
+        seqno: SeqNo,
+        r#type: ValueType,
+    ) -> (u32, u32);
 
     /// Removes an item from the tree.
     ///

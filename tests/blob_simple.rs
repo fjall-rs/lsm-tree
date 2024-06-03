@@ -31,16 +31,16 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let value = tree.get("smol")?.expect("should exist");
     assert_eq!(&*value, b"small value");
 
-    let big_value = b"winter!".repeat(128_000);
-    tree.insert("big", &big_value, 1);
+    let new_big_value = b"winter!".repeat(128_000);
+    tree.insert("big", &new_big_value, 1);
 
     let value = tree.get("big")?.expect("should exist");
-    assert_eq!(&*value, big_value);
+    assert_eq!(&*value, new_big_value);
 
     tree.flush_active_memtable()?;
 
     let value = tree.get("big")?.expect("should exist");
-    assert_eq!(&*value, big_value);
+    assert_eq!(&*value, new_big_value);
 
     Ok(())
 }

@@ -7,10 +7,14 @@ use crate::{
     r#abstract::{AbstractTree, RangeItem},
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
-    Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey,
+    Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, Value, ValueType,
 };
 use index::IndexTree;
-use std::{collections::BTreeMap, io::Cursor, ops::RangeBounds, sync::Arc};
+use std::{
+    io::Cursor,
+    ops::RangeBounds,
+    sync::{Arc, RwLockWriteGuard},
+};
 use value_log::{ValueHandle, ValueLog};
 
 /// A key-value-separated log-structured merge tree
@@ -55,7 +59,7 @@ impl BlobTree {
                     MaybeInlineValue::Indirect { handle, .. } => match self.blobs.get(&handle) {
                         Ok(Some(bytes)) => Ok((key, bytes)),
                         Err(e) => Err(e.into()),
-                        _ => panic!("Aahhhh"), // TODO:
+                        _ => panic!("Aahhhh"), // TODO: 2.0.0
                     },
                 }
             }
@@ -63,77 +67,137 @@ impl BlobTree {
         }
     }
 
-    pub fn test_gc(&self) -> crate::Result<()> {
-        eprintln!("\n--- Value log GC report ---");
+    /// Scans the index tree, collecting statistics about
+    /// value log fragmentation
+    pub fn gc_scan_stats(&self) -> crate::Result<()> {
+        use MaybeInlineValue::{Indirect, Inline};
 
-        let mut size_map = BTreeMap::<SegmentId, u64>::new();
+        self.blobs
+            .scan_for_stats(self.index.iter().filter_map(|kv| {
+                let Ok((_, v)) = kv else { return Some(Err(())) };
 
-        for kv in self.index.iter() {
-            let (k, v) = kv?;
+                let mut cursor = Cursor::new(v);
+                let value = MaybeInlineValue::deserialize(&mut cursor).expect("oops");
 
-            let mut cursor = Cursor::new(v);
-            let value = MaybeInlineValue::deserialize(&mut cursor).expect("oops");
+                match value {
+                    Indirect { handle, size } => Some(Ok((handle, size))),
+                    Inline(_) => None,
+                }
+            }))?;
 
-            if let MaybeInlineValue::Indirect { handle, size } = value {
-                let size = u64::from(size);
+        Ok(())
+    }
 
-                /*  eprintln!(
-                    "{:?} => {handle:?} ({size} bytes)",
-                    String::from_utf8_lossy(&k)
-                ); */
+    /// Rewrites blob files that have reached a stale threshold
+    pub fn gc_rollover(&self, stale_threshold: f32, seqno: SeqNo) -> crate::Result<()> {
+        struct MyReader<'a> {
+            tree: &'a crate::Tree,
+            memtable: &'a RwLockWriteGuard<'a, MemTable>,
+        }
+        impl<'a> MyReader<'a> {
+            pub(crate) fn get_internal(
+                &self,
+                key: &[u8],
+            ) -> crate::Result<Option<MaybeInlineValue>> {
+                let Some(item) = self
+                    .tree
+                    .get_internal_entry_with_lock(self.memtable, key, true, None)?
+                    .map(|x| x.value)
+                else {
+                    return Ok(None);
+                };
 
-                size_map
-                    .entry(handle.segment_id)
-                    .and_modify(|x| *x += size)
-                    .or_insert(size);
+                let mut cursor = Cursor::new(item);
+                let item = MaybeInlineValue::deserialize(&mut cursor)?;
+
+                Ok(Some(item))
             }
         }
 
-        /*   eprintln!("{size_map:#?}"); */
+        impl<'a> value_log::ExternalIndex for MyReader<'a> {
+            fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
+                let Some(item) = self.get_internal(key).expect("should get value") else {
+                    return Ok(None);
+                };
 
-        for (&id, &used_size) in &size_map {
-            let segment = self
-                .blobs
-                .manifest
-                .get_segment(id)
-                .expect("segment should exist");
-
-            let total = segment.stats.total_uncompressed_bytes();
-            let stale = total - used_size;
-            let space_amp = total as f64 / used_size as f64;
-            let stale_ratio = stale as f64 / total as f64;
-
-            eprintln!(
-                "Blob file #{id} has {}/{} stale MiB ({:.1}% stale, space amp: {space_amp})",
-                stale / 1_024 / 1_024,
-                total / 1_024 / 1_024,
-                stale_ratio * 100.0
-            );
+                match item {
+                    MaybeInlineValue::Inline(_) => Ok(None),
+                    MaybeInlineValue::Indirect { handle, .. } => Ok(Some(handle)),
+                }
+            }
         }
 
-        for id in self
+        // TODO: refactor
+        struct MyWriter<'a> {
+            seqno: SeqNo,
+            buffer: Vec<(UserKey, ValueHandle, u32)>,
+            memtable: &'a RwLockWriteGuard<'a, MemTable>,
+        }
+
+        impl<'a> value_log::IndexWriter for MyWriter<'a> {
+            fn insert_indirection(
+                &mut self,
+                key: &[u8],
+                handle: ValueHandle,
+                size: u32,
+            ) -> std::io::Result<()> {
+                self.buffer.push((key.into(), handle, size));
+                Ok(())
+            }
+
+            // TODO: maybe finish should consume self
+            fn finish(&mut self) -> std::io::Result<()> {
+                for (key, handle, size) in self.buffer.drain(..) {
+                    let mut buf = vec![];
+                    MaybeInlineValue::Indirect { handle, size }
+                        .serialize(&mut buf)
+                        .expect("should serialize");
+
+                    self.memtable.insert(crate::Value {
+                        key,
+                        value: Arc::from(buf),
+                        seqno: self.seqno,
+                        value_type: crate::ValueType::Value,
+                    });
+                }
+
+                Ok(())
+            }
+        }
+
+        // First, find the segment IDs that are stale
+        let ids = self
             .blobs
-            .manifest
-            .segments
-            .read()
-            .expect("lock is poisoned")
-            .keys()
-        {
-            let segment = self
-                .blobs
-                .manifest
-                .get_segment(*id)
-                .expect("segment should exist");
+            .find_segments_with_stale_threshold(stale_threshold);
 
-            if !size_map.contains_key(id) {
-                eprintln!(
-                    "Blob file #{id} has no incoming references - can be dropped, freeing {} KiB on disk (userdata={} MiB)",
-                    segment.stats.total_bytes() / 1_024,
-                    segment.stats.total_uncompressed_bytes() /1_024/1_024
-                );
-            }
-        }
+        // IMPORTANT: Write lock memtable to avoid read skew
+        let memtable_lock = self.index.lock_active_memtable();
 
+        let index_reader = MyReader {
+            tree: &self.index,
+            memtable: &memtable_lock,
+        };
+
+        let mut index_writer = MyWriter {
+            memtable: &memtable_lock,
+            buffer: vec![],
+            seqno,
+        };
+
+        self.blobs
+            .rollover(&ids, &index_reader, &mut index_writer)?;
+
+        // NOTE: We still have the memtable lock, can't use gc_drop_stable because recursive locking
+        self.blobs.drop_stale_segments()?;
+
+        Ok(())
+    }
+
+    /// Drops all stale blob segment files
+    pub fn gc_drop_stale(&self) -> crate::Result<()> {
+        // IMPORTANT: Write lock memtable to avoid read skew
+        let _lock = self.index.lock_active_memtable();
+        self.blobs.drop_stale_segments()?;
         Ok(())
     }
 
@@ -378,6 +442,28 @@ impl AbstractTree for BlobTree {
                 .create_prefix(prefix, None, None)
                 .map(|item| self.resolve_value_handle(item)),
         )
+    }
+
+    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &self,
+        lock: &RwLockWriteGuard<'_, MemTable>,
+        key: K,
+        value: V,
+        seqno: SeqNo,
+        r#type: ValueType,
+    ) -> (u32, u32) {
+        use value::MaybeInlineValue;
+
+        // NOTE: Initially, we always write an inline value
+        // On memtable flush, depending on the values' sizes, they will be separated
+        // into inline or indirect values
+        let item = MaybeInlineValue::Inline(value.as_ref().into());
+
+        let mut value = vec![];
+        item.serialize(&mut value).expect("should serialize");
+
+        let value = Value::new(key.as_ref(), value, seqno, r#type);
+        lock.insert(value)
     }
 
     fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {

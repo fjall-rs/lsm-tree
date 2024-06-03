@@ -1,7 +1,6 @@
 use super::value::MaybeInlineValue;
 use crate::{serde::Deserializable, AbstractTree, SeqNo, Tree as LsmTree};
 use std::io::Cursor;
-use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone)]
@@ -21,7 +20,7 @@ impl IndexTree {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<MaybeInlineValue>> {
-        let Some(item) = self.0.get_with_seqno(key, seqno)? else {
+        let Some(item) = self.get_with_seqno(key, seqno)? else {
             return Ok(None);
         };
 
@@ -32,7 +31,7 @@ impl IndexTree {
     }
 
     pub(crate) fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
-        let Some(item) = self.0.get(key)? else {
+        let Some(item) = self.get(key)? else {
             return Ok(None);
         };
 
@@ -40,19 +39,6 @@ impl IndexTree {
         let item = MaybeInlineValue::deserialize(&mut cursor)?;
 
         Ok(Some(item))
-    }
-}
-
-impl value_log::ExternalIndex for IndexTree {
-    fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
-        let Some(item) = self.get_internal(key).expect("should get value") else {
-            return Ok(None);
-        };
-
-        match item {
-            MaybeInlineValue::Inline(_) => Ok(None),
-            MaybeInlineValue::Indirect { handle, .. } => Ok(Some(handle)),
-        }
     }
 }
 

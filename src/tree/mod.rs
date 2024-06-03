@@ -307,6 +307,18 @@ impl AbstractTree for Tree {
         self.append_entry(value)
     }
 
+    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+        &self,
+        lock: &RwLockWriteGuard<'_, MemTable>,
+        key: K,
+        value: V,
+        seqno: SeqNo,
+        r#type: ValueType,
+    ) -> (u32, u32) {
+        let value = Value::new(key.as_ref(), value.as_ref(), seqno, r#type);
+        lock.insert(value)
+    }
+
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         let value = Value::new_tombstone(key.as_ref(), seqno);
         self.append_entry(value)
@@ -467,35 +479,56 @@ impl Tree {
         self.sealed_memtables.write().expect("lock is poisoned")
     }
 
-    #[doc(hidden)]
-    pub fn get_internal_entry<K: AsRef<[u8]>>(
+    /// Used for [`BlobTree`] lookup
+    pub(crate) fn get_internal_entry_with_lock<K: AsRef<[u8]>>(
         &self,
+        memtable_lock: &RwLockWriteGuard<'_, MemTable>,
         key: K,
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
-
         if let Some(item) = memtable_lock.get(&key, seqno) {
             if evict_tombstone {
                 return Ok(ignore_tombstone_value(item));
             }
             return Ok(Some(item));
         };
-        drop(memtable_lock);
 
         // Now look in sealed memtables
+        if let Some(entry) =
+            self.get_internal_entry_from_sealed_memtables(&key, evict_tombstone, seqno)
+        {
+            return Ok(Some(entry));
+        }
+
+        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+    }
+
+    fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        evict_tombstone: bool,
+        seqno: Option<SeqNo>,
+    ) -> Option<Value> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
+
         for (_, memtable) in memtable_lock.iter().rev() {
             if let Some(item) = memtable.get(&key, seqno) {
                 if evict_tombstone {
-                    return Ok(ignore_tombstone_value(item));
+                    return ignore_tombstone_value(item);
                 }
-                return Ok(Some(item));
+                return Some(item);
             }
         }
-        drop(memtable_lock);
+        None
+    }
 
+    fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        evict_tombstone: bool,
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Option<Value>> {
         // Now look in segments... this may involve disk I/O
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
@@ -523,6 +556,33 @@ impl Tree {
         }
 
         Ok(None)
+    }
+
+    #[doc(hidden)]
+    pub fn get_internal_entry<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        evict_tombstone: bool,
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Option<Value>> {
+        let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
+
+        if let Some(item) = memtable_lock.get(&key, seqno) {
+            if evict_tombstone {
+                return Ok(ignore_tombstone_value(item));
+            }
+            return Ok(Some(item));
+        };
+        drop(memtable_lock);
+
+        // Now look in sealed memtables
+        if let Some(entry) =
+            self.get_internal_entry_from_sealed_memtables(&key, evict_tombstone, seqno)
+        {
+            return Ok(Some(entry));
+        }
+
+        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
     }
 
     #[doc(hidden)]
