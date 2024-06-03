@@ -141,7 +141,11 @@ impl BlobTree {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
-        self.flush_memtable(segment_id, &yanked_memtable).map(Some)
+
+        let segment = self.flush_memtable(segment_id, &yanked_memtable)?;
+        self.register_segments(&[segment.clone()])?;
+
+        Ok(Some(segment))
     }
 }
 

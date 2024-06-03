@@ -427,8 +427,6 @@ impl Tree {
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
-        self.register_segments(&[created_segment.clone()])?;
-
         Ok(created_segment)
     }
 
@@ -449,7 +447,10 @@ impl Tree {
             return Ok(None);
         };
 
-        Ok(Some(self.flush_memtable(segment_id, &yanked_memtable)?))
+        let segment = self.flush_memtable(segment_id, &yanked_memtable)?;
+        self.register_segments(&[segment.clone()])?;
+
+        Ok(Some(segment))
     }
 
     /// Returns `true` if there are some segments that are being compacted.

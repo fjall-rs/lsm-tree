@@ -16,7 +16,8 @@ pub type RangeItem = crate::Result<KvPair>;
 pub trait AbstractTree {
     /// Synchronously flushes a memtable to a disk segment.
     ///
-    /// The result will contain the disk segment's path, relative to the tree's base path.
+    /// This method will not make the segment immediately available,
+    /// use [`register_segments`] for that.
     ///
     /// # Errors
     ///
@@ -27,7 +28,11 @@ pub trait AbstractTree {
         memtable: &Arc<MemTable>,
     ) -> crate::Result<Arc<Segment>>;
 
-    /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables
+    /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
