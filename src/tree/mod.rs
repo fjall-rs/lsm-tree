@@ -84,7 +84,7 @@ impl AbstractTree for Tree {
 
         // NOTE: Mind lock order L -> M -> S
         log::trace!("flush: acquiring sealed memtables write lock");
-        let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
+        let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
 
         original_levels.atomic_swap(|recipe| {
             for segment in segments.iter().cloned() {
@@ -96,7 +96,7 @@ impl AbstractTree for Tree {
         })?;
 
         for segment in segments {
-            memtable_lock.remove(segment.metadata.id);
+            sealed_memtables.remove(segment.metadata.id);
         }
 
         Ok(())
@@ -315,6 +315,10 @@ impl AbstractTree for Tree {
         seqno: SeqNo,
         r#type: ValueType,
     ) -> (u32, u32) {
+        if r#type == ValueType::Tombstone {
+            log::error!("batch remove {:?}", String::from_utf8_lossy(key.as_ref()));
+        }
+
         let value = Value::new(key.as_ref(), value.as_ref(), seqno, r#type);
         lock.insert(value)
     }
@@ -487,17 +491,18 @@ impl Tree {
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
-        if let Some(item) = memtable_lock.get(&key, seqno) {
+        if let Some(entry) = memtable_lock.get(&key, seqno) {
             if evict_tombstone {
-                return Ok(ignore_tombstone_value(item));
+                return Ok(ignore_tombstone_value(entry));
             }
-            return Ok(Some(item));
+            return Ok(Some(entry));
         };
 
         // Now look in sealed memtables
-        if let Some(entry) =
-            self.get_internal_entry_from_sealed_memtables(&key, evict_tombstone, seqno)
-        {
+        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
+            if evict_tombstone {
+                return Ok(ignore_tombstone_value(entry));
+            }
             return Ok(Some(entry));
         }
 
@@ -507,19 +512,16 @@ impl Tree {
     fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> Option<Value> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
 
         for (_, memtable) in memtable_lock.iter().rev() {
-            if let Some(item) = memtable.get(&key, seqno) {
-                if evict_tombstone {
-                    return ignore_tombstone_value(item);
-                }
-                return Some(item);
+            if let Some(entry) = memtable.get(&key, seqno) {
+                return Some(entry);
             }
         }
+
         None
     }
 
@@ -536,20 +538,20 @@ impl Tree {
             // NOTE: Based on benchmarking, binary search is only worth it after ~5 segments
             if level.is_disjoint && level.len() > 5 {
                 if let Some(segment) = level.get_segment_containing_key(&key) {
-                    if let Some(item) = segment.get(&key, seqno)? {
+                    if let Some(entry) = segment.get(&key, seqno)? {
                         if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
+                            return Ok(ignore_tombstone_value(entry));
                         }
-                        return Ok(Some(item));
+                        return Ok(Some(entry));
                     }
                 }
             } else {
                 for segment in &level.segments {
-                    if let Some(item) = segment.get(&key, seqno)? {
+                    if let Some(entry) = segment.get(&key, seqno)? {
                         if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
+                            return Ok(ignore_tombstone_value(entry));
                         }
-                        return Ok(Some(item));
+                        return Ok(Some(entry));
                     }
                 }
             }
@@ -567,18 +569,19 @@ impl Tree {
     ) -> crate::Result<Option<Value>> {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
-        if let Some(item) = memtable_lock.get(&key, seqno) {
+        if let Some(entry) = memtable_lock.get(&key, seqno) {
             if evict_tombstone {
-                return Ok(ignore_tombstone_value(item));
+                return Ok(ignore_tombstone_value(entry));
             }
-            return Ok(Some(item));
+            return Ok(Some(entry));
         };
         drop(memtable_lock);
 
         // Now look in sealed memtables
-        if let Some(entry) =
-            self.get_internal_entry_from_sealed_memtables(&key, evict_tombstone, seqno)
-        {
+        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
+            if evict_tombstone {
+                return Ok(ignore_tombstone_value(entry));
+            }
             return Ok(Some(entry));
         }
 
