@@ -19,7 +19,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 
 - Thread-safe BTreeMap-like API
 - 100% safe & stable Rust
-- Block-based tables with LZ4 compression
+- Block-based tables with compression support
 - Range & prefix searching with forward and reverse iteration
 - Size-tiered, (concurrent) Levelled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
@@ -27,17 +27,36 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Block caching to keep hot data in memory
 - Bloom filters to increase point lookup performance (`bloom` feature, disabled by default)
 - Snapshots (MVCC)
+- Key-value separation (optional) [[2]](#footnotes)
 
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 engine, larger keys and values have a bigger performance impact.
 
 ## Feature flags
 
-#### bloom
+### lz4
+
+Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeitz/lz4_flex).
+
+*Enabled by default.*
+
+### miniz
+
+Allows using `DEFLATE/zlib` compression, powered by [`miniz_oxide`](https://github.com/Frommi/miniz_oxide).
+
+*Disabled by default.*
+
+### bloom
 
 Uses bloom filters to reduce disk I/O for non-existing keys. Improves point read performance, but increases memory usage.
 
 *Disabled by default.*
+
+### kv_sep
+
+Allows using the `BlobTree` which is backed by a log-structured value log, intended for large blob use cases.
+
+*Enabled by default.*
 
 ## Stable disk format
 
@@ -60,3 +79,4 @@ cargo bench --features bloom --features lz4 --features miniz
 ## Footnotes
 
 [1] https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html
+[2] https://github.com/facebook/rocksdb/wiki/BlobDB
