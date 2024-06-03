@@ -365,8 +365,12 @@ fn index_block_find_handle(c: &mut Criterion) {
 fn load_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
-    for block_size in [1, 4, 8, 16, 32, 64] {
-        group.bench_function(format!("{block_size} KiB"), |b| {
+    for comp_type in [
+        CompressionType::None,
+        CompressionType::Lz4,
+        CompressionType::Miniz,
+    ] {
+        for block_size in [1, 4, 8, 16, 32, 64] {
             let block_size = block_size * 1_024;
 
             let mut size = 0;
@@ -390,31 +394,33 @@ fn load_block_from_disk(c: &mut Criterion) {
                 }
             }
 
-            let mut block = ValueBlock {
-                items: items.clone().into_boxed_slice(),
-                header: BlockHeader {
-                    compression: CompressionType::Lz4,
-                    crc: 0,
-                    data_length: 0,
-                    previous_block_offset: 0,
-                },
-            };
+            group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
+                let mut block = ValueBlock {
+                    items: items.clone().into_boxed_slice(),
+                    header: BlockHeader {
+                        compression: comp_type,
+                        crc: 0,
+                        data_length: 0,
+                        previous_block_offset: 0,
+                    },
+                };
 
-            // Serialize block
-            block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
-            let (header, data) = ValueBlock::to_bytes_compressed(&items, 0).unwrap();
+                // Serialize block
+                block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
+                let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
 
-            let mut file = tempfile::tempfile().unwrap();
-            header.serialize(&mut file).unwrap();
-            file.write_all(&data).unwrap();
+                let mut file = tempfile::tempfile().unwrap();
+                header.serialize(&mut file).unwrap();
+                file.write_all(&data).unwrap();
 
-            b.iter(|| {
-                let loaded_block = ValueBlock::from_file_compressed(&mut file, 0).unwrap();
+                b.iter(|| {
+                    let loaded_block = ValueBlock::from_file_compressed(&mut file, 0).unwrap();
 
-                assert_eq!(loaded_block.items.len(), block.items.len());
-                assert_eq!(loaded_block.header.crc, block.header.crc);
+                    assert_eq!(loaded_block.items.len(), block.items.len());
+                    assert_eq!(loaded_block.header.crc, block.header.crc);
+                });
             });
-        });
+        }
     }
 }
 

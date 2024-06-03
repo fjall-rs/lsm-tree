@@ -40,6 +40,7 @@ impl MultiWriter {
             folder: opts.folder.clone(),
             evict_tombstones: opts.evict_tombstones,
             block_size: opts.block_size,
+            compression: opts.compression,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: opts.bloom_fp_rate,
@@ -74,6 +75,7 @@ impl MultiWriter {
             folder: self.opts.folder.clone(),
             evict_tombstones: self.opts.evict_tombstones,
             block_size: self.opts.block_size,
+            compression: self.opts.compression,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: self.opts.bloom_fp_rate,

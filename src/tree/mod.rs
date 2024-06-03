@@ -12,8 +12,8 @@ use crate::{
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, Value,
-    ValueType,
+    AbstractTree, BlockCache, CompressionType, KvPair, SegmentId, SeqNo, Snapshot, UserKey,
+    UserValue, Value, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -48,6 +48,7 @@ impl AbstractTree for Tree {
         &self,
         segment_id: SegmentId,
         memtable: &Arc<MemTable>,
+        compression: CompressionType,
     ) -> crate::Result<Arc<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
@@ -62,6 +63,7 @@ impl AbstractTree for Tree {
             folder,
             evict_tombstones: false,
             block_size: self.config.inner.block_size,
+            compression,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.0001,

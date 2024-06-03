@@ -157,6 +157,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::BlockIndex,
+            meta::CompressionType,
             prefix::PrefixedReader,
             reader::Reader,
             writer::{Options, Writer},
@@ -178,6 +179,7 @@ mod tests {
                 folder: folder.clone(),
                 evict_tombstones: false,
                 block_size: 4096,
+                compression: CompressionType::None,
 
                 #[cfg(feature = "bloom")]
                 bloom_fp_rate: 0.01,
@@ -287,6 +289,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+            compression: CompressionType::None,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,
@@ -386,6 +389,7 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
+            compression: CompressionType::None,
 
             #[cfg(feature = "bloom")]
             bloom_fp_rate: 0.01,

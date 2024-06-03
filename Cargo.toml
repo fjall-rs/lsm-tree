@@ -17,10 +17,12 @@ name = "lsm_tree"
 path = "src/lib.rs"
 
 [features]
-default = ["kv_sep"]
-kv_sep = ["dep:value-log"]
+default = ["kv_sep", "lz4"]
+lz4 = ["dep:lz4_flex"]
+miniz = ["dep:miniz_oxide"]
 bloom = ["dep:seahash"]
 segment_history = ["dep:serde", "dep:serde_json"]
+miniz_oxide = ["dep:miniz_oxide"]
 
 [dependencies]
 byteorder = "1.5.0"
@@ -29,7 +31,8 @@ crossbeam-skiplist = "0.1.3"
 double-ended-peekable = "0.1.0"
 enum_dispatch = "0.3.13"
 log = "0.4.21"
-lz4_flex = "0.11.3"
+lz4_flex = { version = "0.11.3", optional = true }
+miniz_oxide = { version = "0.7.3", optional = true }
 path-absolutize = "3.1.1"
 quick_cache = { version = "0.5.1", default-features = false, features = [] }
 seahash = { version = "4.1.0", optional = true }
@@ -45,20 +48,20 @@ fs_extra = "1.3.0"
 nanoid = "0.4.0"
 test-log = "0.2.16"
 
-[[bench]]
-name = "bloom"
-harness = false
-path = "benches/bloom.rs"
-required-features = ["bloom"]
+# [[bench]]
+# name = "bloom"
+# harness = false
+# path = "benches/bloom.rs"
+# required-features = ["bloom"]
 
 [[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
-required-features = []
+required-features = ["lz4", "miniz"]
 
-[[bench]]
-name = "level_manifest"
-harness = false
-path = "benches/level_manifest.rs"
-required-features = []
+# [[bench]]
+# name = "level_manifest"
+# harness = false
+# path = "benches/level_manifest.rs"
+# required-features = []

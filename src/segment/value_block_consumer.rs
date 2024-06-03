@@ -102,7 +102,7 @@ mod tests {
     fn block(items: Vec<Value>) -> ValueBlock {
         ValueBlock {
             header: Header {
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 crc: 0,
                 data_length: 0,
                 previous_block_offset: 0,

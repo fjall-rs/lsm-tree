@@ -1,6 +1,9 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
-    segment::block::header::Header as BlockHeader, serde::Serializable, value::UserKey, SegmentId,
+    segment::{block::header::Header as BlockHeader, meta::CompressionType},
+    serde::Serializable,
+    value::UserKey,
+    SegmentId,
 };
 use std::{
     fs::File,
@@ -26,6 +29,7 @@ pub struct Writer {
 
     block_writer: Option<BufWriter<File>>,
     block_size: u32,
+    compression: CompressionType,
     block_counter: u32,
     block_handles: Vec<KeyedBlockHandle>,
     tli_pointers: Vec<KeyedBlockHandle>,
@@ -36,6 +40,7 @@ impl Writer {
         segment_id: SegmentId,
         folder: P,
         block_size: u32,
+        compression: CompressionType,
     ) -> crate::Result<Self> {
         let index_block_tmp_file_path = folder.as_ref().join(format!("tmp_ib{segment_id}"));
 
@@ -49,6 +54,7 @@ impl Writer {
             block_writer: Some(block_writer),
             block_counter: 0,
             block_size,
+            compression,
             block_handles: Vec::with_capacity(1_000),
             tli_pointers: Vec::with_capacity(1_000),
         })
@@ -58,7 +64,11 @@ impl Writer {
         let mut block_writer = self.block_writer.as_mut().expect("should exist");
 
         // Write to file
-        let (header, data) = IndexBlock::to_bytes_compressed(&self.block_handles, self.prev_pos.0)?;
+        let (header, data) = IndexBlock::to_bytes_compressed(
+            &self.block_handles,
+            self.prev_pos.0,
+            self.compression,
+        )?;
 
         header.serialize(&mut block_writer)?;
         block_writer.write_all(&data)?;
@@ -128,7 +138,8 @@ impl Writer {
         }
 
         // Write to file
-        let (header, data) = IndexBlock::to_bytes_compressed(&self.tli_pointers, 0)?;
+        let (header, data) =
+            IndexBlock::to_bytes_compressed(&self.tli_pointers, 0, self.compression)?;
 
         header.serialize(block_file_writer)?;
         block_file_writer.write_all(&data)?;

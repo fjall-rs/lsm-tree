@@ -92,7 +92,7 @@ mod tests {
         let block = ValueBlock {
             items: items.into_boxed_slice(),
             header: BlockHeader {
-                compression: CompressionType::Lz4,
+                compression: CompressionType::None,
                 crc: 0,
                 data_length: 0,
                 previous_block_offset: 0,

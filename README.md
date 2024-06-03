@@ -54,7 +54,7 @@ All contributions are to be licensed as MIT OR Apache-2.0.
 ### Run benchmarks
 
 ```bash
-cargo bench --features bloom
+cargo bench --features bloom --features lz4 --features miniz
 ```
 
 ## Footnotes

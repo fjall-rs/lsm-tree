@@ -239,7 +239,7 @@ mod tests {
                 created_at: unix_timestamp().as_nanos(),
                 id,
                 file_size: size,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,

@@ -181,7 +181,7 @@ impl Metadata {
             created_at: unix_timestamp().as_micros(),
 
             file_size: writer.file_pos,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             item_count: writer.item_count as u64,
             key_count: writer.key_count as u64,
@@ -227,7 +227,7 @@ mod tests {
             created_at: 5,
             id: 632_632,
             file_size: 1,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             item_count: 0,
             key_count: 0,
