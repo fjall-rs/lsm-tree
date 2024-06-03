@@ -95,6 +95,8 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("compilation is only allowed for 64-bit targets");
 
+mod any_tree;
+
 mod r#abstract;
 
 #[cfg(feature = "kv_sep")]
@@ -179,23 +181,7 @@ pub use {
     version::Version,
 };
 
+pub use any_tree::AnyTree;
+
 #[cfg(feature = "kv_sep")]
 pub use blob_tree::BlobTree;
-
-use enum_dispatch::enum_dispatch;
-
-use crate::compaction::CompactionStrategy;
-use crate::tree::inner::MemtableId;
-use std::ops::RangeBounds;
-use std::sync::{Arc, RwLockWriteGuard};
-
-/// May be a standard [`Tree`] or a [`BlobTree`]
-#[derive(Clone)]
-#[enum_dispatch(AbstractTree)]
-pub enum AnyTree {
-    /// Standard LSM-tree, see [`Tree`]
-    Standard(Tree),
-
-    /// Key-value separated LSM-tree, see [`BlobTree`]
-    Blob(BlobTree),
-}

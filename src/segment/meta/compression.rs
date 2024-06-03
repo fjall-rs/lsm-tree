@@ -1,8 +1,4 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "segment_history",
-    derive(serde::Deserialize, serde::Serialize)
-)]
 #[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
     None,

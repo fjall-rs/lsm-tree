@@ -408,6 +408,9 @@ impl Tree {
             self.config.block_cache.clone(),
         )?);
 
+        #[cfg(feature = "bloom")]
+        let bloom_ptr = trailer.offsets.bloom_ptr;
+
         let created_segment: Arc<_> = Segment {
             tree_id: self.id,
 

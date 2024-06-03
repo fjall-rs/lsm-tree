@@ -11,10 +11,6 @@ use std::{
 
 /// A key range in the format of [min, max] (inclusive on both sides)
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "segment_history",
-    derive(serde::Deserialize, serde::Serialize)
-)]
 pub struct KeyRange((UserKey, UserKey));
 
 impl std::ops::Deref for KeyRange {

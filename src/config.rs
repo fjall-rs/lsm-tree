@@ -1,5 +1,4 @@
 use crate::{
-    blob_tree::BlobTree,
     descriptor_table::FileDescriptorTable,
     segment::meta::{CompressionType, TableType},
     serde::{Deserializable, Serializable},
@@ -12,6 +11,9 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+#[cfg(feature = "kv_sep")]
+use crate::BlobTree;
 
 fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
     // TODO: replace with https://doc.rust-lang.org/std/path/fn.absolute.html once stable
@@ -30,6 +32,7 @@ pub enum TreeType {
     Standard,
 
     /// Key-value separated LSM-tree, see [`BlobTree`]
+    #[cfg(feature = "kv_sep")]
     Blob,
 }
 
@@ -37,6 +40,8 @@ impl From<TreeType> for u8 {
     fn from(val: TreeType) -> Self {
         match val {
             TreeType::Standard => 0,
+
+            #[cfg(feature = "kv_sep")]
             TreeType::Blob => 1,
         }
     }
@@ -48,7 +53,10 @@ impl TryFrom<u8> for TreeType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Standard),
+
+            #[cfg(feature = "kv_sep")]
             1 => Ok(Self::Blob),
+
             _ => Err(()),
         }
     }
@@ -287,6 +295,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[cfg(feature = "kv_sep")]
     pub fn open_as_blob_tree(mut self) -> crate::Result<BlobTree> {
         self.inner.r#type = TreeType::Blob;
         BlobTree::open(self)
