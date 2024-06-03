@@ -622,7 +622,7 @@ impl Tree {
             let bytes = std::fs::read(config.path.join(LSM_MARKER))?;
 
             if let Some(version) = Version::parse_file_header(&bytes) {
-                if version != Version::V1 {
+                if version != Version::V2 {
                     return Err(crate::Error::InvalidVersion(Some(version)));
                 }
             } else {
@@ -689,7 +689,7 @@ impl Tree {
         // NOTE: Lastly, fsync version marker, which contains the version
         // -> the LSM is fully initialized
         let mut file = File::create(marker_path)?;
-        Version::V1.write_file_header(&mut file)?;
+        Version::V2.write_file_header(&mut file)?;
         file.sync_all()?;
 
         // IMPORTANT: fsync folders on Unix

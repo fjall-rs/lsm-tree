@@ -175,6 +175,7 @@ pub use {
     snapshot::Snapshot,
     tree::Tree,
     value::{KvPair, SeqNo, UserKey, UserValue, Value, ValueType},
+    version::Version,
 };
 
 #[cfg(feature = "kv_sep")]
