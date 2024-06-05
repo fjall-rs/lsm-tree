@@ -87,7 +87,17 @@ impl Segment {
         let mut file = guard.file.lock().expect("lock is poisoned");
 
         for handle in self.block_index.top_level_index.data.iter() {
-            let block = IndexBlock::from_file_compressed(&mut *file, handle.offset)?;
+            let block = match IndexBlock::from_file_compressed(&mut *file, handle.offset) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!(
+                        "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                    );
+                    broken_count += 1;
+                    count += 1;
+                    continue;
+                }
+            };
 
             for handle in &*block.items {
                 let value_block = match ValueBlock::from_file_compressed(&mut *file, handle.offset)
@@ -95,7 +105,7 @@ impl Segment {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(
-                            "{handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                            "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
                         );
                         broken_count += 1;
                         count += 1;
