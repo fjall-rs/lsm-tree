@@ -188,9 +188,15 @@ impl Value {
         let k = key.into();
         let v = value.into();
 
-        assert!(!k.is_empty());
-        assert!(k.len() <= u16::MAX.into());
-        assert!(u32::try_from(v.len()).is_ok());
+        assert!(!k.is_empty(), "key may not be empty");
+        assert!(
+            k.len() <= u16::MAX.into(),
+            "keys can be 65535 bytes in length"
+        );
+        assert!(
+            u32::try_from(v.len()).is_ok(),
+            "values can be 2^32 bytes in length"
+        );
 
         Self {
             key: k,
