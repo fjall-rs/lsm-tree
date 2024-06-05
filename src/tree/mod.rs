@@ -71,6 +71,9 @@ impl Tree {
 
     #[doc(hidden)]
     pub fn verify(&self) -> crate::Result<usize> {
+        // NOTE: Lock memtable to prevent any tampering with disk segments
+        let _lock = self.lock_active_memtable();
+
         let mut sum = 0;
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
