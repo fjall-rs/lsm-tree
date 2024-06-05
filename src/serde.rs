@@ -7,6 +7,18 @@ pub enum SerializeError {
     Io(std::io::Error),
 }
 
+impl std::fmt::Display for SerializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SerializeError({})",
+            match self {
+                Self::Io(e) => e.to_string(),
+            }
+        )
+    }
+}
+
 /// Error during deserialization
 #[derive(Debug)]
 pub enum DeserializeError {
@@ -20,6 +32,19 @@ pub enum DeserializeError {
 
     /// Invalid block header
     InvalidHeader(&'static str),
+}
+
+impl std::fmt::Display for DeserializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DeserializeError({})",
+            match self {
+                Self::Io(e) => e.to_string(),
+                e => format!("{e:?}"),
+            }
+        )
+    }
 }
 
 impl From<std::io::Error> for SerializeError {

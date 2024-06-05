@@ -1,3 +1,4 @@
+mod gc;
 pub mod index;
 pub mod value;
 
@@ -9,6 +10,7 @@ use crate::{
     tree::inner::MemtableId,
     Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, Value, ValueType,
 };
+use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
 use std::{
     io::Cursor,
@@ -52,7 +54,7 @@ impl BlobTree {
         match item {
             Ok((key, value)) => {
                 let mut cursor = Cursor::new(value);
-                let item = MaybeInlineValue::deserialize(&mut cursor).expect("should deserialize");
+                let item = MaybeInlineValue::deserialize(&mut cursor)?;
 
                 match item {
                     MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
@@ -70,14 +72,23 @@ impl BlobTree {
     /// Scans the index tree, collecting statistics about
     /// value log fragmentation
     pub fn gc_scan_stats(&self) -> crate::Result<()> {
+        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
         self.blobs
             .scan_for_stats(self.index.iter().filter_map(|kv| {
-                let Ok((_, v)) = kv else { return Some(Err(())) };
+                let Ok((_, v)) = kv else {
+                    return Some(Err(IoError::new(
+                        IoErrorKind::Other,
+                        "Failed to load KV pair",
+                    )));
+                };
 
                 let mut cursor = Cursor::new(v);
-                let value = MaybeInlineValue::deserialize(&mut cursor).expect("oops");
+                let value = match MaybeInlineValue::deserialize(&mut cursor) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                };
 
                 match value {
                     Indirect { handle, size } => Some(Ok((handle, size))),
@@ -90,81 +101,6 @@ impl BlobTree {
 
     /// Rewrites blob files that have reached a stale threshold
     pub fn gc_rollover(&self, stale_threshold: f32, seqno: SeqNo) -> crate::Result<()> {
-        struct MyReader<'a> {
-            tree: &'a crate::Tree,
-            memtable: &'a RwLockWriteGuard<'a, MemTable>,
-        }
-        impl<'a> MyReader<'a> {
-            pub(crate) fn get_internal(
-                &self,
-                key: &[u8],
-            ) -> crate::Result<Option<MaybeInlineValue>> {
-                let Some(item) = self
-                    .tree
-                    .get_internal_entry_with_lock(self.memtable, key, true, None)?
-                    .map(|x| x.value)
-                else {
-                    return Ok(None);
-                };
-
-                let mut cursor = Cursor::new(item);
-                let item = MaybeInlineValue::deserialize(&mut cursor)?;
-
-                Ok(Some(item))
-            }
-        }
-
-        impl<'a> value_log::ExternalIndex for MyReader<'a> {
-            fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
-                let Some(item) = self.get_internal(key).expect("should get value") else {
-                    return Ok(None);
-                };
-
-                match item {
-                    MaybeInlineValue::Inline(_) => Ok(None),
-                    MaybeInlineValue::Indirect { handle, .. } => Ok(Some(handle)),
-                }
-            }
-        }
-
-        // TODO: refactor
-        struct MyWriter<'a> {
-            seqno: SeqNo,
-            buffer: Vec<(UserKey, ValueHandle, u32)>,
-            memtable: &'a RwLockWriteGuard<'a, MemTable>,
-        }
-
-        impl<'a> value_log::IndexWriter for MyWriter<'a> {
-            fn insert_indirection(
-                &mut self,
-                key: &[u8],
-                handle: ValueHandle,
-                size: u32,
-            ) -> std::io::Result<()> {
-                self.buffer.push((key.into(), handle, size));
-                Ok(())
-            }
-
-            // TODO: maybe finish should consume self
-            fn finish(&mut self) -> std::io::Result<()> {
-                for (key, handle, size) in self.buffer.drain(..) {
-                    let mut buf = vec![];
-                    MaybeInlineValue::Indirect { handle, size }
-                        .serialize(&mut buf)
-                        .expect("should serialize");
-
-                    self.memtable.insert(crate::Value {
-                        key,
-                        value: Arc::from(buf),
-                        seqno: self.seqno,
-                        value_type: crate::ValueType::Value,
-                    });
-                }
-
-                Ok(())
-            }
-        }
-
         // First, find the segment IDs that are stale
         let ids = self
             .blobs
@@ -173,19 +109,11 @@ impl BlobTree {
         // IMPORTANT: Write lock memtable to avoid read skew
         let memtable_lock = self.index.lock_active_memtable();
 
-        let index_reader = MyReader {
-            tree: &self.index,
-            memtable: &memtable_lock,
-        };
-
-        let mut index_writer = MyWriter {
-            memtable: &memtable_lock,
-            buffer: vec![],
-            seqno,
-        };
-
-        self.blobs
-            .rollover(&ids, &index_reader, &mut index_writer)?;
+        self.blobs.rollover(
+            &ids,
+            &GcReader::new(&self.index, &memtable_lock),
+            GcWriter::new(seqno, &memtable_lock),
+        )?;
 
         // NOTE: We still have the memtable lock, can't use gc_drop_stable because recursive locking
         self.blobs.drop_stale_segments()?;
@@ -248,7 +176,7 @@ impl AbstractTree for BlobTree {
 
             let value = entry.value();
             let mut cursor = Cursor::new(value);
-            let value = MaybeInlineValue::deserialize(&mut cursor).expect("oops");
+            let value = MaybeInlineValue::deserialize(&mut cursor)?;
             let MaybeInlineValue::Inline(value) = value else {
                 panic!("values are initially always inlined");
             };
@@ -273,9 +201,7 @@ impl AbstractTree for BlobTree {
             };
 
             let mut serialized = vec![];
-            value_wrapper
-                .serialize(&mut serialized)
-                .expect("should serialize");
+            value_wrapper.serialize(&mut serialized)?;
 
             segment_writer.write(crate::Value::from(((key.clone()), serialized.into())))?;
         }
@@ -295,11 +221,11 @@ impl AbstractTree for BlobTree {
     }
 
     fn set_active_memtable(&self, memtable: MemTable) {
-        self.index.set_active_memtable(memtable)
+        self.index.set_active_memtable(memtable);
     }
 
     fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>) {
-        self.index.add_sealed_memtable(id, memtable)
+        self.index.add_sealed_memtable(id, memtable);
     }
 
     fn compact(
