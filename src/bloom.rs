@@ -152,13 +152,13 @@ impl BloomFilter {
         true
     }
 
-    /*  /// Returns `true` if the item may be contained.
+    /// Returns `true` if the item may be contained.
     ///
     /// Will never have a false negative.
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         self.contains_hash(Self::get_hash(key))
-    } */
+    }
 
     /// Adds the key to the filter
     pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
