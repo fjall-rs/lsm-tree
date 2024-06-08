@@ -157,7 +157,7 @@ impl Segment {
             trailer.offsets.tli_ptr,
             (tree_id, trailer.metadata.id).into(),
             descriptor_table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?;
 
         #[cfg(feature = "bloom")]
@@ -363,10 +363,10 @@ impl Segment {
     pub fn iter(&self) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
             (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
         )
     }
@@ -380,10 +380,10 @@ impl Segment {
     pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
             range,
         )
     }
@@ -397,10 +397,10 @@ impl Segment {
     pub fn prefix<K: Into<UserKey>>(&self, prefix: K) -> PrefixedReader {
         PrefixedReader::new(
             self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
             prefix,
         )
     }

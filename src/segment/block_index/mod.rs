@@ -238,7 +238,7 @@ impl BlockIndex {
 
             if cache_policy == CachePolicy::Write {
                 self.blocks
-                    .insert(self.segment_id, block_handle.offset, Arc::clone(&block));
+                    .insert(self.segment_id, block_handle.offset, block.clone());
             }
 
             Ok(block)

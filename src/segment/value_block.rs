@@ -60,7 +60,7 @@ impl ValueBlock {
                 let block = Arc::new(block);
 
                 if cache_policy == CachePolicy::Write {
-                    block_cache.insert_disk_block(segment_id, offset, Arc::clone(&block));
+                    block_cache.insert_disk_block(segment_id, offset, block.clone());
                 }
 
                 Some(block)

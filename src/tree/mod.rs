@@ -834,7 +834,7 @@ impl Tree {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
-                    Arc::clone(block_cache),
+                    block_cache.clone(),
                     descriptor_table.clone(),
                 )?;
 

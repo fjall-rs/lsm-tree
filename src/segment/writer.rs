@@ -372,7 +372,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
             0,
             None,
         );
@@ -432,7 +432,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
             0,
             None,
         );

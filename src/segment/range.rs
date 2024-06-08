@@ -287,7 +287,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         let iter = Range::new(
@@ -390,7 +390,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         {
@@ -398,8 +398,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..),
             );
 
@@ -412,8 +412,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..),
             );
 
@@ -432,8 +432,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple::<UserKey>(&..end),
             );
 
@@ -450,8 +450,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..end),
             );
 
@@ -470,8 +470,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&(start..)),
             );
 
@@ -489,8 +489,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table,
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&(start..end)),
             );
 
@@ -594,7 +594,7 @@ mod tests {
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
-                Arc::clone(&block_cache),
+                block_cache.clone(),
             )?);
 
             let ranges: Vec<(Bound<u64>, Bound<u64>)> = vec![
@@ -618,8 +618,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     bounds_u64_to_bytes(&bounds),
                 );
 
@@ -638,8 +638,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     bounds_u64_to_bytes(&bounds),
                 );
 
@@ -701,7 +701,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         for (i, &start_char) in chars.iter().enumerate() {
@@ -714,8 +714,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     (
                         Included(Arc::new([start_char])),
                         Included(Arc::new([end_char])),
@@ -732,8 +732,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     (
                         Included(Arc::new([start_char])),
                         Included(Arc::new([end_char])),

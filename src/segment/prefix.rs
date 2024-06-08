@@ -240,7 +240,7 @@ mod tests {
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
-                Arc::clone(&block_cache),
+                block_cache.clone(),
             )?);
 
             let iter = Reader::new(
@@ -257,8 +257,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 b"a/b/".to_vec(),
             );
 
@@ -268,8 +268,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table,
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 b"a/b/".to_vec(),
             );
 
@@ -336,7 +336,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         let expected = [
@@ -355,8 +355,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 prefix_key.clone(),
             );
 
@@ -368,8 +368,8 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 prefix_key.clone(),
             );
 
@@ -426,15 +426,15 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         let iter = PrefixedReader::new(
             trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            block_cache.clone(),
+            block_index.clone(),
             *b"d",
         );
         assert_eq!(3, iter.count());
@@ -443,8 +443,8 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table.clone(),
             (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            block_cache.clone(),
+            block_index.clone(),
             *b"d",
         );
         assert_eq!(3, iter.rev().count());
@@ -453,8 +453,8 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, 0).into(),
-            Arc::clone(&block_cache),
-            Arc::clone(&block_index),
+            block_cache.clone(),
+            block_index.clone(),
             *b"d",
         );
 
