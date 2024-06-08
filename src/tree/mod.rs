@@ -428,6 +428,10 @@ impl Tree {
         }
         drop(memtable_lock);
 
+        // NOTE: Create key hash for hash sharing
+        #[cfg(feature = "bloom")]
+        let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
+
         // Now look in segments... this may involve disk I/O
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
@@ -435,7 +439,12 @@ impl Tree {
             // NOTE: Based on benchmarking, binary search is only worth it after ~5 segments
             if level.is_disjoint && level.len() > 5 {
                 if let Some(segment) = level.get_segment_containing_key(&key) {
-                    if let Some(item) = segment.get(&key, seqno)? {
+                    #[cfg(not(feature = "bloom"))]
+                    let maybe_item = segment.get(&key, seqno)?;
+                    #[cfg(feature = "bloom")]
+                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+
+                    if let Some(item) = maybe_item {
                         if evict_tombstone {
                             return Ok(ignore_tombstone_value(item));
                         }
@@ -444,7 +453,12 @@ impl Tree {
                 }
             } else {
                 for segment in &level.segments {
-                    if let Some(item) = segment.get(&key, seqno)? {
+                    #[cfg(not(feature = "bloom"))]
+                    let maybe_item = segment.get(&key, seqno)?;
+                    #[cfg(feature = "bloom")]
+                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+
+                    if let Some(item) = maybe_item {
                         if evict_tombstone {
                             return Ok(ignore_tombstone_value(item));
                         }
