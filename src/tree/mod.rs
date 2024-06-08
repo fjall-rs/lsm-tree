@@ -534,6 +534,7 @@ impl Tree {
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<Value>> {
         // NOTE: Create key hash for hash sharing
+        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         #[cfg(feature = "bloom")]
         let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
 
@@ -556,6 +557,7 @@ impl Tree {
                     }
                 }
             } else {
+                // NOTE: Fallback to linear search
                 for segment in &level.segments {
                     #[cfg(not(feature = "bloom"))]
                     let maybe_item = segment.get(&key, seqno)?;
