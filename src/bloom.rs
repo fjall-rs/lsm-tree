@@ -8,6 +8,8 @@ use std::io::{Read, Write};
 
 pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'B', b'F', b'1'];
 
+pub type CompositeHash = (u64, u64);
+
 /// A standard bloom filter
 ///
 /// Allows buffering the key hashes before actual filter construction
@@ -127,12 +129,12 @@ impl BloomFilter {
         }
     }
 
-    /// Returns `true` if the item may be contained.
+    /// Returns `true` if the hash may be contained.
     ///
     /// Will never have a false negative.
     #[must_use]
-    pub fn contains(&self, key: &[u8]) -> bool {
-        let (mut h1, mut h2) = Self::get_hash(key);
+    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
+        let (mut h1, mut h2) = hash;
 
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
@@ -150,8 +152,16 @@ impl BloomFilter {
         true
     }
 
+    /// Returns `true` if the item may be contained.
+    ///
+    /// Will never have a false negative.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.contains_hash(Self::get_hash(key))
+    }
+
     /// Adds the key to the filter
-    pub fn set_with_hash(&mut self, (mut h1, mut h2): (u64, u64)) {
+    pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
@@ -169,7 +179,7 @@ impl BloomFilter {
 
     /// Gets the hash of a key
     #[must_use]
-    pub fn get_hash(key: &[u8]) -> (u64, u64) {
+    pub fn get_hash(key: &[u8]) -> CompositeHash {
         let mut hasher = SeaHasher::default();
         hasher.write(key);
         let h1 = hasher.finish();

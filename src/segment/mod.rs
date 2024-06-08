@@ -27,7 +27,7 @@ use crate::{
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
-use crate::bloom::BloomFilter;
+use crate::bloom::{BloomFilter, CompositeHash};
 
 /// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -198,18 +198,13 @@ impl Segment {
         self.bloom_filter.len()
     }
 
-    /// Retrieves an item from the segment.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn get<K: AsRef<[u8]>>(
+    #[cfg(feature = "bloom")]
+    pub fn get_with_hash<K: AsRef<[u8]>>(
         &self,
         key: K,
         seqno: Option<SeqNo>,
+        hash: CompositeHash,
     ) -> crate::Result<Option<Value>> {
-        use value_block::{CachePolicy, ValueBlock};
-
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -220,14 +215,27 @@ impl Segment {
             return Ok(None);
         }
 
-        let key = key.as_ref();
-
-        #[cfg(feature = "bloom")]
         {
-            if !self.bloom_filter.contains(key) {
+            /* let start = std::time::Instant::now(); */
+            let probe = self.bloom_filter.contains_hash(hash);
+            /*    eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
+
+            if !probe {
                 return Ok(None);
             }
         }
+
+        self.point_read(key, seqno)
+    }
+
+    fn point_read<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Option<Value>> {
+        use value_block::{CachePolicy, ValueBlock};
+
+        let key = key.as_ref();
 
         let Some(first_block_handle) = self
             .block_index
@@ -305,6 +313,44 @@ impl Segment {
         }
 
         Ok(None)
+    }
+
+    /// Retrieves an item from the segment.
+    ///
+    /// # Errors
+    ///get
+    /// Will return `Err` if an IO error occurs.
+    pub fn get<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Option<Value>> {
+        if let Some(seqno) = seqno {
+            if self.metadata.seqnos.0 >= seqno {
+                return Ok(None);
+            }
+        }
+
+        if !self.metadata.key_range.contains_key(&key) {
+            return Ok(None);
+        }
+
+        let key = key.as_ref();
+
+        #[cfg(feature = "bloom")]
+        {
+            debug_assert!(false, "Use Segment::get_with_hash instead");
+
+            /*   let start = std::time::Instant::now(); */
+            let probe = self.bloom_filter.contains(key);
+            /* eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
+
+            if !probe {
+                return Ok(None);
+            }
+        }
+
+        self.point_read(key, seqno)
     }
 
     /// Creates an iterator over the `Segment`.
