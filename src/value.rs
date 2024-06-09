@@ -5,6 +5,7 @@ use std::{
     io::{Read, Write},
     sync::Arc,
 };
+use varint_rs::{VarintReader, VarintWriter};
 
 /// User defined key
 pub type UserKey = Arc<[u8]>;
@@ -252,17 +253,17 @@ impl From<Value> for ParsedInternalKey {
 
 impl Serializable for Value {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        writer.write_u64::<BigEndian>(self.seqno)?;
+        writer.write_u64_varint(self.seqno)?;
         writer.write_u8(u8::from(self.value_type))?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.key.len() as u16)?;
+        writer.write_u16_varint(self.key.len() as u16)?;
         writer.write_all(&self.key)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u32::<BigEndian>(self.value.len() as u32)?;
+        writer.write_u32_varint(self.value.len() as u32)?;
         writer.write_all(&self.value)?;
 
         Ok(())
@@ -271,14 +272,14 @@ impl Serializable for Value {
 
 impl Deserializable for Value {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let seqno = reader.read_u64::<BigEndian>()?;
+        let seqno = reader.read_u64_varint()?;
         let value_type = reader.read_u8()?.into();
 
-        let key_len = reader.read_u16::<BigEndian>()?;
+        let key_len = reader.read_u16_varint()?;
         let mut key = vec![0; key_len.into()];
         reader.read_exact(&mut key)?;
 
-        let value_len = reader.read_u32::<BigEndian>()?;
+        let value_len = reader.read_u32_varint()?;
         let mut value = vec![0; value_len as usize];
         reader.read_exact(&mut value)?;
 
@@ -300,16 +301,16 @@ mod tests {
         #[rustfmt::skip]
         let  bytes = &[
             // Seqno
-            0, 0, 0, 0, 0, 0, 0, 1,
+            1,
             
             // Type
             0,
             
             // Key
-            0, 3, 1, 2, 3,
+            3, 1, 2, 3,
             
-             // Value
-            0, 0, 0, 3, 3, 2, 1,
+            // Value
+            3, 3, 2, 1,
         ];
 
         // Deserialize the empty Value
