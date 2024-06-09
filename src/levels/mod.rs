@@ -223,17 +223,17 @@ impl LevelManifest {
     }
 
     /// Modifies the level manifest atomically.
-    pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+    pub(crate) fn atomic_swap<F: FnOnce(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
         // NOTE: Create a copy of the levels we can operate on
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let mut level_working_copy = self.levels.clone();
+        let mut working_copy = self.levels.clone();
 
-        f(&mut level_working_copy);
+        f(&mut working_copy);
 
-        Self::write_to_disk(&self.path, &level_working_copy)?;
-        self.levels = level_working_copy;
+        Self::write_to_disk(&self.path, &working_copy)?;
+        self.levels = working_copy;
 
         log::trace!("Swapped level manifest to:\n{self}");
 

@@ -185,3 +185,6 @@ pub use any_tree::AnyTree;
 
 #[cfg(feature = "kv_sep")]
 pub use blob_tree::BlobTree;
+
+#[cfg(feature = "kv_sep")]
+pub use value_log::BlobCache;

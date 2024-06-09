@@ -70,7 +70,7 @@ pub struct PersistedConfig {
     /// Tree type (unused)
     pub r#type: TreeType,
 
-    // TODO: move into ephemeral, when different types of compression per level is supported
+    // TODO: 2.0.0 move into ephemeral, when different types of compression per level is supported
     /// What type of compression is used
     pub compression: CompressionType,
 
@@ -282,6 +282,8 @@ impl Config {
         self.block_cache = block_cache;
         self
     }
+
+    // TODO: 2.0.0 key-value separation threshold
 
     /// Sets the block cache.
     ///

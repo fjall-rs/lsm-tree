@@ -75,6 +75,7 @@ impl BlobTree {
 
     /// Scans the index tree, collecting statistics about
     /// value log fragmentation
+    #[doc(hidden)]
     pub fn gc_scan_stats(&self) -> crate::Result<()> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
@@ -103,8 +104,36 @@ impl BlobTree {
         Ok(())
     }
 
+    pub fn gc_with_target_space_amp(
+        &self,
+        space_amp_target: f32,
+        seqno: SeqNo,
+    ) -> crate::Result<()> {
+        let ids = self
+            .blobs
+            .select_segments_for_space_amp_reduction(space_amp_target);
+
+        // IMPORTANT: Write lock memtable to avoid read skew
+        let memtable_lock = self.index.lock_active_memtable();
+
+        self.blobs.rollover(
+            &ids,
+            &GcReader::new(&self.index, &memtable_lock),
+            GcWriter::new(seqno, &memtable_lock),
+        )?;
+
+        // NOTE: We still have the memtable lock, can't use gc_drop_stable because recursive locking
+        self.blobs.drop_stale_segments()?;
+
+        Ok(())
+    }
+
     /// Rewrites blob files that have reached a stale threshold
-    pub fn gc_rollover(&self, stale_threshold: f32, seqno: SeqNo) -> crate::Result<()> {
+    pub fn gc_with_staleness_threshold(
+        &self,
+        stale_threshold: f32,
+        seqno: SeqNo,
+    ) -> crate::Result<()> {
         // First, find the segment IDs that are stale
         let ids = self
             .blobs
@@ -126,6 +155,7 @@ impl BlobTree {
     }
 
     /// Drops all stale blob segment files
+    #[doc(hidden)]
     pub fn gc_drop_stale(&self) -> crate::Result<()> {
         // IMPORTANT: Write lock memtable to avoid read skew
         let _lock = self.index.lock_active_memtable();
@@ -187,8 +217,8 @@ impl AbstractTree for BlobTree {
 
             let size = value.len() as u32;
 
-            // TODO: blob threshold
-            let value_wrapper = if size < 4_096 {
+            // TODO: 2.0.0 blob threshold
+            let value_wrapper = if size < 2_048 {
                 MaybeInlineValue::Inline(value)
             } else {
                 let offset = blob_writer.offset(&key.user_key);

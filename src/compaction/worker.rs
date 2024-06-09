@@ -82,10 +82,10 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
             let segment_map = original_levels.get_all_segments();
 
             original_levels.atomic_swap(|recipe| {
-                for segment_id in &payload.segment_ids {
-                    if let Some(segment) = segment_map.get(segment_id).cloned() {
+                for segment_id in payload.segment_ids {
+                    if let Some(segment) = segment_map.get(&segment_id).cloned() {
                         for level in recipe.iter_mut() {
-                            level.remove(*segment_id);
+                            level.remove(segment_id);
                         }
 
                         recipe
