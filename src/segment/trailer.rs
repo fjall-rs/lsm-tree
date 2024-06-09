@@ -31,7 +31,7 @@ impl SegmentFileTrailer {
         // Parse pointers
         let offsets = FileOffsets::deserialize(&mut reader)?;
 
-        let remaining_padding = TRAILER_SIZE - 5 * std::mem::size_of::<u64>() - TRAILER_MAGIC.len();
+        let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - TRAILER_MAGIC.len();
         reader.seek_relative(remaining_padding as i64)?;
 
         // Check trailer magic
@@ -40,7 +40,7 @@ impl SegmentFileTrailer {
 
         if magic != TRAILER_MAGIC {
             return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
-                "SegmentMetadata",
+                "SegmentTrailer",
             )));
         }
 
