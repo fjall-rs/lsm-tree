@@ -1,5 +1,5 @@
 use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
