@@ -372,7 +372,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            block_cache.clone(),
+            block_cache,
             0,
             None,
         );
@@ -432,7 +432,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            block_cache.clone(),
+            block_cache,
             0,
             None,
         );

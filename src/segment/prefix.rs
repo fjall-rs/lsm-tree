@@ -453,8 +453,8 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, 0).into(),
-            block_cache.clone(),
-            block_index.clone(),
+            block_cache,
+            block_index,
             *b"d",
         );
 
