@@ -5,15 +5,15 @@ fn iterate_segments(c: &mut Criterion) {
     let mut group = c.benchmark_group("Iterate level manifest");
 
     for segment_count in [0, 1, 5, 10, 100, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
-
-        for x in 0..segment_count {
-            tree.insert("a", "b", x as u64);
-            tree.flush_active_memtable().unwrap();
-        }
-
         group.bench_function(&format!("iterate {segment_count} segments"), |b| {
+            let folder = tempfile::tempdir().unwrap();
+            let tree = Config::new(folder).block_size(1_024).open().unwrap();
+
+            for x in 0..segment_count {
+                tree.insert("a", "b", x as u64);
+                tree.flush_active_memtable().unwrap();
+            }
+
             let levels = tree.levels.read().unwrap();
 
             b.iter(|| {

@@ -71,10 +71,10 @@
 //! // to reduce the amount of disk segments
 //!
 //! // Choose compaction strategy based on workload
-//! use lsm_tree::compaction::Levelled;
+//! use lsm_tree::compaction::Leveled;
 //! # use std::sync::Arc;
 //!
-//! let strategy = Levelled::default();
+//! let strategy = Leveled::default();
 //! tree.compact(Arc::new(strategy))?;
 //!
 //! assert_eq!(Some("my_value".as_bytes().into()), item);

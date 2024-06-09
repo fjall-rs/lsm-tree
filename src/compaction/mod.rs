@@ -1,7 +1,7 @@
 //! Contains compaction strategies
 
 pub(crate) mod fifo;
-pub(crate) mod levelled;
+pub(crate) mod leveled;
 pub(crate) mod maintenance;
 pub(crate) mod major;
 pub(crate) mod tiered;
@@ -58,5 +58,5 @@ pub trait CompactionStrategy {
 }
 
 pub use fifo::Strategy as Fifo;
-pub use levelled::Strategy as Levelled;
+pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;

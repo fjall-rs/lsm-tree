@@ -22,8 +22,6 @@ use std::ops::Deref;
 /// 1) You only want to store recent data (unimportant logs, ...)
 /// 2) Your keyspace grows monotonically (time series)
 /// 3) You only insert new data
-///
-/// More info here: <https://github.com/facebook/rocksdb/wiki/FIFO-compaction-style>
 pub struct Strategy {
     /// Data set size limit in bytes
     limit: u64,

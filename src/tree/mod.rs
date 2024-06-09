@@ -541,8 +541,8 @@ impl Tree {
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
         for level in &level_manifest.levels {
-            // NOTE: Based on benchmarking, binary search is only worth it after ~5 segments
-            if level.is_disjoint && level.len() > 5 {
+            // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
+            if level.is_disjoint && level.len() >= 5 {
                 if let Some(segment) = level.get_segment_containing_key(&key) {
                     #[cfg(not(feature = "bloom"))]
                     let maybe_item = segment.get(&key, seqno)?;

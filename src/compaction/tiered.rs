@@ -9,9 +9,7 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usiz
 ///
 /// If a level reaches a threshold, it is merged into a larger segment to the next level.
 ///
-/// STCS suffers from high read and temporary space amplification, but decent write amplification.
-///
-/// More info here: <https://opensource.docs.scylladb.com/stable/cql/compaction.html#size-tiered-compaction-strategy-stcs>
+/// STCS suffers from high read and temporary space amplification, but good write amplification.
 pub struct Strategy {
     base_size: u32,
 }
@@ -57,7 +55,7 @@ impl CompactionStrategy for Strategy {
 
             if curr_level_bytes >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
-                // We want to take N segments, not just the overshoot (like in levelled)
+                // We want to take N segments, not just the overshoot (like in leveled)
                 let mut overshoot = desired_bytes as usize;
 
                 let mut segments_to_compact = vec![];

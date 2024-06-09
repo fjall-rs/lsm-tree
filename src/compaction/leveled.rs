@@ -2,6 +2,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
 use std::{ops::Deref, sync::Arc};
 
+// TODO: add link to blog post
 /// Levelled compaction strategy (LCS)
 ///
 /// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
@@ -10,7 +11,7 @@ use std::{ops::Deref, sync::Arc};
 ///
 /// LCS suffers from high write amplification, but decent read & space amplification.
 ///
-/// More info here: <https://opensource.docs.scylladb.com/stable/cql/compaction.html#leveled-compaction-strategy-lcs>
+/// LCS is the recommended compaction strategy to use.
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
     /// they are merged into L1
@@ -68,7 +69,7 @@ impl CompactionStrategy for Strategy {
 
         // If there are any levels that already have a compactor working on it
         // we can't touch those, because that could cause a race condition
-        // violating the levelled compaction invariance of having a single sorted
+        // violating the leveled compaction invariance of having a single sorted
         // run per level
         //
         // TODO: However, this can probably improved by checking two compaction
@@ -257,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_empty_levels() -> crate::Result<()> {
+    fn leveled_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -275,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_default_l0() -> crate::Result<()> {
+    fn leveled_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -339,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_more_than_min_no_overlap() -> crate::Result<()> {
+    fn leveled_more_than_min_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -398,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_more_than_min_with_overlap() -> crate::Result<()> {
+    fn leveled_more_than_min_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -463,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_deeper_level_with_overlap() -> crate::Result<()> {
+    fn leveled_deeper_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -508,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_deeper_level_no_overlap() -> crate::Result<()> {
+    fn leveled_deeper_level_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
@@ -553,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_last_level_with_overlap() -> crate::Result<()> {
+    fn leveled_last_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 128 * 1_024 * 1_024,
