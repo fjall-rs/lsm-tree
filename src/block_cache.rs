@@ -19,26 +19,17 @@ type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
 // (Type (disk or index), Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
-struct CacheKey((BlockTag, GlobalSegmentId, u64));
-
-impl From<(BlockTag, GlobalSegmentId, u64)> for CacheKey {
-    fn from(value: (BlockTag, GlobalSegmentId, u64)) -> Self {
-        Self(value)
-    }
-}
-
-impl std::ops::Deref for CacheKey {
-    type Target = (BlockTag, GlobalSegmentId, u64);
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+struct CacheKey(BlockTag, GlobalSegmentId, u64);
 
 impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, &u64) {
     fn equivalent(&self, key: &CacheKey) -> bool {
-        let inner = &**key;
-        self.0 == inner.0 && self.1 == inner.1 && self.2 == &inner.2
+        self.0 == key.0 && self.1 == key.1 && self.2 == &key.2
+    }
+}
+
+impl From<(BlockTag, GlobalSegmentId, u64)> for CacheKey {
+    fn from((tag, gid, bid): (BlockTag, GlobalSegmentId, u64)) -> Self {
+        Self(tag, gid, bid)
     }
 }
 
