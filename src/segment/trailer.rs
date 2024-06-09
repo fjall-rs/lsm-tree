@@ -40,7 +40,7 @@ impl SegmentFileTrailer {
 
         if magic != TRAILER_MAGIC {
             return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
-                "SegmentMetadata",
+                "SegmentTrailer",
             )));
         }
 
