@@ -123,6 +123,7 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
+    #[allow(clippy::cast_possible_truncation)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
