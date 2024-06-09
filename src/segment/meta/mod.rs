@@ -16,7 +16,7 @@ use std::{
 };
 pub use {compression::CompressionType, table_type::TableType};
 
-pub const METADATA_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'M', b'D', b'1'];
+pub const METADATA_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'M', b'D', b'2'];
 
 pub type SegmentId = u64;
 

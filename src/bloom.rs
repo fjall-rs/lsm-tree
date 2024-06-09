@@ -6,7 +6,7 @@ use seahash::SeaHasher;
 use std::hash::Hasher;
 use std::io::{Read, Write};
 
-pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'B', b'F', b'1'];
+pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'B', b'F', b'2'];
 
 pub type CompositeHash = (u64, u64);
 
