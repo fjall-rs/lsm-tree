@@ -31,6 +31,7 @@ impl SegmentFileTrailer {
         // Parse pointers
         let offsets = FileOffsets::deserialize(&mut reader)?;
 
+        // IMPORTANT: sizeof(offsets) ---------v
         let remaining_padding = TRAILER_SIZE - 5 * std::mem::size_of::<u64>() - TRAILER_MAGIC.len();
         reader.seek_relative(remaining_padding as i64)?;
 
