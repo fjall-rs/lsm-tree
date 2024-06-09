@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use value_log::BlobCache;
 
 #[cfg(feature = "kv_sep")]
 use crate::BlobTree;
@@ -153,8 +154,6 @@ impl Deserializable for PersistedConfig {
     }
 }
 
-// TODO: breaking, prefix all config setters with set_?
-
 #[derive(Clone)]
 /// Tree configuration builder
 pub struct Config {
@@ -171,6 +170,14 @@ pub struct Config {
     /// Block cache to use
     #[doc(hidden)]
     pub block_cache: Arc<BlockCache>,
+
+    /// Blob cache to use
+    #[doc(hidden)]
+    pub blob_cache: Arc<BlobCache>,
+
+    /// Blob file (value log segment) target size
+    #[doc(hidden)]
+    pub blob_file_target_size: u64,
 
     /// Descriptor table to use
     #[doc(hidden)]
@@ -192,6 +199,8 @@ impl Default for Config {
         Self {
             path: absolute_path(DEFAULT_FILE_FOLDER),
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+            blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+            blob_file_target_size: 64 * 1_024 * 1_024,
             descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
             level_ratio: 8,
@@ -271,6 +280,37 @@ impl Config {
     #[must_use]
     pub fn block_cache(mut self, block_cache: Arc<BlockCache>) -> Self {
         self.block_cache = block_cache;
+        self
+    }
+
+    /// Sets the block cache.
+    ///
+    /// You can create a global [`BlobCache`] and share it between multiple
+    /// trees and their value logs to cap global cache memory usage.
+    ///
+    /// Defaults to a block cache with 8 MiB of capacity *per tree*.
+    ///
+    /// This function has no effect when not used for opening a blob tree.
+    #[must_use]
+    pub fn blob_cache(mut self, blob_cache: Arc<BlobCache>) -> Self {
+        self.blob_cache = blob_cache;
+        self
+    }
+
+    /// Sets the target size of blob files.
+    ///
+    /// Smaller blob files allow more granular garbage collection
+    /// which allows lower space amp for lower write I/O cost.
+    ///
+    /// Larger blob files decrease the files on disk and maintenance
+    /// overhead.
+    ///
+    /// Defaults to 64 MiB.
+    ///
+    /// This function has no effect when not used for opening a blob tree.
+    #[must_use]
+    pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
+        self.blob_file_target_size = bytes;
         self
     }
 

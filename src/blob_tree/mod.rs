@@ -40,13 +40,17 @@ pub struct BlobTree {
 impl BlobTree {
     pub fn open(config: Config) -> crate::Result<Self> {
         let path = &config.path;
+
         let vlog_path = path.join(BLOBS_FOLDER);
+        let vlog_cfg = value_log::Config::default()
+            .blob_cache(config.blob_cache.clone())
+            .segment_size_bytes(config.blob_file_target_size);
 
         let index: IndexTree = config.open()?.into();
 
         Ok(Self {
             index,
-            blobs: ValueLog::open(vlog_path, value_log::Config::default())?,
+            blobs: ValueLog::open(vlog_path, vlog_cfg)?,
         })
     }
 
