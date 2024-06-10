@@ -79,4 +79,5 @@ cargo bench --features bloom --features lz4 --features miniz
 ## Footnotes
 
 [1] https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html
+
 [2] https://github.com/facebook/rocksdb/wiki/BlobDB
