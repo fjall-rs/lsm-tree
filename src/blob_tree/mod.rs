@@ -104,7 +104,7 @@ impl BlobTree {
         Ok(())
     }
 
-    pub fn gc_with_target_space_amp(
+    pub fn gc_with_space_amp_target(
         &self,
         space_amp_target: f32,
         seqno: SeqNo,
