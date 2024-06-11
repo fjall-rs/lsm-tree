@@ -1,4 +1,6 @@
-use crate::{blob_tree::value::MaybeInlineValue, serde::Deserializable, MemTable};
+use crate::{
+    blob_tree::value::MaybeInlineValue, serde::Deserializable, value::ParsedInternalKey, MemTable,
+};
 use std::{io::Cursor, sync::RwLockWriteGuard};
 use value_log::ValueHandle;
 
@@ -29,12 +31,14 @@ impl<'a> GcReader<'a> {
     }
 }
 
-impl<'a> value_log::ExternalIndex for GcReader<'a> {
-    fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
+impl<'a> value_log::IndexReader for GcReader<'a> {
+    fn get(&self, mut key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
+        let internal_key = ParsedInternalKey::deserialize(&mut key).expect("should deserialize");
+
         let Some(item) = self
-            .get_internal(key)
+            .get_internal(&internal_key.user_key)
             .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?
         else {
             return Ok(None);

@@ -1,4 +1,9 @@
-use crate::{blob_tree::value::MaybeInlineValue, serde::Serializable, MemTable, SeqNo, UserKey};
+use crate::{
+    blob_tree::value::MaybeInlineValue,
+    serde::{Deserializable, Serializable},
+    value::ParsedInternalKey,
+    MemTable, SeqNo, UserKey,
+};
 use std::sync::{Arc, RwLockWriteGuard};
 use value_log::ValueHandle;
 
@@ -20,7 +25,11 @@ impl<'a> GcWriter<'a> {
 }
 
 impl<'a> value_log::IndexWriter for GcWriter<'a> {
-    fn insert_indirection(
+    fn insert_direct(&mut self, _key: &[u8], _value: &[u8]) -> std::io::Result<()> {
+        panic!("value log rollover should not call insert_direct");
+    }
+
+    fn insert_indirect(
         &mut self,
         key: &[u8],
         handle: ValueHandle,
@@ -30,18 +39,24 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
         Ok(())
     }
 
-    fn finish(self) -> std::io::Result<()> {
+    fn finish(&mut self) -> std::io::Result<()> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 
+        log::trace!("Finish blob GC index writer");
+
         #[allow(clippy::significant_drop_in_scrutinee)]
-        for (key, handle, size) in self.buffer {
+        for (key, handle, size) in self.buffer.drain(..) {
+            let mut key_cursor = &*key;
+            let parsed_key =
+                ParsedInternalKey::deserialize(&mut key_cursor).expect("should deserialize");
+
             let mut buf = vec![];
             MaybeInlineValue::Indirect { handle, size }
                 .serialize(&mut buf)
                 .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?;
 
             self.memtable.insert(crate::Value {
-                key,
+                key: parsed_key.user_key,
                 value: Arc::from(buf),
                 seqno: self.seqno,
                 value_type: crate::ValueType::Value,
