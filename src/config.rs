@@ -11,6 +11,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+#[cfg(feature = "kv_sep")]
 use value_log::BlobCache;
 
 #[cfg(feature = "kv_sep")]
@@ -94,11 +96,7 @@ impl Default for PersistedConfig {
             r#type: TreeType::Standard,
             table_type: TableType::Block,
 
-            #[cfg(not(feature = "lz4"))]
             compression: CompressionType::None,
-
-            #[cfg(feature = "lz4")]
-            compression: CompressionType::Lz4,
         }
     }
 }
@@ -172,10 +170,12 @@ pub struct Config {
     pub block_cache: Arc<BlockCache>,
 
     /// Blob cache to use
+    #[cfg(feature = "kv_sep")]
     #[doc(hidden)]
     pub blob_cache: Arc<BlobCache>,
 
     /// Blob file (value log segment) target size
+    #[cfg(feature = "kv_sep")]
     #[doc(hidden)]
     pub blob_file_target_size: u64,
 
@@ -199,8 +199,13 @@ impl Default for Config {
         Self {
             path: absolute_path(DEFAULT_FILE_FOLDER),
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+
+            #[cfg(feature = "kv_sep")]
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+
+            #[cfg(feature = "kv_sep")]
             blob_file_target_size: 64 * 1_024 * 1_024,
+
             descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
             level_ratio: 8,
@@ -294,6 +299,7 @@ impl Config {
     ///
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
+    #[cfg(feature = "kv_sep")]
     pub fn blob_cache(mut self, blob_cache: Arc<BlobCache>) -> Self {
         self.blob_cache = blob_cache;
         self
@@ -311,6 +317,7 @@ impl Config {
     ///
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
+    #[cfg(feature = "kv_sep")]
     pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
         self.blob_file_target_size = bytes;
         self
@@ -354,7 +361,7 @@ mod tests {
     fn tree_config_raw() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
@@ -372,7 +379,7 @@ mod tests {
             0,
 
             // Compression
-            1,
+            0,
 
             // Table type
             0,
@@ -393,7 +400,7 @@ mod tests {
     fn tree_config_serde_round_trip() -> crate::Result<()> {
         let config = PersistedConfig {
             r#type: TreeType::Standard,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
