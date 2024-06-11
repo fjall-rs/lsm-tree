@@ -24,7 +24,7 @@ fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .into()
 }
 
-pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'2'];
+pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'2'];
 
 /// LSM-tree type
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -366,7 +366,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'2',
+            b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'2',
 
             // Tree type
             0,

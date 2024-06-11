@@ -6,7 +6,7 @@ use crate::{
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'B', b'L', b'K', b'2'];
+pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2'];
 
 /// Header of a disk-based block
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -107,7 +107,7 @@ mod tests {
         #[rustfmt::skip]
         let bytes = &[
             // Header
-            b'F', b'J', b'L', b'L', b'B', b'L', b'K', b'2',
+            b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2',
             
             // Compression
             1,
