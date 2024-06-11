@@ -52,12 +52,6 @@ Uses bloom filters to reduce disk I/O for non-existing keys. Improves point read
 
 *Disabled by default.*
 
-### kv_sep
-
-Allows using the `BlobTree` which is backed by a log-structured value log, intended for large blob use cases.
-
-*Enabled by default.*
-
 ## Stable disk format
 
 The disk format is stable as of 1.0.0. Future breaking changes will result in a major version bump and a migration path.

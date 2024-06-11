@@ -237,16 +237,20 @@ impl AbstractTree for BlobTree {
 
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
-        let segment_writer = SegmentWriter::new(Options {
+        let mut segment_writer = SegmentWriter::new(Options {
             segment_id,
             block_size: self.index.config.inner.block_size,
             evict_tombstones: false,
             folder: lsm_segment_folder,
-            compression: self.index.config.inner.compression,
+        })?
+        .use_compression(self.index.config.inner.compression);
 
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.0001,
-        })?;
+        #[cfg(feature = "bloom")]
+        {
+            segment_writer = segment_writer.use_bloom_policy(
+                crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
+            );
+        }
 
         let segment_writer = IndexWriter(segment_writer);
 

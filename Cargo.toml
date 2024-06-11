@@ -17,10 +17,9 @@ name = "lsm_tree"
 path = "src/lib.rs"
 
 [features]
-default = ["kv_sep", "lz4"]
-kv_sep = ["dep:value-log"]
-lz4 = ["dep:lz4_flex"]
-miniz = ["dep:miniz_oxide"]
+default = []
+lz4 = ["dep:lz4_flex", "value-log/lz4"]
+miniz = ["dep:miniz_oxide", "value-log/miniz"]
 bloom = ["dep:seahash"]
 
 [dependencies]
@@ -37,7 +36,7 @@ quick_cache = { version = "0.5.1", default-features = false, features = [] }
 seahash = { version = "4.1.0", optional = true }
 self_cell = "1.0.4"
 tempfile = "3.10.1"
-value-log = { path = "../value-log", optional = true }
+value-log = { path = "../value-log" }
 varint-rs = "2.2.0"
 
 [dev-dependencies]

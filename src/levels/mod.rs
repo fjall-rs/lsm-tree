@@ -429,6 +429,7 @@ mod tests {
         AbstractTree,
     };
     use std::{collections::HashSet, sync::Arc};
+    use test_log::test;
 
     #[cfg(feature = "bloom")]
     use crate::bloom::BloomFilter;

@@ -102,7 +102,6 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();

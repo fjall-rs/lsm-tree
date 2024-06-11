@@ -49,9 +49,11 @@ impl CompactionStrategy for Strategy {
 
             let curr_level_bytes = level.size();
 
-            let desired_bytes =
-                desired_level_size_in_bytes(curr_level_index, config.level_ratio, self.base_size)
-                    as u64;
+            let desired_bytes = desired_level_size_in_bytes(
+                curr_level_index,
+                config.inner.level_ratio,
+                self.base_size,
+            ) as u64;
 
             if curr_level_bytes >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
@@ -60,7 +62,12 @@ impl CompactionStrategy for Strategy {
 
                 let mut segments_to_compact = vec![];
 
-                for segment in level.iter().rev().take(config.level_ratio.into()).cloned() {
+                for segment in level
+                    .iter()
+                    .rev()
+                    .take(config.inner.level_ratio.into())
+                    .cloned()
+                {
                     if overshoot == 0 {
                         break;
                     }

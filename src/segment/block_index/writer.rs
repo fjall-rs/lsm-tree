@@ -40,7 +40,6 @@ impl Writer {
         segment_id: SegmentId,
         folder: P,
         block_size: u32,
-        compression: CompressionType,
     ) -> crate::Result<Self> {
         let index_block_tmp_file_path = folder.as_ref().join(format!("tmp_ib{segment_id}"));
 
@@ -54,10 +53,15 @@ impl Writer {
             block_writer: Some(block_writer),
             block_counter: 0,
             block_size,
-            compression,
+            compression: CompressionType::None,
             block_handles: Vec::with_capacity(1_000),
             tli_pointers: Vec::with_capacity(1_000),
         })
+    }
+
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
+        self
     }
 
     fn write_block(&mut self) -> crate::Result<()> {

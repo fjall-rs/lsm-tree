@@ -5,7 +5,6 @@ pub const CONFIG_FILE: &str = "config";
 pub const SEGMENTS_FOLDER: &str = "segments";
 pub const LEVELS_MANIFEST_FILE: &str = "levels";
 
-#[cfg(feature = "kv_sep")]
 pub const BLOBS_FOLDER: &str = "blobs";
 
 /// Atomically rewrites a file

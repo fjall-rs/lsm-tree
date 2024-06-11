@@ -4,10 +4,7 @@ use crate::{
     file::SEGMENTS_FOLDER,
     levels::LevelManifest,
     merge::{BoxedIterator, MergeIterator},
-    segment::{
-        block_index::BlockIndex, id::GlobalSegmentId, meta::CompressionType,
-        multi_writer::MultiWriter, Segment,
-    },
+    segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
@@ -21,6 +18,9 @@ use std::{
 
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
+
+#[cfg(feature = "bloom")]
+use crate::segment::writer::BloomConstructionPolicy;
 
 /// Compaction options
 pub struct Options {
@@ -175,21 +175,14 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    // TODO: MONKEY
+    // NOTE: Apply some MONKEY to have very high FPR on small levels
+    // because it's cheap
     #[cfg(feature = "bloom")]
-    let bloom_fp_rate = match payload.dest_level {
-        0 => 0.0001,
-        1 => 0.001,
-        2 => 0.01,
-        3 => 0.1,
-        4 => 0.25,
-        _ => {
-            if is_last_level {
-                0.5
-            } else {
-                0.25
-            }
-        }
+    let bloom_policy = match payload.dest_level {
+        0 => BloomConstructionPolicy::FpRate(0.0001),
+        1 => BloomConstructionPolicy::FpRate(0.001),
+        2 => BloomConstructionPolicy::FpRate(0.01),
+        _ => BloomConstructionPolicy::BitsPerKey(10),
     };
 
     let mut segment_writer = MultiWriter::new(
@@ -201,12 +194,14 @@ fn merge_segments(
             block_size: opts.config.inner.block_size,
             evict_tombstones: should_evict_tombstones,
             folder: segments_base_folder.clone(),
-            compression: CompressionType::None,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate,
         },
-    )?;
+    )?
+    .use_compression(opts.config.inner.compression);
+
+    #[cfg(feature = "bloom")]
+    {
+        segment_writer = segment_writer.use_bloom_policy(bloom_policy);
+    }
 
     for (idx, item) in merge_iter.enumerate() {
         segment_writer.write(item?)?;

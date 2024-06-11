@@ -57,24 +57,28 @@ impl AbstractTree for Tree {
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
 
-        let mut writer = Writer::new(Options {
+        let mut segment_writer = Writer::new(Options {
             segment_id,
             folder,
             evict_tombstones: false,
             block_size: self.config.inner.block_size,
-            compression: self.config.inner.compression,
+        })?
+        .use_compression(self.config.inner.compression);
 
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.0001,
-        })?;
+        #[cfg(feature = "bloom")]
+        {
+            segment_writer = segment_writer.use_bloom_policy(
+                crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
+            );
+        }
 
         for entry in &memtable.items {
             let key = entry.key();
             let value = entry.value();
-            writer.write(crate::Value::from(((key.clone()), value.clone())))?;
+            segment_writer.write(crate::Value::from(((key.clone()), value.clone())))?;
         }
 
-        self.consume_writer(segment_id, writer)
+        self.consume_writer(segment_id, segment_writer)
     }
 
     fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()> {

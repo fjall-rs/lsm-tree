@@ -169,34 +169,39 @@ impl Metadata {
     pub fn from_writer(id: SegmentId, writer: &Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
-            block_count: writer.block_count as u32,
-            block_size: writer.opts.block_size,
 
             // NOTE: Using seconds is not granular enough
             // But because millis already returns u128, might as well use micros :)
             created_at: unix_timestamp().as_micros(),
 
-            file_size: writer.file_pos,
             compression: CompressionType::None,
             table_type: TableType::Block,
-            item_count: writer.item_count as u64,
-            key_count: writer.key_count as u64,
+
+            block_count: writer.meta.block_count as u32,
+            block_size: writer.opts.block_size,
+
+            file_size: writer.meta.file_pos,
+            uncompressed_size: writer.meta.uncompressed_size,
+            item_count: writer.meta.item_count as u64,
+            key_count: writer.meta.key_count as u64,
 
             key_range: KeyRange::new((
                 writer
+                    .meta
                     .first_key
                     .clone()
                     .expect("should have written at least 1 item"),
                 writer
+                    .meta
                     .last_key
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
 
-            seqnos: (writer.lowest_seqno, writer.highest_seqno),
-            tombstone_count: writer.tombstone_count as u64,
+            seqnos: (writer.meta.lowest_seqno, writer.meta.highest_seqno),
+
+            tombstone_count: writer.meta.tombstone_count as u64,
             range_tombstone_count: 0, // TODO:
-            uncompressed_size: writer.uncompressed_size,
         })
     }
 

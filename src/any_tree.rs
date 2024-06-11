@@ -1,8 +1,5 @@
-use crate::Tree;
+use crate::{BlobTree, Tree};
 use enum_dispatch::enum_dispatch;
-
-#[cfg(feature = "kv_sep")]
-use crate::BlobTree;
 
 /// May be a standard [`Tree`] or a [`BlobTree`].
 #[derive(Clone)]
@@ -12,6 +9,5 @@ pub enum AnyTree {
     Standard(Tree),
 
     /// Key-value separated LSM-tree, see [`BlobTree`]
-    #[cfg(feature = "kv_sep")]
     Blob(BlobTree),
 }

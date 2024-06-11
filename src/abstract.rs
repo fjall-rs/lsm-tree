@@ -1,15 +1,13 @@
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, Config,
-    KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue, ValueType,
+    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
+    Config, KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
+    ValueType,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
     ops::RangeBounds,
     sync::{Arc, RwLockWriteGuard},
 };
-
-#[cfg(feature = "kv_sep")]
-use crate::BlobTree;
 
 pub type RangeItem = crate::Result<KvPair>;
 

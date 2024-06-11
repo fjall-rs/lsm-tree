@@ -1,7 +1,6 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_gc_1() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -44,7 +43,6 @@ fn blob_gc_1() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_gc_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -91,7 +89,6 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_gc_3() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;

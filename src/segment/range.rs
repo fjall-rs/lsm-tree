@@ -226,7 +226,6 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::BlockIndex,
-            meta::CompressionType,
             range::Range,
             writer::{Options, Writer},
         },
@@ -255,10 +254,6 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 1000, // NOTE: Block size 1 to for each item to be its own block
-            compression: CompressionType::None,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         let items = chars.iter().map(|&key| {
@@ -358,10 +353,6 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
-            compression: CompressionType::None,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
@@ -562,10 +553,6 @@ mod tests {
                 folder: folder.clone(),
                 evict_tombstones: false,
                 block_size,
-                compression: CompressionType::None,
-
-                #[cfg(feature = "bloom")]
-                bloom_fp_rate: 0.01,
             })?;
 
             let items = (0u64..ITEM_COUNT).map(|i| {
@@ -669,10 +656,6 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 250,
-            compression: CompressionType::None,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         let items = chars.iter().map(|&key| {

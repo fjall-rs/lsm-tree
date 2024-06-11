@@ -4,7 +4,6 @@ use test_log::test;
 
 const ITEM_COUNT: usize = 100_000;
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -28,7 +27,6 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_reload() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -72,7 +70,6 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;

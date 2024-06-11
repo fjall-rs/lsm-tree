@@ -1,3 +1,5 @@
+mod meta;
+
 use super::{
     block::header::Header as BlockHeader,
     block_index::writer::Writer as IndexWriter,
@@ -6,12 +8,7 @@ use super::{
     trailer::SegmentFileTrailer,
     value_block::ValueBlock,
 };
-use crate::{
-    file::fsync_directory,
-    serde::Serializable,
-    value::{SeqNo, UserKey},
-    SegmentId, Value,
-};
+use crate::{file::fsync_directory, serde::Serializable, value::UserKey, SegmentId, Value};
 use std::{
     fs::File,
     io::{BufWriter, Seek, Write},
@@ -25,33 +22,55 @@ use crate::bloom::BloomFilter;
 ///
 /// Also takes care of creating the block index
 pub struct Writer {
-    pub opts: Options,
+    pub(crate) opts: Options,
 
+    /// Compression to use
+    compression: CompressionType,
+
+    /// Segment file
     segment_file_path: PathBuf,
 
+    /// Writer of data blocks
     block_writer: BufWriter<File>,
+
+    /// Writer of index blocks
     index_writer: IndexWriter,
+
+    /// Buffer of KVs
     chunk: Vec<Value>,
+    chunk_size: usize,
 
+    pub(crate) meta: meta::Metadata,
+    /* /// Written block count
     pub block_count: usize,
-    pub item_count: usize,
-    pub file_pos: u64,
 
-    prev_pos: (u64, u64),
+    /// Written item count
+    pub item_count: usize,
+
+    /// Tombstone count
+    pub tombstone_count: usize,
+
+    /// Written key count (unique keys)
+    pub key_count: usize,
+
+    /// Current file position of writer
+    pub file_pos: u64,
 
     /// Only takes user data into account
     pub uncompressed_size: u64,
 
     pub first_key: Option<UserKey>,
     pub last_key: Option<UserKey>,
-    pub tombstone_count: usize,
-    pub chunk_size: usize,
 
     pub lowest_seqno: SeqNo,
-    pub highest_seqno: SeqNo,
+    pub highest_seqno: SeqNo, */
+    /// Stores the previous block position (used for creating back links)
+    prev_pos: (u64, u64),
 
-    pub key_count: usize,
     current_key: Option<UserKey>,
+
+    #[cfg(feature = "bloom")]
+    bloom_policy: BloomConstructionPolicy,
 
     /// Hashes for bloom filter
     ///
@@ -60,16 +79,37 @@ pub struct Writer {
     bloom_hash_buffer: Vec<(u64, u64)>,
 }
 
+#[derive(Copy, Clone, Debug)]
+#[cfg(feature = "bloom")]
+pub enum BloomConstructionPolicy {
+    BitsPerKey(usize),
+    FpRate(f32),
+}
+
+#[cfg(feature = "bloom")]
+impl Default for BloomConstructionPolicy {
+    fn default() -> Self {
+        Self::BitsPerKey(10)
+    }
+}
+
+#[cfg(feature = "bloom")]
+impl BloomConstructionPolicy {
+    #[must_use]
+    pub fn build(&self, n: usize) -> BloomFilter {
+        match self {
+            Self::BitsPerKey(bpk) => BloomFilter::with_bpk(n, *bpk),
+            Self::FpRate(fpr) => BloomFilter::with_fp_rate(n, *fpr),
+        }
+    }
+}
+
 pub struct Options {
     pub folder: PathBuf,
     pub evict_tombstones: bool,
     pub block_size: u32,
-    pub compression: CompressionType,
 
     pub segment_id: SegmentId,
-
-    #[cfg(feature = "bloom")]
-    pub bloom_fp_rate: f32,
 }
 
 impl Writer {
@@ -80,17 +120,15 @@ impl Writer {
         let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(
-            opts.segment_id,
-            &opts.folder,
-            opts.block_size,
-            opts.compression,
-        )?;
+        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
         Ok(Self {
             opts,
+            meta: meta::Metadata::default(),
+
+            compression: CompressionType::None,
 
             segment_file_path,
 
@@ -98,28 +136,34 @@ impl Writer {
             index_writer,
             chunk,
 
-            block_count: 0,
-            item_count: 0,
-            file_pos: 0,
-
             prev_pos: (0, 0),
 
-            uncompressed_size: 0,
-
-            first_key: None,
-            last_key: None,
             chunk_size: 0,
-            tombstone_count: 0,
-
-            lowest_seqno: SeqNo::MAX,
-            highest_seqno: 0,
 
             current_key: None,
-            key_count: 0,
+
+            #[cfg(feature = "bloom")]
+            bloom_policy: BloomConstructionPolicy::default(),
 
             #[cfg(feature = "bloom")]
             bloom_hash_buffer: Vec::with_capacity(10_000),
         })
+    }
+
+    #[must_use]
+    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
+        self.index_writer = self.index_writer.use_compression(compression);
+        self
+    }
+
+    // TODO: with_block_size(n)
+
+    #[must_use]
+    #[cfg(feature = "bloom")]
+    pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+        self.bloom_policy = bloom_policy;
+        self
     }
 
     /// Writes a compressed block to disk.
@@ -134,11 +178,11 @@ impl Writer {
             .map(|item| item.size() as u64)
             .sum::<u64>();
 
-        self.uncompressed_size += uncompressed_chunk_size;
+        self.meta.uncompressed_size += uncompressed_chunk_size;
 
         // Write to file
         let (header, data) =
-            ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.opts.compression)?;
+            ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.compression)?;
 
         header.serialize(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
@@ -149,12 +193,12 @@ impl Writer {
         let last = self.chunk.last().expect("Chunk should not be empty");
 
         self.index_writer
-            .register_block(last.key.clone(), self.file_pos)?;
+            .register_block(last.key.clone(), self.meta.file_pos)?;
 
         // Adjust metadata
-        self.file_pos += bytes_written;
-        self.item_count += self.chunk.len();
-        self.block_count += 1;
+        self.meta.file_pos += bytes_written;
+        self.meta.item_count += self.chunk.len();
+        self.meta.block_count += 1;
 
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
@@ -177,11 +221,11 @@ impl Writer {
                 return Ok(());
             }
 
-            self.tombstone_count += 1;
+            self.meta.tombstone_count += 1;
         }
 
         if Some(&item.key) != self.current_key.as_ref() {
-            self.key_count += 1;
+            self.meta.key_count += 1;
             self.current_key = Some(item.key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
@@ -203,17 +247,17 @@ impl Writer {
             self.chunk_size = 0;
         }
 
-        if self.first_key.is_none() {
-            self.first_key = Some(item_key.clone());
+        if self.meta.first_key.is_none() {
+            self.meta.first_key = Some(item_key.clone());
         }
-        self.last_key = Some(item_key);
+        self.meta.last_key = Some(item_key);
 
-        if self.lowest_seqno > seqno {
-            self.lowest_seqno = seqno;
+        if self.meta.lowest_seqno > seqno {
+            self.meta.lowest_seqno = seqno;
         }
 
-        if self.highest_seqno < seqno {
-            self.highest_seqno = seqno;
+        if self.meta.highest_seqno < seqno {
+            self.meta.highest_seqno = seqno;
         }
 
         Ok(())
@@ -228,7 +272,7 @@ impl Writer {
         }
 
         // No items written! Just delete segment folder and return nothing
-        if self.item_count == 0 {
+        if self.meta.item_count == 0 {
             std::fs::remove_file(&self.segment_file_path)?;
 
             if let Err(e) = std::fs::remove_file(&self.index_writer.index_block_tmp_file_path) {
@@ -252,9 +296,12 @@ impl Writer {
             let bloom_ptr = self.block_writer.stream_position()?;
 
             let n = self.bloom_hash_buffer.len();
-            log::trace!("Writing bloom filter with {n} hashes");
+            log::trace!(
+                "Writing bloom filter with {n} hashes: {:?}",
+                self.bloom_policy
+            );
 
-            let mut filter = BloomFilter::with_fp_rate(n, self.opts.bloom_fp_rate);
+            let mut filter = self.bloom_policy.build(n);
 
             for hash in std::mem::take(&mut self.bloom_hash_buffer) {
                 filter.set_with_hash(hash);
@@ -303,9 +350,9 @@ impl Writer {
 
         log::debug!(
             "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
-            self.item_count,
-            self.block_count,
-            self.file_pos / 1_024 / 1_024
+            self.meta.item_count,
+            self.meta.block_count,
+            self.meta.file_pos / 1_024 / 1_024
         );
 
         Ok(Some(trailer))
@@ -335,12 +382,8 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
-            compression: CompressionType::None,
 
             segment_id,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
@@ -395,12 +438,8 @@ mod tests {
             folder: folder.clone(),
             evict_tombstones: false,
             block_size: 4096,
-            compression: CompressionType::None,
 
             segment_id,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         for key in 0u64..ITEM_COUNT {

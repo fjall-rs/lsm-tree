@@ -12,10 +12,8 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "kv_sep")]
 use value_log::BlobCache;
 
-#[cfg(feature = "kv_sep")]
 use crate::BlobTree;
 
 fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
@@ -35,7 +33,6 @@ pub enum TreeType {
     Standard,
 
     /// Key-value separated LSM-tree, see [`BlobTree`]
-    #[cfg(feature = "kv_sep")]
     Blob,
 }
 
@@ -44,7 +41,6 @@ impl From<TreeType> for u8 {
         match val {
             TreeType::Standard => 0,
 
-            #[cfg(feature = "kv_sep")]
             TreeType::Blob => 1,
         }
     }
@@ -57,7 +53,6 @@ impl TryFrom<u8> for TreeType {
         match value {
             0 => Ok(Self::Standard),
 
-            #[cfg(feature = "kv_sep")]
             1 => Ok(Self::Blob),
 
             _ => Err(()),
@@ -84,6 +79,16 @@ pub struct PersistedConfig {
 
     /// Amount of levels of the LSM tree (depth of tree)
     pub level_count: u8,
+
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
+    ///
+    /// This is the exponential growth of the from one
+    /// level to the next
+    ///
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
+    #[doc(hidden)]
+    pub level_ratio: u8,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -93,6 +98,7 @@ impl Default for PersistedConfig {
         Self {
             block_size: 4_096,
             level_count: 7,
+            level_ratio: 8,
             r#type: TreeType::Standard,
             table_type: TableType::Block,
 
@@ -111,6 +117,7 @@ impl Serializable for PersistedConfig {
         writer.write_u8(self.table_type.into())?;
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
+        writer.write_u8(self.level_ratio)?;
 
         Ok(())
     }
@@ -141,6 +148,7 @@ impl Deserializable for PersistedConfig {
         let block_size = reader.read_u32::<BigEndian>()?;
 
         let level_count = reader.read_u8()?;
+        let level_ratio = reader.read_u8()?;
 
         Ok(Self {
             r#type: tree_type,
@@ -148,6 +156,7 @@ impl Deserializable for PersistedConfig {
             table_type,
             block_size,
             level_count,
+            level_ratio,
         })
     }
 }
@@ -170,28 +179,16 @@ pub struct Config {
     pub block_cache: Arc<BlockCache>,
 
     /// Blob cache to use
-    #[cfg(feature = "kv_sep")]
     #[doc(hidden)]
     pub blob_cache: Arc<BlobCache>,
 
     /// Blob file (value log segment) target size
-    #[cfg(feature = "kv_sep")]
     #[doc(hidden)]
     pub blob_file_target_size: u64,
 
     /// Descriptor table to use
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
-
-    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
-    ///
-    /// This is the exponential growth of the from one
-    /// level to the next
-    ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
-    #[allow(clippy::doc_markdown)]
-    #[doc(hidden)]
-    pub level_ratio: u8,
 }
 
 impl Default for Config {
@@ -200,15 +197,12 @@ impl Default for Config {
             path: absolute_path(DEFAULT_FILE_FOLDER),
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
 
-            #[cfg(feature = "kv_sep")]
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
 
-            #[cfg(feature = "kv_sep")]
             blob_file_target_size: 64 * 1_024 * 1_024,
 
             descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
-            level_ratio: 8,
         }
     }
 }
@@ -251,7 +245,7 @@ impl Config {
     pub fn level_ratio(mut self, n: u8) -> Self {
         assert!(n > 1);
 
-        self.level_ratio = n;
+        self.inner.level_ratio = n;
         self
     }
 
@@ -299,7 +293,6 @@ impl Config {
     ///
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
-    #[cfg(feature = "kv_sep")]
     pub fn blob_cache(mut self, blob_cache: Arc<BlobCache>) -> Self {
         self.blob_cache = blob_cache;
         self
@@ -317,7 +310,6 @@ impl Config {
     ///
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
-    #[cfg(feature = "kv_sep")]
     pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
         self.blob_file_target_size = bytes;
         self
@@ -344,7 +336,6 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[cfg(feature = "kv_sep")]
     pub fn open_as_blob_tree(mut self) -> crate::Result<BlobTree> {
         self.inner.r#type = TreeType::Blob;
         BlobTree::open(self)
@@ -365,6 +356,7 @@ mod tests {
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
+            level_ratio: 8,
         };
 
         let mut bytes = vec![];
@@ -389,6 +381,9 @@ mod tests {
 
             // Levels
             7,
+
+            // Fanout
+            8,
         ];
 
         assert_eq!(bytes, raw);
@@ -404,6 +399,7 @@ mod tests {
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
+            level_ratio: 8,
         };
 
         let mut bytes = vec![];

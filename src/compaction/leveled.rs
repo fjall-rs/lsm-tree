@@ -100,8 +100,11 @@ impl CompactionStrategy for Strategy {
 
             let curr_level_bytes = level.size();
 
-            let desired_bytes =
-                desired_level_size_in_bytes(curr_level_index, config.level_ratio, self.target_size);
+            let desired_bytes = desired_level_size_in_bytes(
+                curr_level_index,
+                config.inner.level_ratio,
+                self.target_size,
+            );
 
             let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64) as usize;
 
@@ -111,7 +114,7 @@ impl CompactionStrategy for Strategy {
                 let mut level = level.clone();
                 level.sort_by_key_range();
 
-                for segment in level.iter().take(config.level_ratio.into()).cloned() {
+                for segment in level.iter().take(config.inner.level_ratio.into()).cloned() {
                     if overshoot == 0 {
                         break;
                     }
