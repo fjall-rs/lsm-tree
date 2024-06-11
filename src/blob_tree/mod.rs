@@ -66,7 +66,7 @@ impl BlobTree {
                     MaybeInlineValue::Indirect { handle, .. } => match self.blobs.get(&handle) {
                         Ok(Some(bytes)) => Ok((key, bytes)),
                         Err(e) => Err(e.into()),
-                        _ => panic!("Aahhhh"), // TODO: 2.0.0
+                        _ => panic!("value handle did not match any blob - this is a bug"),
                     },
                 }
             }
