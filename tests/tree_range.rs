@@ -49,6 +49,7 @@ fn tree_range_count() -> lsm_tree::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_range_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};

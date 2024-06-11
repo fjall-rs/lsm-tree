@@ -1,6 +1,7 @@
 use lsm_tree::AbstractTree;
 use test_log::test;
 
+#[cfg(feature = "kv_sep")]
 #[test]
 fn blob_tree_simple() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;

@@ -38,7 +38,7 @@ engine, larger keys and values have a bigger performance impact.
 
 Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeitz/lz4_flex).
 
-*Enabled by default.*
+*Disabled by default.*
 
 ### miniz
 
