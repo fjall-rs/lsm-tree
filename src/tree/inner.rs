@@ -41,6 +41,7 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
