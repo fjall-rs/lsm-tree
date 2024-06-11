@@ -3,6 +3,8 @@ use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
 // TODO: use (ParsedInternalKey, UserValue) instead of Value...
 
+// TODO: refactor error handling because it's horrible
+
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Value>> + 'a>;
 
 #[must_use]
