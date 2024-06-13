@@ -86,7 +86,7 @@ impl BlobTree {
                 let Ok((_, v)) = kv else {
                     return Some(Err(IoError::new(
                         IoErrorKind::Other,
-                        "Failed to load KV pair",
+                        "Failed to load KV pair from index tree",
                     )));
                 };
 
@@ -192,8 +192,14 @@ impl AbstractTree for BlobTree {
 
         impl value_log::IndexWriter for IndexWriter {
             fn insert_direct(&mut self, mut key: &[u8], value: &[u8]) -> std::io::Result<()> {
-                let parsed_key =
-                    ParsedInternalKey::deserialize(&mut key).expect("should deserialize");
+                use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+
+                let parsed_key = ParsedInternalKey::deserialize(&mut key).map_err(|e| {
+                    IoError::new(
+                        IoErrorKind::Other,
+                        format!("Failed to deserialize internal key from vhandle: {e:?}"),
+                    )
+                })?;
 
                 let mut serialized = vec![];
                 MaybeInlineValue::Inline(value.into())
@@ -202,7 +208,12 @@ impl AbstractTree for BlobTree {
 
                 self.0
                     .write(crate::Value::from((parsed_key, serialized.into())))
-                    .expect("should write");
+                    .map_err(|e| {
+                        IoError::new(
+                            IoErrorKind::Other,
+                            format!("Failed to write inline value to segment: {e:?}"),
+                        )
+                    })?;
 
                 Ok(())
             }
@@ -213,8 +224,14 @@ impl AbstractTree for BlobTree {
                 handle: ValueHandle,
                 size: u32,
             ) -> std::io::Result<()> {
-                let parsed_key =
-                    ParsedInternalKey::deserialize(&mut key).expect("should deserialize");
+                use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+
+                let parsed_key = ParsedInternalKey::deserialize(&mut key).map_err(|e| {
+                    IoError::new(
+                        IoErrorKind::Other,
+                        format!("Failed to deserialize internal key from vhandle: {e:?}"),
+                    )
+                })?;
 
                 let mut serialized = vec![];
                 MaybeInlineValue::Indirect { handle, size }
@@ -223,7 +240,12 @@ impl AbstractTree for BlobTree {
 
                 self.0
                     .write(crate::Value::from((parsed_key, serialized.into())))
-                    .expect("should write");
+                    .map_err(|e| {
+                        IoError::new(
+                            IoErrorKind::Other,
+                            format!("Failed to write vhandle to segment: {e:?}"),
+                        )
+                    })?;
 
                 Ok(())
             }
