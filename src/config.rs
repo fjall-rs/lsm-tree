@@ -1,28 +1,17 @@
 use crate::{
     descriptor_table::FileDescriptorTable,
+    path::absolute_path,
     segment::meta::{CompressionType, TableType},
     serde::{Deserializable, Serializable},
-    BlockCache, DeserializeError, SerializeError, Tree,
+    BlobTree, BlockCache, DeserializeError, SerializeError, Tree,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use path_absolutize::Absolutize;
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
-
 use value_log::BlobCache;
-
-use crate::BlobTree;
-
-fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    // TODO: replace with https://doc.rust-lang.org/std/path/fn.absolute.html once stable
-    path.as_ref()
-        .absolutize()
-        .expect("should be absolute path")
-        .into()
-}
 
 pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'2'];
 
@@ -60,6 +49,8 @@ impl TryFrom<u8> for TreeType {
     }
 }
 
+// TODO: more granular compression settings... per level (e.g. disable on L0), and diff compression for vLog
+
 /// Tree configuration
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
@@ -67,7 +58,6 @@ pub struct PersistedConfig {
     /// Tree type (unused)
     pub r#type: TreeType,
 
-    // TODO: 2.0.0 move into ephemeral, when different types of compression per level is supported
     /// What type of compression is used
     pub compression: CompressionType,
 

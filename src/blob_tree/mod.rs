@@ -1,3 +1,4 @@
+mod compression;
 mod gc;
 pub mod index;
 pub mod value;
@@ -11,6 +12,7 @@ use crate::{
     value::ParsedInternalKey,
     Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, Value, ValueType,
 };
+use compression::get_vlog_compressor;
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
 use std::{
@@ -45,7 +47,8 @@ impl BlobTree {
         let vlog_path = path.join(BLOBS_FOLDER);
         let vlog_cfg = value_log::Config::default()
             .blob_cache(config.blob_cache.clone())
-            .segment_size_bytes(config.blob_file_target_size);
+            .segment_size_bytes(config.blob_file_target_size)
+            .use_compression(get_vlog_compressor(config.inner.compression));
 
         let index: IndexTree = config.open()?.into();
 
