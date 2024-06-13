@@ -103,8 +103,9 @@ impl Serializable for PersistedConfig {
         writer.write_all(CONFIG_HEADER_MAGIC)?;
 
         writer.write_u8(self.r#type.into())?;
-        writer.write_u8(self.compression.into())?;
+        self.compression.serialize(writer)?;
         writer.write_u8(self.table_type.into())?;
+
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
         writer.write_u8(self.level_ratio)?;
@@ -127,9 +128,7 @@ impl Deserializable for PersistedConfig {
         let tree_type = TreeType::try_from(tree_type)
             .map_err(|()| DeserializeError::InvalidTag(("TreeType", tree_type)))?;
 
-        let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression)
-            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
+        let compression = CompressionType::deserialize(reader)?;
 
         let table_type = reader.read_u8()?;
         let table_type = TableType::try_from(table_type)

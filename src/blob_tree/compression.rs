@@ -18,13 +18,13 @@ impl Compressor for Lz4Compressor {
 }
 
 #[cfg(feature = "miniz")]
-struct MinizCompressor;
+struct MinizCompressor(u8);
 
 #[cfg(feature = "miniz")]
 impl Compressor for MinizCompressor {
     fn compress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::CompressError> {
         // TODO: level
-        Ok(miniz_oxide::deflate::compress_to_vec(bytes, 10))
+        Ok(miniz_oxide::deflate::compress_to_vec(bytes, self.0))
     }
 
     fn decompress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::DecompressError> {
@@ -42,6 +42,6 @@ pub fn get_vlog_compressor(compression: CompressionType) -> Arc<dyn Compressor +
         CompressionType::Lz4 => Arc::new(Lz4Compressor),
 
         #[cfg(feature = "miniz")]
-        CompressionType::Miniz => Arc::new(MinizCompressor),
+        CompressionType::Miniz(level) => Arc::new(MinizCompressor(level)),
     }
 }

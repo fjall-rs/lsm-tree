@@ -1,3 +1,10 @@
+use crate::{
+    serde::{Deserializable, Serializable},
+    DeserializeError, SerializeError,
+};
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io::{Read, Write};
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
@@ -7,37 +14,49 @@ pub enum CompressionType {
     Lz4,
 
     #[cfg(feature = "miniz")]
-    Miniz,
+    Miniz(u8),
 }
 
-impl From<CompressionType> for u8 {
-    fn from(val: CompressionType) -> Self {
-        match val {
-            CompressionType::None => 0,
+impl Serializable for CompressionType {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        match self {
+            Self::None => {
+                writer.write_u8(0)?;
+            }
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => 1,
+            Self::Lz4 => {
+                writer.write_u8(1)?;
+            }
 
             #[cfg(feature = "miniz")]
-            CompressionType::Miniz => 2,
-        }
+            Self::Miniz(level) => {
+                writer.write_u8(2)?;
+                writer.write_u8(*level)?;
+            }
+        };
+
+        Ok(())
     }
 }
 
-impl TryFrom<u8> for CompressionType {
-    type Error = ();
+impl Deserializable for CompressionType {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        let tag = reader.read_u8()?;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
+        match tag {
             0 => Ok(Self::None),
 
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
 
             #[cfg(feature = "miniz")]
-            2 => Ok(Self::Miniz),
+            2 => {
+                let level = reader.read_u8()?;
+                Ok(Self::Miniz(level))
+            }
 
-            _ => Err(()),
+            tag => Err(DeserializeError::InvalidTag(("CompressionType", tag))),
         }
     }
 }
@@ -54,7 +73,7 @@ impl std::fmt::Display for CompressionType {
                 Self::Lz4 => "lz4",
 
                 #[cfg(feature = "miniz")]
-                Self::Miniz => "miniz",
+                Self::Miniz(_) => "miniz",
             }
         )
     }

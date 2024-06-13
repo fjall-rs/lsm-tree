@@ -36,8 +36,10 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
                 .map_err(|_| crate::Error::Decompress(header.compression))?,
 
             #[cfg(feature = "miniz")]
-            super::meta::CompressionType::Miniz => miniz_oxide::inflate::decompress_to_vec(&bytes)
-                .map_err(|_| crate::Error::Decompress(header.compression))?,
+            super::meta::CompressionType::Miniz(_) => {
+                miniz_oxide::inflate::decompress_to_vec(&bytes)
+                    .map_err(|_| crate::Error::Decompress(header.compression))?
+            }
         };
         let mut bytes = Cursor::new(bytes);
 
@@ -123,7 +125,7 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
             CompressionType::Lz4 => lz4_flex::compress_prepend_size(&buf),
 
             #[cfg(feature = "miniz")]
-            CompressionType::Miniz => miniz_oxide::deflate::compress_to_vec(&buf, 10),
+            CompressionType::Miniz(level) => miniz_oxide::deflate::compress_to_vec(&buf, level),
         })
     }
 }

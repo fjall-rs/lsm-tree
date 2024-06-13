@@ -40,8 +40,7 @@ impl Serializable for Header {
         // Write header
         writer.write_all(BLOCK_HEADER_MAGIC)?;
 
-        // Write compression type
-        writer.write_u8(self.compression.into())?;
+        self.compression.serialize(writer)?;
 
         // Write CRC
         writer.write_u32::<BigEndian>(self.crc)?;
@@ -66,10 +65,7 @@ impl Deserializable for Header {
             return Err(DeserializeError::InvalidHeader("Block"));
         }
 
-        // Read compression type
-        let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression)
-            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
+        let compression = CompressionType::deserialize(reader)?;
 
         // Read CRC
         let crc = reader.read_u32::<BigEndian>()?;

@@ -89,7 +89,8 @@ impl Serializable for Metadata {
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u32::<BigEndian>(self.block_count)?;
 
-        writer.write_u8(self.compression.into())?;
+        self.compression.serialize(writer)?;
+
         writer.write_u8(self.table_type.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
@@ -126,9 +127,7 @@ impl Deserializable for Metadata {
         let block_size = reader.read_u32::<BigEndian>()?;
         let block_count = reader.read_u32::<BigEndian>()?;
 
-        let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression)
-            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
+        let compression = CompressionType::deserialize(reader)?;
 
         let table_type = reader.read_u8()?;
         let table_type = TableType::try_from(table_type)
