@@ -18,8 +18,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-lz4 = ["dep:lz4_flex", "value-log/lz4"]
-miniz = ["dep:miniz_oxide", "value-log/miniz"]
+lz4 = ["dep:lz4_flex"]
+miniz = ["dep:miniz_oxide"]
 bloom = ["dep:seahash"]
 
 [dependencies]

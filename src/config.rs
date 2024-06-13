@@ -209,6 +209,17 @@ impl Config {
         }
     }
 
+    /// Sets the compression method.
+    ///
+    /// Using some compression is recommended.
+    ///
+    /// Default = None
+    #[must_use]
+    pub fn compression(mut self, compression: CompressionType) -> Self {
+        self.inner.compression = compression;
+        self
+    }
+
     /// Sets the amount of levels of the LSM tree (depth of tree).
     ///
     /// Defaults to 7, like `LevelDB` and `RocksDB`.
