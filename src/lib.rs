@@ -162,7 +162,6 @@ mod version;
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::meta::CompressionType,
     segment::{id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
 };
@@ -173,7 +172,7 @@ pub use {
     error::{Error, Result},
     memtable::MemTable,
     r#abstract::AbstractTree,
-    segment::Segment,
+    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
     snapshot::Snapshot,

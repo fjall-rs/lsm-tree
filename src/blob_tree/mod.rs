@@ -9,7 +9,6 @@ use crate::{
     r#abstract::{AbstractTree, RangeItem},
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
-    value::ParsedInternalKey,
     Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, Value, ValueType,
 };
 use compression::get_vlog_compressor;
@@ -20,7 +19,7 @@ use std::{
     ops::RangeBounds,
     sync::{Arc, RwLockWriteGuard},
 };
-use value_log::{ValueHandle, ValueLog};
+use value_log::ValueLog;
 
 /// A key-value-separated log-structured merge tree
 ///
@@ -191,76 +190,11 @@ impl AbstractTree for BlobTree {
         };
         use value::MaybeInlineValue;
 
-        struct IndexWriter(SegmentWriter);
-
-        impl value_log::IndexWriter for IndexWriter {
-            fn insert_direct(&mut self, mut key: &[u8], value: &[u8]) -> std::io::Result<()> {
-                use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-
-                let parsed_key = ParsedInternalKey::deserialize(&mut key).map_err(|e| {
-                    IoError::new(
-                        IoErrorKind::Other,
-                        format!("Failed to deserialize internal key from vhandle: {e:?}"),
-                    )
-                })?;
-
-                let mut serialized = vec![];
-                MaybeInlineValue::Inline(value.into())
-                    .serialize(&mut serialized)
-                    .expect("should serialize");
-
-                self.0
-                    .write(crate::Value::from((parsed_key, serialized.into())))
-                    .map_err(|e| {
-                        IoError::new(
-                            IoErrorKind::Other,
-                            format!("Failed to write inline value to segment: {e:?}"),
-                        )
-                    })?;
-
-                Ok(())
-            }
-
-            fn insert_indirect(
-                &mut self,
-                mut key: &[u8],
-                handle: ValueHandle,
-                size: u32,
-            ) -> std::io::Result<()> {
-                use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-
-                let parsed_key = ParsedInternalKey::deserialize(&mut key).map_err(|e| {
-                    IoError::new(
-                        IoErrorKind::Other,
-                        format!("Failed to deserialize internal key from vhandle: {e:?}"),
-                    )
-                })?;
-
-                let mut serialized = vec![];
-                MaybeInlineValue::Indirect { handle, size }
-                    .serialize(&mut serialized)
-                    .expect("should serialize");
-
-                self.0
-                    .write(crate::Value::from((parsed_key, serialized.into())))
-                    .map_err(|e| {
-                        IoError::new(
-                            IoErrorKind::Other,
-                            format!("Failed to write vhandle to segment: {e:?}"),
-                        )
-                    })?;
-
-                Ok(())
-            }
-
-            fn finish(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
+        let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("flushing memtable & performing key-value separation");
-
-        let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
+        log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
+        log::debug!("=> to blob segment {:?}", self.blobs.path);
 
         let mut segment_writer = SegmentWriter::new(Options {
             segment_id,
@@ -277,35 +211,71 @@ impl AbstractTree for BlobTree {
             );
         }
 
-        let segment_writer = IndexWriter(segment_writer);
+        let mut blob_writer = self.blobs.get_writer()?;
 
-        // TODO: 2.0.0 blob threshold
-        let mut blob_writer = self
-            .blobs
-            .get_writer(segment_writer)?
-            .blob_separation_size(2_048);
+        // TODO: bug that drops latest blob file for some reason?? see html benchmark w/ delete + gc
 
         for entry in &memtable.items {
             let key = entry.key();
 
+            if key.is_tombstone() {
+                // NOTE: Still need to add tombstone to index tree
+                // But no blob to blob writer
+                segment_writer.write(Value {
+                    key: key.user_key.clone(),
+                    value: vec![].into(),
+                    seqno: key.seqno,
+                    value_type: ValueType::Tombstone,
+                })?;
+                continue;
+            }
+
             let value = entry.value();
             let mut cursor = Cursor::new(value);
+
             let value = MaybeInlineValue::deserialize(&mut cursor)?;
             let MaybeInlineValue::Inline(value) = value else {
                 panic!("values are initially always inlined");
             };
 
-            let mut serialized_key = vec![];
-            key.serialize(&mut serialized_key)?;
+            // TODO: 2.0.0 blob threshold
+            if value.len() > 2_048 {
+                let handle = blob_writer.get_next_value_handle(&key.user_key);
 
-            blob_writer.write(serialized_key, value)?;
+                let indirection = MaybeInlineValue::Indirect {
+                    handle,
+                    size: value.len() as u32,
+                };
+                let mut serialized_indirection = vec![];
+                indirection.serialize(&mut serialized_indirection)?;
+
+                segment_writer.write(Value {
+                    key: key.user_key.clone(),
+                    seqno: key.seqno,
+                    value: serialized_indirection.into(),
+                    value_type: key.value_type,
+                })?;
+
+                blob_writer.write(&key.user_key, value)?;
+            } else {
+                let direct = MaybeInlineValue::Inline(value);
+
+                let mut serialized_direct = vec![];
+                direct.serialize(&mut serialized_direct)?;
+
+                segment_writer.write(Value {
+                    key: key.user_key.clone(),
+                    seqno: key.seqno,
+                    value: serialized_direct.into(),
+                    value_type: key.value_type,
+                })?;
+            }
         }
 
         log::trace!("Register blob writer into value log");
-        let index_writer = self.blobs.register_writer(blob_writer)?;
+        self.blobs.register_writer(blob_writer)?;
 
         log::trace!("Creating segment");
-        let segment_writer = index_writer.0;
         self.index.consume_writer(segment_id, segment_writer)
     }
 
