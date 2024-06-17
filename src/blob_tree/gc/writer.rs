@@ -1,5 +1,8 @@
-use crate::{blob_tree::value::MaybeInlineValue, serde::Serializable, MemTable, SeqNo, UserKey};
-use std::sync::{Arc, RwLockWriteGuard};
+use crate::{
+    blob_tree::value::MaybeInlineValue, serde::Serializable, value::InternalValue, MemTable, SeqNo,
+    UserKey,
+};
+use std::sync::RwLockWriteGuard;
 use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
@@ -42,12 +45,12 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
                 .serialize(&mut buf)
                 .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?;
 
-            self.memtable.insert(crate::Value {
+            self.memtable.insert(InternalValue::from_components(
                 key,
-                value: Arc::from(buf),
-                seqno: self.seqno,
-                value_type: crate::ValueType::Value,
-            });
+                buf,
+                self.seqno,
+                crate::ValueType::Value,
+            ));
         }
 
         Ok(())

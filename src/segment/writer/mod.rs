@@ -8,7 +8,12 @@ use super::{
     trailer::SegmentFileTrailer,
     value_block::ValueBlock,
 };
-use crate::{file::fsync_directory, serde::Serializable, value::UserKey, SegmentId, Value};
+use crate::{
+    file::fsync_directory,
+    serde::Serializable,
+    value::{InternalValue, UserKey},
+    SegmentId,
+};
 use std::{
     fs::File,
     io::{BufWriter, Seek, Write},
@@ -18,9 +23,7 @@ use std::{
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-/// Serializes and compresses values into blocks and writes them to disk
-///
-/// Also takes care of creating the block index
+/// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
     pub(crate) opts: Options,
 
@@ -37,33 +40,11 @@ pub struct Writer {
     index_writer: IndexWriter,
 
     /// Buffer of KVs
-    chunk: Vec<Value>,
+    chunk: Vec<InternalValue>,
     chunk_size: usize,
 
     pub(crate) meta: meta::Metadata,
-    /* /// Written block count
-    pub block_count: usize,
 
-    /// Written item count
-    pub item_count: usize,
-
-    /// Tombstone count
-    pub tombstone_count: usize,
-
-    /// Written key count (unique keys)
-    pub key_count: usize,
-
-    /// Current file position of writer
-    pub file_pos: u64,
-
-    /// Only takes user data into account
-    pub uncompressed_size: u64,
-
-    pub first_key: Option<UserKey>,
-    pub last_key: Option<UserKey>,
-
-    pub lowest_seqno: SeqNo,
-    pub highest_seqno: SeqNo, */
     /// Stores the previous block position (used for creating back links)
     prev_pos: (u64, u64),
 
@@ -193,7 +174,7 @@ impl Writer {
         let last = self.chunk.last().expect("Chunk should not be empty");
 
         self.index_writer
-            .register_block(last.key.clone(), self.meta.file_pos)?;
+            .register_block(last.key.user_key.clone(), self.meta.file_pos)?;
 
         // Adjust metadata
         self.meta.file_pos += bytes_written;
@@ -215,7 +196,7 @@ impl Writer {
     /// It's important that the incoming stream of items is correctly
     /// sorted as described by the [`UserKey`], otherwise the block layout will
     /// be non-sense.
-    pub fn write(&mut self, item: Value) -> crate::Result<()> {
+    pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.is_tombstone() {
             if self.opts.evict_tombstones {
                 return Ok(());
@@ -224,20 +205,20 @@ impl Writer {
             self.meta.tombstone_count += 1;
         }
 
-        if Some(&item.key) != self.current_key.as_ref() {
+        if Some(&item.key.user_key) != self.current_key.as_ref() {
             self.meta.key_count += 1;
-            self.current_key = Some(item.key.clone());
+            self.current_key = Some(item.key.user_key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
             #[cfg(feature = "bloom")]
             self.bloom_hash_buffer
-                .push(BloomFilter::get_hash(&item.key));
+                .push(BloomFilter::get_hash(&item.key.user_key));
         }
 
         let item_key = item.key.clone();
-        let seqno = item.seqno;
+        let seqno = item.key.seqno;
 
         self.chunk_size += item.size();
         self.chunk.push(item);
@@ -248,9 +229,9 @@ impl Writer {
         }
 
         if self.meta.first_key.is_none() {
-            self.meta.first_key = Some(item_key.clone());
+            self.meta.first_key = Some(item_key.user_key.clone());
         }
-        self.meta.last_key = Some(item_key);
+        self.meta.last_key = Some(item_key.user_key);
 
         if self.meta.lowest_seqno > seqno {
             self.meta.lowest_seqno = seqno;
@@ -363,10 +344,10 @@ impl Writer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::block_cache::BlockCache;
     use crate::descriptor_table::FileDescriptorTable;
     use crate::segment::reader::Reader;
-    use crate::value::ValueType;
-    use crate::{block_cache::BlockCache, Value};
+    use crate::value::{InternalValue, ValueType};
     use std::sync::Arc;
     use test_log::test;
 
@@ -387,7 +368,7 @@ mod tests {
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
-            Value::new(
+            InternalValue::from_components(
                 i.to_be_bytes(),
                 nanoid::nanoid!().as_bytes(),
                 0,
@@ -444,7 +425,7 @@ mod tests {
 
         for key in 0u64..ITEM_COUNT {
             for seqno in (0..VERSION_COUNT).rev() {
-                let value = Value::new(
+                let value = InternalValue::from_components(
                     key.to_be_bytes(),
                     nanoid::nanoid!().as_bytes(),
                     seqno,

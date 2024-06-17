@@ -1,6 +1,8 @@
 use super::{block_index::BlockIndex, id::GlobalSegmentId, range::Range, value_block::CachePolicy};
 use crate::{
-    block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
+    block_cache::BlockCache,
+    descriptor_table::FileDescriptorTable,
+    value::{InternalValue, UserKey},
 };
 use std::{
     ops::Bound::{Excluded, Included, Unbounded},
@@ -79,7 +81,7 @@ impl PrefixedReader {
 }
 
 impl Iterator for PrefixedReader {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.reader.is_none() {
@@ -97,12 +99,12 @@ impl Iterator for PrefixedReader {
 
             match item_result {
                 Ok(item) => {
-                    if item.key < self.prefix {
+                    if item.key.user_key < self.prefix {
                         // Before prefix key
                         continue;
                     }
 
-                    if !item.key.starts_with(&self.prefix) {
+                    if !item.key.user_key.starts_with(&self.prefix) {
                         // Reached max key
                         return None;
                     }
@@ -132,12 +134,12 @@ impl DoubleEndedIterator for PrefixedReader {
 
             match entry_result {
                 Ok(entry) => {
-                    if entry.key < self.prefix {
+                    if entry.key.user_key < self.prefix {
                         // Reached min key
                         return None;
                     }
 
-                    if !entry.key.starts_with(&self.prefix) {
+                    if !entry.key.user_key.starts_with(&self.prefix) {
                         continue;
                     }
 
@@ -161,8 +163,7 @@ mod tests {
             reader::Reader,
             writer::{Options, Writer},
         },
-        value::{SeqNo, ValueType},
-        Value,
+        value::{InternalValue, SeqNo, ValueType},
     };
     use std::sync::Arc;
     use test_log::test;
@@ -181,7 +182,7 @@ mod tests {
             })?;
 
             for x in 0_u64..item_count {
-                let item = Value::new(
+                let item = InternalValue::from_components(
                     {
                         let mut v = b"a/a/".to_vec();
                         v.extend_from_slice(&x.to_be_bytes());
@@ -195,7 +196,7 @@ mod tests {
             }
 
             for x in 0_u64..item_count {
-                let item = Value::new(
+                let item = InternalValue::from_components(
                     {
                         let mut v = b"a/b/".to_vec();
                         v.extend_from_slice(&x.to_be_bytes());
@@ -209,7 +210,7 @@ mod tests {
             }
 
             for x in 0_u64..item_count {
-                let item = Value::new(
+                let item = InternalValue::from_components(
                     {
                         let mut v = b"a/c/".to_vec();
                         v.extend_from_slice(&x.to_be_bytes());
@@ -302,7 +303,7 @@ mod tests {
         .into_iter()
         .enumerate()
         .map(|(idx, key)| {
-            Value::new(
+            InternalValue::from_components(
                 key,
                 nanoid::nanoid!().as_bytes(),
                 idx as SeqNo,
@@ -388,7 +389,7 @@ mod tests {
         .into_iter()
         .enumerate()
         .map(|(idx, key)| {
-            Value::new(
+            InternalValue::from_components(
                 key.to_vec(),
                 nanoid::nanoid!().as_bytes(),
                 idx as SeqNo,
@@ -445,12 +446,18 @@ mod tests {
             *b"d",
         );
 
-        assert_eq!(Arc::from(*b"da"), iter.next().expect("should exist")?.key);
+        assert_eq!(
+            Arc::from(*b"da"),
+            iter.next().expect("should exist")?.key.user_key
+        );
         assert_eq!(
             Arc::from(*b"dc"),
-            iter.next_back().expect("should exist")?.key
+            iter.next_back().expect("should exist")?.key.user_key
         );
-        assert_eq!(Arc::from(*b"db"), iter.next().expect("should exist")?.key);
+        assert_eq!(
+            Arc::from(*b"db"),
+            iter.next().expect("should exist")?.key.user_key
+        );
 
         assert!(iter.next().is_none());
 

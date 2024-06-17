@@ -164,6 +164,7 @@ pub use {
     merge::BoxedIterator,
     segment::{id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
+    value::InternalValue,
 };
 
 pub use {
@@ -177,7 +178,7 @@ pub use {
     serde::{DeserializeError, SerializeError},
     snapshot::Snapshot,
     tree::Tree,
-    value::{KvPair, SeqNo, UserKey, UserValue, Value, ValueType},
+    value::{KvPair, SeqNo, UserKey, UserValue, ValueType},
     version::Version,
 };
 

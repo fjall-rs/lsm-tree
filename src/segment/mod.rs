@@ -21,8 +21,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
     tree::inner::TreeId,
-    value::{SeqNo, UserKey},
-    Value,
+    value::{InternalValue, SeqNo, UserKey},
 };
 use std::{ops::Bound, path::Path, sync::Arc};
 
@@ -204,7 +203,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
         hash: CompositeHash,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -216,11 +215,7 @@ impl Segment {
         }
 
         {
-            /* let start = std::time::Instant::now(); */
-            let probe = self.bloom_filter.contains_hash(hash);
-            /*    eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
-
-            if !probe {
+            if !self.bloom_filter.contains_hash(hash) {
                 return Ok(None);
             }
         }
@@ -232,7 +227,7 @@ impl Segment {
         &self,
         key: K,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         use value_block::{CachePolicy, ValueBlock};
 
         let key = key.as_ref();
@@ -299,12 +294,12 @@ impl Segment {
             let item = item?;
 
             // Just stop iterating once we go past our desired key
-            if &*item.key != key {
+            if &*item.key.user_key != key {
                 return Ok(None);
             }
 
             if let Some(seqno) = seqno {
-                if item.seqno < seqno {
+                if item.key.seqno < seqno {
                     return Ok(Some(item));
                 }
             } else {
@@ -324,7 +319,7 @@ impl Segment {
         &self,
         key: K,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);

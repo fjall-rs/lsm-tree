@@ -2,7 +2,7 @@ use super::{
     trailer::SegmentFileTrailer,
     writer::{Options, Writer},
 };
-use crate::{CompressionType, Value};
+use crate::{value::InternalValue, CompressionType};
 use std::sync::{atomic::AtomicU64, Arc};
 
 #[cfg(feature = "bloom")]
@@ -96,6 +96,8 @@ impl MultiWriter {
 
         let new_segment_id = self.get_next_segment_id();
 
+        // NOTE: Feature-dependent
+        #[allow(unused_mut)]
         let mut new_writer = Writer::new(Options {
             segment_id: new_segment_id,
             folder: self.opts.folder.clone(),
@@ -121,7 +123,7 @@ impl MultiWriter {
     }
 
     /// Writes an item
-    pub fn write(&mut self, item: Value) -> crate::Result<()> {
+    pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         self.writer.write(item)?;
 
         if self.writer.meta.file_pos >= self.target_size {

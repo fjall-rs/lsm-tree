@@ -4,8 +4,7 @@ use crate::{
     merge::{seqno_filter, BoxedIterator, MergeIterator},
     segment::multi_reader::MultiReader,
     tree::inner::SealedMemtables,
-    value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
-    Value,
+    value::{InternalValue, ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
 };
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::RwLockReadGuard};
@@ -80,7 +79,7 @@ impl<'a> TreeIter<'a> {
                         if let Some(seqno) = seqno {
                             segment_iters.push(Box::new(multi_reader.filter(
                                 move |item| match item {
-                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 },
                             )));
@@ -97,7 +96,7 @@ impl<'a> TreeIter<'a> {
                                 #[allow(clippy::option_if_let_else)]
                                 segment_iters.push(Box::new(reader.filter(
                                     move |item| match item {
-                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
                                     },
                                 )));
@@ -121,7 +120,7 @@ impl<'a> TreeIter<'a> {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -135,7 +134,7 @@ impl<'a> TreeIter<'a> {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -153,11 +152,11 @@ impl<'a> TreeIter<'a> {
             Box::new(
                 #[allow(clippy::option_if_let_else)]
                 iter.filter(|x| match x {
-                    Ok(value) => value.value_type != ValueType::Tombstone,
+                    Ok(value) => value.key.value_type != ValueType::Tombstone,
                     Err(_) => true,
                 })
                 .map(|item| match item {
-                    Ok(kv) => Ok((kv.key, kv.value)),
+                    Ok(kv) => Ok((kv.key.user_key, kv.value)),
                     Err(e) => Err(e),
                 }),
             )
@@ -243,7 +242,7 @@ impl<'a> TreeIter<'a> {
                         if let Some(seqno) = seqno {
                             segment_iters.push(Box::new(multi_reader.filter(
                                 move |item| match item {
-                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 },
                             )));
@@ -260,7 +259,7 @@ impl<'a> TreeIter<'a> {
                                 #[allow(clippy::option_if_let_else)]
                                 segment_iters.push(Box::new(reader.filter(
                                     move |item| match item {
-                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
                                     },
                                 )));
@@ -281,11 +280,11 @@ impl<'a> TreeIter<'a> {
                 let iter = memtable
                     .items
                     .range(range.clone())
-                    .map(|entry| Value::from((entry.key().clone(), entry.value().clone())));
+                    .map(|entry| InternalValue::new(entry.key().clone(), entry.value().clone()));
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -295,15 +294,14 @@ impl<'a> TreeIter<'a> {
 
             // Active memtable
             {
-                let iter = lock
-                    .active
-                    .items
-                    .range(range.clone())
-                    .map(|entry| Value::from((entry.key().clone(), entry.value().clone())));
+                let iter =
+                    lock.active.items.range(range.clone()).map(|entry| {
+                        InternalValue::new(entry.key().clone(), entry.value().clone())
+                    });
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -312,10 +310,12 @@ impl<'a> TreeIter<'a> {
             }
 
             if let Some(index) = add_index {
-                let iter =
-                    Box::new(index.items.range(range).map(|entry| {
-                        Ok(Value::from((entry.key().clone(), entry.value().clone())))
-                    }));
+                let iter = Box::new(index.items.range(range).map(|entry| {
+                    Ok(InternalValue::new(
+                        entry.key().clone(),
+                        entry.value().clone(),
+                    ))
+                }));
 
                 iters.push(iter);
             }
@@ -324,11 +324,11 @@ impl<'a> TreeIter<'a> {
 
             Box::new(
                 iter.filter(|x| match x {
-                    Ok(value) => value.value_type != ValueType::Tombstone,
+                    Ok(value) => value.key.value_type != ValueType::Tombstone,
                     Err(_) => true,
                 })
                 .map(|item| match item {
-                    Ok(kv) => Ok((kv.key, kv.value)),
+                    Ok(kv) => Ok((kv.key.user_key, kv.value)),
                     Err(e) => Err(e),
                 }),
             )

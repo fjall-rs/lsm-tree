@@ -133,14 +133,19 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{segment::value_block::ValueBlock, value::ValueType, Value};
+    use crate::{
+        segment::value_block::ValueBlock,
+        value::{InternalValue, ValueType},
+    };
     use std::io::Write;
     use test_log::test;
 
     #[test]
     fn disk_block_deserialization_success() -> crate::Result<()> {
-        let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+        let item1 =
+            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
+        let item2 =
+            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1.clone(), item2.clone()];
         let crc = Block::create_crc(&items)?;
@@ -169,8 +174,10 @@ mod tests {
 
     #[test]
     fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
-        let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+        let item1 =
+            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
+        let item2 =
+            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1, item2];
 

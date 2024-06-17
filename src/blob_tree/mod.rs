@@ -9,7 +9,8 @@ use crate::{
     r#abstract::{AbstractTree, RangeItem},
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
-    Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, Value, ValueType,
+    value::InternalValue,
+    Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, ValueType,
 };
 use compression::get_vlog_compressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -221,12 +222,7 @@ impl AbstractTree for BlobTree {
             if key.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
-                segment_writer.write(Value {
-                    key: key.user_key.clone(),
-                    value: vec![].into(),
-                    seqno: key.seqno,
-                    value_type: ValueType::Tombstone,
-                })?;
+                segment_writer.write(InternalValue::new(key.clone(), vec![]))?;
                 continue;
             }
 
@@ -249,12 +245,7 @@ impl AbstractTree for BlobTree {
                 let mut serialized_indirection = vec![];
                 indirection.serialize(&mut serialized_indirection)?;
 
-                segment_writer.write(Value {
-                    key: key.user_key.clone(),
-                    seqno: key.seqno,
-                    value: serialized_indirection.into(),
-                    value_type: key.value_type,
-                })?;
+                segment_writer.write(InternalValue::new(key.clone(), serialized_indirection))?;
 
                 blob_writer.write(&key.user_key, value)?;
             } else {
@@ -263,12 +254,7 @@ impl AbstractTree for BlobTree {
                 let mut serialized_direct = vec![];
                 direct.serialize(&mut serialized_direct)?;
 
-                segment_writer.write(Value {
-                    key: key.user_key.clone(),
-                    seqno: key.seqno,
-                    value: serialized_direct.into(),
-                    value_type: key.value_type,
-                })?;
+                segment_writer.write(InternalValue::new(key.clone(), serialized_direct))?;
             }
         }
 
@@ -455,7 +441,7 @@ impl AbstractTree for BlobTree {
         let mut value = vec![];
         item.serialize(&mut value).expect("should serialize");
 
-        let value = Value::new(key.as_ref(), value, seqno, r#type);
+        let value = InternalValue::from_components(key.as_ref(), value, seqno, r#type);
         lock.insert(value)
     }
 

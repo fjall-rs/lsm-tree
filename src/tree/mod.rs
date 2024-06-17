@@ -11,9 +11,9 @@ use crate::{
     segment::{block_index::BlockIndex, Segment},
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
+    value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, Value,
-    ValueType,
+    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -23,7 +23,7 @@ use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
 };
 
-fn ignore_tombstone_value(item: Value) -> Option<Value> {
+fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
     if item.is_tombstone() {
         None
     } else {
@@ -75,7 +75,7 @@ impl AbstractTree for Tree {
         for entry in &memtable.items {
             let key = entry.key();
             let value = entry.value();
-            segment_writer.write(crate::Value::from(((key.clone()), value.clone())))?;
+            segment_writer.write(InternalValue::new(key.clone(), value.clone()))?;
         }
 
         self.consume_writer(segment_id, segment_writer)
@@ -307,7 +307,8 @@ impl AbstractTree for Tree {
     }
 
     fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
-        let value = Value::new(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
+        let value =
+            InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
         self.append_entry(value)
     }
 
@@ -319,12 +320,12 @@ impl AbstractTree for Tree {
         seqno: SeqNo,
         r#type: ValueType,
     ) -> (u32, u32) {
-        let value = Value::new(key.as_ref(), value.as_ref(), seqno, r#type);
+        let value = InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, r#type);
         lock.insert(value)
     }
 
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = Value::new_tombstone(key.as_ref(), seqno);
+        let value = InternalValue::new_tombstone(key.as_ref(), seqno);
         self.append_entry(value)
     }
 }
@@ -496,7 +497,7 @@ impl Tree {
         key: K,
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(&key, seqno) {
             if evict_tombstone {
                 return Ok(ignore_tombstone_value(entry));
@@ -519,7 +520,7 @@ impl Tree {
         &self,
         key: K,
         seqno: Option<SeqNo>,
-    ) -> Option<Value> {
+    ) -> Option<InternalValue> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
 
         for (_, memtable) in memtable_lock.iter().rev() {
@@ -536,7 +537,7 @@ impl Tree {
         key: K,
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         #[cfg(feature = "bloom")]
@@ -587,7 +588,7 @@ impl Tree {
         key: K,
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
         if let Some(entry) = memtable_lock.get(&key, seqno) {
@@ -685,7 +686,7 @@ impl Tree {
     /// Returns the added item's size and new size of the memtable.
     #[doc(hidden)]
     #[must_use]
-    pub fn append_entry(&self, value: Value) -> (u32, u32) {
+    pub fn append_entry(&self, value: InternalValue) -> (u32, u32) {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
         memtable_lock.insert(value)
     }

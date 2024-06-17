@@ -1,11 +1,12 @@
-use crate::{value::SeqNo, UserKey, Value};
+use crate::{
+    value::{InternalValue, SeqNo},
+    UserKey,
+};
 use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
-
-// TODO: use (ParsedInternalKey, UserValue) instead of Value...
 
 // TODO: refactor error handling because it's horrible
 
-pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<Value>> + 'a>;
+pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
@@ -51,7 +52,7 @@ impl<'a> MergeIterator<'a> {
             'inner: loop {
                 if let Some(item) = iter.peek() {
                     if let Ok(item) = item {
-                        if &item.key == key {
+                        if &item.key.user_key == key {
                             // Consume key
                             iter.next().expect("should not be empty")?;
                         } else {
@@ -73,7 +74,7 @@ impl<'a> MergeIterator<'a> {
         Ok(())
     }
 
-    fn get_min(&mut self) -> Option<crate::Result<(usize, Value)>> {
+    fn get_min(&mut self) -> Option<crate::Result<(usize, InternalValue)>> {
         let mut idx_with_err = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
@@ -99,14 +100,14 @@ impl<'a> MergeIterator<'a> {
             panic!("logic error");
         }
 
-        let mut min = None;
+        let mut min: Option<(usize, &InternalValue)> = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
             if let Some(val) = val {
                 match val {
                     Ok(val) => {
                         if let Some((_, min_val)) = min {
-                            if val < min_val {
+                            if val.key < min_val.key {
                                 min = Some((idx, val));
                             }
                         } else {
@@ -131,7 +132,7 @@ impl<'a> MergeIterator<'a> {
         }
     }
 
-    fn get_max(&mut self) -> Option<crate::Result<(usize, Value)>> {
+    fn get_max(&mut self) -> Option<crate::Result<(usize, InternalValue)>> {
         let mut idx_with_err = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
@@ -157,14 +158,14 @@ impl<'a> MergeIterator<'a> {
             panic!("logic error");
         }
 
-        let mut max = None;
+        let mut max: Option<(usize, &InternalValue)> = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
             if let Some(val) = val {
                 match val {
                     Ok(val) => {
                         if let Some((_, max_val)) = max {
-                            if val > max_val {
+                            if val.key > max_val.key {
                                 max = Some((idx, val));
                             }
                         } else {
@@ -189,7 +190,7 @@ impl<'a> MergeIterator<'a> {
         }
     }
 
-    fn peek_max(&mut self) -> Option<crate::Result<(usize, &Value)>> {
+    fn peek_max(&mut self) -> Option<crate::Result<(usize, &InternalValue)>> {
         let mut idx_with_err = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
@@ -215,14 +216,14 @@ impl<'a> MergeIterator<'a> {
             panic!("logic error");
         }
 
-        let mut max = None;
+        let mut max: Option<(usize, &InternalValue)> = None;
 
         for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
             if let Some(val) = val {
                 match val {
                     Ok(val) => {
                         if let Some((_, max_val)) = max {
-                            if val > max_val {
+                            if val.key > max_val.key {
                                 max = Some((idx, val));
                             }
                         } else {
@@ -250,7 +251,7 @@ impl<'a> MergeIterator<'a> {
 }
 
 impl<'a> Iterator for MergeIterator<'a> {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.get_min()? {
@@ -258,7 +259,7 @@ impl<'a> Iterator for MergeIterator<'a> {
                 // Tombstone marker OR we want to GC old versions
                 // As long as items beneath tombstone are the same key, ignore them
                 if self.evict_old_versions {
-                    if let Err(e) = self.drain_key_min(&min_item.key) {
+                    if let Err(e) = self.drain_key_min(&min_item.key.user_key) {
                         return Some(Err(e));
                     };
                 }
@@ -282,7 +283,7 @@ impl<'a> DoubleEndedIterator for MergeIterator<'a> {
                     'inner: while let Some(head_result) = self.peek_max() {
                         match head_result {
                             Ok((_, next)) => {
-                                if next.key == head.key {
+                                if next.key.user_key == head.key.user_key {
                                     let next = self.get_max().expect("should exist");
 
                                     let next = match next {
@@ -317,7 +318,7 @@ impl<'a> DoubleEndedIterator for MergeIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{Value, ValueType};
+    use crate::value::{InternalValue, ValueType};
     use test_log::test;
 
     macro_rules! iter_closed {
@@ -334,15 +335,15 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_no_evict_simple_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -351,27 +352,27 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(false);
 
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -384,15 +385,15 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_no_evict_simple_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -401,27 +402,27 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(false);
 
         assert_eq!(
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
 
@@ -434,18 +435,18 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_no_evict_complex_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -454,39 +455,39 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(false);
 
         assert_eq!(
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -499,15 +500,15 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_simple_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -516,15 +517,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -537,15 +538,15 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_simple_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -554,15 +555,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
 
@@ -575,12 +576,12 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_very_simple_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -588,16 +589,38 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next().unwrap()?,
+        );
+
+        iter_closed!(iter);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn merge_evict_extremely_simple_reverse() -> crate::Result<()> {
+        let vec0 = [
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
+        ];
+
+        let iter0 = Box::new(vec0.iter().cloned().map(Ok));
+
+        let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
+
+        assert_eq!(
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            iter.next_back().unwrap()?,
         );
 
         iter_closed!(iter);
@@ -609,12 +632,12 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_very_simple_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -622,15 +645,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
             iter.next_back().unwrap()?,
         );
 
@@ -643,12 +666,12 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_mvcc_very_simple_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(
@@ -656,7 +679,7 @@ mod tests {
                 // NOTE: "1" because the seqno starts at 0
                 // When we insert an item, the tree LSN is at 1
                 // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .filter(|x| seqno_filter(x.seqno, 1))
+                .filter(|x| seqno_filter(x.key.seqno, 1))
                 .cloned()
                 .map(Ok),
         );
@@ -664,15 +687,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -685,12 +708,12 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_mvcc_very_simple_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(
@@ -698,7 +721,7 @@ mod tests {
                 // NOTE: "1" because the seqno starts at 0
                 // When we insert an item, the tree LSN is at 1
                 // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .filter(|x| seqno_filter(x.seqno, 1))
+                .filter(|x| seqno_filter(x.key.seqno, 1))
                 .cloned()
                 .map(Ok),
         );
@@ -706,15 +729,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
 
@@ -727,18 +750,18 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_complex_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -747,15 +770,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -768,18 +791,18 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_complex_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
-            Value::new(*b"b", *b"old", 0, ValueType::Value),
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
-            Value::new(*b"c", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"a", *b"new", 1, ValueType::Value),
-            Value::new(*b"b", *b"new", 1, ValueType::Value),
-            Value::new(*b"c", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"new", 1, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -788,15 +811,15 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"c", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"newest", 2, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"b", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"newest", 2, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"newest", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"newest", 2, ValueType::Value),
             iter.next_back().unwrap()?,
         );
 
@@ -809,10 +832,10 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_snapshot_simple_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 3, ValueType::Value),
-            Value::new(*b"a", *b"", 2, ValueType::Value),
-            Value::new(*b"a", *b"", 1, ValueType::Value),
-            Value::new(*b"a", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 3, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
         ];
 
         {
@@ -821,7 +844,7 @@ mod tests {
                     // NOTE: "1" because the seqno starts at 0
                     // When we insert an item, the tree LSN is at 1
                     // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                    .filter(|x| seqno_filter(x.seqno, 1))
+                    .filter(|x| seqno_filter(x.key.seqno, 1))
                     .cloned()
                     .map(Ok),
             );
@@ -829,7 +852,7 @@ mod tests {
             let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
-                Value::new(*b"a", *b"", 0, ValueType::Value),
+                InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
                 iter.next().unwrap()?,
             );
 
@@ -839,7 +862,7 @@ mod tests {
         {
             let iter0 = Box::new(
                 vec0.iter()
-                    .filter(|x| seqno_filter(x.seqno, 2))
+                    .filter(|x| seqno_filter(x.key.seqno, 2))
                     .cloned()
                     .map(Ok),
             );
@@ -847,7 +870,7 @@ mod tests {
             let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
-                Value::new(*b"a", *b"", 1, ValueType::Value),
+                InternalValue::from_components(*b"a", *b"", 1, ValueType::Value),
                 iter.next().unwrap()?,
             );
 
@@ -861,10 +884,10 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_snapshot_simple_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 3, ValueType::Value),
-            Value::new(*b"a", *b"", 2, ValueType::Value),
-            Value::new(*b"a", *b"", 1, ValueType::Value),
-            Value::new(*b"a", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 3, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
         ];
 
         {
@@ -873,7 +896,7 @@ mod tests {
                     // NOTE: "1" because the seqno starts at 0
                     // When we insert an item, the tree LSN is at 1
                     // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                    .filter(|x| seqno_filter(x.seqno, 1))
+                    .filter(|x| seqno_filter(x.key.seqno, 1))
                     .cloned()
                     .map(Ok),
             );
@@ -881,7 +904,7 @@ mod tests {
             let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
-                Value::new(*b"a", *b"", 0, ValueType::Value),
+                InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
                 iter.next_back().unwrap()?,
             );
 
@@ -891,7 +914,7 @@ mod tests {
         {
             let iter0 = Box::new(
                 vec0.iter()
-                    .filter(|x| seqno_filter(x.seqno, 2))
+                    .filter(|x| seqno_filter(x.key.seqno, 2))
                     .cloned()
                     .map(Ok),
             );
@@ -899,7 +922,7 @@ mod tests {
             let mut iter = MergeIterator::new(vec![iter0]).evict_old_versions(true);
 
             assert_eq!(
-                Value::new(*b"a", *b"", 1, ValueType::Value),
+                InternalValue::from_components(*b"a", *b"", 1, ValueType::Value),
                 iter.next_back().unwrap()?,
             );
 
@@ -912,9 +935,19 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn merge_no_evict_tombstone_forward() -> crate::Result<()> {
-        let vec0 = [Value::new(*b"a", *b"old", 0, ValueType::Value)];
+        let vec0 = [InternalValue::from_components(
+            *b"a",
+            *b"old",
+            0,
+            ValueType::Value,
+        )];
 
-        let vec1 = [Value::new(*b"a", *b"", 1, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            1,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -922,11 +955,11 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(false);
 
         assert_eq!(
-            Value::new(*b"a", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
 
@@ -938,9 +971,19 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn merge_no_evict_tombstone_reverse() -> crate::Result<()> {
-        let vec0 = [Value::new(*b"a", *b"old", 0, ValueType::Value)];
+        let vec0 = [InternalValue::from_components(
+            *b"a",
+            *b"old",
+            0,
+            ValueType::Value,
+        )];
 
-        let vec1 = [Value::new(*b"a", *b"", 1, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            1,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -948,11 +991,11 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(false);
 
         assert_eq!(
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
             iter.next_back().unwrap()?,
         );
         assert_eq!(
-            Value::new(*b"a", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Tombstone),
             iter.next_back().unwrap()?,
         );
 
@@ -965,12 +1008,17 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_tombstone_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 2, ValueType::Value),
-            Value::new(*b"a", *b"old", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = [Value::new(*b"a", *b"", 3, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            3,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -978,7 +1026,7 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"", 3, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 3, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
 
@@ -991,12 +1039,17 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_tombstone_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"old", 2, ValueType::Value),
-            Value::new(*b"a", *b"old", 1, ValueType::Value),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 2, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 1, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = [Value::new(*b"a", *b"", 3, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            3,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -1004,7 +1057,7 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"", 3, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 3, ValueType::Tombstone),
             iter.next_back().unwrap()?,
         );
 
@@ -1017,11 +1070,16 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_value_after_tombstone_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 2, ValueType::Tombstone),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = [Value::new(*b"a", *b"", 1, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            1,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -1029,7 +1087,7 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"", 2, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
 
@@ -1042,11 +1100,16 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_evict_value_after_tombstone_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 2, ValueType::Tombstone),
-            Value::new(*b"a", *b"old", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"old", 0, ValueType::Value),
         ];
 
-        let vec1 = [Value::new(*b"a", *b"", 1, ValueType::Tombstone)];
+        let vec1 = [InternalValue::from_components(
+            *b"a",
+            *b"",
+            1,
+            ValueType::Tombstone,
+        )];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
         let iter1 = Box::new(vec1.iter().cloned().map(Ok));
@@ -1054,7 +1117,7 @@ mod tests {
         let mut iter = MergeIterator::new(vec![iter0, iter1]).evict_old_versions(true);
 
         assert_eq!(
-            Value::new(*b"a", *b"", 2, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 2, ValueType::Tombstone),
             iter.next_back().unwrap()?,
         );
 
@@ -1067,10 +1130,10 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_snapshot_tombstone_too_new_forward() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 1, ValueType::Tombstone),
-            Value::new(*b"a", *b"", 0, ValueType::Value),
-            Value::new(*b"b", *b"", 1, ValueType::Tombstone),
-            Value::new(*b"b", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"b", *b"", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(
@@ -1078,15 +1141,15 @@ mod tests {
                 // NOTE: "1" because the seqno starts at 0
                 // When we insert an item, the tree LSN is at 1
                 // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .filter(|x| seqno_filter(x.seqno, 1))
+                .filter(|x| seqno_filter(x.key.seqno, 1))
                 .cloned()
                 .map(Ok),
         );
 
         let mut iter = MergeIterator::new(vec![iter0]);
 
-        assert_eq!(*b"a", &*iter.next().unwrap()?.key);
-        assert_eq!(*b"b", &*iter.next().unwrap()?.key);
+        assert_eq!(*b"a", &*iter.next().unwrap()?.key.user_key);
+        assert_eq!(*b"b", &*iter.next().unwrap()?.key.user_key);
 
         iter_closed!(iter);
 
@@ -1097,10 +1160,10 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_snapshot_tombstone_too_new_reverse() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 1, ValueType::Tombstone),
-            Value::new(*b"a", *b"", 0, ValueType::Value),
-            Value::new(*b"b", *b"", 1, ValueType::Tombstone),
-            Value::new(*b"b", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"", 1, ValueType::Tombstone),
+            InternalValue::from_components(*b"b", *b"", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(
@@ -1108,15 +1171,15 @@ mod tests {
                 // NOTE: "1" because the seqno starts at 0
                 // When we insert an item, the tree LSN is at 1
                 // So the snapshot to get all items with seqno = 0 should have seqno = 1
-                .filter(|x| seqno_filter(x.seqno, 1))
+                .filter(|x| seqno_filter(x.key.seqno, 1))
                 .cloned()
                 .map(Ok),
         );
 
         let mut iter = MergeIterator::new(vec![iter0]);
 
-        assert_eq!(*b"b", &*iter.next_back().unwrap()?.key);
-        assert_eq!(*b"a", &*iter.next_back().unwrap()?.key);
+        assert_eq!(*b"b", &*iter.next_back().unwrap()?.key.user_key);
+        assert_eq!(*b"a", &*iter.next_back().unwrap()?.key.user_key);
 
         iter_closed!(iter);
 
@@ -1127,15 +1190,15 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn merge_ping_pong() -> crate::Result<()> {
         let vec0 = [
-            Value::new(*b"a", *b"", 0, ValueType::Value),
-            Value::new(*b"b", *b"", 0, ValueType::Value),
-            Value::new(*b"c", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(*b"d", *b"", 0, ValueType::Value),
-            Value::new(*b"e", *b"", 0, ValueType::Value),
-            Value::new(*b"f", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"d", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"e", *b"", 0, ValueType::Value),
+            InternalValue::from_components(*b"f", *b"", 0, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -1143,12 +1206,12 @@ mod tests {
 
         let mut iter = MergeIterator::new(vec![iter0, iter1]);
 
-        assert_eq!(*b"a", &*iter.next().unwrap()?.key);
-        assert_eq!(*b"f", &*iter.next_back().unwrap()?.key);
-        assert_eq!(*b"b", &*iter.next().unwrap()?.key);
-        assert_eq!(*b"e", &*iter.next_back().unwrap()?.key);
-        assert_eq!(*b"c", &*iter.next().unwrap()?.key);
-        assert_eq!(*b"d", &*iter.next_back().unwrap()?.key);
+        assert_eq!(*b"a", &*iter.next().unwrap()?.key.user_key);
+        assert_eq!(*b"f", &*iter.next_back().unwrap()?.key.user_key);
+        assert_eq!(*b"b", &*iter.next().unwrap()?.key.user_key);
+        assert_eq!(*b"e", &*iter.next_back().unwrap()?.key.user_key);
+        assert_eq!(*b"c", &*iter.next().unwrap()?.key.user_key);
+        assert_eq!(*b"d", &*iter.next_back().unwrap()?.key.user_key);
 
         iter_closed!(iter);
 
@@ -1157,12 +1220,16 @@ mod tests {
 
     #[test]
     fn merge_non_overlapping() -> crate::Result<()> {
-        let iter0 = (0u64..5).map(|x| Value::new(x.to_be_bytes(), *b"old", 0, ValueType::Value));
-        let iter1 = (5u64..10).map(|x| Value::new(x.to_be_bytes(), *b"new", 3, ValueType::Value));
-        let iter2 =
-            (10u64..15).map(|x| Value::new(x.to_be_bytes(), *b"asd", 1, ValueType::Tombstone));
-        let iter3 =
-            (15u64..20).map(|x| Value::new(x.to_be_bytes(), *b"qwe", 2, ValueType::Tombstone));
+        let iter0 = (0u64..5)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), *b"old", 0, ValueType::Value));
+        let iter1 = (5u64..10)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), *b"new", 3, ValueType::Value));
+        let iter2 = (10u64..15).map(|x| {
+            InternalValue::from_components(x.to_be_bytes(), *b"asd", 1, ValueType::Tombstone)
+        });
+        let iter3 = (15u64..20).map(|x| {
+            InternalValue::from_components(x.to_be_bytes(), *b"qwe", 2, ValueType::Tombstone)
+        });
 
         let iter0 = Box::new(iter0.map(Ok));
         let iter1 = Box::new(iter1.map(Ok));
@@ -1173,7 +1240,7 @@ mod tests {
 
         for (idx, item) in merge_iter.enumerate() {
             let item = item?;
-            assert_eq!(item.key, (idx as u64).to_be_bytes().into());
+            assert_eq!(item.key.user_key, (idx as u64).to_be_bytes().into());
         }
 
         Ok(())
@@ -1182,15 +1249,15 @@ mod tests {
     #[test]
     fn merge_mixed() -> crate::Result<()> {
         let vec0 = [
-            Value::new(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
-            Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
-            Value::new(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
+            InternalValue::from_components(1u64.to_be_bytes(), *b"old", 0, ValueType::Value),
+            InternalValue::from_components(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
+            InternalValue::from_components(3u64.to_be_bytes(), *b"old", 0, ValueType::Value),
         ];
 
         let vec1 = [
-            Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
-            Value::new(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
-            Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+            InternalValue::from_components(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+            InternalValue::from_components(2u64.to_be_bytes(), *b"old", 0, ValueType::Value),
+            InternalValue::from_components(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
         ];
 
         let iter0 = Box::new(vec0.iter().cloned().map(Ok));
@@ -1202,9 +1269,9 @@ mod tests {
         assert_eq!(
             items,
             vec![
-                Value::new(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
-                Value::new(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
-                Value::new(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+                InternalValue::from_components(1u64.to_be_bytes(), *b"new", 1, ValueType::Value),
+                InternalValue::from_components(2u64.to_be_bytes(), *b"new", 2, ValueType::Value),
+                InternalValue::from_components(3u64.to_be_bytes(), *b"new", 1, ValueType::Value),
             ]
         );
 

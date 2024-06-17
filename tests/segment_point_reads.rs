@@ -42,7 +42,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
         let key = x.to_be_bytes();
 
         let item = tree.get_internal_entry(key, true, None)?.unwrap();
-        assert_eq!(item.seqno, 2);
+        assert_eq!(item.key.seqno, 2);
         assert_eq!(&*item.value, b"2");
 
         let snapshot = tree.snapshot(3);
@@ -81,7 +81,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
     for key in &keys {
         let item = tree.get_internal_entry(key, true, None)?.unwrap();
-        assert_eq!(item.seqno, ITEM_COUNT as u64 - 1);
+        assert_eq!(item.key.seqno, ITEM_COUNT as u64 - 1);
     }
 
     for key in &keys {

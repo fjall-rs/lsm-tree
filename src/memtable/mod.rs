@@ -1,5 +1,5 @@
-use crate::value::{ParsedInternalKey, SeqNo, UserValue, ValueType};
-use crate::{UserKey, Value};
+use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
+use crate::UserKey;
 use crossbeam_skiplist::SkipMap;
 use std::sync::atomic::AtomicU32;
 
@@ -17,18 +17,21 @@ pub struct MemTable {
 
 impl MemTable {
     /// Creates an iterator over a prefixed set of items
-    pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = Value> + '_ {
+    pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items
             // TODO: compute upper bound
             .range(ParsedInternalKey::new(prefix.clone(), SeqNo::MAX, ValueType::Tombstone)..)
             .filter(move |entry| entry.key().user_key.starts_with(&prefix))
-            .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
+            .map(|entry| InternalValue {
+                key: entry.key().clone(),
+                value: entry.value().clone(),
+            })
     }
 
     /// Returns the item by key if it exists
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None
-    pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<Value> {
+    pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
         let prefix = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
@@ -60,10 +63,16 @@ impl MemTable {
             // Check for seqno if needed
             if let Some(seqno) = seqno {
                 if key.seqno < seqno {
-                    return Some(Value::from((entry.key().clone(), entry.value().clone())));
+                    return Some(InternalValue {
+                        key: entry.key().clone(),
+                        value: entry.value().clone(),
+                    });
                 }
             } else {
-                return Some(Value::from((entry.key().clone(), entry.value().clone())));
+                return Some(InternalValue {
+                    key: entry.key().clone(),
+                    value: entry.value().clone(),
+                });
             }
         }
 
@@ -88,7 +97,7 @@ impl MemTable {
     }
 
     /// Inserts an item into the memtable
-    pub fn insert(&self, item: Value) -> (u32, u32) {
+    pub fn insert(&self, item: InternalValue) -> (u32, u32) {
         // NOTE: Value length is u32 max
         #[allow(clippy::cast_possible_truncation)]
         let item_size = item.size() as u32;
@@ -97,7 +106,7 @@ impl MemTable {
             .approximate_size
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
-        let key = ParsedInternalKey::new(item.key, item.seqno, item.value_type);
+        let key = ParsedInternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
         (item_size, size_before + item_size)
@@ -126,7 +135,7 @@ mod tests {
     fn memtable_mvcc_point_read() {
         let memtable = MemTable::default();
 
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             *b"hello-key-999991",
             *b"hello-value-999991",
             0,
@@ -139,7 +148,7 @@ mod tests {
         let item = memtable.get("hello-key-999991", None);
         assert_eq!(*b"hello-value-999991", &*item.unwrap().value);
 
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             *b"hello-key-999991",
             *b"hello-value-999991-2",
             1,
@@ -169,7 +178,8 @@ mod tests {
     fn memtable_get() {
         let memtable = MemTable::default();
 
-        let value = Value::new(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
+        let value =
+            InternalValue::from_components(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
 
         memtable.insert(value.clone());
 
@@ -180,31 +190,31 @@ mod tests {
     fn memtable_get_highest_seqno() {
         let memtable = MemTable::default();
 
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             0,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             1,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             2,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             3,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             4,
@@ -212,7 +222,7 @@ mod tests {
         ));
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc".to_vec(),
                 b"abc".to_vec(),
                 4,
@@ -226,13 +236,13 @@ mod tests {
     fn memtable_get_prefix() {
         let memtable = MemTable::default();
 
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc0".to_vec(),
             b"abc".to_vec(),
             0,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             255,
@@ -240,7 +250,7 @@ mod tests {
         ));
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc".to_vec(),
                 b"abc".to_vec(),
                 255,
@@ -250,7 +260,7 @@ mod tests {
         );
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc0".to_vec(),
                 b"abc".to_vec(),
                 0,
@@ -264,19 +274,19 @@ mod tests {
     fn memtable_get_old_version() {
         let memtable = MemTable::default();
 
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             0,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             99,
             ValueType::Value,
         ));
-        memtable.insert(Value::new(
+        memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
             b"abc".to_vec(),
             255,
@@ -284,7 +294,7 @@ mod tests {
         ));
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc".to_vec(),
                 b"abc".to_vec(),
                 255,
@@ -294,7 +304,7 @@ mod tests {
         );
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc".to_vec(),
                 b"abc".to_vec(),
                 99,
@@ -304,7 +314,7 @@ mod tests {
         );
 
         assert_eq!(
-            Some(Value::new(
+            Some(InternalValue::from_components(
                 b"abc".to_vec(),
                 b"abc".to_vec(),
                 0,

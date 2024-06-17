@@ -21,19 +21,19 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.segment_count());
 
     let item = tree.get_internal_entry("a", true, None)?.unwrap();
-    assert_eq!(item.key, "a".as_bytes().into());
+    assert_eq!(item.key.user_key, "a".as_bytes().into());
     assert!(!item.is_tombstone());
-    assert_eq!(item.seqno, 0);
+    assert_eq!(item.key.seqno, 0);
 
     let item = tree.get_internal_entry("b", true, None)?.unwrap();
-    assert_eq!(item.key, "b".as_bytes().into());
+    assert_eq!(item.key.user_key, "b".as_bytes().into());
     assert!(!item.is_tombstone());
-    assert_eq!(item.seqno, 1);
+    assert_eq!(item.key.seqno, 1);
 
     let item = tree.get_internal_entry("c", true, None)?.unwrap();
-    assert_eq!(item.key, "c".as_bytes().into());
+    assert_eq!(item.key.user_key, "c".as_bytes().into());
     assert!(!item.is_tombstone());
-    assert_eq!(item.seqno, 2);
+    assert_eq!(item.key.seqno, 2);
 
     assert_eq!(1, tree.segment_count());
     assert_eq!(3, tree.len()?);

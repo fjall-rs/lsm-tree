@@ -1,4 +1,4 @@
-use crate::{merge::BoxedIterator, Value};
+use crate::{merge::BoxedIterator, value::InternalValue};
 use std::collections::VecDeque;
 
 /// Reads through a disjoint, sorted set of segment readers
@@ -14,7 +14,7 @@ impl<'a> MultiReader<'a> {
 }
 
 impl<'a> Iterator for MultiReader<'a> {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -89,18 +89,18 @@ mod tests {
 
             let mut iter = multi_reader.flatten();
 
-            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"g"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"h"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"i"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"j"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"k"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"l"), iter.next().unwrap().key);
+            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"g"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"h"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"i"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"j"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"k"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
         #[allow(clippy::unwrap_used)]
@@ -115,18 +115,18 @@ mod tests {
 
             let mut iter = multi_reader.rev().flatten();
 
-            assert_eq!(Arc::from(*b"l"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"k"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"j"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"i"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"h"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"g"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key);
+            assert_eq!(Arc::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"k"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"j"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"i"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"h"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"g"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key.user_key);
         }
 
         #[allow(clippy::unwrap_used)]
@@ -141,18 +141,18 @@ mod tests {
 
             let mut iter = multi_reader.flatten();
 
-            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"l"), iter.next_back().unwrap().key);
-            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"k"), iter.next_back().unwrap().key);
-            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"j"), iter.next_back().unwrap().key);
-            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"i"), iter.next_back().unwrap().key);
-            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap().key);
-            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key);
-            assert_eq!(Arc::from(*b"g"), iter.next_back().unwrap().key);
+            assert_eq!(Arc::from(*b"a"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"l"), iter.next_back().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"b"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"k"), iter.next_back().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"c"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"j"), iter.next_back().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"d"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"i"), iter.next_back().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"e"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"f"), iter.next().unwrap().key.user_key);
+            assert_eq!(Arc::from(*b"g"), iter.next_back().unwrap().key.user_key);
         }
 
         Ok(())

@@ -3,8 +3,8 @@ use super::{
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
-    descriptor_table::FileDescriptorTable, segment::block::header::Header, BlockCache,
-    GlobalSegmentId, UserKey, Value,
+    descriptor_table::FileDescriptorTable, segment::block::header::Header, value::InternalValue,
+    BlockCache, GlobalSegmentId, UserKey,
 };
 use std::sync::Arc;
 
@@ -132,7 +132,7 @@ impl Reader {
 }
 
 impl Iterator for Reader {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.lo_initialized {

@@ -1,5 +1,5 @@
 use super::{block::Block, id::GlobalSegmentId};
-use crate::{descriptor_table::FileDescriptorTable, BlockCache, Value};
+use crate::{descriptor_table::FileDescriptorTable, value::InternalValue, BlockCache};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -16,17 +16,19 @@ pub enum CachePolicy {
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in it.
 #[allow(clippy::module_name_repetitions)]
-pub type ValueBlock = Block<Value>;
+pub type ValueBlock = Block<InternalValue>;
 
 impl ValueBlock {
     #[must_use]
-    pub fn get_latest(&self, key: &[u8]) -> Option<&Value> {
-        let idx = self.items.partition_point(|item| &*item.key < key);
-        self.items.get(idx).filter(|&item| &*item.key == key)
+    pub fn get_latest(&self, key: &[u8]) -> Option<&InternalValue> {
+        let idx = self.items.partition_point(|item| &*item.key.user_key < key);
+        self.items
+            .get(idx)
+            .filter(|&item| &*item.key.user_key == key)
     }
 
     pub fn size(&self) -> usize {
-        std::mem::size_of::<Self>() + self.items.iter().map(Value::size).sum::<usize>()
+        std::mem::size_of::<Self>() + self.items.iter().map(InternalValue::size).sum::<usize>()
     }
 
     pub fn load_by_block_handle(
@@ -82,11 +84,11 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn value_block_find_latest() {
         let items = vec![
-            Value::new(*b"b", *b"b", 2, ValueType::Value),
-            Value::new(*b"b", *b"b", 1, ValueType::Value),
-            Value::new(*b"b", *b"b", 0, ValueType::Value),
-            Value::new(*b"c", *b"c", 0, ValueType::Value),
-            Value::new(*b"d", *b"d", 5, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"b", 2, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"b", 1, ValueType::Value),
+            InternalValue::from_components(*b"b", *b"b", 0, ValueType::Value),
+            InternalValue::from_components(*b"c", *b"c", 0, ValueType::Value),
+            InternalValue::from_components(*b"d", *b"d", 5, ValueType::Value),
         ];
 
         let block = ValueBlock {
@@ -102,15 +104,30 @@ mod tests {
         assert_eq!(block.get_latest(b"a"), None);
         assert_eq!(
             block.get_latest(b"b"),
-            Some(&Value::new(*b"b", *b"b", 2, ValueType::Value))
+            Some(&InternalValue::from_components(
+                *b"b",
+                *b"b",
+                2,
+                ValueType::Value
+            ))
         );
         assert_eq!(
             block.get_latest(b"c"),
-            Some(&Value::new(*b"c", *b"c", 0, ValueType::Value))
+            Some(&InternalValue::from_components(
+                *b"c",
+                *b"c",
+                0,
+                ValueType::Value
+            ))
         );
         assert_eq!(
             block.get_latest(b"d"),
-            Some(&Value::new(*b"d", *b"d", 5, ValueType::Value))
+            Some(&InternalValue::from_components(
+                *b"d",
+                *b"d",
+                5,
+                ValueType::Value
+            ))
         );
         assert_eq!(block.get_latest(b"e"), None);
     }

@@ -70,15 +70,25 @@ impl std::fmt::Debug for ParsedInternalKey {
             "{:?}:{}:{}",
             self.user_key,
             self.seqno,
-            u8::from(self.value_type)
+            match self.value_type {
+                ValueType::Value => "V",
+                ValueType::Tombstone => "T",
+            },
         )
     }
 }
 
 impl ParsedInternalKey {
     pub fn new<K: Into<UserKey>>(user_key: K, seqno: SeqNo, value_type: ValueType) -> Self {
+        let user_key = user_key.into();
+
+        assert!(
+            user_key.len() <= u16::MAX.into(),
+            "keys can be 65535 bytes in length"
+        );
+
         Self {
-            user_key: user_key.into(),
+            user_key,
             seqno,
             value_type,
         }
@@ -104,107 +114,50 @@ impl Ord for ParsedInternalKey {
     }
 }
 
-/// Represents a value in the LSM-tree
-///
-/// `key` and `value` are arbitrary user-defined byte arrays
-#[derive(Clone, PartialEq, Eq)]
-pub struct Value {
-    /// User-defined key - an arbitrary byte array
-    ///
-    /// Supports up to 2^16 bytes
-    pub key: UserKey,
+/// Internal representation of KV pairs
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone, Eq, PartialEq)]
+pub struct InternalValue {
+    /// Internal key
+    pub key: ParsedInternalKey,
 
     /// User-defined value - an arbitrary byte array
     ///
     /// Supports up to 2^32 bytes
     pub value: UserValue,
-
-    /// Sequence number
-    pub seqno: SeqNo,
-
-    /// Tombstone marker - if this is true, the value has been deleted
-    pub value_type: ValueType,
 }
 
-impl std::fmt::Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?}:{}:{} => {:?}",
-            self.key,
-            self.seqno,
-            match self.value_type {
-                ValueType::Value => "V",
-                ValueType::Tombstone => "T",
-            },
-            if self.value.len() >= 64 {
-                format!("[ ... {} bytes ]", self.value.len())
-            } else {
-                format!("{:?}", self.value)
-            }
-        )
-    }
-}
-
-impl From<(ParsedInternalKey, UserValue)> for Value {
-    fn from(val: (ParsedInternalKey, UserValue)) -> Self {
-        let key = val.0;
-
-        Self {
-            key: key.user_key,
-            seqno: key.seqno,
-            value_type: key.value_type,
-            value: val.1,
-        }
-    }
-}
-
-impl PartialOrd for Value {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Order by user key, THEN by sequence number
-// This is one of the most important functions
-// Otherwise queries will not match expected behaviour
-impl Ord for Value {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.key, Reverse(self.seqno)).cmp(&(&other.key, Reverse(other.seqno)))
-    }
-}
-
-impl Value {
+impl InternalValue {
     /// Creates a new [`Value`].
     ///
     /// # Panics
     ///
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
-    pub fn new<K: Into<UserKey>, V: Into<UserValue>>(
-        key: K,
-        value: V,
-        seqno: u64,
-        value_type: ValueType,
-    ) -> Self {
-        let k = key.into();
-        let v = value.into();
+    pub fn new<V: Into<UserValue>>(key: ParsedInternalKey, value: V) -> Self {
+        let value = value.into();
 
-        assert!(!k.is_empty(), "key may not be empty");
+        assert!(!key.user_key.is_empty(), "key may not be empty");
         assert!(
-            k.len() <= u16::MAX.into(),
-            "keys can be 65535 bytes in length"
-        );
-        assert!(
-            u32::try_from(v.len()).is_ok(),
+            u32::try_from(value.len()).is_ok(),
             "values can be 2^32 bytes in length"
         );
 
-        Self {
-            key: k,
-            value: v,
-            value_type,
-            seqno,
-        }
+        Self { key, value }
+    }
+
+    /// Creates a new [`Value`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    pub fn from_components<K: Into<UserKey>, V: Into<UserValue>>(
+        user_key: K,
+        value: V,
+        seqno: SeqNo,
+        value_type: ValueType,
+    ) -> Self {
+        let key = ParsedInternalKey::new(user_key, seqno, value_type);
+        Self::new(key, value)
     }
 
     /// Creates a new tombstone.
@@ -213,23 +166,15 @@ impl Value {
     ///
     /// Panics if the key length is empty or greater than 2^16.
     pub fn new_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
-        let k = key.into();
-
-        assert!(!k.is_empty());
-        assert!(k.len() <= u16::MAX.into());
-
-        Self {
-            key: k,
-            value: vec![].into(),
-            value_type: ValueType::Tombstone,
-            seqno,
-        }
+        let key = key.into();
+        let key = ParsedInternalKey::new(key, seqno, ValueType::Tombstone);
+        Self::new(key, vec![])
     }
 
     #[doc(hidden)]
     #[must_use]
     pub fn size(&self) -> usize {
-        let key_size = self.key.len();
+        let key_size = self.key.user_key.len();
         let value_size = self.value.len();
         std::mem::size_of::<Self>() + key_size + value_size
     }
@@ -237,17 +182,22 @@ impl Value {
     #[doc(hidden)]
     #[must_use]
     pub fn is_tombstone(&self) -> bool {
-        self.value_type == ValueType::Tombstone
+        self.key.value_type == ValueType::Tombstone
     }
 }
 
-impl From<Value> for ParsedInternalKey {
-    fn from(val: Value) -> Self {
-        Self {
-            user_key: val.key,
-            seqno: val.seqno,
-            value_type: val.value_type,
-        }
+impl std::fmt::Debug for InternalValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} => {:?}",
+            self.key,
+            if self.value.len() >= 64 {
+                format!("[ ... {} bytes ]", self.value.len())
+            } else {
+                format!("{:?}", self.value)
+            }
+        )
     }
 }
 
@@ -278,15 +228,9 @@ impl Deserializable for ParsedInternalKey {
     }
 }
 
-impl Serializable for Value {
+impl Serializable for InternalValue {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16_varint(self.key.len() as u16)?;
-        writer.write_all(&self.key)?;
-
-        writer.write_u64_varint(self.seqno)?;
-        writer.write_u8(u8::from(self.value_type))?;
+        self.key.serialize(writer)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
@@ -297,20 +241,18 @@ impl Serializable for Value {
     }
 }
 
-impl Deserializable for Value {
+impl Deserializable for InternalValue {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let key_len = reader.read_u16_varint()?;
-        let mut key = vec![0; key_len.into()];
-        reader.read_exact(&mut key)?;
-
-        let seqno = reader.read_u64_varint()?;
-        let value_type = reader.read_u8()?.into();
+        let key = ParsedInternalKey::deserialize(reader)?;
 
         let value_len = reader.read_u32_varint()?;
         let mut value = vec![0; value_len as usize];
         reader.read_exact(&mut value)?;
 
-        Ok(Self::new(key, value, seqno, value_type))
+        Ok(Self {
+            key,
+            value: value.into(),
+        })
     }
 }
 
@@ -321,9 +263,24 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn pik_cmp_user_key() {
+        let a = ParsedInternalKey::new(*b"a", 0, ValueType::Value);
+        let b = ParsedInternalKey::new(*b"b", 0, ValueType::Value);
+        assert!(a < b);
+    }
+
+    #[test]
+    fn pik_cmp_seqno() {
+        let a = ParsedInternalKey::new(*b"a", 0, ValueType::Value);
+        let b = ParsedInternalKey::new(*b"a", 1, ValueType::Value);
+        assert!(a > b);
+    }
+
+    #[test]
     fn value_raw() -> crate::Result<()> {
         // Create an empty Value instance
-        let value = Value::new(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
+        let value =
+            InternalValue::from_components(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
 
         #[rustfmt::skip]
         let  bytes = &[
@@ -341,7 +298,7 @@ mod tests {
         ];
 
         // Deserialize the empty Value
-        let deserialized = Value::deserialize(&mut Cursor::new(bytes))?;
+        let deserialized = InternalValue::deserialize(&mut Cursor::new(bytes))?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);
@@ -352,14 +309,14 @@ mod tests {
     #[test]
     fn value_empty_value() -> crate::Result<()> {
         // Create an empty Value instance
-        let value = Value::new(vec![1, 2, 3], vec![], 42, ValueType::Value);
+        let value = InternalValue::from_components(vec![1, 2, 3], vec![], 42, ValueType::Value);
 
         // Serialize the empty Value
         let mut serialized = Vec::new();
         value.serialize(&mut serialized)?;
 
         // Deserialize the empty Value
-        let deserialized = Value::deserialize(&mut &serialized[..])?;
+        let deserialized = InternalValue::deserialize(&mut &serialized[..])?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);
@@ -370,7 +327,7 @@ mod tests {
     #[test]
     fn value_with_value() -> crate::Result<()> {
         // Create an empty Value instance
-        let value = Value::new(
+        let value = InternalValue::from_components(
             vec![1, 2, 3],
             vec![6, 2, 6, 2, 7, 5, 7, 8, 98],
             42,
@@ -382,7 +339,7 @@ mod tests {
         value.serialize(&mut serialized)?;
 
         // Deserialize the empty Value
-        let deserialized = Value::deserialize(&mut &serialized[..])?;
+        let deserialized = InternalValue::deserialize(&mut &serialized[..])?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);

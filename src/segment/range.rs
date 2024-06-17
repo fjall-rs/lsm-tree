@@ -4,8 +4,8 @@ use super::reader::Reader;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
+use crate::value::InternalValue;
 use crate::value::UserKey;
-use crate::Value;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
@@ -110,7 +110,7 @@ impl Range {
 }
 
 impl Iterator for Range {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_initialized {
@@ -126,13 +126,13 @@ impl Iterator for Range {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
-                            if entry.key < *start {
+                            if entry.key.user_key < *start {
                                 // Before min key
                                 continue;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key <= *start {
+                            if entry.key.user_key <= *start {
                                 // Before or equal min key
                                 continue;
                             }
@@ -142,13 +142,13 @@ impl Iterator for Range {
 
                     match self.range.end_bound() {
                         Bound::Included(start) => {
-                            if entry.key > *start {
+                            if entry.key.user_key > *start {
                                 // After max key
                                 return None;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key >= *start {
+                            if entry.key.user_key >= *start {
                                 // Reached max key
                                 return None;
                             }
@@ -179,13 +179,13 @@ impl DoubleEndedIterator for Range {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
-                            if entry.key < *start {
+                            if entry.key.user_key < *start {
                                 // Reached min key
                                 return None;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key <= *start {
+                            if entry.key.user_key <= *start {
                                 // Before min key
                                 return None;
                             }
@@ -195,13 +195,13 @@ impl DoubleEndedIterator for Range {
 
                     match self.range.end_bound() {
                         Bound::Included(end) => {
-                            if entry.key > *end {
+                            if entry.key.user_key > *end {
                                 // After max key
                                 continue;
                             }
                         }
                         Bound::Excluded(end) => {
-                            if entry.key >= *end {
+                            if entry.key.user_key >= *end {
                                 // After or equal max key
                                 continue;
                             }
@@ -229,8 +229,7 @@ mod tests {
             range::Range,
             writer::{Options, Writer},
         },
-        value::{UserKey, ValueType},
-        Value,
+        value::{InternalValue, UserKey, ValueType},
     };
     use std::ops::{
         Bound::{self, *},
@@ -257,7 +256,7 @@ mod tests {
         })?;
 
         let items = chars.iter().map(|&key| {
-            Value::new(
+            InternalValue::from_components(
                 &[key][..],
                 *b"dsgfgfdsgsfdsgfdgfdfgdsgfdhsnreezrzsernszsdaadsadsadsadsadsadsadsadsadsadsdsensnzersnzers",
                 0,
@@ -314,7 +313,7 @@ mod tests {
             );
             let items = iter
                 .flatten()
-                .map(|x| x.key.first().copied().expect("is ok"))
+                .map(|x| x.key.user_key.first().copied().expect("is ok"))
                 .collect::<Vec<_>>();
 
             assert_eq!(items, expected_range);
@@ -333,7 +332,7 @@ mod tests {
             let items = iter
                 .rev()
                 .flatten()
-                .map(|x| x.key.first().copied().expect("is ok"))
+                .map(|x| x.key.user_key.first().copied().expect("is ok"))
                 .collect::<Vec<_>>();
 
             assert_eq!(items, expected_range);
@@ -356,7 +355,7 @@ mod tests {
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
-            Value::new(
+            InternalValue::from_components(
                 i.to_be_bytes(),
                 nanoid::nanoid!().as_bytes(),
                 1000 + i,
@@ -396,7 +395,7 @@ mod tests {
 
             for key in (0u64..ITEM_COUNT).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             let mut iter = Range::new(
@@ -410,7 +409,7 @@ mod tests {
 
             for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
@@ -430,7 +429,7 @@ mod tests {
 
             for key in (0..5_000).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             log::info!("Getting every item in reverse (unbounded start)");
@@ -448,7 +447,7 @@ mod tests {
 
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
@@ -468,7 +467,7 @@ mod tests {
 
             for key in (1_000..5_000).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             log::info!("Getting every item in reverse (unbounded end)");
@@ -487,7 +486,7 @@ mod tests {
 
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
@@ -556,7 +555,7 @@ mod tests {
             })?;
 
             let items = (0u64..ITEM_COUNT).map(|i| {
-                Value::new(
+                InternalValue::from_components(
                     i.to_be_bytes(),
                     nanoid::nanoid!().as_bytes(),
                     1000 + i,
@@ -615,7 +614,7 @@ mod tests {
                         panic!("item should exist: {:?} ({})", key, u64::from_be_bytes(key))
                     })?;
 
-                    assert_eq!(key, &*item.key);
+                    assert_eq!(key, &*item.key.user_key);
                 }
 
                 log::debug!("Getting every item in range in reverse");
@@ -635,7 +634,7 @@ mod tests {
                         panic!("item should exist: {:?} ({})", key, u64::from_be_bytes(key))
                     })?;
 
-                    assert_eq!(key, &*item.key);
+                    assert_eq!(key, &*item.key.user_key);
                 }
             }
         }
@@ -659,7 +658,7 @@ mod tests {
         })?;
 
         let items = chars.iter().map(|&key| {
-            Value::new(
+            InternalValue::from_components(
                 &[key][..],
                 *b"dsgfgfdsgsfdsgfdgfdfgdsgfdhsnreezrzsernszsdaadsadsadsadsadsdsensnzersnzers",
                 0,
@@ -705,7 +704,7 @@ mod tests {
                     ),
                 );
 
-                let mut range = iter.flatten().map(|x| x.key);
+                let mut range = iter.flatten().map(|x| x.key.user_key);
 
                 for &item in &expected_range {
                     assert_eq!(&*range.next().expect("should exist"), &[item]);
@@ -723,7 +722,7 @@ mod tests {
                     ),
                 );
 
-                let mut range = iter.flatten().map(|x| x.key);
+                let mut range = iter.flatten().map(|x| x.key.user_key);
 
                 for &item in expected_range.iter().rev() {
                     assert_eq!(&*range.next_back().expect("should exist"), &[item]);
