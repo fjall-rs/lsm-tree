@@ -84,6 +84,10 @@ impl BlobTree {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
+        // TODO: use snapshot read if possible?
+        // IMPORTANT: Write lock memtable to avoid read skew
+        let _memtable_lock = self.index.lock_active_memtable();
+
         self.blobs
             .scan_for_stats(self.index.iter().filter_map(|kv| {
                 let Ok((_, v)) = kv else {
