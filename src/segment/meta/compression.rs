@@ -13,6 +13,8 @@ pub enum CompressionType {
     #[cfg(feature = "lz4")]
     Lz4,
 
+    /// zlib/DEFLATE compression, with an adjustable level
+    /// between
     #[cfg(feature = "miniz")]
     Miniz(u8),
 }
@@ -31,6 +33,8 @@ impl Serializable for CompressionType {
 
             #[cfg(feature = "miniz")]
             Self::Miniz(level) => {
+                assert!(*level <= 10, "invalid miniz compression level");
+
                 writer.write_u8(2)?;
                 writer.write_u8(*level)?;
             }
@@ -53,6 +57,9 @@ impl Deserializable for CompressionType {
             #[cfg(feature = "miniz")]
             2 => {
                 let level = reader.read_u8()?;
+
+                assert!(level <= 10, "invalid miniz compression level");
+
                 Ok(Self::Miniz(level))
             }
 

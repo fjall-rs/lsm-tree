@@ -84,7 +84,7 @@ impl BlobTree {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
-        // TODO: use snapshot read if possible?
+        // TODO: use snapshot read + read lock if possible?
         // IMPORTANT: Write lock memtable to avoid read skew
         let _memtable_lock = self.index.lock_active_memtable();
 
