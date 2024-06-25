@@ -69,7 +69,7 @@ impl<'a> TreeIter<'a> {
 
                     for segment in &level.segments {
                         if segment.metadata.key_range.contains_prefix(&prefix) {
-                            let reader = segment.prefix(prefix.clone());
+                            let reader = segment.prefix(&prefix);
                             readers.push_back(Box::new(reader));
                         }
                     }
@@ -91,7 +91,7 @@ impl<'a> TreeIter<'a> {
                 } else {
                     for segment in &level.segments {
                         if segment.metadata.key_range.contains_prefix(&prefix) {
-                            let reader = segment.prefix(prefix.clone());
+                            let reader = segment.prefix(&prefix);
 
                             if let Some(seqno) = seqno {
                                 #[allow(clippy::option_if_let_else)]

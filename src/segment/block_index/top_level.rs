@@ -48,21 +48,6 @@ impl TopLevelIndex {
         Ok(Self::from_boxed_slice(items))
     }
 
-    /// Returns a handle to the first index block that is not covered by the given prefix anymore
-    pub(crate) fn get_prefix_upper_bound(&self, prefix: &[u8]) -> Option<&KeyedBlockHandle> {
-        let start_idx = self.data.partition_point(|x| &*x.end_key <= prefix);
-
-        for idx in start_idx.. {
-            let handle = self.data.get(idx)?;
-
-            if !handle.end_key.starts_with(prefix) {
-                return self.data.get(idx + 1);
-            }
-        }
-
-        None
-    }
-
     // TODO: these methods work using a slice of KeyedBlockHandles
     // IndexBlocks are also a slice of KeyedBlockHandles
     // ... see where I'm getting at...?
@@ -319,36 +304,6 @@ mod tests {
     }
 
     #[test]
-
-    fn tli_get_prefix_upper_bound() {
-        let index = TopLevelIndex::from_boxed_slice(Box::new([
-            bh("a".as_bytes().into(), 0),
-            bh("abc".as_bytes().into(), 10),
-            bh("abcabc".as_bytes().into(), 20),
-            bh("abcabcabc".as_bytes().into(), 30),
-            bh("abcysw".as_bytes().into(), 40),
-            bh("basd".as_bytes().into(), 50),
-            bh("cxy".as_bytes().into(), 70),
-            bh("ewqeqw".as_bytes().into(), 60),
-        ]));
-
-        let handle = index.get_prefix_upper_bound(b"a").expect("should exist");
-        assert_eq!(&*handle.end_key, "cxy".as_bytes());
-
-        let handle = index.get_prefix_upper_bound(b"abc").expect("should exist");
-        assert_eq!(&*handle.end_key, "cxy".as_bytes());
-
-        let handle = index.get_prefix_upper_bound(b"basd").expect("should exist");
-        assert_eq!(&*handle.end_key, "ewqeqw".as_bytes());
-
-        let result = index.get_prefix_upper_bound(b"cxy");
-        assert!(result.is_none());
-
-        let result = index.get_prefix_upper_bound(b"ewqeqw");
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn tli_spanning_multi() {
         let index = TopLevelIndex::from_boxed_slice(Box::new([
             bh("a".as_bytes().into(), 0),
@@ -359,12 +314,6 @@ mod tests {
             bh("b".as_bytes().into(), 50),
             bh("c".as_bytes().into(), 60),
         ]));
-
-        {
-            let handle = index.get_prefix_upper_bound(b"a").expect("should exist");
-            assert_eq!(&*handle.end_key, "b".as_bytes());
-            assert_eq!(handle.offset, 50);
-        }
 
         {
             let handle = index.get_first_block_handle();

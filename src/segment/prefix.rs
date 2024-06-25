@@ -3,78 +3,59 @@ use crate::{
     block_cache::BlockCache, descriptor_table::FileDescriptorTable, value::UserKey, Value,
 };
 use std::{
-    ops::Bound::{Excluded, Included, Unbounded},
+    ops::Bound::{self, Excluded, Included, Unbounded},
     sync::Arc,
 };
 
+#[must_use]
 #[allow(clippy::module_name_repetitions)]
-pub struct PrefixedReader {
-    data_block_boundary: u64,
+pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
+    if prefix.is_empty() {
+        return (Unbounded, Unbounded);
+    }
 
-    descriptor_table: Arc<FileDescriptorTable>,
-    block_index: Arc<BlockIndex>,
-    block_cache: Arc<BlockCache>,
-    segment_id: GlobalSegmentId,
+    let mut end = prefix.to_vec();
 
-    prefix: UserKey,
+    for i in (0..end.len()).rev() {
+        let byte = end.get_mut(i).expect("should be in bounds");
 
-    reader: Option<Range>,
+        if *byte < 255 {
+            *byte += 1;
+            end.truncate(i + 1);
+            return (Included(prefix.into()), Excluded(end.into()));
+        }
+    }
 
-    cache_policy: CachePolicy,
+    (Included(prefix.into()), Unbounded)
 }
 
+#[allow(clippy::module_name_repetitions)]
+pub struct PrefixedReader(Range);
+
 impl PrefixedReader {
-    pub fn new<K: Into<UserKey>>(
+    pub fn new(
         data_block_boundary: u64,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
         block_index: Arc<BlockIndex>,
-        prefix: K,
+        prefix: &[u8],
     ) -> Self {
-        Self {
+        Self(Range::new(
             data_block_boundary,
-
-            block_cache,
-            block_index,
             descriptor_table,
             segment_id,
-
-            reader: None,
-
-            prefix: prefix.into(),
-
-            cache_policy: CachePolicy::Write,
-        }
+            block_cache,
+            block_index,
+            prefix_to_range(prefix),
+        ))
     }
 
     /// Sets the cache policy
     #[must_use]
     pub fn cache_policy(mut self, policy: CachePolicy) -> Self {
-        self.cache_policy = policy;
+        self.0 = self.0.cache_policy(policy);
         self
-    }
-
-    fn initialize(&mut self) -> crate::Result<()> {
-        let upper_bound = self
-            .block_index
-            .get_prefix_upper_bound(&self.prefix, self.cache_policy)?;
-
-        let upper_bound = upper_bound.map(|x| x.end_key).map_or(Unbounded, Excluded);
-
-        let range = Range::new(
-            self.data_block_boundary,
-            self.descriptor_table.clone(),
-            self.segment_id,
-            self.block_cache.clone(),
-            self.block_index.clone(),
-            (Included(self.prefix.clone()), upper_bound),
-        )
-        .cache_policy(self.cache_policy);
-
-        self.reader = Some(range);
-
-        Ok(())
     }
 }
 
@@ -82,76 +63,20 @@ impl Iterator for PrefixedReader {
     type Item = crate::Result<Value>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.reader.is_none() {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
-        }
-
-        loop {
-            let item_result = self
-                .reader
-                .as_mut()
-                .expect("should be initialized")
-                .next()?;
-
-            match item_result {
-                Ok(item) => {
-                    if item.key < self.prefix {
-                        // Before prefix key
-                        continue;
-                    }
-
-                    if !item.key.starts_with(&self.prefix) {
-                        // Reached max key
-                        return None;
-                    }
-
-                    return Some(Ok(item));
-                }
-                Err(error) => return Some(Err(error)),
-            };
-        }
+        self.0.next()
     }
 }
 
 impl DoubleEndedIterator for PrefixedReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.reader.is_none() {
-            if let Err(e) = self.initialize() {
-                return Some(Err(e));
-            };
-        }
-
-        loop {
-            let entry_result = self
-                .reader
-                .as_mut()
-                .expect("should be initialized")
-                .next_back()?;
-
-            match entry_result {
-                Ok(entry) => {
-                    if entry.key < self.prefix {
-                        // Reached min key
-                        return None;
-                    }
-
-                    if !entry.key.starts_with(&self.prefix) {
-                        continue;
-                    }
-
-                    return Some(Ok(entry));
-                }
-                Err(error) => return Some(Err(error)),
-            };
-        }
+        self.0.next_back()
     }
 }
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    use super::*;
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
@@ -166,6 +91,86 @@ mod tests {
     };
     use std::sync::Arc;
     use test_log::test;
+
+    #[test]
+    fn prefix_to_range_basic() {
+        let prefix = b"abc";
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (Included(Arc::from(*b"abc")), Excluded(Arc::from(*b"abd")))
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_empty() {
+        let prefix = b"";
+        let range = prefix_to_range(prefix);
+        assert_eq!(range, (Unbounded, Unbounded));
+    }
+
+    #[test]
+    fn prefix_to_range_single_char() {
+        let prefix = b"a";
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (Included(Arc::from(*b"a")), Excluded(Arc::from(*b"b")))
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_1() {
+        let prefix = &[0, 250];
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (Included(Arc::from([0, 250])), Excluded(Arc::from([0, 251])))
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_2() {
+        let prefix = &[0, 250, 50];
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (
+                Included(Arc::from([0, 250, 50])),
+                Excluded(Arc::from([0, 250, 51]))
+            )
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_3() {
+        let prefix = &[255, 255, 255];
+        let range = prefix_to_range(prefix);
+        assert_eq!(range, (Included(Arc::from([255, 255, 255])), Unbounded));
+    }
+
+    #[test]
+    fn prefix_to_range_char_max() {
+        let prefix = &[0, 255];
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (Included(Arc::from([0, 255])), Excluded(Arc::from([1])))
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_char_max_2() {
+        let prefix = &[0, 2, 255];
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (
+                Included(Arc::from([0, 2, 255])),
+                Excluded(Arc::from([0, 3]))
+            )
+        );
+    }
 
     #[test]
     fn segment_prefix_lots_of_prefixes() -> crate::Result<()> {
@@ -257,7 +262,7 @@ mod tests {
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                b"a/b/".to_vec(),
+                b"a/b/",
             );
 
             assert_eq!(iter.count() as u64, item_count);
@@ -268,7 +273,7 @@ mod tests {
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                b"a/b/".to_vec(),
+                b"a/b/",
             );
 
             assert_eq!(iter.rev().count() as u64, item_count);
@@ -354,7 +359,7 @@ mod tests {
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                prefix_key.clone(),
+                prefix_key,
             );
 
             assert_eq!(iter.count(), *item_count);
@@ -367,7 +372,7 @@ mod tests {
                 (0, 0).into(),
                 Arc::clone(&block_cache),
                 Arc::clone(&block_index),
-                prefix_key.clone(),
+                prefix_key,
             );
 
             assert_eq!(iter.rev().count(), *item_count);
@@ -431,7 +436,7 @@ mod tests {
             (0, 0).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            *b"d",
+            b"d",
         );
         assert_eq!(3, iter.count());
 
@@ -441,7 +446,7 @@ mod tests {
             (0, 0).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            *b"d",
+            b"d",
         );
         assert_eq!(3, iter.rev().count());
 
@@ -451,7 +456,7 @@ mod tests {
             (0, 0).into(),
             Arc::clone(&block_cache),
             Arc::clone(&block_index),
-            *b"d",
+            b"d",
         );
 
         assert_eq!(Arc::from(*b"da"), iter.next().expect("should exist")?.key);
