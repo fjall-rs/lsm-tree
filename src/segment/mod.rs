@@ -394,7 +394,7 @@ impl Segment {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn prefix<K: Into<UserKey>>(&self, prefix: K) -> PrefixedReader {
+    pub fn prefix(&self, prefix: &[u8]) -> PrefixedReader {
         PrefixedReader::new(
             self.offsets.index_block_ptr,
             Arc::clone(&self.descriptor_table),
