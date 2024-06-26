@@ -92,9 +92,6 @@
 #![warn(clippy::expect_used)]
 #![allow(clippy::missing_const_for_fn)]
 
-#[cfg(not(target_pointer_width = "64"))]
-compile_error!("compilation is only allowed for 64-bit targets");
-
 mod block_cache;
 
 #[doc(hidden)]
