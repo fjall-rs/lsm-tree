@@ -92,84 +92,63 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    #[test]
-    fn prefix_to_range_basic() {
-        let prefix = b"abc";
+    fn test_prefix(prefix: &[u8], upper_bound: Bound<&[u8]>) {
         let range = prefix_to_range(prefix);
         assert_eq!(
             range,
-            (Included(Arc::from(*b"abc")), Excluded(Arc::from(*b"abd")))
+            (
+                match prefix {
+                    _ if prefix.is_empty() => Unbounded,
+                    _ => Included(Arc::from(prefix)),
+                },
+                // TODO: Bound::map 1.77
+                match upper_bound {
+                    Unbounded => Unbounded,
+                    Included(x) => Included(Arc::from(x)),
+                    Excluded(x) => Excluded(Arc::from(x)),
+                }
+            )
         );
+    }
+
+    #[test]
+    fn prefix_to_range_basic() {
+        test_prefix(b"abc", Excluded(b"abd"));
     }
 
     #[test]
     fn prefix_to_range_empty() {
-        let prefix = b"";
-        let range = prefix_to_range(prefix);
-        assert_eq!(range, (Unbounded, Unbounded));
+        test_prefix(b"", Unbounded);
     }
 
     #[test]
     fn prefix_to_range_single_char() {
-        let prefix = b"a";
-        let range = prefix_to_range(prefix);
-        assert_eq!(
-            range,
-            (Included(Arc::from(*b"a")), Excluded(Arc::from(*b"b")))
-        );
+        test_prefix(b"a", Excluded(b"b"));
     }
 
     #[test]
     fn prefix_to_range_1() {
-        let prefix = &[0, 250];
-        let range = prefix_to_range(prefix);
-        assert_eq!(
-            range,
-            (Included(Arc::from([0, 250])), Excluded(Arc::from([0, 251])))
-        );
+        test_prefix(&[0, 250], Excluded(&[0, 251]));
     }
 
     #[test]
     fn prefix_to_range_2() {
-        let prefix = &[0, 250, 50];
-        let range = prefix_to_range(prefix);
-        assert_eq!(
-            range,
-            (
-                Included(Arc::from([0, 250, 50])),
-                Excluded(Arc::from([0, 250, 51]))
-            )
-        );
+        test_prefix(&[0, 250, 50], Excluded(&[0, 250, 51]));
     }
 
     #[test]
     fn prefix_to_range_3() {
-        let prefix = &[255, 255, 255];
-        let range = prefix_to_range(prefix);
-        assert_eq!(range, (Included(Arc::from([255, 255, 255])), Unbounded));
+        test_prefix(&[255, 255, 255], Unbounded);
     }
 
     #[test]
     fn prefix_to_range_char_max() {
-        let prefix = &[0, 255];
-        let range = prefix_to_range(prefix);
-        assert_eq!(
-            range,
-            (Included(Arc::from([0, 255])), Excluded(Arc::from([1])))
-        );
+        test_prefix(&[0, 255], Excluded(&[1]));
     }
 
     #[test]
     fn prefix_to_range_char_max_2() {
-        let prefix = &[0, 2, 255];
-        let range = prefix_to_range(prefix);
-        assert_eq!(
-            range,
-            (
-                Included(Arc::from([0, 2, 255])),
-                Excluded(Arc::from([0, 3]))
-            )
-        );
+        test_prefix(&[0, 2, 255], Excluded(&[0, 3]));
     }
 
     #[test]
