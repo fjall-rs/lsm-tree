@@ -240,6 +240,8 @@ impl LevelManifest {
         Ok(())
     }
 
+    // NOTE: Used in tests
+    #[allow(unused)]
     pub(crate) fn add(&mut self, segment: Arc<Segment>) {
         self.insert_into_level(0, segment);
     }
@@ -255,10 +257,12 @@ impl LevelManifest {
     /// point read ----------->
     pub(crate) fn sort_levels(&mut self) {
         for level in &mut self.levels {
-            level.sort_by_seqno();
+            level.sort();
         }
     }
 
+    // NOTE: Used in tests
+    #[allow(unused)]
     pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Arc<Segment>) {
         let last_level_index = self.depth() - 1;
         let index = level_no.clamp(0, last_level_index);
@@ -614,26 +618,26 @@ mod tests {
 
         assert_eq!(
             Vec::<SegmentId>::new(),
-            level.get_overlapping_segments(&KeyRange::new((
-                b"a".to_vec().into(),
-                b"b".to_vec().into()
-            ))),
+            level
+                .overlapping_segments(&KeyRange::new((b"a".to_vec().into(), b"b".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
         );
 
         assert_eq!(
             vec![1],
-            level.get_overlapping_segments(&KeyRange::new((
-                b"d".to_vec().into(),
-                b"k".to_vec().into()
-            ))),
+            level
+                .overlapping_segments(&KeyRange::new((b"d".to_vec().into(), b"k".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
         );
 
         assert_eq!(
             vec![1, 2],
-            level.get_overlapping_segments(&KeyRange::new((
-                b"f".to_vec().into(),
-                b"x".to_vec().into()
-            ))),
+            level
+                .overlapping_segments(&KeyRange::new((b"f".to_vec().into(), b"x".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
         );
     }
 }

@@ -1,6 +1,6 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
-use std::{ops::Deref, sync::Arc};
+use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 // TODO: add link to blog post
 /// Levelled compaction strategy (LCS)
@@ -83,7 +83,12 @@ impl CompactionStrategy for Strategy {
         for (curr_level_index, level) in resolved_view
             .iter()
             .enumerate()
-            .map(|(idx, lvl)| (idx as u8, lvl))
+            .map(|(idx, lvl)| {
+                (
+                    u8::try_from(idx).expect("levels should not exceed 255"),
+                    lvl,
+                )
+            })
             .skip(1)
             .take(resolved_view.len() - 2)
             .rev()
@@ -106,7 +111,7 @@ impl CompactionStrategy for Strategy {
                 self.target_size,
             );
 
-            let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64) as usize;
+            let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64);
 
             if overshoot > 0 {
                 let mut segments_to_compact = vec![];
@@ -119,7 +124,7 @@ impl CompactionStrategy for Strategy {
                         break;
                     }
 
-                    overshoot = overshoot.saturating_sub(segment.metadata.file_size as usize);
+                    overshoot = overshoot.saturating_sub(segment.metadata.file_size);
                     segments_to_compact.push(segment);
                 }
 
@@ -127,24 +132,40 @@ impl CompactionStrategy for Strategy {
                     break;
                 };
 
-                let key_range = aggregate_key_range(&segments_to_compact);
-                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
+                let mut segment_ids: HashSet<u64> =
+                    segments_to_compact.iter().map(|x| x.metadata.id).collect();
 
-                let mut segment_ids: Vec<_> = segments_to_compact
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
+                // Get overlapping segments in same level
+                let key_range = aggregate_key_range(&segments_to_compact);
+
+                let curr_level_overlapping_segment_ids: Vec<_> = level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
                     .collect();
 
-                segment_ids.extend(&overlapping_segment_ids);
+                segment_ids.extend(&curr_level_overlapping_segment_ids);
+
+                // Get overlapping segments in next level
+                let key_range = aggregate_key_range(&segments_to_compact);
+
+                let next_level_overlapping_segment_ids: Vec<_> = next_level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
+                    .collect();
+
+                segment_ids.extend(&next_level_overlapping_segment_ids);
 
                 let choice = CompactionInput {
-                    segment_ids,
+                    segment_ids: {
+                        let mut v = segment_ids.into_iter().collect::<Vec<_>>();
+                        v.sort_unstable();
+                        v
+                    },
                     dest_level: next_level_index,
                     target_size: u64::from(self.target_size),
                 };
 
-                if overlapping_segment_ids.is_empty() && level.is_disjoint {
+                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);
@@ -167,16 +188,18 @@ impl CompactionStrategy for Strategy {
                     return Choice::DoNothing;
                 };
 
+                let mut segment_ids: Vec<u64> =
+                    level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
+
+                // Get overlapping segments in next level
                 let key_range = aggregate_key_range(&level);
-                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
-                let mut segment_ids = level
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
-                    .collect::<Vec<_>>();
+                let next_level_overlapping_segment_ids: Vec<_> = next_level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
+                    .collect();
 
-                segment_ids.extend(overlapping_segment_ids);
+                segment_ids.extend(next_level_overlapping_segment_ids);
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,
@@ -197,7 +220,6 @@ mod tests {
         block_cache::BlockCache,
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
-        file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
         levels::LevelManifest,
         segment::{
@@ -209,7 +231,7 @@ mod tests {
         time::unix_timestamp,
         Config,
     };
-    use std::sync::Arc;
+    use std::{path::Path, sync::Arc};
     use test_log::test;
 
     #[cfg(feature = "bloom")]
@@ -219,8 +241,17 @@ mod tests {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
     }
 
-    #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, key_range: KeyRange, size: u64) -> Arc<Segment> {
+    #[allow(
+        clippy::expect_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    fn fixture_segment(
+        id: SegmentId,
+        key_range: KeyRange,
+        size: u64,
+        tombstone_ratio: f32,
+    ) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         Arc::new(Segment {
@@ -244,10 +275,10 @@ mod tests {
                 file_size: size,
                 compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
-                item_count: 0,
+                item_count: 1_000_000,
                 key_count: 0,
                 key_range,
-                tombstone_count: 0,
+                tombstone_count: (1_000_000.0 * tombstone_ratio) as u64,
                 range_tombstone_count: 0,
                 uncompressed_size: 0,
                 seqnos: (0, 0),
@@ -259,15 +290,40 @@ mod tests {
         })
     }
 
+    #[allow(clippy::expect_used)]
+    fn build_levels(
+        path: &Path,
+        recipe: Vec<Vec<(SegmentId, &str, &str)>>,
+    ) -> crate::Result<LevelManifest> {
+        let mut levels = LevelManifest::create_new(
+            recipe.len().try_into().expect("oopsie"),
+            path.join("levels"),
+        )?;
+
+        for (idx, level) in recipe.into_iter().enumerate() {
+            for (id, min, max) in level {
+                levels.insert_into_level(
+                    idx.try_into().expect("oopsie"),
+                    fixture_segment(id, string_key_range(min, max), 64 * 1_024 * 1_024, 0.0),
+                );
+            }
+        }
+
+        Ok(levels)
+    }
+
     #[test]
     fn leveled_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
-            ..Default::default()
-        };
+        let compactor = Strategy::default();
 
-        let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
@@ -281,58 +337,29 @@ mod tests {
     fn leveled_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-
-        levels.add(fixture_segment(
-            1,
-            string_key_range("a", "z"),
-            128 * 1_024 * 1_024,
-        ));
-        assert_eq!(
-            compactor.choose(&levels, &Config::default()),
-            Choice::DoNothing
-        );
-
-        levels.add(fixture_segment(
-            2,
-            string_key_range("a", "z"),
-            128 * 1_024 * 1_024,
-        ));
-        assert_eq!(
-            compactor.choose(&levels, &Config::default()),
-            Choice::DoNothing
-        );
-
-        levels.add(fixture_segment(
-            3,
-            string_key_range("a", "z"),
-            128 * 1_024 * 1_024,
-        ));
-        assert_eq!(
-            compactor.choose(&levels, &Config::default()),
-            Choice::DoNothing
-        );
-
-        levels.add(fixture_segment(
-            4,
-            string_key_range("a", "z"),
-            128 * 1_024 * 1_024,
-        ));
+        #[rustfmt::skip]
+        let mut levels = build_levels(tempdir.path(), vec![
+            vec![(1, "a", "z"), (2, "a", "z"), (3, "a", "z"), (4, "a", "z")],
+            vec![],
+            vec![],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
-                target_size: 128 * 1_024 * 1_024
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
         levels.hide_segments(&[4]);
+
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
@@ -345,55 +372,24 @@ mod tests {
     fn leveled_more_than_min_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment(
-            1,
-            string_key_range("h", "t"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            2,
-            string_key_range("h", "t"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            3,
-            string_key_range("h", "t"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            4,
-            string_key_range("h", "t"),
-            128 * 1_024 * 1_024,
-        ));
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(5, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(6, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(7, string_key_range("y", "z"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(8, string_key_range("y", "z"), 128 * 1_024 * 1_024),
-        );
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![(1, "h", "t"), (2, "h", "t"), (3, "h", "t"), (4, "h", "t")],
+            vec![(5, "a", "g"), (6, "a", "g"), (7, "a", "g"), (8, "a", "g")],
+            vec![],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4],
-                target_size: 128 * 1_024 * 1_024
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
@@ -404,55 +400,24 @@ mod tests {
     fn leveled_more_than_min_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-        levels.add(fixture_segment(
-            1,
-            string_key_range("a", "g"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            2,
-            string_key_range("h", "t"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            3,
-            string_key_range("i", "t"),
-            128 * 1_024 * 1_024,
-        ));
-        levels.add(fixture_segment(
-            4,
-            string_key_range("j", "t"),
-            128 * 1_024 * 1_024,
-        ));
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(5, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(6, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(7, string_key_range("y", "z"), 128 * 1_024 * 1_024),
-        );
-        levels.insert_into_level(
-            1,
-            fixture_segment(8, string_key_range("y", "z"), 128 * 1_024 * 1_024),
-        );
+        #[rustfmt::skip]
+        let mut levels = build_levels(tempdir.path(), vec![
+            vec![(1, "a", "g"), (2, "h", "t"), (3, "i", "t"), (4, "j", "t")],
+            vec![(5, "a", "g"), (6, "a", "g"), (7, "y", "z"), (8, "y", "z")],
+            vec![],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
                 segment_ids: vec![1, 2, 3, 4, 5, 6],
-                target_size: 128 * 1_024 * 1_024
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
@@ -469,41 +434,25 @@ mod tests {
     fn leveled_deeper_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
         let config = Config::default().level_ratio(2);
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(4, string_key_range("f", "l"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(2, string_key_range("h", "t"), 128 * 1_024 * 1_024),
-        );
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(3, string_key_range("h", "t"), 128 * 1_024 * 1_024),
-        );
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![(1, "a", "g"), (2, "h", "t"), (3, "x", "z")],
+            vec![(4, "f", "l")],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1, 4],
-                target_size: 128 * 1_024 * 1_024
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
@@ -514,41 +463,25 @@ mod tests {
     fn leveled_deeper_level_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
         let config = Config::default().level_ratio(2);
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(4, string_key_range("k", "l"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(2, string_key_range("h", "j"), 128 * 1_024 * 1_024),
-        );
-
-        levels.insert_into_level(
-            1,
-            fixture_segment(3, string_key_range("k", "t"), 128 * 1_024 * 1_024),
-        );
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![(1, "a", "g"), (2, "h", "j"), (3, "k", "t")],
+            vec![(4, "k", "l")],
+            vec![],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &config),
             Choice::Move(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1],
-                target_size: 128 * 1_024 * 1_024
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
@@ -559,53 +492,112 @@ mod tests {
     fn leveled_last_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
-            target_size: 128 * 1_024 * 1_024,
+            target_size: 64 * 1_024 * 1_024,
             ..Default::default()
         };
         let config = Config::default().level_ratio(2);
 
-        let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
-
-        levels.insert_into_level(
-            3,
-            fixture_segment(5, string_key_range("f", "l"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(1, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(2, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(3, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-        assert_eq!(compactor.choose(&levels, &config), Choice::DoNothing);
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(4, string_key_range("a", "g"), 128 * 1_024 * 1_024),
-        );
-
-        levels.insert_into_level(
-            2,
-            fixture_segment(6, string_key_range("y", "z"), 128 * 1_024 * 1_024),
-        );
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![],
+            vec![(1, "a", "g"), (2, "a", "g"), (3, "a", "g"), (4, "a", "g"), (5, "y", "z")],
+            vec![(6, "f", "l")],
+        ])?;
 
         assert_eq!(
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 3,
-                segment_ids: vec![1, 5],
-                target_size: 128 * 1_024 * 1_024
+                segment_ids: vec![1, 2, 3, 4, 6],
+                target_size: 64 * 1_024 * 1_024
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn levelled_last_level_with_overlap_invariant() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            target_size: 64 * 1_024 * 1_024,
+            ..Default::default()
+        };
+        let config = Config::default().level_ratio(2);
+
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![],
+            vec![(1, "a", "g"), (2, "h", "j"), (3, "k", "l"), (4, "m", "n"), (5, "y", "z")],
+            vec![(6, "f", "l")],
+        ])?;
+
+        assert_eq!(
+            compactor.choose(&levels, &config),
+            Choice::Merge(CompactionInput {
+                dest_level: 3,
+                segment_ids: vec![1, 6],
+                target_size: 64 * 1_024 * 1_024
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn levelled_last_level_without_overlap_invariant() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            target_size: 64 * 1_024 * 1_024,
+            ..Default::default()
+        };
+        let config = Config::default().level_ratio(2);
+
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![],
+            vec![(1, "a", "g"), (2, "h", "j"), (3, "k", "l"), (4, "m", "n"), (5, "y", "z")],
+            vec![(6, "w", "x")],
+        ])?;
+
+        assert_eq!(
+            compactor.choose(&levels, &config),
+            Choice::Move(CompactionInput {
+                dest_level: 3,
+                segment_ids: vec![1],
+                target_size: 64 * 1_024 * 1_024
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn levelled_from_tiered() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            target_size: 64 * 1_024 * 1_024,
+            ..Default::default()
+        };
+        let config = Config::default().level_ratio(2);
+
+        #[rustfmt::skip]
+        let levels = build_levels(tempdir.path(), vec![
+            vec![],
+            vec![(1, "a", "z"), (2, "a", "z"), (3, "g", "z")],
+            vec![(4, "a", "g")],
+            vec![],
+        ])?;
+
+        assert_eq!(
+            compactor.choose(&levels, &config),
+            Choice::Merge(CompactionInput {
+                dest_level: 2,
+                segment_ids: vec![1, 2, 3, 4],
+                target_size: 64 * 1_024 * 1_024
             })
         );
 
