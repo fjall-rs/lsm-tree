@@ -21,10 +21,6 @@ pub const METADATA_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'M', b
 pub type SegmentId = u64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(
-    feature = "segment_history",
-    derive(serde::Deserialize, serde::Serialize)
-)]
 pub struct Metadata {
     /// Segment ID
     pub id: SegmentId,

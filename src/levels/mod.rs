@@ -1,12 +1,6 @@
 pub mod iter;
 mod level;
 
-#[cfg(feature = "segment_history")]
-mod segment_history;
-
-#[cfg(feature = "segment_history")]
-use crate::time::unix_timestamp;
-
 use self::level::Level;
 use crate::{
     file::rewrite_atomic,
@@ -41,9 +35,6 @@ pub struct LevelManifest {
     /// While consuming segments (because of compaction) they will not appear in the list of segments
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
     hidden_set: HiddenSet,
-
-    #[cfg(feature = "segment_history")]
-    segment_history_writer: segment_history::Writer,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -124,40 +115,10 @@ impl LevelManifest {
             path: path.as_ref().to_path_buf(),
             levels,
             hidden_set: HashSet::with_capacity(10),
-
-            #[cfg(feature = "segment_history")]
-            segment_history_writer: segment_history::Writer::new()?,
         };
         Self::write_to_disk(path, &levels.levels)?;
 
-        #[cfg(feature = "segment_history")]
-        levels.write_segment_history_entry("create_new")?;
-
         Ok(levels)
-    }
-
-    #[cfg(feature = "segment_history")]
-    fn write_segment_history_entry(&mut self, event: &str) -> crate::Result<()> {
-        let ts = unix_timestamp();
-
-        let line = serde_json::to_string(&serde_json::json!({
-            "time_unix": ts.as_secs(),
-            "time_ms": ts.as_millis(),
-            "event": event,
-            "levels": self.levels.iter().map(|level| {
-                level.segments
-                .iter()
-                .map(|segment| serde_json::json!({
-                        "id": segment.metadata.id,
-                        "metadata": segment.metadata.clone(),
-                        "hidden": self.hidden_set.contains(&segment.metadata.id)
-                    }))
-                    .collect::<Vec<_>>()
-            }).collect::<Vec<_>>()
-        }))
-        .expect("Segment history write failed");
-
-        self.segment_history_writer.write(&line)
     }
 
     pub(crate) fn load_level_manifest<P: AsRef<Path>>(
@@ -234,19 +195,12 @@ impl LevelManifest {
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
-        // NOTE: See segment_history feature
         #[allow(unused_mut)]
-        let mut levels = Self {
+        let levels = Self {
             levels,
             hidden_set: HashSet::with_capacity(10),
             path: path.as_ref().to_path_buf(),
-
-            #[cfg(feature = "segment_history")]
-            segment_history_writer: segment_history::Writer::new()?,
         };
-
-        #[cfg(feature = "segment_history")]
-        levels.write_segment_history_entry("load_from_disk")?;
 
         Ok(levels)
     }
@@ -322,19 +276,7 @@ impl LevelManifest {
             .expect("level should exist");
 
         level.insert(segment);
-
-        #[cfg(feature = "segment_history")]
-        self.write_segment_history_entry("insert").ok();
     }
-
-    /* pub(crate) fn remove(&mut self, segment_id: SegmentId) {
-        for level in &mut self.levels {
-            level.remove(segment_id);
-        }
-
-        #[cfg(feature = "segment_history")]
-        self.write_segment_history_entry("remove").ok();
-    } */
 
     /// Returns `true` if there are no segments
     #[must_use]
@@ -426,34 +368,16 @@ impl LevelManifest {
         output
     }
 
-    /* pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let mut output = HashMap::new();
-
-        for segment in self.iter() {
-            if !self.hidden_set.contains(&segment.metadata.id) {
-                output.insert(segment.metadata.id, segment);
-            }
-        }
-
-        output
-    } */
-
     pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
             self.hidden_set.remove(key);
         }
-
-        #[cfg(feature = "segment_history")]
-        self.write_segment_history_entry("show").ok();
     }
 
     pub(crate) fn hide_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
             self.hidden_set.insert(*key);
         }
-
-        #[cfg(feature = "segment_history")]
-        self.write_segment_history_entry("hide").ok();
     }
 }
 
@@ -586,9 +510,6 @@ mod tests {
             hidden_set: HashSet::default(),
             levels: Vec::default(),
             path: "a".into(),
-
-            #[cfg(feature = "segment_history")]
-            segment_history_writer: super::segment_history::Writer::new()?,
         };
 
         let mut bytes = vec![];
