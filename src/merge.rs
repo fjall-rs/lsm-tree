@@ -1,10 +1,7 @@
 use crate::{
+    merge_peekable::MergePeekable,
     value::{InternalValue, SeqNo},
-    UserKey,
 };
-use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
-
-// TODO: refactor error handling because it's horrible
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
@@ -22,20 +19,17 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
 /// If multiple iterators yield the same key value, the freshest one (highest seqno) will be picked.
 #[allow(clippy::module_name_repetitions)]
 pub struct MergeIterator<'a> {
-    iterators: Vec<DoubleEndedPeekable<BoxedIterator<'a>>>,
+    //iterators: Vec<DoubleEndedPeekable<BoxedIterator<'a>>>,
+    inner: MergePeekable<'a>,
     evict_old_versions: bool,
 }
 
 impl<'a> MergeIterator<'a> {
     /// Initializes a new merge iterator
+    #[must_use]
     pub fn new(iterators: Vec<BoxedIterator<'a>>) -> Self {
-        let iterators = iterators
-            .into_iter()
-            .map(DoubleEndedPeekableExt::double_ended_peekable)
-            .collect::<Vec<_>>();
-
         Self {
-            iterators,
+            inner: MergePeekable::new(iterators),
             evict_old_versions: false,
         }
     }
@@ -46,220 +40,18 @@ impl<'a> MergeIterator<'a> {
         self.evict_old_versions = v;
         self
     }
-
-    fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
-        for iter in &mut self.iterators {
-            'inner: loop {
-                if let Some(item) = iter.peek() {
-                    if let Ok(item) = item {
-                        if &item.key.user_key == key {
-                            // Consume key
-                            iter.next().expect("should not be empty")?;
-                        } else {
-                            // Reached next key, go to next iterator
-                            break 'inner;
-                        }
-                    } else {
-                        iter.next().expect("should not be empty")?;
-
-                        panic!("logic error");
-                    }
-                } else {
-                    // Iterator is empty, go to next
-                    break 'inner;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn get_min(&mut self) -> Option<crate::Result<(usize, InternalValue)>> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
-        }
-
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next()
-                .expect("should not be empty");
-
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
-        }
-
-        let mut min: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, min_val)) = min {
-                            if val.key < min_val.key {
-                                min = Some((idx, val));
-                            }
-                        } else {
-                            min = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = min {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .next()?
-                .expect("should not be error");
-
-            Some(Ok((idx, value)))
-        } else {
-            None
-        }
-    }
-
-    fn get_max(&mut self) -> Option<crate::Result<(usize, InternalValue)>> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
-        }
-
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next_back()
-                .expect("should not be empty");
-
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
-        }
-
-        let mut max: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, max_val)) = max {
-                            if val.key > max_val.key {
-                                max = Some((idx, val));
-                            }
-                        } else {
-                            max = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = max {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .next_back()?
-                .expect("should not be error");
-
-            Some(Ok((idx, value)))
-        } else {
-            None
-        }
-    }
-
-    fn peek_max(&mut self) -> Option<crate::Result<(usize, &InternalValue)>> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
-        }
-
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next_back()
-                .expect("should not be empty");
-
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
-        }
-
-        let mut max: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, max_val)) = max {
-                            if val.key > max_val.key {
-                                max = Some((idx, val));
-                            }
-                        } else {
-                            max = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = max {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .peek_back()?
-                .as_ref()
-                .expect("should not be error");
-
-            Some(Ok((idx, value)))
-        } else {
-            None
-        }
-    }
 }
 
 impl<'a> Iterator for MergeIterator<'a> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.get_min()? {
-            Ok((_, min_item)) => {
+        match self.inner.next()? {
+            Ok(min_item) => {
                 // Tombstone marker OR we want to GC old versions
                 // As long as items beneath tombstone are the same key, ignore them
                 if self.evict_old_versions {
-                    if let Err(e) = self.drain_key_min(&min_item.key.user_key) {
+                    if let Err(e) = self.inner.drain_key_min(&min_item.key.user_key) {
                         return Some(Err(e));
                     };
                 }
@@ -275,19 +67,20 @@ impl<'a> DoubleEndedIterator for MergeIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let mut head;
 
-        match self.get_max()? {
-            Ok((_, max_item)) => {
+        match self.inner.next_back()? {
+            Ok(max_item) => {
                 head = max_item;
 
+                // TODO: function... drain...max?
                 if self.evict_old_versions {
-                    'inner: while let Some(head_result) = self.peek_max() {
+                    'inner: while let Some(head_result) = self.inner.peek_back() {
                         match head_result {
                             Ok((_, next)) => {
                                 if next.key.user_key == head.key.user_key {
-                                    let next = self.get_max().expect("should exist");
+                                    let next = self.inner.next_back().expect("should exist");
 
                                     let next = match next {
-                                        Ok((_, v)) => v,
+                                        Ok(v) => v,
                                         Err(e) => {
                                             return Some(Err(e));
                                         }
