@@ -15,7 +15,7 @@ pub struct Range {
 
     is_initialized: bool,
 
-    range: (Bound<UserKey>, Bound<UserKey>),
+    pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
     reader: Reader,
 

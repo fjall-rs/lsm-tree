@@ -160,18 +160,17 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&0)
                 && !busy_levels.contains(&1)
             {
-                let mut first_level_segments = first_level.deref().clone();
-                first_level_segments
-                    .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+                let mut level = first_level.clone();
+                level.sort_by_key_range();
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
                 };
 
-                let key_range = aggregate_key_range(&first_level_segments);
+                let key_range = aggregate_key_range(&level);
                 let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
-                let mut segment_ids = first_level_segments
+                let mut segment_ids = level
                     .iter()
                     .map(|x| &x.metadata.id)
                     .copied()

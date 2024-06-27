@@ -82,7 +82,7 @@ pub struct BlockCache {
 }
 
 impl BlockCache {
-    /// Creates a new block cache with roughly `n` bytes of capacity
+    /// Creates a new block cache with roughly `n` bytes of capacity.
     #[must_use]
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         Self {
@@ -91,19 +91,25 @@ impl BlockCache {
         }
     }
 
-    /// Returns the cache capacity in bytes
+    /// Returns the amount of cached bytes.
+    #[must_use]
+    pub fn size(&self) -> u64 {
+        self.data.weight()
+    }
+
+    /// Returns the cache capacity in bytes.
     #[must_use]
     pub fn capacity(&self) -> u64 {
         self.capacity
     }
 
-    /// Returns the number of cached blocks
+    /// Returns the number of cached blocks.
     #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// Returns `true` if there are no cached blocks
+    /// Returns `true` if there are no cached blocks.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0

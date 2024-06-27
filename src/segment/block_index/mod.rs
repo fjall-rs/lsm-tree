@@ -81,20 +81,6 @@ pub struct BlockIndex {
 }
 
 impl BlockIndex {
-    // Gets the next first block handle of an index block that is untouched by the given prefix
-    pub fn get_prefix_upper_bound(
-        &self,
-        key: &[u8],
-        cache_policy: CachePolicy,
-    ) -> crate::Result<Option<KeyedBlockHandle>> {
-        let Some(block_handle) = self.top_level_index.get_prefix_upper_bound(key) else {
-            return Ok(None);
-        };
-
-        let index_block = self.load_index_block(block_handle, cache_policy)?;
-        Ok(index_block.items.first().cloned())
-    }
-
     #[must_use]
     pub fn get_lowest_index_block_handle_containing_key(
         &self,

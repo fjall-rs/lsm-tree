@@ -8,8 +8,10 @@ pub struct Level {
     #[doc(hidden)]
     pub segments: Vec<Arc<Segment>>,
 
-    /// If the level is disjoint - is only recomputed
-    /// when the level is changed
+    /// If the level is disjoint
+    ///
+    /// is only recomputed when the level is changed
+    /// to avoid unnecessary CPU work
     pub is_disjoint: bool,
 }
 
@@ -131,7 +133,10 @@ impl Level {
     pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
         assert!(self.is_disjoint, "level is not disjoint");
 
-        let idx = self.partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
-        self.get(idx).cloned()
+        let idx = self
+            .segments
+            .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
+
+        self.segments.get(idx).cloned()
     }
 }

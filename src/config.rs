@@ -185,12 +185,11 @@ impl Default for Config {
         Self {
             path: absolute_path(DEFAULT_FILE_FOLDER),
             block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+            descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
 
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
-
             blob_file_target_size: 64 * 1_024 * 1_024,
 
-            descriptor_table: Arc::new(FileDescriptorTable::new(960, 4)),
             inner: PersistedConfig::default(),
         }
     }
