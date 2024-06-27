@@ -1,6 +1,6 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
-use std::{ops::Deref, sync::Arc};
+use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
 ///
@@ -123,24 +123,33 @@ impl CompactionStrategy for Strategy {
                     break;
                 };
 
+                let mut segment_ids: HashSet<u64> =
+                    segments_to_compact.iter().map(|x| x.metadata.id).collect();
+
+                // Get overlapping segments in same level
                 let key_range = aggregate_key_range(&segments_to_compact);
-                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
-                let mut segment_ids: Vec<_> = segments_to_compact
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
-                    .collect();
+                let curr_level_overlapping_segment_ids = level.get_overlapping_segments(&key_range);
+                segment_ids.extend(&curr_level_overlapping_segment_ids);
 
-                segment_ids.extend(&overlapping_segment_ids);
+                // Get overlapping segments in next level
+                let key_range = aggregate_key_range(&segments_to_compact);
+
+                let next_level_overlapping_segment_ids =
+                    next_level.get_overlapping_segments(&key_range);
+                segment_ids.extend(&next_level_overlapping_segment_ids);
 
                 let choice = CompactionInput {
-                    segment_ids,
+                    segment_ids: {
+                        let mut v = segment_ids.into_iter().collect::<Vec<_>>();
+                        v.sort_unstable();
+                        v
+                    },
                     dest_level: next_level_index,
                     target_size: u64::from(self.target_size),
                 };
 
-                if overlapping_segment_ids.is_empty() && level.is_disjoint {
+                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);
@@ -166,11 +175,8 @@ impl CompactionStrategy for Strategy {
                 let key_range = aggregate_key_range(&level);
                 let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
 
-                let mut segment_ids = level
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
-                    .collect::<Vec<_>>();
+                let mut segment_ids: Vec<u64> =
+                    level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
 
                 segment_ids.extend(overlapping_segment_ids);
 
@@ -181,6 +187,8 @@ impl CompactionStrategy for Strategy {
                 });
             }
         }
+
+        // TODO: rewrite segments in last level IF tombstone ratio too high
 
         Choice::DoNothing
     }
