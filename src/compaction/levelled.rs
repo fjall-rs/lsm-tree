@@ -134,14 +134,21 @@ impl CompactionStrategy for Strategy {
                 // Get overlapping segments in same level
                 let key_range = aggregate_key_range(&segments_to_compact);
 
-                let curr_level_overlapping_segment_ids = level.get_overlapping_segments(&key_range);
+                let curr_level_overlapping_segment_ids: Vec<_> = level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
+                    .collect();
+
                 segment_ids.extend(&curr_level_overlapping_segment_ids);
 
                 // Get overlapping segments in next level
                 let key_range = aggregate_key_range(&segments_to_compact);
 
-                let next_level_overlapping_segment_ids =
-                    next_level.get_overlapping_segments(&key_range);
+                let next_level_overlapping_segment_ids: Vec<_> = next_level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
+                    .collect();
+
                 segment_ids.extend(&next_level_overlapping_segment_ids);
 
                 let choice = CompactionInput {
@@ -183,8 +190,10 @@ impl CompactionStrategy for Strategy {
                 // Get overlapping segments in next level
                 let key_range = aggregate_key_range(&level);
 
-                let next_level_overlapping_segment_ids =
-                    next_level.get_overlapping_segments(&key_range);
+                let next_level_overlapping_segment_ids: Vec<_> = next_level
+                    .overlapping_segments(&key_range)
+                    .map(|x| x.metadata.id)
+                    .collect();
 
                 segment_ids.extend(next_level_overlapping_segment_ids);
 

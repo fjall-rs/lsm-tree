@@ -36,18 +36,16 @@ impl Level {
     pub fn insert(&mut self, segment: Arc<Segment>) {
         self.segments.push(segment);
         self.set_disjoint_flag();
-
-        if self.is_disjoint {
-            self.sort_by_key_range();
-        } else {
-            self.sort_by_seqno();
-        }
+        self.sort();
     }
 
     pub fn remove(&mut self, segment_id: SegmentId) {
         self.segments.retain(|x| segment_id != x.metadata.id);
         self.set_disjoint_flag();
+        self.sort();
+    }
 
+    pub(super) fn sort(&mut self) {
         if self.is_disjoint {
             self.sort_by_key_range();
         } else {
@@ -69,30 +67,32 @@ impl Level {
     /// [key:asd:2] [key:asd:1]
     ///
     /// point read ----------->
-    pub fn sort_by_seqno(&mut self) {
+    fn sort_by_seqno(&mut self) {
         self.segments
             .sort_by(|a, b| b.metadata.seqnos.1.cmp(&a.metadata.seqnos.1));
     }
 
-    pub fn ids(&self) -> Vec<SegmentId> {
-        self.segments.iter().map(|x| x.metadata.id).collect()
+    /// Returns an iterator over the level's segment IDs.
+    pub fn ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
+        self.segments.iter().map(|x| x.metadata.id)
     }
 
+    /// Returns `true` if the level contains no segments.
     pub fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
 
-    /// Gets the number of segments
+    /// Returns the number of segments.
     pub fn len(&self) -> usize {
         self.segments.len()
     }
 
-    /// Gets the level size in bytes
+    /// Returns the level size in bytes.
     pub fn size(&self) -> u64 {
         self.segments.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    /// Checks if the level is disjoint and caches the result in `is_disjoint`
+    /// Checks if the level is disjoint and caches the result in `is_disjoint`.
     fn set_disjoint_flag(&mut self) {
         // TODO: calculate without heap allocation? possible?
 
@@ -105,12 +105,15 @@ impl Level {
         self.is_disjoint = KeyRange::is_disjoint(&ranges);
     }
 
-    pub fn get_overlapping_segments(&self, key_range: &KeyRange) -> Vec<SegmentId> {
+    /// Returns an iterator over segments in the level that have a key range
+    /// overlapping the input key range.
+    pub fn overlapping_segments<'a>(
+        &'a self,
+        key_range: &'a KeyRange,
+    ) -> impl Iterator<Item = &'a Arc<Segment>> {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
-            .map(|x| x.metadata.id)
-            .collect()
     }
 
     /// Returns the segment that possibly contains the key.
