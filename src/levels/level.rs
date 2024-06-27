@@ -8,8 +8,10 @@ pub struct Level {
     #[doc(hidden)]
     pub segments: Vec<Arc<Segment>>,
 
-    /// If the level is disjoint - is only recomputed
-    /// when the level is changed
+    /// If the level is disjoint
+    ///
+    /// is only recomputed when the level is changed
+    /// to avoid unnecessary CPU work
     pub is_disjoint: bool,
 }
 
