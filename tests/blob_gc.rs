@@ -16,20 +16,21 @@ fn blob_gc_1() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
     assert_eq!(1, tree.blobs.segment_count());
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
+
     assert_eq!(1.0, tree.blobs.space_amp());
 
     tree.insert("a", "a", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(1.5, tree.blobs.space_amp());
 
     tree.insert("b", "b", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(3.0, tree.blobs.space_amp());
 
     // NOTE: Everything is stale
     tree.insert("c", "c", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(0.0, tree.blobs.space_amp());
 
     tree.gc_drop_stale()?;
@@ -58,15 +59,15 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
     assert_eq!(1, tree.blobs.segment_count());
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(1.0, tree.blobs.space_amp());
 
     tree.insert("a", "a", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(1.5, tree.blobs.space_amp());
 
     tree.insert("b", "b", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(3.0, tree.blobs.space_amp());
 
     tree.gc_with_space_amp_target(1.0, seqno.next())?;
@@ -82,7 +83,7 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
 
     tree.insert("c", "c", seqno.next());
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     tree.gc_with_space_amp_target(1.0, seqno.next())?;
     assert_eq!(0, tree.blobs.segment_count());
 
@@ -104,15 +105,15 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
     assert_eq!(1, tree.blobs.segment_count());
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(1.0, tree.blobs.space_amp());
 
     tree.remove("a", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(1.5, tree.blobs.space_amp());
 
     tree.remove("b", seqno.next());
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     assert_eq!(3.0, tree.blobs.space_amp());
 
     tree.gc_with_space_amp_target(1.0, seqno.next())?;
@@ -129,7 +130,7 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
     tree.remove("c", seqno.next());
     assert!(tree.get("c")?.is_none());
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(seqno.get())?;
     tree.gc_with_space_amp_target(1.0, seqno.next())?;
     assert_eq!(0, tree.blobs.segment_count());
 
