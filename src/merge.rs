@@ -71,34 +71,12 @@ impl<'a> DoubleEndedIterator for MergeIterator<'a> {
             Ok(max_item) => {
                 head = max_item;
 
-                // TODO: function... drain...max?
                 if self.evict_old_versions {
-                    'inner: while let Some(head_result) = self.inner.peek_back() {
-                        match head_result {
-                            Ok((_, next)) => {
-                                if next.key.user_key == head.key.user_key {
-                                    let next = self.inner.next_back().expect("should exist");
-
-                                    let next = match next {
-                                        Ok(v) => v,
-                                        Err(e) => {
-                                            return Some(Err(e));
-                                        }
-                                    };
-
-                                    // Keep popping off heap until we reach the next key
-                                    // Because the seqno's are stored in descending order
-                                    // The next item will definitely have a higher seqno, so
-                                    // we can just take it
-                                    head = next;
-                                } else {
-                                    // Reached next user key now
-                                    break 'inner;
-                                }
-                            }
-                            Err(e) => return Some(Err(e)),
-                        }
-                    }
+                    head = match self.inner.get_highest_version(&head) {
+                        Ok(Some(highest)) => highest,
+                        Ok(None) => head,
+                        Err(e) => return Some(Err(e)),
+                    };
                 }
 
                 Some(Ok(head))

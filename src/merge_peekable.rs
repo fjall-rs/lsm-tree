@@ -17,6 +17,46 @@ impl<'a> MergePeekable<'a> {
         Self { iterators }
     }
 
+    /// Returns the highest version of the current user key.
+    ///
+    /// Only use during reverse iteration!!! Forward iteration is implicitly sorted already.
+    pub fn get_highest_version(
+        &mut self,
+        current: &InternalValue,
+    ) -> crate::Result<Option<InternalValue>> {
+        let mut higher_value = None;
+
+        while let Some(head_result) = self.peek_back() {
+            match head_result {
+                Ok((_, next)) => {
+                    if next.key.user_key == current.key.user_key {
+                        let next = self.next_back().expect("should exist");
+
+                        let next = match next {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return Err(e);
+                            }
+                        };
+
+                        // Keep popping off heap until we reach the next key
+                        // Because the seqno's are stored in descending order
+                        // The next item will definitely have a higher seqno, so
+                        // we can just take it
+                        higher_value = Some(next);
+                    } else {
+                        // Reached next user key now
+                        break;
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(higher_value)
+    }
+
+    /// Drains the lower bound until the next user key is reached.
     pub fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
         for iter in &mut self.iterators {
             'inner: loop {
@@ -89,18 +129,7 @@ impl<'a> MergePeekable<'a> {
             }
         }
 
-        if let Some((idx, _)) = max {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .peek_back()?
-                .as_ref()
-                .expect("should not be error");
-
-            Some(Ok((idx, value)))
-        } else {
-            None
-        }
+        max.map(Ok)
     }
 }
 
