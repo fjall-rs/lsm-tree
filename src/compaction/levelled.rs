@@ -172,13 +172,16 @@ impl CompactionStrategy for Strategy {
                     return Choice::DoNothing;
                 };
 
-                let key_range = aggregate_key_range(&level);
-                let overlapping_segment_ids = next_level.get_overlapping_segments(&key_range);
-
                 let mut segment_ids: Vec<u64> =
                     level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
 
-                segment_ids.extend(overlapping_segment_ids);
+                // Get overlapping segments in next level
+                let key_range = aggregate_key_range(&level);
+
+                let next_level_overlapping_segment_ids =
+                    next_level.get_overlapping_segments(&key_range);
+
+                segment_ids.extend(next_level_overlapping_segment_ids);
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,
