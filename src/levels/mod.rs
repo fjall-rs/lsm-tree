@@ -275,12 +275,6 @@ impl LevelManifest {
         level.insert(segment);
     }
 
-    /* pub(crate) fn remove(&mut self, segment_id: SegmentId) {
-        for level in &mut self.levels {
-            level.remove(segment_id);
-        }
-    } */
-
     /// Returns `true` if there are no segments
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -370,18 +364,6 @@ impl LevelManifest {
 
         output
     }
-
-    /* pub(crate) fn get_visible_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let mut output = HashMap::new();
-
-        for segment in self.iter() {
-            if !self.hidden_set.contains(&segment.metadata.id) {
-                output.insert(segment.metadata.id, segment);
-            }
-        }
-
-        output
-    } */
 
     pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
         for key in keys {
