@@ -9,7 +9,7 @@ use std::{collections::HashSet, ops::Deref, sync::Arc};
 ///
 /// Each level Ln for n >= 1 can have up to ratio^n segments.
 ///
-/// LCS suffers from high write amplification, but decent read & space amplification.
+/// LCS suffers from high write amplification, but has decent read & space amplification.
 ///
 /// LCS is the recommended compaction strategy to use.
 pub struct Strategy {
