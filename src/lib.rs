@@ -126,8 +126,6 @@ mod key_range;
 #[doc(hidden)]
 pub mod levels;
 
-mod lru_list;
-
 mod memtable;
 
 mod path;
