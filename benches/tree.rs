@@ -418,31 +418,6 @@ fn load_block_from_disk(c: &mut Criterion) {
     }
 }
 
-fn file_descriptor_table(c: &mut Criterion) {
-    use std::fs::File;
-
-    let file = tempfile::NamedTempFile::new().unwrap();
-
-    let mut group = c.benchmark_group("Get file descriptor");
-
-    group.bench_function("fopen", |b: &mut criterion::Bencher<'_>| {
-        b.iter(|| {
-            File::open(file.path()).unwrap();
-        });
-    });
-
-    let id = (0, 523).into();
-    let descriptor_table = lsm_tree::descriptor_table::FileDescriptorTable::new(1, 1);
-    descriptor_table.insert(file.path(), id);
-
-    group.bench_function("descriptor table", |b: &mut criterion::Bencher<'_>| {
-        b.iter(|| {
-            let guard = descriptor_table.access(&id).unwrap().unwrap();
-            let _fd = guard.file.lock().unwrap();
-        });
-    });
-}
-
 fn tree_get_pairs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get pairs");
     group.sample_size(10);

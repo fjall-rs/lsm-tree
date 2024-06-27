@@ -1,4 +1,7 @@
-use crate::{lru_list::LruList, segment::id::GlobalSegmentId};
+mod lru;
+
+use crate::segment::id::GlobalSegmentId;
+use lru::LruList;
 use std::{
     collections::HashMap,
     fs::File,
@@ -37,8 +40,6 @@ pub struct FileHandle {
     descriptors: RwLock<Vec<Arc<FileDescriptorWrapper>>>,
     path: PathBuf,
 }
-
-// TODO: benchmark with many threads
 
 // TODO: FileDescriptorTable should wrap Arc<Inner>
 // TODO: table should probably use a concurrent hashmap
