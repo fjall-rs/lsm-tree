@@ -554,7 +554,6 @@ criterion_group!(
     tli_find_item,
     memtable_get_upper_bound,
     load_block_from_disk,
-    file_descriptor_table,
     tree_get_pairs,
 );
 criterion_main!(benches);
