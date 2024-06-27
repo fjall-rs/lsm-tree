@@ -82,7 +82,12 @@ impl CompactionStrategy for Strategy {
         for (curr_level_index, level) in resolved_view
             .iter()
             .enumerate()
-            .map(|(idx, lvl)| (idx as u8, lvl))
+            .map(|(idx, lvl)| {
+                (
+                    u8::try_from(idx).expect("levels should not exceed 255"),
+                    lvl,
+                )
+            })
             .skip(1)
             .take(resolved_view.len() - 2)
             .rev()
@@ -102,7 +107,7 @@ impl CompactionStrategy for Strategy {
             let desired_bytes =
                 desired_level_size_in_bytes(curr_level_index, config.level_ratio, self.target_size);
 
-            let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64) as usize;
+            let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64);
 
             if overshoot > 0 {
                 let mut segments_to_compact = vec![];
@@ -115,7 +120,7 @@ impl CompactionStrategy for Strategy {
                         break;
                     }
 
-                    overshoot = overshoot.saturating_sub(segment.metadata.file_size as usize);
+                    overshoot = overshoot.saturating_sub(segment.metadata.file_size);
                     segments_to_compact.push(segment);
                 }
 
@@ -225,7 +230,11 @@ mod tests {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
     }
 
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     fn fixture_segment(
         id: SegmentId,
         key_range: KeyRange,
@@ -270,6 +279,7 @@ mod tests {
         })
     }
 
+    #[allow(clippy::expect_used)]
     fn build_levels(
         path: &Path,
         recipe: Vec<Vec<(SegmentId, &str, &str)>>,
