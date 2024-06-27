@@ -196,8 +196,6 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        // TODO: rewrite segments in last level IF tombstone ratio too high
-
         Choice::DoNothing
     }
 }
