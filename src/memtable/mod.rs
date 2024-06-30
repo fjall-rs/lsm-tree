@@ -18,9 +18,16 @@ pub struct MemTable {
 impl MemTable {
     /// Creates an iterator over a prefixed set of items
     pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+        let lower_bound = ParsedInternalKey::new(
+            prefix.clone(),
+            SeqNo::MAX,
+            /* NOTE: doesn't matter */ ValueType::Value,
+        );
+
+        // TODO: compute upper bound
+
         self.items
-            // TODO: compute upper bound
-            .range(ParsedInternalKey::new(prefix.clone(), SeqNo::MAX, ValueType::Tombstone)..)
+            .range(lower_bound..)
             .filter(move |entry| entry.key().user_key.starts_with(&prefix))
             .map(|entry| InternalValue {
                 key: entry.key().clone(),
@@ -50,7 +57,11 @@ impl MemTable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let range = ParsedInternalKey::new(prefix, SeqNo::MAX, ValueType::Tombstone)..;
+        let range = ParsedInternalKey::new(
+            prefix,
+            SeqNo::MAX,
+            /* NOTE: doesn't matter */ ValueType::Value,
+        )..;
 
         for entry in self.items.range(range) {
             let key = entry.key();
