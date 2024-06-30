@@ -143,6 +143,16 @@ mod tests {
     }
 
     #[test]
+    fn prefix_to_range_4() {
+        test_prefix(&[0, 250, 255, 255, 255], Excluded(&[0, 251]));
+    }
+
+    #[test]
+    fn prefix_to_range_5() {
+        test_prefix(&[0, 250, 255, 254, 255], Excluded(&[0, 250, 255, 255]));
+    }
+
+    #[test]
     fn prefix_to_range_char_max() {
         test_prefix(&[0, 255], Excluded(&[1]));
     }
