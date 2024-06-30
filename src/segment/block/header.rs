@@ -28,9 +28,14 @@ impl Header {
     #[must_use]
     pub const fn serialized_len() -> usize {
         BLOCK_HEADER_MAGIC.len()
+            // NOTE: Compression is 2 bytes
             + std::mem::size_of::<u8>()
+            + std::mem::size_of::<u8>()
+            // CRC
             + std::mem::size_of::<u32>()
+            // Backlink
             + std::mem::size_of::<u64>()
+            // Data length
             + std::mem::size_of::<u32>()
     }
 }

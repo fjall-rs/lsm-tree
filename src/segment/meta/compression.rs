@@ -24,11 +24,13 @@ impl Serializable for CompressionType {
         match self {
             Self::None => {
                 writer.write_u8(0)?;
+                writer.write_u8(0)?; // NOTE: Pad to 2 bytes
             }
 
             #[cfg(feature = "lz4")]
             Self::Lz4 => {
                 writer.write_u8(1)?;
+                writer.write_u8(0)?; // NOTE: Pad to 2 bytes
             }
 
             #[cfg(feature = "miniz")]
@@ -49,10 +51,16 @@ impl Deserializable for CompressionType {
         let tag = reader.read_u8()?;
 
         match tag {
-            0 => Ok(Self::None),
+            0 => {
+                assert_eq!(0, reader.read_u8()?, "Invalid compression");
+                Ok(Self::None)
+            }
 
             #[cfg(feature = "lz4")]
-            1 => Ok(Self::Lz4),
+            1 => {
+                assert_eq!(0, reader.read_u8()?, "Invalid compression");
+                Ok(Self::Lz4)
+            }
 
             #[cfg(feature = "miniz")]
             2 => {
@@ -85,3 +93,5 @@ impl std::fmt::Display for CompressionType {
         )
     }
 }
+
+// TODO: unit test all compression types should serialize to 2 bytes
