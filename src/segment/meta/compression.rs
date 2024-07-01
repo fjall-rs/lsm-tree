@@ -8,13 +8,28 @@ use std::io::{Read, Write};
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
+    /// No compression
+    ///
+    /// Not recommended.
     None,
 
+    /// LZ4 compression
+    ///
+    /// Recommended for use cases with a focus
+    /// on speed over compression ratio.
     #[cfg(feature = "lz4")]
     Lz4,
 
-    /// zlib/DEFLATE compression, with an adjustable level
-    /// between
+    // TODO: benchmark
+    /// zlib/DEFLATE compression
+    ///
+    /// Compression level (0-10) can be adjusted.
+    /// 
+    /// - 0 disables compression
+    /// - 1 optimizes for speed
+    /// - 6 compromises between speed and space, good default
+    /// - 9 optimizes for space
+    /// - 10 may save even more space than 9, but the speed trade off may not be worth it
     #[cfg(feature = "miniz")]
     Miniz(u8),
 }

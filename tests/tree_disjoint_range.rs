@@ -1,5 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
-use std::sync::Arc;
+use lsm_tree::{AbstractTree, Config, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -38,63 +37,63 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     let mut iter = tree.range("e".."i");
 
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Forwards inclusive
 
     let mut iter = tree.range("e"..="i");
 
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"i"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"i"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
     let mut iter = tree.range("e".."i").rev();
 
-    assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Reverse inclusive
 
     let mut iter = tree.range("e"..="i").rev();
 
-    assert_eq!(Arc::from(*b"i"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"i"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
     let mut iter = tree.range("e".."i");
 
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next_back().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Ping Pong inclusive
 
     let mut iter = tree.range("e"..="i");
 
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"i"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"h"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"i"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     Ok(())

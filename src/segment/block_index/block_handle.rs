@@ -1,7 +1,7 @@
 use crate::serde::{Deserializable, Serializable};
 use crate::value::UserKey;
+use crate::Slice;
 use std::io::{Read, Write};
-use std::sync::Arc;
 use varint_rs::{VarintReader, VarintWriter};
 
 /// Points to a block on file
@@ -68,7 +68,7 @@ impl Deserializable for KeyedBlockHandle {
 
         Ok(Self {
             offset,
-            end_key: Arc::from(key),
+            end_key: Slice::from(key),
         })
     }
 }

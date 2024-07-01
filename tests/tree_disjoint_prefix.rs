@@ -1,5 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
-use std::sync::Arc;
+use lsm_tree::{AbstractTree, Config, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -38,27 +37,27 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
 
     let mut iter = tree.prefix("d");
 
-    assert_eq!(Arc::from(*b"da"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"db"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"dc"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
     let mut iter = tree.prefix("d").rev();
 
-    assert_eq!(Arc::from(*b"dc"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"db"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"da"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
     let mut iter = tree.prefix("d");
 
-    assert_eq!(Arc::from(*b"da"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"dc"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"db"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"dc"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     Ok(())

@@ -1,18 +1,20 @@
-use crate::serde::{Deserializable, DeserializeError, Serializable, SerializeError};
+use crate::{
+    serde::{Deserializable, DeserializeError, Serializable, SerializeError},
+    Slice,
+};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
-    sync::Arc,
 };
 use varint_rs::{VarintReader, VarintWriter};
 
 /// User defined key
-pub type UserKey = Arc<[u8]>;
+pub type UserKey = Slice;
 
 /// User defined data (blob of bytes)
 #[allow(clippy::module_name_repetitions)]
-pub type UserValue = Arc<[u8]>;
+pub type UserValue = Slice;
 
 /// Key-value pair (tuple)
 pub type KvPair = (crate::UserKey, crate::UserValue);

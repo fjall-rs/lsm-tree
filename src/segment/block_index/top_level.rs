@@ -122,11 +122,12 @@ impl TopLevelIndex {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::string_lit_as_bytes)]
 mod tests {
+    use crate::Slice;
+
     use super::*;
-    use std::sync::Arc;
     use test_log::test;
 
-    fn bh(start_key: Arc<[u8]>, offset: u64) -> KeyedBlockHandle {
+    fn bh(start_key: Slice, offset: u64) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: start_key,
             offset,

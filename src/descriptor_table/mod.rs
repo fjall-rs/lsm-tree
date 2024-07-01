@@ -165,6 +165,7 @@ impl FileDescriptorTable {
                     if shard.is_used.compare_exchange(
                         false,
                         true,
+                        // TODO: could probably be not SeqCst
                         std::sync::atomic::Ordering::SeqCst,
                         std::sync::atomic::Ordering::SeqCst,
                     ) == Ok(false)

@@ -89,6 +89,7 @@ mod tests {
             writer::{Options, Writer},
         },
         value::{InternalValue, SeqNo, ValueType},
+        Slice,
     };
     use std::sync::Arc;
     use test_log::test;
@@ -100,13 +101,13 @@ mod tests {
             (
                 match prefix {
                     _ if prefix.is_empty() => Unbounded,
-                    _ => Included(Arc::from(prefix)),
+                    _ => Included(Slice::from(prefix)),
                 },
                 // TODO: Bound::map 1.77
                 match upper_bound {
                     Unbounded => Unbounded,
-                    Included(x) => Included(Arc::from(x)),
-                    Excluded(x) => Excluded(Arc::from(x)),
+                    Included(x) => Included(Slice::from(x)),
+                    Excluded(x) => Excluded(Slice::from(x)),
                 }
             )
         );
@@ -441,15 +442,15 @@ mod tests {
         );
 
         assert_eq!(
-            Arc::from(*b"da"),
+            Slice::from(*b"da"),
             iter.next().expect("should exist")?.key.user_key
         );
         assert_eq!(
-            Arc::from(*b"dc"),
+            Slice::from(*b"dc"),
             iter.next_back().expect("should exist")?.key.user_key
         );
         assert_eq!(
-            Arc::from(*b"db"),
+            Slice::from(*b"db"),
             iter.next().expect("should exist")?.key.user_key
         );
 

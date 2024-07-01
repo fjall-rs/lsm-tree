@@ -6,6 +6,7 @@ use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
 use crate::value::InternalValue;
 use crate::value::UserKey;
+use crate::Slice;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
@@ -74,7 +75,7 @@ impl Range {
             }
         };
 
-        let end_key: Option<&Arc<[u8]>> = match self.range.end_bound() {
+        let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self
                     .block_index
@@ -230,6 +231,7 @@ mod tests {
             writer::{Options, Writer},
         },
         value::{InternalValue, UserKey, ValueType},
+        Slice,
     };
     use std::ops::{
         Bound::{self, *},
@@ -296,7 +298,7 @@ mod tests {
 
         for start_char in chars {
             let key = &[start_char][..];
-            let key: Arc<[u8]> = Arc::from(key);
+            let key = Slice::from(key);
 
             log::debug!("{}..=z", start_char as char);
 
@@ -416,7 +418,7 @@ mod tests {
         {
             log::info!("Getting every item (unbounded start)");
 
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
@@ -434,7 +436,7 @@ mod tests {
 
             log::info!("Getting every item in reverse (unbounded start)");
 
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
@@ -454,7 +456,7 @@ mod tests {
         {
             log::info!("Getting every item (unbounded end)");
 
-            let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
+            let start: Slice = 1_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
@@ -472,8 +474,8 @@ mod tests {
 
             log::info!("Getting every item in reverse (unbounded end)");
 
-            let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let start: Slice = 1_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
@@ -699,8 +701,8 @@ mod tests {
                     block_cache.clone(),
                     block_index.clone(),
                     (
-                        Included(Arc::new([start_char])),
-                        Included(Arc::new([end_char])),
+                        Included(Slice::from([start_char])),
+                        Included(Slice::from([end_char])),
                     ),
                 );
 
@@ -717,8 +719,8 @@ mod tests {
                     block_cache.clone(),
                     block_index.clone(),
                     (
-                        Included(Arc::new([start_char])),
-                        Included(Arc::new([end_char])),
+                        Included(Slice::from([start_char])),
+                        Included(Slice::from([end_char])),
                     ),
                 );
 

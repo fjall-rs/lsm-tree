@@ -146,6 +146,8 @@ mod seqno;
 #[doc(hidden)]
 pub mod serde;
 
+mod slice;
+
 mod snapshot;
 
 #[doc(hidden)]
@@ -173,6 +175,7 @@ pub use {
     segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
+    slice::Slice,
     snapshot::Snapshot,
     tree::Tree,
     value::{KvPair, SeqNo, UserKey, UserValue, ValueType},

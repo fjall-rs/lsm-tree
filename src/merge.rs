@@ -89,7 +89,10 @@ impl<'a> DoubleEndedIterator for MergeIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{InternalValue, ValueType};
+    use crate::{
+        value::{InternalValue, ValueType},
+        Slice,
+    };
     use test_log::test;
 
     macro_rules! iter_closed {
@@ -1011,7 +1014,7 @@ mod tests {
 
         for (idx, item) in merge_iter.enumerate() {
             let item = item?;
-            assert_eq!(item.key.user_key, (idx as u64).to_be_bytes().into());
+            assert_eq!(item.key.user_key, Slice::from((idx as u64).to_be_bytes()));
         }
 
         Ok(())

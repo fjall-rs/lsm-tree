@@ -21,13 +21,13 @@ impl ValueBlockConsumer {
         end_key: &Option<UserKey>,
     ) -> Self {
         let mut lo = start_key.as_ref().map_or(0, |key| {
-            inner.items.partition_point(|x| &*x.key.user_key < key)
+            inner.items.partition_point(|x| &*x.key.user_key < *key)
         });
 
         let hi = end_key.as_ref().map_or_else(
             || inner.items.len() - 1,
             |key| {
-                let idx = inner.items.partition_point(|x| &*x.key.user_key <= key);
+                let idx = inner.items.partition_point(|x| &*x.key.user_key <= *key);
 
                 if idx == 0 {
                     let first = inner
@@ -35,7 +35,7 @@ impl ValueBlockConsumer {
                         .first()
                         .expect("value block should not be empty");
 
-                    if &*first.key.user_key > key {
+                    if &*first.key.user_key > *key {
                         lo = 1;
                     }
                 }
@@ -86,7 +86,7 @@ impl DoubleEndedIterator for ValueBlockConsumer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::segment::block::header::Header;
+    use crate::{segment::block::header::Header, Slice};
     use test_log::test;
 
     macro_rules! iter_closed {
@@ -217,14 +217,14 @@ mod tests {
         ]);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"c")), &None);
+            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Slice::from(*b"c")), &None);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"d", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"e", &*iter.next().expect("should exist").key.user_key);
         iter_closed!(iter);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"c")), &None);
+            ValueBlockConsumer::with_bounds(block.into(), &Some(Slice::from(*b"c")), &None);
         assert_eq!(
             *b"e",
             &*iter.next_back().expect("should exist").key.user_key
@@ -251,14 +251,14 @@ mod tests {
         ]);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"c")));
+            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Slice::from(*b"c")));
         assert_eq!(*b"a", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"b", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key.user_key);
         iter_closed!(iter);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"c")));
+            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Slice::from(*b"c")));
         assert_eq!(
             *b"c",
             &*iter.next_back().expect("should exist").key.user_key
@@ -284,11 +284,11 @@ mod tests {
         ]);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Arc::from(*b"a")));
+            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Slice::from(*b"a")));
         iter_closed!(iter);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Arc::from(*b"a"))).rev();
+            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Slice::from(*b"a"))).rev();
         iter_closed!(iter);
     }
 
@@ -303,11 +303,11 @@ mod tests {
         ]);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Arc::from(*b"f")), &None);
+            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Slice::from(*b"f")), &None);
         iter_closed!(iter);
 
         let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &Some(Arc::from(*b"f")), &None).rev();
+            ValueBlockConsumer::with_bounds(block.into(), &Some(Slice::from(*b"f")), &None).rev();
         iter_closed!(iter);
     }
 }
