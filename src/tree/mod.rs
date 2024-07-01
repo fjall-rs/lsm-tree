@@ -20,7 +20,7 @@ use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -357,6 +357,10 @@ impl Tree {
         Ok(tree)
     }
 
+    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, MemTable> {
+        self.active_memtable.read().expect("lock is poisoned")
+    }
+
     #[doc(hidden)]
     pub fn verify(&self) -> crate::Result<usize> {
         // NOTE: Lock memtable to prevent any tampering with disk segments
@@ -380,6 +384,7 @@ impl Tree {
     // major compaction needs ALL segments, right now it just takes as many
     // as it can, which may make the LSM inconsistent.
     // TODO: There should also be a function to partially compact levels and individual segments
+
     /// Performs major compaction, blocking the caller until it's done.
     ///
     /// # Errors
@@ -407,7 +412,7 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        // TODO: if L0, L1, preload block index (non-partitioned)
+        // TODO: if L0, preload block index (non-partitioned)
         let block_index = Arc::new(BlockIndex::from_file(
             &segment_file_path,
             trailer.offsets.tli_ptr,

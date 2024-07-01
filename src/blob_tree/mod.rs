@@ -80,34 +80,33 @@ impl BlobTree {
     /// Scans the index tree, collecting statistics about
     /// value log fragmentation
     #[doc(hidden)]
-    pub fn gc_scan_stats(&self) -> crate::Result<()> {
+    pub fn gc_scan_stats(&self, seqno: SeqNo) -> crate::Result<()> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
-        // TODO: use snapshot read + read lock if possible?
-        // IMPORTANT: Write lock memtable to avoid read skew
-        let _memtable_lock = self.index.lock_active_memtable();
+        // IMPORTANT: Lock + snapshot memtable to avoid read skew + preventing tampering with memtable
+        let _memtable_lock = self.index.read_lock_active_memtable();
+        let snapshot = self.index.snapshot(seqno);
 
-        self.blobs
-            .scan_for_stats(self.index.iter().filter_map(|kv| {
-                let Ok((_, v)) = kv else {
-                    return Some(Err(IoError::new(
-                        IoErrorKind::Other,
-                        "Failed to load KV pair from index tree",
-                    )));
-                };
+        self.blobs.scan_for_stats(snapshot.iter().filter_map(|kv| {
+            let Ok((_, v)) = kv else {
+                return Some(Err(IoError::new(
+                    IoErrorKind::Other,
+                    "Failed to load KV pair from index tree",
+                )));
+            };
 
-                let mut cursor = Cursor::new(v);
-                let value = match MaybeInlineValue::deserialize(&mut cursor) {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
-                };
+            let mut cursor = Cursor::new(v);
+            let value = match MaybeInlineValue::deserialize(&mut cursor) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+            };
 
-                match value {
-                    Indirect { handle, size } => Some(Ok((handle, size))),
-                    Inline(_) => None,
-                }
-            }))?;
+            match value {
+                Indirect { handle, size } => Some(Ok((handle, size))),
+                Inline(_) => None,
+            }
+        }))?;
 
         Ok(())
     }

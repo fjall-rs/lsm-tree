@@ -34,7 +34,7 @@ fn blob_tree_tombstone() -> lsm_tree::Result<()> {
     assert!(tree.get("b")?.is_none());
     assert_eq!(&*tree.get("c")?.unwrap(), big_value);
 
-    tree.gc_scan_stats()?;
+    tree.gc_scan_stats(2)?;
     tree.gc_with_staleness_threshold(0.01, 2)?;
     assert_eq!(2, tree.len()?);
 
