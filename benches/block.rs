@@ -126,7 +126,7 @@ fn index_block_find_handle(c: &mut Criterion) {
     }
 }
 
-fn load_block_from_disk(c: &mut Criterion) {
+fn load_value_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
     for comp_type in [
@@ -193,6 +193,6 @@ criterion_group!(
     value_block_find,
     index_block_find_handle,
     value_block_size,
-    load_block_from_disk,
+    load_value_block_from_disk,
 );
 criterion_main!(benches);
