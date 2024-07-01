@@ -39,6 +39,30 @@ impl std::ops::Deref for Slice {
     }
 }
 
+impl PartialEq<[u8]> for Slice {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.0.as_ref() == other
+    }
+}
+
+impl PartialEq<Slice> for &[u8] {
+    fn eq(&self, other: &Slice) -> bool {
+        *self == other.0.as_ref()
+    }
+}
+
+impl PartialOrd<[u8]> for Slice {
+    fn partial_cmp(&self, other: &[u8]) -> Option<std::cmp::Ordering> {
+        self.0.as_ref().partial_cmp(other)
+    }
+}
+
+impl PartialOrd<Slice> for &[u8] {
+    fn partial_cmp(&self, other: &Slice) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0.as_ref())
+    }
+}
+
 impl AsRef<[u8]> for Slice {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -53,7 +77,7 @@ impl From<Slice> for Vec<u8> {
 
 impl From<Slice> for Arc<[u8]> {
     fn from(val: Slice) -> Self {
-        val.0
+        val.0.to_vec().into()
     }
 }
 
@@ -65,7 +89,7 @@ impl From<&[u8]> for Slice {
 
 impl From<Arc<[u8]>> for Slice {
     fn from(value: Arc<[u8]>) -> Self {
-        Self(value)
+        Self::from(value.to_vec())
     }
 }
 

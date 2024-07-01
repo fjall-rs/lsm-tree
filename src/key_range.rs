@@ -45,7 +45,7 @@ impl KeyRange {
     pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
         let (start, end) = &self.0;
-        key >= start && key <= end
+        key >= *start && key <= *end
     }
 
     pub fn overlaps_with_key_range(&self, other: &Self) -> bool {
@@ -100,7 +100,7 @@ impl KeyRange {
         }
 
         let (start, end) = &self.0;
-        (&**start <= prefix && prefix <= end)
+        (&**start <= prefix && prefix <= *end)
             || start.starts_with(prefix)
             || end.starts_with(prefix)
     }

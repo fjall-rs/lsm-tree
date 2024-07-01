@@ -21,13 +21,13 @@ impl ValueBlockConsumer {
         end_key: &Option<UserKey>,
     ) -> Self {
         let mut lo = start_key.as_ref().map_or(0, |key| {
-            inner.items.partition_point(|x| &*x.key.user_key < key)
+            inner.items.partition_point(|x| &*x.key.user_key < *key)
         });
 
         let hi = end_key.as_ref().map_or_else(
             || inner.items.len() - 1,
             |key| {
-                let idx = inner.items.partition_point(|x| &*x.key.user_key <= key);
+                let idx = inner.items.partition_point(|x| &*x.key.user_key <= *key);
 
                 if idx == 0 {
                     let first = inner
@@ -35,7 +35,7 @@ impl ValueBlockConsumer {
                         .first()
                         .expect("value block should not be empty");
 
-                    if &*first.key.user_key > key {
+                    if &*first.key.user_key > *key {
                         lo = 1;
                     }
                 }
