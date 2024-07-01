@@ -484,4 +484,38 @@ pub trait AbstractTree {
     ///
     /// Will return `Err` if an IO error occurs.
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+
+    /// Removes an item from the tree.
+    ///
+    /// The tombstone marker of this delete operation will vanish when it
+    /// collides with its corresponding insertion.
+    /// This may cause older versions of the value to be resurrected, so it should
+    /// only be used and preferred in scenarios where a key is only ever written once.
+    ///
+    /// Returns the added item's size and new size of the memtable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// # use lsm_tree::{AbstractTree, Config, Tree};
+    /// #
+    /// # let tree = Config::new(folder).open()?;
+    /// tree.insert("a", "abc", 0);
+    ///
+    /// let item = tree.get("a")?.expect("should have item");
+    /// assert_eq!("abc".as_bytes(), &*item);
+    ///
+    /// tree.remove_weak("a", 1);
+    ///
+    /// let item = tree.get("a")?;
+    /// assert_eq!(None, item);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
 }

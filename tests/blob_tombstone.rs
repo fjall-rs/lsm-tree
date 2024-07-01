@@ -6,12 +6,6 @@ fn blob_tree_tombstone() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    if path.try_exists()? {
-        std::fs::remove_dir_all(path)?;
-    }
-
-    std::fs::create_dir_all(path)?;
-
     let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
 
     let big_value = b"neptune!".repeat(128_000);

@@ -136,9 +136,7 @@ impl Iterator for Reader {
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.lo_initialized {
-            if let Err(e) = self.initialize_lo() {
-                return Some(Err(e));
-            };
+            fail_iter!(self.initialize_lo());
         }
 
         if let Some(head) = self.lo_block_items.as_mut()?.next() {
@@ -165,9 +163,7 @@ impl Iterator for Reader {
         if let Some(hi_offset) = self.hi_block_offset {
             if next_block_offset == hi_offset {
                 if !self.hi_initialized {
-                    if let Err(e) = self.initialize_hi() {
-                        return Some(Err(e));
-                    };
+                    fail_iter!(self.initialize_hi());
                 }
 
                 // We reached the last block, consume from it instead
@@ -175,8 +171,8 @@ impl Iterator for Reader {
             }
         }
 
-        match self.load_data_block(next_block_offset) {
-            Ok(Some((size, _, items))) => {
+        match fail_iter!(self.load_data_block(next_block_offset)) {
+            Some((size, _, items)) => {
                 self.lo_block_items = Some(items);
                 self.lo_block_size = size;
                 self.lo_block_offset = next_block_offset;
@@ -184,10 +180,9 @@ impl Iterator for Reader {
                 // We just loaded the block
                 self.lo_block_items.as_mut()?.next().map(Ok)
             }
-            Ok(None) => {
+            None => {
                 panic!("searched for invalid data block");
             }
-            Err(e) => Some(Err(e)),
         }
     }
 }
@@ -195,9 +190,7 @@ impl Iterator for Reader {
 impl DoubleEndedIterator for Reader {
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.hi_initialized {
-            if let Err(e) = self.initialize_hi() {
-                return Some(Err(e));
-            };
+            fail_iter!(self.initialize_hi());
         }
 
         loop {
@@ -208,9 +201,7 @@ impl DoubleEndedIterator for Reader {
 
             if hi_offset == self.lo_block_offset {
                 if !self.lo_initialized {
-                    if let Err(e) = self.initialize_lo() {
-                        return Some(Err(e));
-                    };
+                    fail_iter!(self.initialize_lo());
                 }
 
                 // We reached the last block, consume from it instead
@@ -234,17 +225,15 @@ impl DoubleEndedIterator for Reader {
 
             if prev_block_offset == self.lo_block_offset {
                 if !self.lo_initialized {
-                    if let Err(e) = self.initialize_lo() {
-                        return Some(Err(e));
-                    };
+                    fail_iter!(self.initialize_lo());
                 }
 
                 // We reached the last block, consume from it instead
                 return self.lo_block_items.as_mut()?.next_back().map(Ok);
             }
 
-            match self.load_data_block(prev_block_offset) {
-                Ok(Some((_, backlink, items))) => {
+            match fail_iter!(self.load_data_block(prev_block_offset)) {
+                Some((_, backlink, items)) => {
                     self.hi_block_items = Some(items);
                     self.hi_block_backlink = backlink;
                     self.hi_block_offset = Some(prev_block_offset);
@@ -254,10 +243,9 @@ impl DoubleEndedIterator for Reader {
                         return Some(Ok(item));
                     }
                 }
-                Ok(None) => {
+                None => {
                     panic!("searched for invalid data block");
                 }
-                Err(e) => return Some(Err(e)),
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::mvcc_stream::MvccStream;
 use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crate::UserKey;
 use crossbeam_skiplist::SkipMap;
@@ -63,31 +64,41 @@ impl MemTable {
             /* NOTE: doesn't matter */ ValueType::Value,
         )..;
 
-        for entry in self.items.range(range) {
-            let key = entry.key();
+        let iter = self
+            .items
+            .range(range)
+            .filter_map(move |entry| {
+                let key = entry.key();
 
-            // NOTE: We are past the searched key, so we can immediately return None
-            if &*key.user_key > prefix {
-                return None;
-            }
-
-            // Check for seqno if needed
-            if let Some(seqno) = seqno {
-                if key.seqno < seqno {
-                    return Some(InternalValue {
-                        key: entry.key().clone(),
-                        value: entry.value().clone(),
-                    });
+                // NOTE: We are past the searched key, so we can immediately return None
+                if &*key.user_key > prefix {
+                    None
+                } else {
+                    // Check for seqno if needed
+                    if let Some(seqno) = seqno {
+                        if key.seqno < seqno {
+                            Some(InternalValue {
+                                key: entry.key().clone(),
+                                value: entry.value().clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(InternalValue {
+                            key: entry.key().clone(),
+                            value: entry.value().clone(),
+                        })
+                    }
                 }
-            } else {
-                return Some(InternalValue {
-                    key: entry.key().clone(),
-                    value: entry.value().clone(),
-                });
-            }
-        }
+            })
+            .map(Ok);
 
-        None
+        // TODO: would be nicer without box... generic in MvccStream?
+        MvccStream::new(Box::new(iter))
+            .evict_old_versions(true)
+            .next()
+            .map(|x| x.expect("cannot fail"))
     }
 
     /// Get approximate size of memtable in bytes

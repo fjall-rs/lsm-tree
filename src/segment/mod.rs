@@ -19,9 +19,11 @@ use self::{
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
+    mvcc_stream::MvccStream,
     segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
+    ValueType,
 };
 use std::{ops::Bound, path::Path, sync::Arc};
 
@@ -223,6 +225,8 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
+    // TODO: single delete
+
     fn point_read<K: AsRef<[u8]>>(
         &self,
         key: K,
@@ -256,7 +260,15 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-            return Ok(block.get_latest(key.as_ref()).cloned());
+            let Some(latest) = block.get_latest(key.as_ref()).cloned() else {
+                return Ok(None);
+            };
+
+            if latest.key.value_type == ValueType::WeakTombstone {
+                // NOTE: Continue in slow path
+            } else {
+                return Ok(Some(latest));
+            }
         }
 
         let mut reader = Reader::new(
@@ -275,6 +287,32 @@ impl Segment {
         ));
         reader.lo_initialized = true;
 
+        let iter = reader.filter_map(move |entry| {
+            let entry = fail_iter!(entry);
+
+            // NOTE: We are past the searched key, so we can immediately return None
+            if &*entry.key.user_key > key {
+                None
+            } else {
+                // Check for seqno if needed
+                if let Some(seqno) = seqno {
+                    if entry.key.seqno < seqno {
+                        Some(Ok(InternalValue {
+                            key: entry.key.clone(),
+                            value: entry.value,
+                        }))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(Ok(InternalValue {
+                        key: entry.key.clone(),
+                        value: entry.value,
+                    }))
+                }
+            }
+        });
+
         // NOTE: For finding a specific seqno,
         // we need to use a reader
         // because nothing really prevents the version
@@ -290,24 +328,11 @@ impl Segment {
         // Based on get_lower_bound_block, "a" is in Block A
         // However, we are searching for A with seqno 2, which
         // unfortunately is in the next block
-        for item in reader {
-            let item = item?;
+        //
+        // Also because of weak tombstones, we may have to look further than the first item we encounter
 
-            // Just stop iterating once we go past our desired key
-            if &*item.key.user_key != key {
-                return Ok(None);
-            }
-
-            if let Some(seqno) = seqno {
-                if item.key.seqno < seqno {
-                    return Ok(Some(item));
-                }
-            } else {
-                return Ok(Some(item));
-            }
-        }
-
-        Ok(None)
+        // TODO: would be nicer without box... generic in MvccStream?
+        MvccStream::new(Box::new(iter)).next().transpose()
     }
 
     /// Retrieves an item from the segment.

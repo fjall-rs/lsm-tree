@@ -38,6 +38,9 @@ pub enum ValueType {
 
     /// Deleted value
     Tombstone,
+
+    /// "Weak" deletion (a.k.a. `SingleDelete` in `RocksDB`)
+    WeakTombstone,
 }
 
 impl From<u8> for ValueType {
@@ -54,6 +57,7 @@ impl From<ValueType> for u8 {
         match value {
             ValueType::Value => 0,
             ValueType::Tombstone => 1,
+            ValueType::WeakTombstone => 2,
         }
     }
 }
@@ -75,6 +79,7 @@ impl std::fmt::Debug for ParsedInternalKey {
             match self.value_type {
                 ValueType::Value => "V",
                 ValueType::Tombstone => "T",
+                ValueType::WeakTombstone => "wT",
             },
         )
     }
@@ -97,7 +102,7 @@ impl ParsedInternalKey {
     }
 
     pub fn is_tombstone(&self) -> bool {
-        self.value_type == ValueType::Tombstone
+        self.value_type == ValueType::Tombstone || self.value_type == ValueType::WeakTombstone
     }
 }
 
@@ -173,6 +178,17 @@ impl InternalValue {
         Self::new(key, vec![])
     }
 
+    /// Creates a new weak tombstone.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16.
+    pub fn new_weak_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
+        let key = key.into();
+        let key = ParsedInternalKey::new(key, seqno, ValueType::WeakTombstone);
+        Self::new(key, vec![])
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn size(&self) -> usize {
@@ -184,7 +200,7 @@ impl InternalValue {
     #[doc(hidden)]
     #[must_use]
     pub fn is_tombstone(&self) -> bool {
-        self.key.value_type == ValueType::Tombstone
+        self.key.is_tombstone()
     }
 }
 

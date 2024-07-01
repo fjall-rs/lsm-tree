@@ -6,12 +6,6 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    if path.try_exists()? {
-        std::fs::remove_dir_all(path)?;
-    }
-
-    std::fs::create_dir_all(path)?;
-
     let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
 
     let big_value = b"neptune!".repeat(128_000);
@@ -50,12 +44,6 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
 fn blob_tree_simple_compressed() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
-
-    if path.try_exists()? {
-        std::fs::remove_dir_all(path)?;
-    }
-
-    std::fs::create_dir_all(path)?;
 
     let tree = lsm_tree::Config::new(path)
         .compression(lsm_tree::CompressionType::Lz4)
@@ -97,12 +85,6 @@ fn blob_tree_simple_compressed() -> lsm_tree::Result<()> {
 fn blob_tree_simple_compressed_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
-
-    if path.try_exists()? {
-        std::fs::remove_dir_all(path)?;
-    }
-
-    std::fs::create_dir_all(path)?;
 
     let tree = lsm_tree::Config::new(path)
         .compression(lsm_tree::CompressionType::Miniz(10))

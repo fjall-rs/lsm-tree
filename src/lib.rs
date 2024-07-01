@@ -92,6 +92,15 @@
 #![warn(clippy::expect_used)]
 #![allow(clippy::missing_const_for_fn)]
 
+macro_rules! fail_iter {
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        }
+    };
+}
+
 mod any_tree;
 
 mod r#abstract;
@@ -133,7 +142,9 @@ mod path;
 #[doc(hidden)]
 pub mod merge;
 
-mod merge_peekable;
+// mod merge_peekable;
+
+mod mvcc_stream;
 
 #[doc(hidden)]
 pub mod range;

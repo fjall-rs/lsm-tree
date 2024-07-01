@@ -3,7 +3,8 @@ use crate::{
     compaction::Choice,
     file::SEGMENTS_FOLDER,
     levels::LevelManifest,
-    merge::{BoxedIterator, MergeIterator},
+    merge::{BoxedIterator, Merger},
+    mvcc_stream::MvccStream,
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
@@ -160,7 +161,8 @@ fn merge_segments(
             segment_readers.push(iter);
         }
 
-        MergeIterator::new(segment_readers).evict_old_versions(no_snapshots_open && is_deep_level)
+        let merged = Merger::new(segment_readers);
+        MvccStream::new(Box::new(merged)).evict_old_versions(no_snapshots_open && is_deep_level)
     };
 
     let last_level = levels.last_level_index();

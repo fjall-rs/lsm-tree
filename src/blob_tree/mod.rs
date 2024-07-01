@@ -501,4 +501,8 @@ impl AbstractTree for BlobTree {
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove(key, seqno)
     }
+
+    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        self.index.remove_weak(key, seqno)
+    }
 }

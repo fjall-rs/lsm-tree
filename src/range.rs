@@ -1,10 +1,11 @@
 use crate::{
     levels::LevelManifest,
     memtable::MemTable,
-    merge::{seqno_filter, BoxedIterator, MergeIterator},
+    merge::{BoxedIterator, Merger},
+    mvcc_stream::{seqno_filter, MvccStream},
     segment::multi_reader::MultiReader,
     tree::inner::SealedMemtables,
-    value::{InternalValue, ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
+    value::{InternalValue, ParsedInternalKey, SeqNo, UserKey, UserValue},
 };
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::RwLockReadGuard};
@@ -147,12 +148,13 @@ impl<'a> TreeIter<'a> {
                 iters.push(Box::new(index.prefix(prefix).map(Ok)));
             }
 
-            let iter = MergeIterator::new(iters).evict_old_versions(true);
+            let merged = Merger::new(iters);
+            let iter = MvccStream::new(Box::new(merged)).evict_old_versions(true);
 
             Box::new(
                 #[allow(clippy::option_if_let_else)]
                 iter.filter(|x| match x {
-                    Ok(value) => value.key.value_type != ValueType::Tombstone,
+                    Ok(value) => !value.key.is_tombstone(),
                     Err(_) => true,
                 })
                 .map(|item| match item {
@@ -320,11 +322,12 @@ impl<'a> TreeIter<'a> {
                 iters.push(iter);
             }
 
-            let iter = MergeIterator::new(iters).evict_old_versions(true);
+            let merged = Merger::new(iters);
+            let iter = MvccStream::new(Box::new(merged)).evict_old_versions(true);
 
             Box::new(
                 iter.filter(|x| match x {
-                    Ok(value) => value.key.value_type != ValueType::Tombstone,
+                    Ok(value) => !value.key.is_tombstone(),
                     Err(_) => true,
                 })
                 .map(|item| match item {

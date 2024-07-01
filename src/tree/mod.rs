@@ -328,6 +328,11 @@ impl AbstractTree for Tree {
         let value = InternalValue::new_tombstone(key.as_ref(), seqno);
         self.append_entry(value)
     }
+
+    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_weak_tombstone(key.as_ref(), seqno);
+        self.append_entry(value)
+    }
 }
 
 impl Tree {
