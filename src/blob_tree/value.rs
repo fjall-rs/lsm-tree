@@ -1,11 +1,9 @@
 use crate::{
-    serde::Deserializable, serde::Serializable, DeserializeError, SerializeError, UserValue,
+    serde::{Deserializable, Serializable},
+    DeserializeError, SerializeError, Slice, UserValue,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::{
-    io::{Read, Write},
-    sync::Arc,
-};
+use std::io::{Read, Write};
 use value_log::ValueHandle;
 use varint_rs::{VarintReader, VarintWriter};
 
@@ -70,7 +68,7 @@ impl Deserializable for MaybeInlineValue {
                 let len = reader.read_u32_varint()? as usize;
                 let mut bytes = vec![0; len];
                 reader.read_exact(&mut bytes)?;
-                Ok(Self::Inline(Arc::from(bytes)))
+                Ok(Self::Inline(Slice::from(bytes)))
             }
             TAG_INDIRECT => {
                 let handle = ValueHandle::deserialize(reader)?;

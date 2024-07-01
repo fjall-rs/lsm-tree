@@ -10,7 +10,7 @@ use crate::{
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, MemTable, SegmentId, SeqNo, Snapshot, UserKey, ValueType,
+    Config, KvPair, MemTable, SegmentId, SeqNo, Slice, Snapshot, UserKey, ValueType,
 };
 use compression::get_vlog_compressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -67,7 +67,7 @@ impl BlobTree {
                 match item {
                     MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
                     MaybeInlineValue::Indirect { handle, .. } => match self.blobs.get(&handle) {
-                        Ok(Some(bytes)) => Ok((key, bytes)),
+                        Ok(Some(bytes)) => Ok((key, Slice::from(bytes))),
                         Err(e) => Err(e.into()),
                         _ => panic!("value handle did not match any blob - this is a bug"),
                     },
@@ -478,12 +478,12 @@ impl AbstractTree for BlobTree {
             Inline(bytes) => Ok(Some(bytes)),
             Indirect { handle, .. } => {
                 // Resolve indirection using value log
-                self.blobs.get(&handle).map_err(Into::into)
+                Ok(self.blobs.get(&handle)?.map(Slice::from))
             }
         }
     }
 
-    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Arc<[u8]>>> {
+    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Slice>> {
         use value::MaybeInlineValue::{Indirect, Inline};
 
         let Some(value) = self.index.get_internal(key.as_ref())? else {
@@ -494,7 +494,7 @@ impl AbstractTree for BlobTree {
             Inline(bytes) => Ok(Some(bytes)),
             Indirect { handle, .. } => {
                 // Resolve indirection using value log
-                self.blobs.get(&handle).map_err(Into::into)
+                Ok(self.blobs.get(&handle)?.map(Slice::from))
             }
         }
     }

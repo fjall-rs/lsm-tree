@@ -370,7 +370,7 @@ mod tests {
             0,
 
             // Compression
-            0,
+            0, 0,
 
             // Table type
             0,

@@ -1,5 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
-use std::sync::Arc;
+use lsm_tree::{AbstractTree, Config, Slice};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -62,7 +61,7 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     // NOTE: don't care
     #[allow(clippy::type_complexity)]
-    let mut range: (Bound<Arc<[u8]>>, Bound<Arc<[u8]>>) = (Unbounded, Unbounded);
+    let mut range: (Bound<Slice>, Bound<Slice>) = (Unbounded, Unbounded);
     let mut count = 0;
 
     loop {

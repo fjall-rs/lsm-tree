@@ -1,12 +1,11 @@
 use crate::{
     serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError, UserKey,
+    DeserializeError, SerializeError, Slice, UserKey,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     io::{Read, Write},
     ops::{Bound, Deref},
-    sync::Arc,
 };
 
 /// A key range in the format of [min, max] (inclusive on both sides)
@@ -128,12 +127,12 @@ impl Deserializable for KeyRange {
         let key_min_len = reader.read_u16::<BigEndian>()?;
         let mut key_min = vec![0; key_min_len.into()];
         reader.read_exact(&mut key_min)?;
-        let key_min: UserKey = Arc::from(key_min);
+        let key_min: UserKey = Slice::from(key_min);
 
         let key_max_len = reader.read_u16::<BigEndian>()?;
         let mut key_max = vec![0; key_max_len.into()];
         reader.read_exact(&mut key_max)?;
-        let key_max: UserKey = Arc::from(key_max);
+        let key_max: UserKey = Slice::from(key_max);
 
         Ok(Self::new((key_min, key_max)))
     }

@@ -111,7 +111,7 @@ mod tests {
             b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2',
             
             // Compression
-            0,
+            0, 0,
             
             // CRC
             0, 0, 0, 4,
