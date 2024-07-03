@@ -94,8 +94,7 @@ impl MemTable {
             })
             .map(Ok);
 
-        // TODO: would be nicer without box... generic in MvccStream?
-        MvccStream::new(Box::new(iter))
+        MvccStream::new(iter)
             .evict_old_versions(true)
             .next()
             .map(|x| x.expect("cannot fail"))

@@ -1,8 +1,11 @@
-use crate::{BoxedIterator, InternalValue, SeqNo, UserKey, ValueType};
+use crate::{InternalValue, SeqNo, UserKey, ValueType};
 use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
 // TODO: need to differentiate between evicting tombstones and evicting nothing at all
 // TODO: even if it's not the last level, we may want to drop weak tombstones...
+// TODO: weak tombstone may have to depend on seqno that we can free...
+
+// TODO: port remaining tests from merge.rs
 
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
@@ -11,15 +14,15 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
 
 /// Consumes a stream of KVs and emits a new stream according to MVCC and tombstone rules
 #[allow(clippy::module_name_repetitions)]
-pub struct MvccStream<'a> {
-    inner: DoubleEndedPeekable<BoxedIterator<'a>>,
-    evict_old_versions: bool,
+pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
+    inner: DoubleEndedPeekable<I>,
+    evict_old_versions: bool, // TODO: change to Option<SeqNo>, for snapshot tracking
 }
 
-impl<'a> MvccStream<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
     /// Initializes a new merge iterator
     #[must_use]
-    pub fn new(iter: BoxedIterator<'a>) -> Self {
+    pub fn new(iter: I) -> Self {
         let iter = iter.double_ended_peekable();
 
         Self {
@@ -59,7 +62,7 @@ impl<'a> MvccStream<'a> {
     }
 }
 
-impl<'a> Iterator for MvccStream<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for MvccStream<I> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -101,7 +104,9 @@ impl<'a> Iterator for MvccStream<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for MvccStream<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIterator
+    for MvccStream<I>
+{
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.evict_old_versions {
             return self.inner.next_back();
@@ -153,7 +158,6 @@ impl<'a> DoubleEndedIterator for MvccStream<'a> {
 mod tests {
     use super::*;
     use crate::value::{InternalValue, ValueType};
-    use test_log::test;
 
     macro_rules! stream {
       ($($key:expr, $sub_key:expr, $value_type:expr),* $(,)?) => {{
@@ -203,7 +207,7 @@ mod tests {
         };
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_no_evict_simple() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -235,7 +239,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_no_evict_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -288,7 +292,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_simple() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -312,7 +316,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -349,7 +353,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -373,7 +377,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_tombstone_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -410,7 +414,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_weak_tombstone_simple() {
         #[rustfmt::skip]
@@ -428,7 +432,7 @@ mod tests {
         test_reverse!(vec);
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_weak_tombstone_resurrection() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -453,7 +457,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_weak_tombstone_priority() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -479,7 +483,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[test_log::test]
     #[allow(clippy::unwrap_used)]
     fn mvcc_stream_evict_weak_tombstone_multi_keys() {
         #[rustfmt::skip]

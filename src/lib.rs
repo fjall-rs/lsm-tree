@@ -142,8 +142,6 @@ mod path;
 #[doc(hidden)]
 pub mod merge;
 
-// mod merge_peekable;
-
 mod mvcc_stream;
 
 #[doc(hidden)]
