@@ -23,6 +23,9 @@ miniz = ["dep:miniz_oxide"]
 bloom = ["dep:seahash"]
 all = ["bloom", "lz4", "miniz"]
 
+[package.metadata.cargo-all-features]
+denylist = ["all"]
+
 [dependencies]
 byteorder = "1.5.0"
 crc32fast = "1.4.2"

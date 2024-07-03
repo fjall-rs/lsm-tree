@@ -24,7 +24,7 @@ pub enum CompressionType {
     /// zlib/DEFLATE compression
     ///
     /// Compression level (0-10) can be adjusted.
-    /// 
+    ///
     /// - 0 disables compression
     /// - 1 optimizes for speed
     /// - 6 compromises between speed and space, good default
@@ -109,4 +109,43 @@ impl std::fmt::Display for CompressionType {
     }
 }
 
-// TODO: unit test all compression types should serialize to 2 bytes
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_log::test]
+    fn compression_serialize_none() -> crate::Result<()> {
+        let mut serialized = vec![];
+        CompressionType::None.serialize(&mut serialized)?;
+        assert_eq!(2, serialized.len());
+        Ok(())
+    }
+
+    #[cfg(feature = "lz4")]
+    mod lz4 {
+        use super::*;
+
+        #[test_log::test]
+        fn compression_serialize_none() -> crate::Result<()> {
+            let mut serialized = vec![];
+            CompressionType::Lz4.serialize(&mut serialized)?;
+            assert_eq!(2, serialized.len());
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "miniz")]
+    mod miniz {
+        use super::*;
+
+        #[test_log::test]
+        fn compression_serialize_none() -> crate::Result<()> {
+            for lvl in 0..10 {
+                let mut serialized = vec![];
+                CompressionType::Miniz(lvl).serialize(&mut serialized)?;
+                assert_eq!(2, serialized.len());
+            }
+            Ok(())
+        }
+    }
+}

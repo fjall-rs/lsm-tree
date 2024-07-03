@@ -1,7 +1,6 @@
 use lsm_tree::{AbstractTree, Config};
-use test_log::test;
 
-#[test]
+#[test_log::test]
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 

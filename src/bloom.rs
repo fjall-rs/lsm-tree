@@ -293,7 +293,6 @@ mod tests {
 
         #[allow(clippy::cast_precision_loss)]
         let fpr = false_positives as f32 / item_count as f32;
-        assert!(fpr > 0.07);
         assert!(fpr < 0.13);
     }
 

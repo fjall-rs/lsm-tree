@@ -1,5 +1,4 @@
 use lsm_tree::{AbstractTree, Config, Slice};
-use test_log::test;
 
 macro_rules! iter_closed {
     ($iter:expr) => {
@@ -11,7 +10,7 @@ macro_rules! iter_closed {
     };
 }
 
-#[test]
+#[test_log::test]
 fn tree_disjoint_iter() -> lsm_tree::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let tree = crate::Config::new(&tempdir).open()?;

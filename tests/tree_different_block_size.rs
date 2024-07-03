@@ -1,9 +1,8 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
-use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
 
-#[test]
+#[test_log::test]
 fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

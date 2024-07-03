@@ -40,10 +40,6 @@ impl<'a> DoubleEndedIterator for TreeIter<'a> {
     }
 }
 
-/* fn filter_by_seqno(item_seqno: SeqNo, seqno: Option<SeqNo>) -> bool {
-    seqno.map_or(true, |seqno| item_seqno < seqno)
-} */
-
 impl<'a> TreeIter<'a> {
     #[must_use]
     pub fn create_prefix(
