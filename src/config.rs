@@ -302,7 +302,7 @@ impl Config {
     /// Smaller blob files allow more granular garbage collection
     /// which allows lower space amp for lower write I/O cost.
     ///
-    /// Larger blob files decrease the files on disk and maintenance
+    /// Larger blob files decrease the number of files on disk and maintenance
     /// overhead.
     ///
     /// Defaults to 64 MiB.
