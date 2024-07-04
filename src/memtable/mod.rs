@@ -1,4 +1,5 @@
 use crate::mvcc_stream::MvccStream;
+use crate::segment::prefix::prefix_to_range;
 use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crate::UserKey;
 use crossbeam_skiplist::SkipMap;
@@ -40,6 +41,8 @@ impl MemTable {
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+
         let prefix = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
@@ -58,11 +61,21 @@ impl MemTable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let range = ParsedInternalKey::new(
-            prefix,
-            SeqNo::MAX,
-            /* NOTE: doesn't matter */ ValueType::Value,
-        )..;
+        let (lower_bound, upper_bound) = prefix_to_range(prefix);
+
+        // TODO: 1.77 Bound::Map
+        let lower_bound = match lower_bound {
+            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("lower bound cannot be excluded"),
+        };
+        let upper_bound = match upper_bound {
+            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("upper bound cannot be included"),
+        };
+
+        let range = (lower_bound, upper_bound);
 
         let iter = self
             .items
