@@ -38,16 +38,15 @@ struct BlockWeighter;
 
 impl Weighter<CacheKey, Item> for BlockWeighter {
     // TODO: replace .size() calls with block.header.data_length... remove Block::size(), not needed in code base and benches
-    fn weight(&self, _: &CacheKey, block: &Item) -> u32 {
-        // NOTE: Truncation is fine: blocks are definitely below 4 GiB
+    fn weight(&self, _: &CacheKey, block: &Item) -> u64 {
         #[allow(clippy::cast_possible_truncation)]
         match block {
-            Either::Left(block) => block.size() as u32,
+            Either::Left(block) => block.size() as u64,
             Either::Right(block) => block
                 .items
                 .iter()
                 .map(|x| x.end_key.len() + std::mem::size_of::<KeyedBlockHandle>())
-                .sum::<usize>() as u32,
+                .sum::<usize>() as u64,
         }
     }
 }
