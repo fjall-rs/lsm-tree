@@ -106,6 +106,7 @@ mod tests {
                 crc: 0,
                 data_length: 0,
                 previous_block_offset: 0,
+                uncompressed_length: 0,
             },
             items: items.into_boxed_slice(),
         }

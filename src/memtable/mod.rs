@@ -1,4 +1,5 @@
 use crate::mvcc_stream::MvccStream;
+use crate::segment::block::ItemSize;
 use crate::segment::prefix::prefix_to_range;
 use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crate::UserKey;

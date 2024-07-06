@@ -10,6 +10,7 @@ use super::{
 };
 use crate::{
     file::fsync_directory,
+    segment::block::ItemSize,
     serde::Serializable,
     value::{InternalValue, UserKey},
     SegmentId,
@@ -153,17 +154,11 @@ impl Writer {
     pub(crate) fn write_block(&mut self) -> crate::Result<()> {
         debug_assert!(!self.chunk.is_empty());
 
-        let uncompressed_chunk_size = self
-            .chunk
-            .iter()
-            .map(|item| item.size() as u64)
-            .sum::<u64>();
-
-        self.meta.uncompressed_size += uncompressed_chunk_size;
-
         // Write to file
         let (header, data) =
             ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.compression)?;
+
+        self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
         header.serialize(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;

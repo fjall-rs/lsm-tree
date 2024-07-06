@@ -1,3 +1,4 @@
+use crate::segment::block::ItemSize;
 use crate::serde::{Deserializable, Serializable};
 use crate::value::UserKey;
 use crate::Slice;
@@ -13,6 +14,12 @@ pub struct KeyedBlockHandle {
 
     /// Position of block in file
     pub offset: u64,
+}
+
+impl ItemSize for KeyedBlockHandle {
+    fn size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.end_key.len()
+    }
 }
 
 impl PartialEq for KeyedBlockHandle {

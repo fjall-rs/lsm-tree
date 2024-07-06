@@ -6,6 +6,11 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use header::Header as BlockHeader;
 use std::io::{Cursor, Read};
 
+// TODO: better name
+pub trait ItemSize {
+    fn size(&self) -> usize;
+}
+
 /// A disk-based block
 ///
 /// A block is split into its header and a blob of data.
@@ -15,12 +20,12 @@ use std::io::{Cursor, Read};
 ///
 /// The integrity of a block can be checked using the CRC value that is saved in its header.
 #[derive(Clone, Debug)]
-pub struct Block<T: Clone + Serializable + Deserializable> {
+pub struct Block<T: Clone + Serializable + Deserializable + ItemSize> {
     pub header: BlockHeader,
     pub items: Box<[T]>,
 }
 
-impl<T: Clone + Serializable + Deserializable> Block<T> {
+impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
     pub fn from_reader_compressed<R: Read>(reader: &mut R) -> crate::Result<Self> {
         // Read block header
         let header = BlockHeader::deserialize(reader)?;
@@ -101,6 +106,7 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
             compression,
             previous_block_offset,
             data_length: packed.len() as u32,
+            uncompressed_length: items.iter().map(ItemSize::size).sum::<usize>() as u32,
         };
 
         Ok((header, packed))

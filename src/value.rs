@@ -1,4 +1,5 @@
 use crate::{
+    segment::block::ItemSize,
     serde::{Deserializable, DeserializeError, Serializable, SerializeError},
     Slice,
 };
@@ -191,16 +192,16 @@ impl InternalValue {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn size(&self) -> usize {
+    pub fn is_tombstone(&self) -> bool {
+        self.key.is_tombstone()
+    }
+}
+
+impl ItemSize for InternalValue {
+    fn size(&self) -> usize {
         let key_size = self.key.user_key.len();
         let value_size = self.value.len();
         std::mem::size_of::<Self>() + key_size + value_size
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn is_tombstone(&self) -> bool {
-        self.key.is_tombstone()
     }
 }
 

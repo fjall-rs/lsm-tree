@@ -22,6 +22,9 @@ pub struct Header {
 
     /// Compressed size of data segment
     pub data_length: u32,
+
+    /// Uncompressed size of data segment
+    pub uncompressed_length: u32,
 }
 
 impl Header {
@@ -36,6 +39,8 @@ impl Header {
             // Backlink
             + std::mem::size_of::<u64>()
             // Data length
+            + std::mem::size_of::<u32>()
+            // Uncompressed data length
             + std::mem::size_of::<u32>()
     }
 }
@@ -55,6 +60,9 @@ impl Serializable for Header {
 
         // Write data length
         writer.write_u32::<BigEndian>(self.data_length)?;
+
+        // Write uncompressed data length
+        writer.write_u32::<BigEndian>(self.uncompressed_length)?;
 
         Ok(())
     }
@@ -81,11 +89,15 @@ impl Deserializable for Header {
         // Read data length
         let data_length = reader.read_u32::<BigEndian>()?;
 
+        // Read data length
+        let uncompressed_length = reader.read_u32::<BigEndian>()?;
+
         Ok(Self {
             compression,
             crc,
             previous_block_offset,
             data_length,
+            uncompressed_length,
         })
     }
 }
@@ -103,6 +115,7 @@ mod tests {
             crc: 4,
             previous_block_offset: 2,
             data_length: 15,
+            uncompressed_length: 15,
         };
 
         #[rustfmt::skip]
@@ -120,6 +133,9 @@ mod tests {
             
             // Data length
             0, 0, 0, 0x0F,
+
+            // Uncompressed length
+            0, 0, 0, 0x0F,
         ];
 
         // Deserialize the empty Value
@@ -127,6 +143,8 @@ mod tests {
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(header, deserialized);
+
+        assert_eq!(Header::serialized_len(), bytes.len());
 
         Ok(())
     }

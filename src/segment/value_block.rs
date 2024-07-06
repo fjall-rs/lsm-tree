@@ -27,10 +27,6 @@ impl ValueBlock {
             .filter(|&item| &*item.key.user_key == key)
     }
 
-    pub fn size(&self) -> usize {
-        std::mem::size_of::<Self>() + self.items.iter().map(InternalValue::size).sum::<usize>()
-    }
-
     pub fn load_by_block_handle(
         descriptor_table: &FileDescriptorTable,
         block_cache: &BlockCache,
@@ -98,6 +94,7 @@ mod tests {
                 crc: 0,
                 data_length: 0,
                 previous_block_offset: 0,
+                uncompressed_length: 0,
             },
         };
 
