@@ -20,9 +20,9 @@ type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(BlockTag, GlobalSegmentId, u64);
 
-impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, &u64) {
+impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, u64) {
     fn equivalent(&self, key: &CacheKey) -> bool {
-        self.0 == key.0 && self.1 == key.1 && self.2 == &key.2
+        self.0 == key.0 && self.1 == key.1 && self.2 == key.2
     }
 }
 
@@ -40,6 +40,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
         // NOTE: Truncation is fine: blocks are definitely below 4 GiB
         #[allow(clippy::cast_possible_truncation)]
         match block {
+            // TODO: need uncompressed data length
             Either::Left(block) => block.header.data_length.into(),
             Either::Right(block) => block.header.data_length.into(),
         }
@@ -106,7 +107,7 @@ impl BlockCache {
     /// Returns `true` if there are no cached blocks.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.data.is_empty()
     }
 
     #[doc(hidden)]
@@ -142,9 +143,9 @@ impl BlockCache {
         segment_id: GlobalSegmentId,
         offset: u64,
     ) -> Option<Arc<ValueBlock>> {
-        let key = (BlockTag::Data, segment_id, &offset);
+        let key = (BlockTag::Data, segment_id, offset);
         let item = self.data.get(&key)?;
-        Some(item.left().clone())
+        Some(item.left())
     }
 
     #[doc(hidden)]
@@ -154,8 +155,8 @@ impl BlockCache {
         segment_id: GlobalSegmentId,
         offset: u64,
     ) -> Option<Arc<IndexBlock>> {
-        let key = (BlockTag::Index, segment_id, &offset);
+        let key = (BlockTag::Index, segment_id, offset);
         let item = self.data.get(&key)?;
-        Some(item.right().clone())
+        Some(item.right())
     }
 }
