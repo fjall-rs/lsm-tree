@@ -75,10 +75,6 @@ impl CompactionStrategy for Strategy {
         //
         // TODO: However, this can probably improved by checking two compaction
         // workers just don't cross key ranges
-        // If so, we should sort the level(s), because if multiple compaction workers
-        // wrote to the same level at the same time, we couldn't guarantee that the levels
-        // are sorted in ascending keyspace order (current they are because we write the
-        // segments from left to right, so lower key bound + creation date match up)
         let busy_levels = levels.busy_levels();
 
         for (curr_level_index, level) in resolved_view
