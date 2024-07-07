@@ -1,6 +1,8 @@
-use crate::bit_array::BitArray;
+mod bit_array;
+
 use crate::serde::{Deserializable, Serializable};
 use crate::{DeserializeError, SerializeError};
+use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use seahash::SeaHasher;
 use std::hash::Hasher;

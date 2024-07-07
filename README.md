@@ -49,7 +49,7 @@ Allows using `DEFLATE/zlib` compression, powered by [`miniz_oxide`](https://gith
 
 ### bloom
 
-Uses bloom filters to reduce disk I/O for non-existing keys. Improves point read performance, but increases memory usage.
+Uses bloom filters to reduce superfluous disk I/O during point reads, improving performance, but also increasing memory usage.
 
 *Disabled by default.*
 

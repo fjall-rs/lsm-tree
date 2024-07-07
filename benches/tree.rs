@@ -375,11 +375,69 @@ fn disk_point_read(c: &mut Criterion) {
     });
 }
 
+fn disjoint_tree_minmax(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Disjoint tree");
+
+    let folder = tempfile::tempdir().unwrap();
+
+    let tree = Config::new(folder)
+        .block_size(1_024)
+        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
+
+    tree.insert("a", "a", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 6)))
+        .unwrap();
+
+    tree.insert("b", "b", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 5)))
+        .unwrap();
+
+    tree.insert("c", "c", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 4)))
+        .unwrap();
+
+    tree.insert("d", "d", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 3)))
+        .unwrap();
+
+    tree.insert("e", "e", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 2)))
+        .unwrap();
+
+    tree.insert("f", "f", 0);
+    tree.flush_active_memtable().unwrap();
+    tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 1)))
+        .unwrap();
+
+    tree.insert("g", "g", 0);
+    tree.flush_active_memtable().unwrap();
+
+    group.bench_function(&"Tree::first_key_value".to_string(), |b| {
+        b.iter(|| {
+            assert_eq!(&*tree.first_key_value().unwrap().unwrap().1, b"a");
+        });
+    });
+
+    group.bench_function(&"Tree::last_key_value".to_string(), |b| {
+        b.iter(|| {
+            assert_eq!(&*tree.last_key_value().unwrap().unwrap().1, b"g");
+        });
+    });
+}
+
 // TODO: benchmark point read disjoint vs non-disjoint level vs disjoint *tree*
 // TODO: benchmark .prefix().next() and .next_back(), disjoint and non-disjoint
 
 criterion_group!(
     benches,
+    disjoint_tree_minmax,
     disk_point_read,
     full_scan,
     scan_vs_query,
