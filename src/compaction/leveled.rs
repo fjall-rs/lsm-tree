@@ -2,16 +2,17 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
-// TODO: add link to blog post
 /// Levelled compaction strategy (LCS)
 ///
 /// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
 /// Each level Ln for n >= 1 can have up to ratio^n segments.
 ///
-/// LCS suffers from high write amplification, but has decent read & space amplification.
+/// LCS suffers from comparatively high write amplification, but has decent read & space amplification.
 ///
 /// LCS is the recommended compaction strategy to use.
+///
+/// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
     /// they are merged into L1
@@ -74,10 +75,6 @@ impl CompactionStrategy for Strategy {
         //
         // TODO: However, this can probably improved by checking two compaction
         // workers just don't cross key ranges
-        // If so, we should sort the level(s), because if multiple compaction workers
-        // wrote to the same level at the same time, we couldn't guarantee that the levels
-        // are sorted in ascending keyspace order (current they are because we write the
-        // segments from left to right, so lower key bound + creation date match up)
         let busy_levels = levels.busy_levels();
 
         for (curr_level_index, level) in resolved_view
@@ -117,7 +114,7 @@ impl CompactionStrategy for Strategy {
                 let mut segments_to_compact = vec![];
 
                 let mut level = level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
                 for segment in level.iter().take(config.inner.level_ratio.into()).cloned() {
                     if overshoot == 0 {
@@ -182,7 +179,7 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&1)
             {
                 let mut level = first_level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
@@ -200,6 +197,8 @@ impl CompactionStrategy for Strategy {
                     .collect();
 
                 segment_ids.extend(next_level_overlapping_segment_ids);
+
+                // TODO: trivial move if no overlapping segments?
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,
