@@ -114,7 +114,7 @@ impl CompactionStrategy for Strategy {
                 let mut segments_to_compact = vec![];
 
                 let mut level = level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
                 for segment in level.iter().take(config.inner.level_ratio.into()).cloned() {
                     if overshoot == 0 {
@@ -179,7 +179,7 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&1)
             {
                 let mut level = first_level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
