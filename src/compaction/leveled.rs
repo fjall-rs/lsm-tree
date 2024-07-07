@@ -2,16 +2,17 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
-// TODO: add link to blog post
 /// Levelled compaction strategy (LCS)
 ///
 /// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
 /// Each level Ln for n >= 1 can have up to ratio^n segments.
 ///
-/// LCS suffers from high write amplification, but has decent read & space amplification.
+/// LCS suffers from comparatively high write amplification, but has decent read & space amplification.
 ///
 /// LCS is the recommended compaction strategy to use.
+///
+/// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
     /// they are merged into L1
