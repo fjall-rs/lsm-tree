@@ -40,10 +40,6 @@ impl<'a> DoubleEndedIterator for TreeIter<'a> {
     }
 }
 
-/* fn filter_by_seqno(item_seqno: SeqNo, seqno: Option<SeqNo>) -> bool {
-    seqno.map_or(true, |seqno| item_seqno < seqno)
-} */
-
 impl<'a> TreeIter<'a> {
     #[must_use]
     pub fn create_prefix(
@@ -55,6 +51,8 @@ impl<'a> TreeIter<'a> {
     ) -> Self {
         TreeIter::new(guard, |lock| {
             let prefix = prefix.clone();
+
+            // TODO: check Tree::are_segments_disjoint
 
             let mut segment_iters: Vec<BoxedIterator<'_>> =
                 Vec::with_capacity(level_manifest.len());
@@ -219,62 +217,78 @@ impl<'a> TreeIter<'a> {
 
             let range = (lo, hi);
 
-            let mut segment_iters: Vec<BoxedIterator<'_>> =
-                Vec::with_capacity(level_manifest.len());
+            let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
 
-            for level in &level_manifest.levels {
-                if level.is_disjoint {
-                    let mut level = level.clone();
+            // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
+            if false {
+                // TODO: this could probably be smarter by comparing in which way the tree is growing
+                // TODO: TEST: also, unit test this by creating a descending and an ascending disjoint tree
+                let mut readers: Vec<_> = level_manifest.iter().collect();
+                readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+                let readers: VecDeque<BoxedIterator<'_>> = readers
+                    .into_iter()
+                    .map(|x| Box::new(x.range(bounds.clone())) as BoxedIterator<'_>)
+                    .collect::<VecDeque<_>>();
 
-                    let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+                let multi_reader = MultiReader::new(readers);
 
-                    level.sort_by_key_range();
-
-                    for segment in &level.segments {
-                        if segment.check_key_range_overlap(&bounds) {
-                            let range = segment.range(bounds.clone());
-                            readers.push_back(Box::new(range));
-                        }
-                    }
-
-                    if !readers.is_empty() {
-                        let multi_reader = MultiReader::new(readers);
-
-                        if let Some(seqno) = seqno {
-                            segment_iters.push(Box::new(multi_reader.filter(
-                                move |item| match item {
-                                    Ok(item) => seqno_filter(item.seqno, seqno),
-                                    Err(_) => true,
-                                },
-                            )));
-                        } else {
-                            segment_iters.push(Box::new(multi_reader));
-                        }
-                    }
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(multi_reader.filter(move |item| match item {
+                        Ok(item) => seqno_filter(item.seqno, seqno),
+                        Err(_) => true,
+                    })));
                 } else {
-                    for segment in &level.segments {
-                        if segment.check_key_range_overlap(&bounds) {
-                            let reader = segment.range(bounds.clone());
+                    iters.push(Box::new(multi_reader));
+                }
+            } else {
+                for level in &level_manifest.levels {
+                    if level.is_disjoint {
+                        let mut level = level.clone();
+
+                        let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+
+                        level.sort_by_key_range();
+
+                        for segment in &level.segments {
+                            if segment.check_key_range_overlap(&bounds) {
+                                let range = segment.range(bounds.clone());
+                                readers.push_back(Box::new(range));
+                            }
+                        }
+
+                        if !readers.is_empty() {
+                            let multi_reader = MultiReader::new(readers);
 
                             if let Some(seqno) = seqno {
-                                #[allow(clippy::option_if_let_else)]
-                                segment_iters.push(Box::new(reader.filter(
-                                    move |item| match item {
+                                iters.push(Box::new(multi_reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            } else {
+                                iters.push(Box::new(multi_reader));
+                            }
+                        }
+                    } else {
+                        for segment in &level.segments {
+                            if segment.check_key_range_overlap(&bounds) {
+                                let reader = segment.range(bounds.clone());
+
+                                if let Some(seqno) = seqno {
+                                    #[allow(clippy::option_if_let_else)]
+                                    iters.push(Box::new(reader.filter(move |item| match item {
                                         Ok(item) => seqno_filter(item.seqno, seqno),
                                         Err(_) => true,
-                                    },
-                                )));
-                            } else {
-                                segment_iters.push(Box::new(reader));
+                                    })));
+                                } else {
+                                    iters.push(Box::new(reader));
+                                }
                             }
                         }
                     }
                 }
-            }
+            };
 
             drop(level_manifest);
-
-            let mut iters: Vec<_> = segment_iters;
 
             // Sealed memtables
             for (_, memtable) in lock.sealed.iter() {

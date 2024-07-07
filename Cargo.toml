@@ -48,20 +48,20 @@ harness = false
 path = "benches/bloom.rs"
 required-features = ["bloom"]
 
+# [[bench]]
+# name = "level_manifest"
+# harness = false
+# path = "benches/level_manifest.rs"
+# required-features = []
+
+# [[bench]]
+# name = "fd_table"
+# harness = false
+# path = "benches/fd_table.rs"
+# required-features = []
+
 [[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
-required-features = []
-
-[[bench]]
-name = "level_manifest"
-harness = false
-path = "benches/level_manifest.rs"
-required-features = []
-
-[[bench]]
-name = "fd_table"
-harness = false
-path = "benches/fd_table.rs"
 required-features = []
