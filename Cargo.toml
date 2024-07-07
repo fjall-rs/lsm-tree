@@ -58,18 +58,6 @@ harness = false
 path = "benches/block.rs"
 required-features = ["lz4", "miniz"]
 
-# [[bench]]
-# name = "level_manifest"
-# harness = false
-# path = "benches/level_manifest.rs"
-# required-features = []
-
-# [[bench]]
-# name = "fd_table"
-# harness = false
-# path = "benches/fd_table.rs"
-# required-features = []
-
 [[bench]]
 name = "bloom"
 harness = false
@@ -81,3 +69,15 @@ name = "tree"
 harness = false
 path = "benches/tree.rs"
 required-features = ["lz4", "miniz"]
+
+[[bench]]
+name = "level_manifest"
+harness = false
+path = "benches/level_manifest.rs"
+required-features = []
+
+[[bench]]
+name = "fd_table"
+harness = false
+path = "benches/fd_table.rs"
+required-features = []

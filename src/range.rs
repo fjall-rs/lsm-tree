@@ -52,64 +52,85 @@ impl<'a> TreeIter<'a> {
         TreeIter::new(guard, |lock| {
             let prefix = prefix.clone();
 
-            // TODO: check Tree::are_segments_disjoint
+            let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
 
-            let mut segment_iters: Vec<BoxedIterator<'_>> =
-                Vec::with_capacity(level_manifest.len());
+            // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
+            if level_manifest.is_disjoint() {
+                // TODO: this could probably be smarter by comparing in which way the tree is growing
+                // TODO: TEST: also, unit test this by creating a descending and an ascending disjoint tree
+                let mut readers: Vec<_> = level_manifest
+                    .iter()
+                    .filter(|x| x.metadata.key_range.contains_prefix(&prefix))
+                    .collect();
 
-            for level in &level_manifest.levels {
-                if level.is_disjoint {
-                    let mut level = level.clone();
+                readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
 
-                    let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+                let readers: VecDeque<BoxedIterator<'_>> = readers
+                    .into_iter()
+                    .map(|x| Box::new(x.prefix(&prefix)) as BoxedIterator<'_>)
+                    .collect::<VecDeque<_>>();
 
-                    level.sort_by_key_range();
+                let multi_reader = MultiReader::new(readers);
 
-                    for segment in &level.segments {
-                        if segment.metadata.key_range.contains_prefix(&prefix) {
-                            let reader = segment.prefix(&prefix);
-                            readers.push_back(Box::new(reader));
+                if let Some(seqno) = seqno {
+                    iters.push(Box::new(multi_reader.filter(move |item| match item {
+                        Ok(item) => seqno_filter(item.seqno, seqno),
+                        Err(_) => true,
+                    })));
+                } else {
+                    iters.push(Box::new(multi_reader));
+                }
+            } else {
+                for level in &level_manifest.levels {
+                    if level.is_disjoint {
+                        let mut level = level.clone();
+
+                        let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+
+                        level.sort_by_key_range();
+
+                        for segment in &level.segments {
+                            if segment.metadata.key_range.contains_prefix(&prefix) {
+                                let reader = segment.prefix(&prefix);
+                                readers.push_back(Box::new(reader));
+                            }
                         }
-                    }
 
-                    if !readers.is_empty() {
-                        let multi_reader = MultiReader::new(readers);
+                        if !readers.is_empty() {
+                            let multi_reader = MultiReader::new(readers);
 
                         if let Some(seqno) = seqno {
-                            segment_iters.push(Box::new(multi_reader.filter(
+                            iters.push(Box::new(multi_reader.filter(
                                 move |item| match item {
                                     Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
-                                },
-                            )));
-                        } else {
-                            segment_iters.push(Box::new(multi_reader));
+                                })));
+                            } else {
+                                iters.push(Box::new(multi_reader));
+                            }
                         }
-                    }
-                } else {
-                    for segment in &level.segments {
-                        if segment.metadata.key_range.contains_prefix(&prefix) {
-                            let reader = segment.prefix(&prefix);
+                    } else {
+                        for segment in &level.segments {
+                            if segment.metadata.key_range.contains_prefix(&prefix) {
+                                let reader = segment.prefix(&prefix);
 
                             if let Some(seqno) = seqno {
                                 #[allow(clippy::option_if_let_else)]
-                                segment_iters.push(Box::new(reader.filter(
+                                iters.push(Box::new(reader.filter(
                                     move |item| match item {
                                         Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
-                                    },
-                                )));
-                            } else {
-                                segment_iters.push(Box::new(reader));
+                                    })));
+                                } else {
+                                    iters.push(Box::new(reader));
+                                }
                             }
                         }
                     }
                 }
-            }
+            };
 
             drop(level_manifest);
-
-            let mut iters: Vec<_> = segment_iters;
 
             // Sealed memtables
             for (_, memtable) in lock.sealed.iter() {
@@ -221,11 +242,17 @@ impl<'a> TreeIter<'a> {
             let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
 
             // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
-            if false {
+            if level_manifest.is_disjoint() {
                 // TODO: this could probably be smarter by comparing in which way the tree is growing
                 // TODO: TEST: also, unit test this by creating a descending and an ascending disjoint tree
-                let mut readers: Vec<_> = level_manifest.iter().collect();
+
+                let mut readers: Vec<_> = level_manifest
+                    .iter()
+                    .filter(|x| x.check_key_range_overlap(&bounds))
+                    .collect();
+
                 readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+
                 let readers: VecDeque<BoxedIterator<'_>> = readers
                     .into_iter()
                     .map(|x| Box::new(x.range(bounds.clone())) as BoxedIterator<'_>)
