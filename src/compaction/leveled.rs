@@ -198,6 +198,8 @@ impl CompactionStrategy for Strategy {
 
                 segment_ids.extend(next_level_overlapping_segment_ids);
 
+                // TODO: trivial move if no overlapping segments?
+
                 return Choice::Merge(CompactionInput {
                     segment_ids,
                     dest_level: 1,
