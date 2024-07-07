@@ -11,7 +11,7 @@ pub(crate) mod worker;
 use crate::{config::Config, levels::LevelManifest, segment::meta::SegmentId};
 
 pub use fifo::Strategy as Fifo;
-pub use levelled::Strategy as Levelled;
+pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
 #[doc(hidden)]
