@@ -74,7 +74,7 @@ impl<'a> TreeIter<'a> {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(multi_reader.filter(move |item| match item {
-                        Ok(item) => seqno_filter(item.seqno, seqno),
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                         Err(_) => true,
                     })));
                 } else {
@@ -99,9 +99,8 @@ impl<'a> TreeIter<'a> {
                         if !readers.is_empty() {
                             let multi_reader = MultiReader::new(readers);
 
-                        if let Some(seqno) = seqno {
-                            iters.push(Box::new(multi_reader.filter(
-                                move |item| match item {
+                            if let Some(seqno) = seqno {
+                                iters.push(Box::new(multi_reader.filter(move |item| match item {
                                     Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 })));
@@ -114,10 +113,9 @@ impl<'a> TreeIter<'a> {
                             if segment.metadata.key_range.contains_prefix(&prefix) {
                                 let reader = segment.prefix(&prefix);
 
-                            if let Some(seqno) = seqno {
-                                #[allow(clippy::option_if_let_else)]
-                                iters.push(Box::new(reader.filter(
-                                    move |item| match item {
+                                if let Some(seqno) = seqno {
+                                    #[allow(clippy::option_if_let_else)]
+                                    iters.push(Box::new(reader.filter(move |item| match item {
                                         Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
                                     })));
@@ -262,7 +260,7 @@ impl<'a> TreeIter<'a> {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(multi_reader.filter(move |item| match item {
-                        Ok(item) => seqno_filter(item.seqno, seqno),
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                         Err(_) => true,
                     })));
                 } else {
@@ -289,7 +287,7 @@ impl<'a> TreeIter<'a> {
 
                             if let Some(seqno) = seqno {
                                 iters.push(Box::new(multi_reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 })));
                             } else {
@@ -304,7 +302,7 @@ impl<'a> TreeIter<'a> {
                                 if let Some(seqno) = seqno {
                                     #[allow(clippy::option_if_let_else)]
                                     iters.push(Box::new(reader.filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
                                     })));
                                 } else {
