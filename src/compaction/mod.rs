@@ -14,6 +14,9 @@ pub use fifo::Strategy as Fifo;
 pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
+/// Alias for `Leveled`
+pub type Levelled = Leveled;
+
 #[doc(hidden)]
 pub use pulldown::Strategy as PullDown;
 
