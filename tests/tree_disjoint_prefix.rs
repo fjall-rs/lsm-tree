@@ -21,9 +21,9 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
     // to make sure stuff is still getting read in the correct order
     // even if written out of order
     let ids = [
-        ["ca", "cb", "cc"],
+        ["cc", "ca", "cb"],
         ["aa", "ab", "ac"],
-        ["da", "db", "dc"],
+        ["dc", "da", "db"],
         ["ba", "bb", "bc"],
     ];
 
