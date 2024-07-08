@@ -278,6 +278,10 @@ impl LevelManifest {
         level.insert(segment);
     }
 
+    pub fn is_disjoint(&self) -> bool {
+        self.levels.iter().all(|x| x.is_disjoint)
+    }
+
     /// Returns `true` if there are no segments
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -403,7 +407,6 @@ impl Serializable for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
