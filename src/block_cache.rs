@@ -1,9 +1,9 @@
-use crate::either::{
-    Either,
-    Either::{Left, Right},
-};
 use crate::segment::id::GlobalSegmentId;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
+use crate::{
+    either::Either::{self, Left, Right},
+    segment::block_index::block_handle::KeyedBlockHandle,
+};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
 use std::sync::Arc;
@@ -40,9 +40,12 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
         // NOTE: Truncation is fine: blocks are definitely below 4 GiB
         #[allow(clippy::cast_possible_truncation)]
         match block {
-            // TODO: need uncompressed data length
-            Either::Left(block) => block.header.data_length.into(),
-            Either::Right(block) => block.header.data_length.into(),
+            Either::Left(block) => block.size() as u64,
+            Either::Right(block) => block
+                .items
+                .iter()
+                .map(|x| x.end_key.len() + std::mem::size_of::<KeyedBlockHandle>())
+                .sum::<usize>() as u64,
         }
     }
 }
