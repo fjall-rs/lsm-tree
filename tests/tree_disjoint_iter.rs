@@ -18,7 +18,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
     // IMPORTANT: Purposefully mangle the order of IDs
     // to make sure stuff is still getting read in the correct order
     // even if written out of order
-    let ids = [["d", "e", "f"], ["a", "b", "c"]];
+    let ids = [["f", "e", "d"], ["a", "b", "c"]];
 
     for batch in ids {
         for id in batch {

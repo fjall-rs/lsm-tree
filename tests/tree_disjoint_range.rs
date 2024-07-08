@@ -20,9 +20,9 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
     // to make sure stuff is still getting read in the correct order
     // even if written out of order
     let ids = [
-        ["d", "e", "f"],
+        ["f", "e", "d"],
         ["g", "h", "i"],
-        ["a", "b", "c"],
+        ["c", "b", "a"],
         ["j", "k", "l"],
     ];
 

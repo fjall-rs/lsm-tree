@@ -1,19 +1,19 @@
-use crate::{merge::BoxedIterator, value::InternalValue};
+use crate::InternalValue;
 use std::collections::VecDeque;
 
 /// Reads through a disjoint, sorted set of segment readers
-pub struct MultiReader<'a> {
-    readers: VecDeque<BoxedIterator<'a>>,
+pub struct MultiReader<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
+    readers: VecDeque<I>,
 }
 
-impl<'a> MultiReader<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MultiReader<I> {
     #[must_use]
-    pub fn new(readers: VecDeque<BoxedIterator<'a>>) -> Self {
+    pub fn new(readers: VecDeque<I>) -> Self {
         Self { readers }
     }
 }
 
-impl<'a> Iterator for MultiReader<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for MultiReader<I> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -28,7 +28,9 @@ impl<'a> Iterator for MultiReader<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for MultiReader<'a> {
+impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIterator
+    for MultiReader<I>
+{
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(item) = self.readers.back_mut()?.next_back() {
@@ -78,10 +80,10 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+            let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(Box::new(segment.iter()));
+                readers.push_back(segment.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -104,10 +106,10 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+            let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(Box::new(segment.iter()));
+                readers.push_back(segment.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -130,10 +132,10 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
+            let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(Box::new(segment.iter()));
+                readers.push_back(segment.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
