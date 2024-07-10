@@ -93,6 +93,15 @@ impl From<Arc<[u8]>> for Slice {
     }
 }
 
+impl FromIterator<u8> for Slice {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = u8>,
+    {
+        Self::from(iter.into_iter().collect::<Vec<u8>>())
+    }
+}
+
 impl From<Vec<u8>> for Slice {
     fn from(value: Vec<u8>) -> Self {
         Self(value.into())

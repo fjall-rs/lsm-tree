@@ -1,9 +1,6 @@
+use crate::either::Either::{self, Left, Right};
 use crate::segment::id::GlobalSegmentId;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
-use crate::{
-    either::Either::{self, Left, Right},
-    segment::block_index::block_handle::KeyedBlockHandle,
-};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
 use std::sync::Arc;
