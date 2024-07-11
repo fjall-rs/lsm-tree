@@ -196,15 +196,18 @@ impl CompactionStrategy for Strategy {
                     .map(|x| x.metadata.id)
                     .collect();
 
-                segment_ids.extend(next_level_overlapping_segment_ids);
+                segment_ids.extend(&next_level_overlapping_segment_ids);
 
-                // TODO: trivial move if no overlapping segments?
-
-                return Choice::Merge(CompactionInput {
+                let choice = CompactionInput {
                     segment_ids,
                     dest_level: 1,
                     target_size: u64::from(self.target_size),
-                });
+                };
+
+                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                    return Choice::Move(choice);
+                }
+                return Choice::Merge(choice);
             }
         }
 
