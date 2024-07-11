@@ -7,26 +7,28 @@ use crate::{
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
     Value,
 };
+use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
-use std::{collections::VecDeque, ops::Bound, sync::RwLockReadGuard};
+use std::{collections::VecDeque, ops::Bound, sync::Arc};
 
-pub struct MemtableLockGuard<'a> {
-    pub(crate) active: RwLockReadGuard<'a, MemTable>,
-    pub(crate) sealed: RwLockReadGuard<'a, SealedMemtables>,
+pub struct MemtableLockGuard {
+    pub(crate) active: ArcRwLockReadGuardian<MemTable>,
+    pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
+    pub(crate) ephemeral: Option<Arc<MemTable>>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a>;
 
 self_cell!(
-    pub struct TreeIter<'a> {
-        owner: MemtableLockGuard<'a>,
+    pub struct TreeIter {
+        owner: MemtableLockGuard,
 
         #[covariant]
         dependent: BoxedMerge,
     }
 );
 
-impl<'a> Iterator for TreeIter<'a> {
+impl Iterator for TreeIter {
     type Item = crate::Result<(UserKey, UserValue)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -34,7 +36,7 @@ impl<'a> Iterator for TreeIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for TreeIter<'a> {
+impl DoubleEndedIterator for TreeIter {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next_back())
     }
@@ -78,14 +80,13 @@ fn collect_disjoint_tree_with_range(
     MultiReader::new(readers)
 }
 
-impl<'a> TreeIter<'a> {
+impl TreeIter {
     #[must_use]
     pub fn create_prefix(
-        guard: MemtableLockGuard<'a>,
+        guard: MemtableLockGuard,
         prefix: &UserKey,
         seqno: Option<SeqNo>,
-        level_manifest: RwLockReadGuard<'a, LevelManifest>,
-        add_index: Option<&'a MemTable>,
+        level_manifest: ArcRwLockReadGuardian<LevelManifest>,
     ) -> Self {
         TreeIter::new(guard, |lock| {
             let prefix = prefix.clone();
@@ -185,7 +186,7 @@ impl<'a> TreeIter<'a> {
             }
 
             // Add index
-            if let Some(index) = add_index {
+            if let Some(index) = &lock.ephemeral {
                 iters.push(Box::new(index.prefix(prefix).map(Ok)));
             }
 
@@ -208,11 +209,10 @@ impl<'a> TreeIter<'a> {
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn create_range(
-        guard: MemtableLockGuard<'a>,
+        guard: MemtableLockGuard,
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
-        level_manifest: RwLockReadGuard<'a, LevelManifest>,
-        add_index: Option<&'a MemTable>,
+        level_manifest: ArcRwLockReadGuardian<LevelManifest>,
     ) -> Self {
         TreeIter::new(guard, |lock| {
             let lo = match &bounds.0 {
@@ -359,7 +359,7 @@ impl<'a> TreeIter<'a> {
                 }
             }
 
-            if let Some(index) = add_index {
+            if let Some(index) = &lock.ephemeral {
                 let iter =
                     Box::new(index.items.range(range).map(|entry| {
                         Ok(Value::from((entry.key().clone(), entry.value().clone())))

@@ -117,9 +117,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
         self.tree.create_iter(Some(self.seqno), None)
     }
 
@@ -152,8 +150,8 @@ impl Snapshot {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
-        self.tree.create_range(range, Some(self.seqno), None)
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+        self.tree.create_range(&range, Some(self.seqno), None)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -185,7 +183,7 @@ impl Snapshot {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
         self.tree.create_prefix(prefix, Some(self.seqno), None)
     }
 
