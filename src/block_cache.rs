@@ -8,27 +8,21 @@ use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum BlockTag {
-    Data = 0,
-    Index = 1,
-}
-
 type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
 // (Type (disk or index), Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
-struct CacheKey(BlockTag, GlobalSegmentId, u64);
+struct CacheKey(GlobalSegmentId, u64);
 
-impl Equivalent<CacheKey> for (BlockTag, GlobalSegmentId, u64) {
+impl Equivalent<CacheKey> for (GlobalSegmentId, u64) {
     fn equivalent(&self, key: &CacheKey) -> bool {
-        self.0 == key.0 && self.1 == key.1 && self.2 == key.2
+        self.0 == key.0 && self.1 == key.1
     }
 }
 
-impl From<(BlockTag, GlobalSegmentId, u64)> for CacheKey {
-    fn from((tag, gid, bid): (BlockTag, GlobalSegmentId, u64)) -> Self {
-        Self(tag, gid, bid)
+impl From<(GlobalSegmentId, u64)> for CacheKey {
+    fn from((gid, bid): (GlobalSegmentId, u64)) -> Self {
+        Self(gid, bid)
     }
 }
 
@@ -121,8 +115,7 @@ impl BlockCache {
         value: Arc<ValueBlock>,
     ) {
         if self.capacity > 0 {
-            self.data
-                .insert((BlockTag::Data, segment_id, offset).into(), Left(value));
+            self.data.insert((segment_id, offset).into(), Left(value));
         }
     }
 
@@ -134,8 +127,7 @@ impl BlockCache {
         value: Arc<IndexBlock>,
     ) {
         if self.capacity > 0 {
-            self.data
-                .insert((BlockTag::Index, segment_id, offset).into(), Right(value));
+            self.data.insert((segment_id, offset).into(), Right(value));
         }
     }
 
@@ -146,7 +138,7 @@ impl BlockCache {
         segment_id: GlobalSegmentId,
         offset: u64,
     ) -> Option<Arc<ValueBlock>> {
-        let key = (BlockTag::Data, segment_id, offset);
+        let key = (segment_id, offset);
         let item = self.data.get(&key)?;
         Some(item.left())
     }
@@ -158,7 +150,7 @@ impl BlockCache {
         segment_id: GlobalSegmentId,
         offset: u64,
     ) -> Option<Arc<IndexBlock>> {
-        let key = (BlockTag::Index, segment_id, offset);
+        let key = (segment_id, offset);
         let item = self.data.get(&key)?;
         Some(item.right())
     }
