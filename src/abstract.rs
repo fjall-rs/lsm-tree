@@ -252,32 +252,32 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         self.range::<UserKey, _>(..)
     }
 
     /// Creates an iterator over a snapshot instant.
-    fn iter_with_seqno<'a>(
-        &'a self,
+    fn iter_with_seqno(
+        &self,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
 
     /// Creates an bounded iterator over a snapshot instant.
-    fn range_with_seqno<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &'a self,
+    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
         range: R,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
 
     /// Creates a prefix iterator over a snapshot instant.
-    fn prefix_with_seqno<'a, K: AsRef<[u8]>>(
-        &'a self,
+    fn prefix_with_seqno<K: AsRef<[u8]>>(
+        &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
 
     /// Returns an iterator over a range of items.
     ///
@@ -301,7 +301,7 @@ pub trait AbstractTree {
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
 
     /// Returns an iterator over a prefixed set of items.
     ///
@@ -329,7 +329,7 @@ pub trait AbstractTree {
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
 
     /// Retrieves an item from the tree.
     ///

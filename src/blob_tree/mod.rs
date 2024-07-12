@@ -22,6 +22,25 @@ use std::{
 };
 use value_log::ValueLog;
 
+fn resolve_value_handle(vlog: &ValueLog, item: RangeItem) -> RangeItem {
+    match item {
+        Ok((key, value)) => {
+            let mut cursor = Cursor::new(value);
+            let item = MaybeInlineValue::deserialize(&mut cursor)?;
+
+            match item {
+                MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
+                MaybeInlineValue::Indirect { handle, .. } => match vlog.get(&handle) {
+                    Ok(Some(bytes)) => Ok((key, Slice::from(bytes))),
+                    Err(e) => Err(e.into()),
+                    _ => panic!("value handle did not match any blob - this is a bug"),
+                },
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// A key-value-separated log-structured merge tree
 ///
 /// This tree is a composite structure, consisting of an
@@ -56,25 +75,6 @@ impl BlobTree {
             index,
             blobs: ValueLog::open(vlog_path, vlog_cfg)?,
         })
-    }
-
-    fn resolve_value_handle(&self, item: RangeItem) -> RangeItem {
-        match item {
-            Ok((key, value)) => {
-                let mut cursor = Cursor::new(value);
-                let item = MaybeInlineValue::deserialize(&mut cursor)?;
-
-                match item {
-                    MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
-                    MaybeInlineValue::Indirect { handle, .. } => match self.blobs.get(&handle) {
-                        Ok(Some(bytes)) => Ok((key, Slice::from(bytes))),
-                        Err(e) => Err(e.into()),
-                        _ => panic!("value handle did not match any blob - this is a bug"),
-                    },
-                }
-            }
-            Err(e) => Err(e),
-        }
     }
 
     /// Scans the index tree, collecting statistics about
@@ -366,63 +366,67 @@ impl AbstractTree for BlobTree {
         Snapshot::new(Blob(self.clone()), seqno)
     }
 
-    fn iter_with_seqno<'a>(
-        &'a self,
+    fn iter_with_seqno(
+        &self,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a> {
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
 
-    fn range_with_seqno<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &'a self,
+    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
         range: R,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a> {
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
-                .create_range(range, Some(seqno), index)
-                .map(|item| self.resolve_value_handle(item)),
+                .create_range(&range, Some(seqno), index)
+                .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
 
-    fn prefix_with_seqno<'a, K: AsRef<[u8]>>(
-        &'a self,
+    fn prefix_with_seqno<K: AsRef<[u8]>>(
+        &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a> {
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
                 .create_prefix(prefix, Some(seqno), index)
-                .map(|item| self.resolve_value_handle(item)),
+                .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
-                .create_range(range, None, None)
-                .map(|item| self.resolve_value_handle(item)),
+                .create_range(&range, None, None)
+                .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
                 .create_prefix(prefix, None, None)
-                .map(|item| self.resolve_value_handle(item)),
+                .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
 

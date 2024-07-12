@@ -1,6 +1,6 @@
 use crate::{
     value::{SeqNo, UserKey, UserValue},
-    AbstractTree, AnyTree,
+    AbstractTree, AnyTree, KvPair,
 };
 use std::{
     ops::RangeBounds,
@@ -117,9 +117,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
         self.tree.iter_with_seqno(self.seqno, None)
     }
 
@@ -152,7 +150,7 @@ impl Snapshot {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
         self.tree.range_with_seqno(range, self.seqno, None)
     }
 
@@ -185,7 +183,7 @@ impl Snapshot {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + '_ {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
         self.tree.prefix_with_seqno(prefix, self.seqno, None)
     }
 

@@ -266,43 +266,43 @@ impl AbstractTree for Tree {
         Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
     }
 
-    fn iter_with_seqno<'a>(
-        &'a self,
+    fn iter_with_seqno(
+        &self,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
 
-    fn range_with_seqno<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &'a self,
+    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
         range: R,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
-        Box::new(self.create_range(range, Some(seqno), index))
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        Box::new(self.create_range(&range, Some(seqno), index))
     }
 
-    fn prefix_with_seqno<'a, K: AsRef<[u8]>>(
-        &'a self,
+    fn prefix_with_seqno<K: AsRef<[u8]>>(
+        &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<&'a MemTable>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         Box::new(self.create_prefix(prefix, Some(seqno), index))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
-        Box::new(self.create_range(range, None, None))
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+        Box::new(self.create_range(&range, None, None))
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         Box::new(self.create_prefix(prefix, None, None))
     }
 
@@ -623,21 +623,21 @@ impl Tree {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn create_iter<'a>(
-        &'a self,
+    pub fn create_iter(
+        &self,
         seqno: Option<SeqNo>,
-        index: Option<&'a MemTable>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a {
-        self.create_range::<UserKey, _>(.., seqno, index)
+        ephemeral: Option<Arc<MemTable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+        self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
 
     #[doc(hidden)]
-    pub fn create_range<'a, K: AsRef<[u8]>, R: RangeBounds<K>>(
+    pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
-        range: R,
+        range: &'a R,
         seqno: Option<SeqNo>,
-        add_index: Option<&'a MemTable>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a {
+        ephemeral: Option<Arc<MemTable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -655,39 +655,55 @@ impl Tree {
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
         // NOTE: Mind lock order L -> M -> S
-        let level_manifest_lock = self.levels.read().expect("lock is poisoned");
-        let active = self.active_memtable.read().expect("lock is poisoned");
-        let sealed = self.sealed_memtables.read().expect("lock is poisoned");
+        let level_manifest_lock =
+            guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
+
+        let active = guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
+            .expect("lock is poisoned");
+
+        let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
+            .expect("lock is poisoned");
 
         TreeIter::create_range(
-            MemtableLockGuard { active, sealed },
+            MemtableLockGuard {
+                active,
+                sealed,
+                ephemeral,
+            },
             bounds,
             seqno,
             level_manifest_lock,
-            add_index,
         )
     }
 
     #[doc(hidden)]
-    pub fn create_prefix<'a, K: AsRef<[u8]>>(
+    pub fn create_prefix<'a, K: AsRef<[u8]> + 'a>(
         &'a self,
         prefix: K,
         seqno: Option<SeqNo>,
-        add_index: Option<&'a MemTable>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a {
+        ephemeral: Option<Arc<MemTable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let prefix = prefix.as_ref();
 
         // NOTE: Mind lock order L -> M -> S
-        let level_manifest_lock = self.levels.read().expect("lock is poisoned");
-        let active = self.active_memtable.read().expect("lock is poisoned");
-        let sealed = self.sealed_memtables.read().expect("lock is poisoned");
+        let level_manifest_lock =
+            guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
+
+        let active = guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
+            .expect("lock is poisoned");
+
+        let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
+            .expect("lock is poisoned");
 
         TreeIter::create_prefix(
-            MemtableLockGuard { active, sealed },
+            MemtableLockGuard {
+                active,
+                sealed,
+                ephemeral,
+            },
             &prefix.into(),
             seqno,
             level_manifest_lock,
-            add_index,
         )
     }
 
