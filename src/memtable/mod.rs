@@ -109,7 +109,6 @@ impl MemTable {
             .map(Ok);
 
         MvccStream::new(iter)
-            .evict_old_versions(true)
             .next()
             .map(|x| x.expect("cannot fail"))
     }

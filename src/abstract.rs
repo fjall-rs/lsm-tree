@@ -55,7 +55,11 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()>;
+    fn compact(
+        &self,
+        strategy: Arc<dyn CompactionStrategy>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()>;
 
     /// Returns the next segment's ID.
     fn get_next_segment_id(&self) -> SegmentId;

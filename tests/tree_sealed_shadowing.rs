@@ -24,7 +24,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     assert!(!tree.contains_key("a")?);
 
-    tree.major_compact(u64::MAX)?;
+    tree.major_compact(u64::MAX, 2)?;
 
     assert!(!tree.contains_key("a")?);
 

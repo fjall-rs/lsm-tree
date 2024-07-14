@@ -75,7 +75,9 @@
 //! # use std::sync::Arc;
 //!
 //! let strategy = Leveled::default();
-//! tree.compact(Arc::new(strategy))?;
+//!
+//! let version_gc_threshold = 0;
+//! tree.compact(Arc::new(strategy), version_gc_threshold)?;
 //!
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //! #

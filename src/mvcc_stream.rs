@@ -16,7 +16,7 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
 #[allow(clippy::module_name_repetitions)]
 pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     inner: DoubleEndedPeekable<I>,
-    evict_old_versions: bool, // TODO: change to Option<SeqNo>, for snapshot tracking
+    gc_seqno_threshold: Option<SeqNo>,
 }
 
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
@@ -27,14 +27,14 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
 
         Self {
             inner: iter,
-            evict_old_versions: false,
+            gc_seqno_threshold: None,
         }
     }
 
-    /// Evict old versions by skipping over them
+    /// Evict old versions by skipping over them, if they are older than this threshold.
     #[must_use]
-    pub fn evict_old_versions(mut self, v: bool) -> Self {
-        self.evict_old_versions = v;
+    pub fn gc_seqno_threshold(mut self, seqno: SeqNo) -> Self {
+        self.gc_seqno_threshold = Some(seqno);
         self
     }
 
@@ -66,15 +66,54 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for M
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.evict_old_versions {
-            return self.inner.next();
+        if let Some(seqno) = self.gc_seqno_threshold {
+            loop {
+                let head = fail_iter!(self.inner.next()?);
+
+                // TODO: unit test
+
+                if let Some(peeked) = self.inner.peek() {
+                    let peeked = match peeked {
+                        Ok(v) => v,
+                        Err(_) => {
+                            return Some(Err(self
+                                .inner
+                                .next()
+                                .expect("value should exist")
+                                .expect_err("should be error")))
+                        }
+                    };
+
+                    // NOTE: Only item of this key and thus latest version, so return it no matter what
+                    if peeked.key.user_key > head.key.user_key {
+                        return Some(Ok(head));
+                    }
+
+                    // NOTE: Next item is expired is expired,
+                    // so the tail of this user key is entirely expired, so drain it all
+                    if peeked.key.seqno < seqno {
+                        // NOTE: If next item is an actual value, and current value is weak tombstone,
+                        // drop the tombstone
+                        let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
+                            && head.key.value_type == ValueType::WeakTombstone;
+
+                        fail_iter!(self.drain_key_min(&head.key.user_key));
+
+                        if drop_weak_tombstone {
+                            continue;
+                        }
+                    }
+                }
+
+                return Some(Ok(head));
+            }
         }
 
         loop {
             let head = fail_iter!(self.inner.next()?);
 
+            // Weak tombstone ("Single delete") logic
             if head.key.value_type == ValueType::WeakTombstone {
-                // Weak tombstone ("Single delete") logic
                 let next = match self.inner.peek() {
                     Some(Ok(next)) => next,
                     Some(Err(_)) => {
@@ -108,8 +147,9 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
     for MvccStream<I>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if !self.evict_old_versions {
-            return self.inner.next_back();
+        if let Some(_seqno) = self.gc_seqno_threshold {
+            panic!("Should probably implement this, but it's not really needed right now");
+            // return self.inner.next_back();
         }
 
         // NOTE: Many versions are pretty unlikely, so we can probably skip a lot of heap allocations
@@ -218,7 +258,7 @@ mod tests {
         ];
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
-        let mut iter = MvccStream::new(iter);
+        let mut iter = MvccStream::new(iter).gc_seqno_threshold(0);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"old", 999, ValueType::Value),
@@ -232,9 +272,7 @@ mod tests {
             InternalValue::from_components(*b"c", *b"old", 999, ValueType::Value),
             iter.next().unwrap()?,
         );
-        iter_closed!(iter);
-
-        test_reverse!(vec);
+        assert!(iter.next().is_none(), "iterator should be closed (done)");
 
         Ok(())
     }
@@ -255,7 +293,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter);
+        let mut iter = MvccStream::new(iter).gc_seqno_threshold(0);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"new", 999, ValueType::Value),
@@ -285,9 +323,7 @@ mod tests {
             InternalValue::from_components(*b"c", *b"old", 997, ValueType::Value),
             iter.next().unwrap()?,
         );
-        iter_closed!(iter);
-
-        test_reverse!(vec);
+        assert!(iter.next().is_none(), "iterator should be closed (done)");
 
         Ok(())
     }
@@ -303,7 +339,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"new", 999, ValueType::Value),
@@ -332,7 +368,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"new", 999, ValueType::Value),
@@ -364,7 +400,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
@@ -393,7 +429,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
@@ -425,7 +461,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         iter_closed!(iter);
 
@@ -444,7 +480,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"old", 997, ValueType::Value),
@@ -470,7 +506,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
@@ -498,7 +534,7 @@ mod tests {
 
         let iter = Box::new(vec.iter().cloned().map(Ok));
 
-        let mut iter = MvccStream::new(iter).evict_old_versions(true);
+        let mut iter = MvccStream::new(iter);
 
         iter_closed!(iter);
 

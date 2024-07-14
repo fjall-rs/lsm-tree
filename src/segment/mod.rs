@@ -330,10 +330,7 @@ impl Segment {
         // unfortunately is in the next block
         //
         // Also because of weak tombstones, we may have to look further than the first item we encounter
-        MvccStream::new(iter)
-            .evict_old_versions(true)
-            .next()
-            .transpose()
+        MvccStream::new(iter).next().transpose()
     }
 
     /// Retrieves an item from the segment.

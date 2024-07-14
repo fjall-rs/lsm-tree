@@ -479,7 +479,7 @@ mod tests {
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.major_compact(u64::MAX)?;
+        tree.major_compact(u64::MAX, 3)?;
 
         assert_eq!(1, tree.segment_count());
 
@@ -492,7 +492,7 @@ mod tests {
         // to force an I/O error
         tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
 
-        assert!(tree.major_compact(u64::MAX).is_err());
+        assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
             .levels

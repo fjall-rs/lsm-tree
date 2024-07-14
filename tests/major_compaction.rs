@@ -17,7 +17,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
     assert_eq!(1, tree.segment_count());
 
-    tree.major_compact(u64::MAX)?;
+    tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
     assert_eq!(1, tree.segment_count());
 
     let item = tree.get_internal_entry("a", true, None)?.unwrap();
@@ -46,7 +46,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
     assert_eq!(2, tree.segment_count());
 
-    tree.major_compact(u64::MAX)?;
+    tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
 
     assert_eq!(0, tree.segment_count());
     assert_eq!(0, tree.len()?);

@@ -86,7 +86,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
     assert!(tree.is_empty()?);
     assert_eq!(tree.approximate_len(), 5);
 
-    tree.major_compact(u64::MAX)?;
+    tree.major_compact(u64::MAX, 5)?;
 
     // Approximate count converges
     assert_eq!(tree.len()?, 0);

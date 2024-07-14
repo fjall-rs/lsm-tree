@@ -191,7 +191,7 @@ impl TreeIter {
             }
 
             let merged = Merger::new(iters);
-            let iter = MvccStream::new(Box::new(merged)).evict_old_versions(true);
+            let iter = MvccStream::new(Box::new(merged));
 
             Box::new(
                 #[allow(clippy::option_if_let_else)]
@@ -371,7 +371,7 @@ impl TreeIter {
             }
 
             let merged = Merger::new(iters);
-            let iter = MvccStream::new(Box::new(merged)).evict_old_versions(true);
+            let iter = MvccStream::new(Box::new(merged));
 
             Box::new(
                 iter.filter(|x| match x {

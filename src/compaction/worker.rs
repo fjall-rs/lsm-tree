@@ -6,7 +6,6 @@ use crate::{
     merge::{BoxedIterator, Merger},
     mvcc_stream::MvccStream,
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
-    snapshot::Counter as SnapshotCounter,
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
     Config,
@@ -38,9 +37,6 @@ pub struct Options {
     /// Sealed memtables (required for temporarily locking).
     pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Snapshot counter (required for checking if there are open snapshots).
-    pub open_snapshots: SnapshotCounter,
-
     /// Compaction strategy.
     ///
     /// The one inside `config` is NOT used.
@@ -48,6 +44,9 @@ pub struct Options {
 
     /// Stop signal
     pub stop_signal: StopSignal,
+
+    /// Evicts items that are older than this seqno
+    pub eviction_seqno: u64,
 }
 
 impl Options {
@@ -58,9 +57,9 @@ impl Options {
             config: tree.config.clone(),
             sealed_memtables: tree.sealed_memtables.clone(),
             levels: tree.levels.clone(),
-            open_snapshots: tree.open_snapshots.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
+            eviction_seqno: 0,
         }
     }
 }
@@ -142,14 +141,6 @@ fn merge_segments(
                 .collect()
         };
 
-        // NOTE: When there are open snapshots
-        // we don't want to GC old versions of items
-        // otherwise snapshots will lose data
-        //
-        // Also, keep versions around for a bit (don't evict when compacting into L0 & L1)
-        let no_snapshots_open = !opts.open_snapshots.has_open_snapshots();
-        let is_deep_level = payload.dest_level >= 2;
-
         let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());
 
         for segment in to_merge {
@@ -162,7 +153,7 @@ fn merge_segments(
         }
 
         let merged = Merger::new(segment_readers);
-        MvccStream::new(Box::new(merged)).evict_old_versions(no_snapshots_open && is_deep_level)
+        MvccStream::new(Box::new(merged)).gc_seqno_threshold(opts.eviction_seqno)
     };
 
     let last_level = levels.last_level_index();
@@ -418,7 +409,7 @@ mod tests {
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)))?;
+        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
         assert_eq!(0, tree.segment_count());
 

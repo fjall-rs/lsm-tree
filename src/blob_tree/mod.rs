@@ -287,8 +287,9 @@ impl AbstractTree for BlobTree {
     fn compact(
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
-        self.index.compact(strategy)
+        self.index.compact(strategy, seqno_threshold)
     }
 
     fn get_next_segment_id(&self) -> SegmentId {

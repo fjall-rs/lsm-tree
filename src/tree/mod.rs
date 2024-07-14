@@ -120,10 +120,16 @@ impl AbstractTree for Tree {
         memtable_lock.add(id, memtable);
     }
 
-    fn compact(&self, strategy: Arc<dyn CompactionStrategy>) -> crate::Result<()> {
+    // TODO: eviction seqno
+    fn compact(
+        &self,
+        strategy: Arc<dyn CompactionStrategy>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()> {
         use crate::compaction::worker::{do_compaction, Options};
 
-        let opts = Options::from_tree(self, strategy);
+        let mut opts = Options::from_tree(self, strategy);
+        opts.eviction_seqno = seqno_threshold;
         do_compaction(&opts)?;
 
         log::debug!("lsm-tree: compaction run over");
@@ -396,10 +402,10 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn major_compact(&self, target_size: u64) -> crate::Result<()> {
+    pub fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         log::info!("Starting major compaction");
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
-        self.compact(strategy)
+        self.compact(strategy, seqno_threshold)
     }
 
     pub(crate) fn consume_writer(

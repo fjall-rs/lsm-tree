@@ -26,39 +26,20 @@ fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
-    {
-        let folder = tempfile::tempdir()?;
-        let path = folder.path();
+    let folder = tempfile::tempdir()?;
+    let path = folder.path();
 
-        let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path).open()?;
 
-        tree.insert("a", "old", 0);
-        assert_eq!(1, tree.len()?);
+    tree.insert("a", "old", 0);
+    assert_eq!(1, tree.len()?);
 
-        tree.remove_weak("a", 1);
-        assert_eq!(0, tree.len()?);
+    tree.remove_weak("a", 1);
+    assert_eq!(0, tree.len()?);
 
-        tree.flush_active_memtable()?;
+    tree.flush_active_memtable()?;
 
-        assert_eq!(0, tree.segment_count());
-    }
-
-    {
-        let folder = tempfile::tempdir()?;
-        let path = folder.path();
-
-        let tree = lsm_tree::Config::new(path).open()?;
-
-        tree.insert("a", "old", 0);
-        assert_eq!(1, tree.len()?);
-
-        tree.remove("a", 1);
-        assert_eq!(0, tree.len()?);
-
-        tree.flush_active_memtable()?;
-
-        assert_eq!(1, tree.segment_count());
-    }
+    assert_eq!(1, tree.segment_count());
 
     Ok(())
 }

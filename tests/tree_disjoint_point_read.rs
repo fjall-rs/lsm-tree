@@ -46,7 +46,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     tree.insert("d", "d", 0);
     tree.flush_active_memtable()?;
 
-    tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10)))?;
+    tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10)), 1)?;
     assert_eq!(
         1,
         tree.levels
