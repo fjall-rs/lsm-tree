@@ -237,8 +237,7 @@ impl AbstractTree for BlobTree {
                 panic!("values are initially always inlined");
             };
 
-            // TODO: 2.0.0 blob threshold
-            if value.len() > 2_048 {
+            if value.len() as u32 > self.index.config.blob_file_separation_threshold {
                 let handle = blob_writer.get_next_value_handle(&key.user_key);
 
                 let indirection = MaybeInlineValue::Indirect {

@@ -91,7 +91,6 @@ impl Default for PersistedConfig {
             level_ratio: 8,
             r#type: TreeType::Standard,
             table_type: TableType::Block,
-
             compression: CompressionType::None,
         }
     }
@@ -171,9 +170,13 @@ pub struct Config {
     #[doc(hidden)]
     pub blob_cache: Arc<BlobCache>,
 
-    /// Blob file (value log segment) target size
+    /// Blob file (value log segment) target size in bytes
     #[doc(hidden)]
     pub blob_file_target_size: u64,
+
+    /// Key-value separation threshold in bytes
+    #[doc(hidden)]
+    pub blob_file_separation_threshold: u32,
 
     /// Descriptor table to use
     #[doc(hidden)]
@@ -189,6 +192,7 @@ impl Default for Config {
 
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
             blob_file_target_size: 64 * 1_024 * 1_024,
+            blob_file_separation_threshold: 4 * 1_024,
 
             inner: PersistedConfig::default(),
         }
@@ -281,8 +285,6 @@ impl Config {
         self
     }
 
-    // TODO: 2.0.0 key-value separation threshold
-
     /// Sets the block cache.
     ///
     /// You can create a global [`BlobCache`] and share it between multiple
@@ -310,6 +312,20 @@ impl Config {
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
     pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
+        self.blob_file_target_size = bytes;
+        self
+    }
+
+    /// Sets the key-value separation threshold in bytes.
+    ///
+    /// Smaller value will reduce compaction overhead and thus write amplification,
+    /// at the cost of lower read performance.
+    ///
+    /// Defaults to 4KiB.
+    ///
+    /// This function has no effect when not used for opening a blob tree.
+    #[must_use]
+    pub fn blob_file_separation_threshold(mut self, bytes: u64) -> Self {
         self.blob_file_target_size = bytes;
         self
     }
