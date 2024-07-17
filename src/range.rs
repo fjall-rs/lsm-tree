@@ -327,10 +327,7 @@ impl TreeIter {
 
             // Sealed memtables
             for (_, memtable) in lock.sealed.iter() {
-                let iter = memtable
-                    .items
-                    .range(range.clone())
-                    .map(|entry| InternalValue::new(entry.key().clone(), entry.value().clone()));
+                let iter = memtable.range(range.clone());
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
@@ -344,10 +341,7 @@ impl TreeIter {
 
             // Active memtable
             {
-                let iter =
-                    lock.active.items.range(range.clone()).map(|entry| {
-                        InternalValue::new(entry.key().clone(), entry.value().clone())
-                    });
+                let iter = lock.active.range(range.clone());
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
@@ -360,12 +354,7 @@ impl TreeIter {
             }
 
             if let Some(index) = &lock.ephemeral {
-                let iter = Box::new(index.items.range(range).map(|entry| {
-                    Ok(InternalValue::new(
-                        entry.key().clone(),
-                        entry.value().clone(),
-                    ))
-                }));
+                let iter = Box::new(index.range(range).map(Ok));
 
                 iters.push(iter);
             }

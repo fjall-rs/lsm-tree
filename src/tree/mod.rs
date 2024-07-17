@@ -72,10 +72,8 @@ impl AbstractTree for Tree {
             );
         }
 
-        for entry in &memtable.items {
-            let key = entry.key();
-            let value = entry.value();
-            segment_writer.write(InternalValue::new(key.clone(), value.clone()))?;
+        for item in memtable.iter() {
+            segment_writer.write(item)?;
         }
 
         self.consume_writer(segment_id, segment_writer)
@@ -179,7 +177,7 @@ impl AbstractTree for Tree {
         log::trace!("rotate: acquiring active memtable write lock");
         let mut active_memtable = self.lock_active_memtable();
 
-        if active_memtable.items.is_empty() {
+        if active_memtable.is_empty() {
             return None;
         }
 

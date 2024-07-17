@@ -219,44 +219,46 @@ impl AbstractTree for BlobTree {
 
         // TODO: bug that drops latest blob file for some reason?? see html benchmark w/ delete + gc
 
-        for entry in &memtable.items {
-            let key = entry.key();
-
-            if key.is_tombstone() {
+        for item in memtable.iter() {
+            if item.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
-                segment_writer.write(InternalValue::new(key.clone(), vec![]))?;
+                segment_writer.write(InternalValue::new(item.key, vec![]))?;
                 continue;
             }
 
-            let value = entry.value();
-            let mut cursor = Cursor::new(value);
+            let mut cursor = Cursor::new(item.value);
 
             let value = MaybeInlineValue::deserialize(&mut cursor)?;
             let MaybeInlineValue::Inline(value) = value else {
                 panic!("values are initially always inlined");
             };
 
-            if value.len() as u32 > self.index.config.blob_file_separation_threshold {
-                let handle = blob_writer.get_next_value_handle(&key.user_key);
+            // NOTE: Values are 32-bit max
+            #[allow(clippy::cast_possible_truncation)]
+            let value_size = value.len() as u32;
+
+            if value_size > self.index.config.blob_file_separation_threshold {
+                let handle = blob_writer.get_next_value_handle(&item.key.user_key);
 
                 let indirection = MaybeInlineValue::Indirect {
                     handle,
-                    size: value.len() as u32,
+                    size: value_size,
                 };
                 let mut serialized_indirection = vec![];
                 indirection.serialize(&mut serialized_indirection)?;
 
-                segment_writer.write(InternalValue::new(key.clone(), serialized_indirection))?;
+                segment_writer
+                    .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
 
-                blob_writer.write(&key.user_key, value)?;
+                blob_writer.write(&item.key.user_key, value)?;
             } else {
                 let direct = MaybeInlineValue::Inline(value);
 
                 let mut serialized_direct = vec![];
                 direct.serialize(&mut serialized_direct)?;
 
-                segment_writer.write(InternalValue::new(key.clone(), serialized_direct))?;
+                segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
             }
         }
 
