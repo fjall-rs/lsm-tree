@@ -298,7 +298,7 @@ impl Tree {
         log::trace!("rotate: acquiring active memtable write lock");
         let mut active_memtable = self.lock_active_memtable();
 
-        if active_memtable.items.is_empty() {
+        if active_memtable.is_empty() {
             return None;
         }
 

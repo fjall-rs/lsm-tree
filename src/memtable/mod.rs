@@ -1,14 +1,16 @@
 use crate::segment::prefix::prefix_to_range;
 use crate::value::{ParsedInternalKey, SeqNo, UserValue, ValueType};
-use crate::{UserKey, Value};
+use crate::Value;
 use crossbeam_skiplist::SkipMap;
+use std::ops::Bound::{Excluded, Included, Unbounded};
+use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU32;
 
 /// The memtable serves as an intermediary storage for new items
 #[derive(Default)]
 pub struct MemTable {
     #[doc(hidden)]
-    pub items: SkipMap<ParsedInternalKey, UserValue>,
+    items: SkipMap<ParsedInternalKey, UserValue>,
 
     /// Approximate active memtable size
     ///
@@ -17,11 +19,27 @@ pub struct MemTable {
 }
 
 impl MemTable {
-    /// Creates an iterator over a prefixed set of items
-    pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = Value> + '_ {
-        use std::ops::Bound::{Excluded, Included, Unbounded};
+    /// Creates an iterator over all items.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = Value> + '_ {
+        self.items
+            .iter()
+            .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
+    }
 
-        let (lower_bound, upper_bound) = prefix_to_range(&prefix);
+    /// Creates an iterator over a range of items.
+    pub fn range<'a, R: RangeBounds<ParsedInternalKey> + 'a>(
+        &'a self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = Value> + 'a {
+        self.items
+            .range(range)
+            .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
+    }
+
+    /// Creates an iterator over a prefixed set of items.
+    pub fn prefix<K: AsRef<[u8]>>(&self, prefix: K) -> impl DoubleEndedIterator<Item = Value> + '_ {
+        let prefix = prefix.as_ref();
+        let (lower_bound, upper_bound) = prefix_to_range(prefix);
 
         let lower_bound = match lower_bound {
             Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
@@ -34,17 +52,13 @@ impl MemTable {
             _ => panic!("upper bound cannot be included"),
         };
 
-        self.items
-            .range((lower_bound, upper_bound))
-            .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
+        self.range((lower_bound, upper_bound))
     }
 
-    /// Returns the item by key if it exists
+    /// Returns the item by key if it exists.
     ///
-    /// The item with the highest seqno will be returned, if `seqno` is None
+    /// The item with the highest seqno will be returned, if `seqno` is None.
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<Value> {
-        use std::ops::Bound::{Excluded, Included, Unbounded};
-
         let prefix = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
@@ -100,24 +114,24 @@ impl MemTable {
         None
     }
 
-    /// Get approximate size of memtable in bytes
+    /// Get approximate size of memtable in bytes.
     pub fn size(&self) -> u32 {
         self.approximate_size
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Count the amount of items in the memtable
+    /// Count the amount of items in the memtable.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// Returns `true` if the memtable is empty
+    /// Returns `true` if the memtable is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.items.is_empty()
     }
 
-    /// Inserts an item into the memtable
+    /// Inserts an item into the memtable.
     pub fn insert(&self, item: Value) -> (u32, u32) {
         // NOTE: Value length is u32 max
         #[allow(clippy::cast_possible_truncation)]
@@ -133,7 +147,7 @@ impl MemTable {
         (item_size, size_before + item_size)
     }
 
-    /// Returns the highest sequence number in the memtable
+    /// Returns the highest sequence number in the memtable.
     pub fn get_lsn(&self) -> Option<SeqNo> {
         self.items
             .iter()
@@ -147,8 +161,10 @@ impl MemTable {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::value::ValueType;
+    use crate::{value::ValueType, UserKey};
     use test_log::test;
 
     #[test]
@@ -287,6 +303,75 @@ mod tests {
                 ValueType::Value,
             )),
             memtable.get("abc0", None)
+        );
+    }
+
+    #[test]
+    fn memtable_prefix() {
+        let memtable = MemTable::default();
+        memtable.insert(Value::new(
+            b"a".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"abc".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"b".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"abcdef".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+
+        assert_eq!(3, memtable.prefix("a").count());
+    }
+
+    #[test]
+    fn memtable_range() {
+        let memtable = MemTable::default();
+        memtable.insert(Value::new(
+            b"a".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"abc".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"b".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+        memtable.insert(Value::new(
+            b"abcdef".to_vec(),
+            b"abc".to_vec(),
+            0,
+            ValueType::Value,
+        ));
+
+        let key: UserKey = Arc::new(*b"abcdef");
+
+        assert_eq!(
+            2,
+            memtable
+                .range(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)..)
+                .count()
         );
     }
 

@@ -56,10 +56,8 @@ pub fn flush_to_segment(opts: Options) -> crate::Result<Segment> {
         bloom_fp_rate: 0.0001,
     })?;
 
-    for entry in &opts.memtable.items {
-        let key = entry.key();
-        let value = entry.value();
-        segment_writer.write(crate::Value::from(((key.clone()), value.clone())))?;
+    for entry in opts.memtable.iter() {
+        segment_writer.write(entry)?;
     }
 
     let trailer = segment_writer
