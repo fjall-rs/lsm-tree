@@ -21,17 +21,23 @@ pub struct MemTable {
 impl MemTable {
     /// Creates an iterator over a prefixed set of items
     pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
-        let lower_bound = ParsedInternalKey::new(
-            prefix.clone(),
-            SeqNo::MAX,
-            /* NOTE: doesn't matter */ ValueType::Value,
-        );
+        use std::ops::Bound::{Excluded, Included, Unbounded};
 
-        // TODO: compute upper bound
+        let (lower_bound, upper_bound) = prefix_to_range(&prefix);
+
+        let lower_bound = match lower_bound {
+            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("lower bound cannot be excluded"),
+        };
+        let upper_bound = match upper_bound {
+            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("upper bound cannot be included"),
+        };
 
         self.items
-            .range(lower_bound..)
-            .filter(move |entry| entry.key().user_key.starts_with(&prefix))
+            .range((lower_bound, upper_bound))
             .map(|entry| InternalValue {
                 key: entry.key().clone(),
                 value: entry.value().clone(),
