@@ -1,3 +1,4 @@
+use crate::segment::prefix::prefix_to_range;
 use crate::value::{ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crate::{UserKey, Value};
 use crossbeam_skiplist::SkipMap;
@@ -18,10 +19,23 @@ pub struct MemTable {
 impl MemTable {
     /// Creates an iterator over a prefixed set of items
     pub fn prefix(&self, prefix: UserKey) -> impl DoubleEndedIterator<Item = Value> + '_ {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+
+        let (lower_bound, upper_bound) = prefix_to_range(&prefix);
+
+        let lower_bound = match lower_bound {
+            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("lower bound cannot be excluded"),
+        };
+        let upper_bound = match upper_bound {
+            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("upper bound cannot be included"),
+        };
+
         self.items
-            // TODO: compute upper bound
-            .range(ParsedInternalKey::new(prefix.clone(), SeqNo::MAX, ValueType::Tombstone)..)
-            .filter(move |entry| entry.key().user_key.starts_with(&prefix))
+            .range((lower_bound, upper_bound))
             .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
     }
 
@@ -29,6 +43,8 @@ impl MemTable {
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<Value> {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+
         let prefix = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
@@ -47,7 +63,21 @@ impl MemTable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let range = ParsedInternalKey::new(prefix, SeqNo::MAX, ValueType::Tombstone)..;
+        let (lower_bound, upper_bound) = prefix_to_range(prefix);
+
+        // TODO: 1.77 Bound::Map
+        let lower_bound = match lower_bound {
+            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("lower bound cannot be excluded"),
+        };
+        let upper_bound = match upper_bound {
+            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
+            Unbounded => Unbounded,
+            _ => panic!("upper bound cannot be included"),
+        };
+
+        let range = (lower_bound, upper_bound);
 
         for entry in self.items.range(range) {
             let key = entry.key();
