@@ -7,11 +7,31 @@ pub enum SerializeError {
     Io(std::io::Error),
 }
 
+impl std::fmt::Display for SerializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SerializeError({})",
+            match self {
+                Self::Io(e) => e.to_string(),
+            }
+        )
+    }
+}
+
+impl From<std::io::Error> for SerializeError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
 /// Error during deserialization
 #[derive(Debug)]
 pub enum DeserializeError {
     /// I/O error
     Io(std::io::Error),
+
+    Utf8(std::str::Utf8Error),
 
     /// Invalid enum tag
     InvalidTag((&'static str, u8)),
@@ -22,15 +42,28 @@ pub enum DeserializeError {
     InvalidHeader(&'static str),
 }
 
-impl From<std::io::Error> for SerializeError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
+impl std::fmt::Display for DeserializeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DeserializeError({})",
+            match self {
+                Self::Io(e) => e.to_string(),
+                e => format!("{e:?}"),
+            }
+        )
     }
 }
 
 impl From<std::io::Error> for DeserializeError {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
+    }
+}
+
+impl From<std::str::Utf8Error> for DeserializeError {
+    fn from(value: std::str::Utf8Error) -> Self {
+        Self::Utf8(value)
     }
 }
 
