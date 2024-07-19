@@ -19,11 +19,19 @@ impl std::fmt::Display for SerializeError {
     }
 }
 
+impl From<std::io::Error> for SerializeError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
 /// Error during deserialization
 #[derive(Debug)]
 pub enum DeserializeError {
     /// I/O error
     Io(std::io::Error),
+
+    Utf8(std::str::Utf8Error),
 
     /// Invalid enum tag
     InvalidTag((&'static str, u8)),
@@ -47,15 +55,15 @@ impl std::fmt::Display for DeserializeError {
     }
 }
 
-impl From<std::io::Error> for SerializeError {
+impl From<std::io::Error> for DeserializeError {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
     }
 }
 
-impl From<std::io::Error> for DeserializeError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
+impl From<std::str::Utf8Error> for DeserializeError {
+    fn from(value: std::str::Utf8Error) -> Self {
+        Self::Utf8(value)
     }
 }
 
