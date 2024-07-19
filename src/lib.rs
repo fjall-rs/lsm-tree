@@ -123,6 +123,8 @@ mod memtable;
 #[doc(hidden)]
 pub mod merge;
 
+mod path;
+
 #[doc(hidden)]
 pub mod range;
 

@@ -1,24 +1,16 @@
 use crate::{
     descriptor_table::FileDescriptorTable,
+    path::absolute_path,
     segment::meta::{CompressionType, TableType},
     serde::{Deserializable, Serializable},
     BlockCache, DeserializeError, SerializeError, Tree,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use path_absolutize::Absolutize;
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-fn absolute_path<P: AsRef<Path>>(path: P) -> PathBuf {
-    // TODO: replace with https://doc.rust-lang.org/std/path/fn.absolute.html once stable
-    path.as_ref()
-        .absolutize()
-        .expect("should be absolute path")
-        .into()
-}
 
 pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'C', b'F', b'G', b'1'];
 
