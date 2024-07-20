@@ -135,8 +135,6 @@ pub mod levels;
 
 mod memtable;
 
-mod path;
-
 #[doc(hidden)]
 pub mod merge;
 
