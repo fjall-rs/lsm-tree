@@ -141,6 +141,7 @@ mod path;
 pub mod merge;
 
 mod mvcc_stream;
+mod path;
 
 #[doc(hidden)]
 pub mod range;
