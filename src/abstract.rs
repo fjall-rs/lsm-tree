@@ -99,12 +99,6 @@ pub trait AbstractTree {
     /// Returns the highest sequence number that is flushed to disk.
     fn get_segment_lsn(&self) -> Option<SeqNo>;
 
-    /// Registers snapshot.
-    fn register_snapshot(&self);
-
-    /// Deregisters snapshot.
-    fn deregister_snapshot(&self);
-
     /// Scans the entire tree, returning the amount of items.
     ///
     /// ###### Caution
@@ -138,7 +132,6 @@ pub trait AbstractTree {
     fn len(&self) -> crate::Result<usize> {
         let mut count = 0;
 
-        // TODO: shouldn't write to block cache
         for item in self.iter() {
             let _ = item?;
             count += 1;

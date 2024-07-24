@@ -1,6 +1,6 @@
 use crate::{
     config::Config, file::LEVELS_MANIFEST_FILE, levels::LevelManifest, memtable::MemTable,
-    segment::meta::SegmentId, snapshot::Counter as SnapshotCounter, stop_signal::StopSignal,
+    segment::meta::SegmentId, stop_signal::StopSignal,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -63,9 +63,6 @@ pub struct TreeInner {
     /// Tree configuration
     pub config: Config,
 
-    /// Keeps track of open snapshots
-    pub(crate) open_snapshots: SnapshotCounter,
-
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
@@ -85,7 +82,6 @@ impl TreeInner {
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
-            open_snapshots: SnapshotCounter::default(),
             stop_signal: StopSignal::default(),
         })
     }

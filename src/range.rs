@@ -5,7 +5,7 @@ use crate::{
     mvcc_stream::{seqno_filter, MvccStream},
     segment::{multi_reader::MultiReader, prefix::PrefixedReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
-    value::{InternalValue, ParsedInternalKey, SeqNo, UserKey, UserValue},
+    value::{ParsedInternalKey, SeqNo, UserKey, UserValue},
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;

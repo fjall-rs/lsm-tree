@@ -242,14 +242,6 @@ impl AbstractTree for Tree {
         levels.iter().map(|s| s.get_lsn()).max()
     }
 
-    fn register_snapshot(&self) {
-        self.open_snapshots.increment();
-    }
-
-    fn deregister_snapshot(&self) {
-        self.open_snapshots.decrement();
-    }
-
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
         use crate::AnyTree::Standard;
 
@@ -727,10 +719,7 @@ impl Tree {
     ///
     /// Returns error, if an IO error occured.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::{
-            file::{CONFIG_FILE, LSM_MARKER},
-            snapshot::Counter as SnapshotCounter,
-        };
+        use crate::file::{CONFIG_FILE, LSM_MARKER};
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {:?}", config.path);
@@ -773,7 +762,6 @@ impl Tree {
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
-            open_snapshots: SnapshotCounter::default(),
             stop_signal: StopSignal::default(),
             config,
         };

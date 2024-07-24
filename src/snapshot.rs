@@ -2,41 +2,7 @@ use crate::{
     value::{SeqNo, UserKey, UserValue},
     AbstractTree, AnyTree, KvPair,
 };
-use std::{
-    ops::RangeBounds,
-    sync::{
-        atomic::{self, AtomicU32},
-        Arc,
-    },
-};
-
-// TODO: merge this and seqno generator into new AtomicCounter
-// and create newtypes
-
-#[derive(Clone, Debug, Default)]
-pub struct Counter(Arc<AtomicU32>);
-
-impl std::ops::Deref for Counter {
-    type Target = Arc<AtomicU32>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Counter {
-    pub fn increment(&self) -> u32 {
-        self.fetch_add(1, atomic::Ordering::Release)
-    }
-
-    pub fn decrement(&self) -> u32 {
-        self.fetch_sub(1, atomic::Ordering::Release)
-    }
-
-    pub fn has_open_snapshots(&self) -> bool {
-        self.load(atomic::Ordering::Acquire) > 0
-    }
-}
+use std::ops::RangeBounds;
 
 /// A snapshot captures a read-only point-in-time view of the tree at the time the snapshot was created
 ///
@@ -53,7 +19,6 @@ pub struct Snapshot {
 impl Snapshot {
     /// Creates a snapshot
     pub(crate) fn new(tree: AnyTree, seqno: SeqNo) -> Self {
-        tree.register_snapshot();
         log::trace!("Opening snapshot with seqno: {seqno}");
         Self { tree, seqno }
     }
@@ -337,19 +302,11 @@ impl Snapshot {
     pub fn len(&self) -> crate::Result<usize> {
         let mut count = 0;
 
-        // TODO: shouldn't thrash block cache
         for item in self.iter() {
             let _ = item?;
             count += 1;
         }
 
         Ok(count)
-    }
-}
-
-impl Drop for Snapshot {
-    fn drop(&mut self) {
-        log::trace!("Closing snapshot");
-        self.tree.deregister_snapshot();
     }
 }

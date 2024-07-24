@@ -354,14 +354,6 @@ impl AbstractTree for BlobTree {
         self.index.get_segment_lsn()
     }
 
-    fn register_snapshot(&self) {
-        self.index.open_snapshots.increment();
-    }
-
-    fn deregister_snapshot(&self) {
-        self.index.open_snapshots.decrement();
-    }
-
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
         use crate::AnyTree::Blob;
 
