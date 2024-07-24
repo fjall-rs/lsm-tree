@@ -5,7 +5,6 @@ use crate::{
     segment::{multi_reader::MultiReader, prefix::PrefixedReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
-    Value,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
