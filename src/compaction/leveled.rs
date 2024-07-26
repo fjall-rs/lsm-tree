@@ -28,6 +28,15 @@ pub struct Strategy {
     ///
     /// Same as `target_file_size_base` in `RocksDB`
     pub target_size: u32,
+
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
+    ///
+    /// This is the exponential growth of the from one
+    /// level to the next
+    ///
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
+    pub level_ratio: u8,
 }
 
 impl Default for Strategy {
@@ -35,6 +44,7 @@ impl Default for Strategy {
         Self {
             l0_threshold: 4,
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 8,
         }
     }
 }
@@ -65,7 +75,7 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
+    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
         // If there are any levels that already have a compactor working on it
@@ -102,11 +112,8 @@ impl CompactionStrategy for Strategy {
 
             let curr_level_bytes = level.size();
 
-            let desired_bytes = desired_level_size_in_bytes(
-                curr_level_index,
-                config.inner.level_ratio,
-                self.target_size,
-            );
+            let desired_bytes =
+                desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.target_size);
 
             let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64);
 
@@ -116,7 +123,7 @@ impl CompactionStrategy for Strategy {
                 let mut level = level.clone();
                 level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
-                for segment in level.iter().take(config.inner.level_ratio.into()).cloned() {
+                for segment in level.iter().take(self.level_ratio.into()).cloned() {
                     if overshoot == 0 {
                         break;
                     }
@@ -437,9 +444,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -466,9 +474,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -495,9 +504,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -524,9 +534,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -553,9 +564,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -582,9 +594,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![

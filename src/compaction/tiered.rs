@@ -12,13 +12,25 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usiz
 /// STCS suffers from high read and temporary space amplification, but has good write amplification.
 pub struct Strategy {
     base_size: u32,
+
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
+    ///
+    /// This is the exponential growth of the from one
+    /// level to the next
+    ///
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
+    level_ratio: u8,
 }
 
 impl Strategy {
     /// Creates a new STCS strategy with custom base size
     #[must_use]
-    pub fn new(base_size: u32) -> Self {
-        Self { base_size }
+    pub fn new(base_size: u32, level_ratio: u8) -> Self {
+        Self {
+            base_size,
+            level_ratio,
+        }
     }
 }
 
@@ -26,6 +38,7 @@ impl Default for Strategy {
     fn default() -> Self {
         Self {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 8,
         }
     }
 }
@@ -49,11 +62,9 @@ impl CompactionStrategy for Strategy {
 
             let curr_level_bytes = level.size();
 
-            let desired_bytes = desired_level_size_in_bytes(
-                curr_level_index,
-                config.inner.level_ratio,
-                self.base_size,
-            ) as u64;
+            let desired_bytes =
+                desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.base_size)
+                    as u64;
 
             if curr_level_bytes >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
@@ -62,12 +73,7 @@ impl CompactionStrategy for Strategy {
 
                 let mut segments_to_compact = vec![];
 
-                for segment in level
-                    .iter()
-                    .rev()
-                    .take(config.inner.level_ratio.into())
-                    .cloned()
-                {
+                for segment in level.iter().rev().take(self.level_ratio.into()).cloned() {
                     if overshoot == 0 {
                         break;
                     }
@@ -172,8 +178,10 @@ mod tests {
     #[test]
     fn tiered_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 8,
         };
 
         let levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
@@ -189,10 +197,12 @@ mod tests {
     #[test]
     fn tiered_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 4,
         };
-        let config = Config::default().level_ratio(4);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
@@ -222,10 +232,12 @@ mod tests {
     #[test]
     fn tiered_ordering() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 2,
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
 
@@ -249,10 +261,12 @@ mod tests {
     #[test]
     fn tiered_more_than_min() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 4,
         };
-        let config = Config::default().level_ratio(4);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(1, 8, 5));
@@ -280,10 +294,12 @@ mod tests {
     #[test]
     fn tiered_many_segments() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 2,
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(1, 8, 5));
@@ -306,10 +322,12 @@ mod tests {
     #[test]
     fn tiered_deeper_level() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 2,
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.add(fixture_segment(1, 8, 5));
@@ -347,10 +365,12 @@ mod tests {
     #[test]
     fn tiered_last_level() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
+
         let compactor = Strategy {
             base_size: 8 * 1_024 * 1_024,
+            level_ratio: 2,
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         let mut levels = LevelManifest::create_new(4, tempdir.path().join(LEVELS_MANIFEST_FILE))?;
         levels.insert_into_level(3, fixture_segment(2, 8, 5));

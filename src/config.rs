@@ -69,16 +69,6 @@ pub struct PersistedConfig {
 
     /// Amount of levels of the LSM tree (depth of tree)
     pub level_count: u8,
-
-    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
-    ///
-    /// This is the exponential growth of the from one
-    /// level to the next
-    ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
-    #[allow(clippy::doc_markdown)]
-    #[doc(hidden)]
-    pub level_ratio: u8,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -88,7 +78,6 @@ impl Default for PersistedConfig {
         Self {
             block_size: 4_096,
             level_count: 7,
-            level_ratio: 8,
             r#type: TreeType::Standard,
             table_type: TableType::Block,
             compression: CompressionType::None,
@@ -107,7 +96,6 @@ impl Serializable for PersistedConfig {
 
         writer.write_u32::<BigEndian>(self.block_size)?;
         writer.write_u8(self.level_count)?;
-        writer.write_u8(self.level_ratio)?;
 
         Ok(())
     }
@@ -136,7 +124,6 @@ impl Deserializable for PersistedConfig {
         let block_size = reader.read_u32::<BigEndian>()?;
 
         let level_count = reader.read_u8()?;
-        let level_ratio = reader.read_u8()?;
 
         Ok(Self {
             r#type: tree_type,
@@ -144,7 +131,6 @@ impl Deserializable for PersistedConfig {
             table_type,
             block_size,
             level_count,
-            level_ratio,
         })
     }
 }
@@ -234,21 +220,6 @@ impl Config {
         assert!(n > 0);
 
         self.inner.level_count = n;
-        self
-    }
-
-    /// Sets the size ratio between levels of the LSM tree (a.k.a. fanout, growth rate).
-    ///
-    /// Defaults to 8.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `n` is less than 2.
-    #[must_use]
-    pub fn level_ratio(mut self, n: u8) -> Self {
-        assert!(n > 1);
-
-        self.inner.level_ratio = n;
         self
     }
 
@@ -371,7 +342,6 @@ mod tests {
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
-            level_ratio: 8,
         };
 
         let mut bytes = vec![];
@@ -396,9 +366,6 @@ mod tests {
 
             // Levels
             7,
-
-            // Fanout
-            8,
         ];
 
         assert_eq!(bytes, raw);
@@ -414,7 +381,6 @@ mod tests {
             table_type: TableType::Block,
             block_size: 4_096,
             level_count: 7,
-            level_ratio: 8,
         };
 
         let mut bytes = vec![];
