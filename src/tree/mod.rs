@@ -4,7 +4,6 @@ use crate::{
     compaction::CompactionStrategy,
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
-    file::fsync_directory,
     levels::LevelManifest,
     memtable::MemTable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
@@ -792,6 +791,7 @@ impl Tree {
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
+            file::fsync_directory,
             file::{LEVELS_MANIFEST_FILE, SEGMENTS_FOLDER},
             SegmentId,
         };
