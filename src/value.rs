@@ -3,12 +3,11 @@ use crate::{
     serde::{Deserializable, DeserializeError, Serializable, SerializeError},
     Slice,
 };
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
 };
-use varint_rs::{VarintReader, VarintWriter};
 
 /// User defined key
 pub type UserKey = Slice;
@@ -224,10 +223,10 @@ impl Serializable for ParsedInternalKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16_varint(self.user_key.len() as u16)?;
+        writer.write_u16::<BigEndian>(self.user_key.len() as u16)?;
         writer.write_all(&self.user_key)?;
 
-        writer.write_u64_varint(self.seqno)?;
+        writer.write_u64::<BigEndian>(self.seqno)?;
         writer.write_u8(u8::from(self.value_type))?;
 
         Ok(())
@@ -236,11 +235,11 @@ impl Serializable for ParsedInternalKey {
 
 impl Deserializable for ParsedInternalKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let key_len = reader.read_u16_varint()?;
+        let key_len = reader.read_u16::<BigEndian>()?;
         let mut key = vec![0; key_len.into()];
         reader.read_exact(&mut key)?;
 
-        let seqno = reader.read_u64_varint()?;
+        let seqno = reader.read_u64::<BigEndian>()?;
         let value_type = reader.read_u8()?.into();
 
         Ok(Self::new(key, seqno, value_type))
@@ -253,7 +252,7 @@ impl Serializable for InternalValue {
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u32_varint(self.value.len() as u32)?;
+        writer.write_u32::<BigEndian>(self.value.len() as u32)?;
         writer.write_all(&self.value)?;
 
         Ok(())
@@ -264,7 +263,7 @@ impl Deserializable for InternalValue {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         let key = ParsedInternalKey::deserialize(reader)?;
 
-        let value_len = reader.read_u32_varint()?;
+        let value_len = reader.read_u32::<BigEndian>()?;
         let mut value = vec![0; value_len as usize];
         reader.read_exact(&mut value)?;
 

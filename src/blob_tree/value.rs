@@ -2,10 +2,9 @@ use crate::{
     serde::{Deserializable, Serializable},
     DeserializeError, SerializeError, Slice, UserValue,
 };
-use byteorder::{ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 use value_log::ValueHandle;
-use varint_rs::{VarintReader, VarintWriter};
 
 /// A value which may or may not be inlined into an index tree
 #[derive(Debug)]
@@ -20,16 +19,16 @@ pub enum MaybeInlineValue {
 
 impl Serializable for ValueHandle {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        writer.write_u64_varint(self.offset)?;
-        writer.write_u64_varint(self.segment_id)?;
+        writer.write_u64::<BigEndian>(self.offset)?;
+        writer.write_u64::<BigEndian>(self.segment_id)?;
         Ok(())
     }
 }
 
 impl Deserializable for ValueHandle {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let offset = reader.read_u64_varint()?;
-        let segment_id = reader.read_u64_varint()?;
+        let offset = reader.read_u64::<BigEndian>()?;
+        let segment_id = reader.read_u64::<BigEndian>()?;
         Ok(Self { segment_id, offset })
     }
 }
@@ -45,14 +44,14 @@ impl Serializable for MaybeInlineValue {
 
                 // NOTE: Values can be up to 2^32 bytes
                 #[allow(clippy::cast_possible_truncation)]
-                writer.write_u32_varint(bytes.len() as u32)?;
+                writer.write_u32::<BigEndian>(bytes.len() as u32)?;
 
                 writer.write_all(bytes)?;
             }
             Self::Indirect { handle, size } => {
                 writer.write_u8(TAG_INDIRECT)?;
                 handle.serialize(writer)?;
-                writer.write_u32_varint(*size)?;
+                writer.write_u32::<BigEndian>(*size)?;
             }
         }
         Ok(())
@@ -65,14 +64,14 @@ impl Deserializable for MaybeInlineValue {
 
         match tag {
             TAG_INLINE => {
-                let len = reader.read_u32_varint()? as usize;
+                let len = reader.read_u32::<BigEndian>()? as usize;
                 let mut bytes = vec![0; len];
                 reader.read_exact(&mut bytes)?;
                 Ok(Self::Inline(Slice::from(bytes)))
             }
             TAG_INDIRECT => {
                 let handle = ValueHandle::deserialize(reader)?;
-                let size = reader.read_u32_varint()?;
+                let size = reader.read_u32::<BigEndian>()?;
                 Ok(Self::Indirect { handle, size })
             }
             x => Err(DeserializeError::InvalidTag(("MaybeInlineValue", x))),
