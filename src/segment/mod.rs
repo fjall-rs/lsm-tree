@@ -83,7 +83,9 @@ impl Segment {
 
         let mut file = guard.file.lock().expect("lock is poisoned");
 
-        for handle in &self.block_index.top_level_index.data {
+        // NOTE: TODO: because of 1.74.0
+        #[allow(clippy::explicit_iter_loop)]
+        for handle in self.block_index.top_level_index.data.iter() {
             let block = match IndexBlock::from_file_compressed(&mut *file, handle.offset) {
                 Ok(v) => v,
                 Err(e) => {
