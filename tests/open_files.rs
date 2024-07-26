@@ -11,11 +11,9 @@ fn open_file_limit() {
         .open()
         .unwrap();
 
-    for _ in 0..512 {
-        for x in 0u16..10 {
-            let key = x.to_be_bytes();
-            tree.insert(key, key, 0);
-        }
+    for _ in 0..2_048 {
+        let key = 0u64.to_be_bytes();
+        tree.insert(key, key, 0);
         tree.flush_active_memtable().unwrap();
     }
 

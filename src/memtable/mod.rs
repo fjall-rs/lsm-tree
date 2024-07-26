@@ -1,4 +1,4 @@
-use crate::segment::prefix::prefix_to_range;
+use crate::range::prefix_to_range;
 use crate::value::{ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crate::Value;
 use crossbeam_skiplist::SkipMap;
@@ -34,25 +34,6 @@ impl MemTable {
         self.items
             .range(range)
             .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))
-    }
-
-    /// Creates an iterator over a prefixed set of items.
-    pub fn prefix<K: AsRef<[u8]>>(&self, prefix: K) -> impl DoubleEndedIterator<Item = Value> + '_ {
-        let prefix = prefix.as_ref();
-        let (lower_bound, upper_bound) = prefix_to_range(prefix);
-
-        let lower_bound = match lower_bound {
-            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("lower bound cannot be excluded"),
-        };
-        let upper_bound = match upper_bound {
-            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("upper bound cannot be included"),
-        };
-
-        self.range((lower_bound, upper_bound))
     }
 
     /// Returns the item by key if it exists.
@@ -304,37 +285,6 @@ mod tests {
             )),
             memtable.get("abc0", None)
         );
-    }
-
-    #[test]
-    fn memtable_prefix() {
-        let memtable = MemTable::default();
-        memtable.insert(Value::new(
-            b"a".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(Value::new(
-            b"abc".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(Value::new(
-            b"b".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(Value::new(
-            b"abcdef".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-
-        assert_eq!(3, memtable.prefix("a").count());
     }
 
     #[test]

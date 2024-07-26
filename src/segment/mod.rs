@@ -5,7 +5,6 @@ pub mod id;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
-pub mod prefix;
 pub mod range;
 pub mod reader;
 pub mod trailer;
@@ -13,9 +12,7 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
-use self::{
-    block_index::BlockIndex, file_offsets::FileOffsets, prefix::PrefixedReader, range::Range,
-};
+use self::{block_index::BlockIndex, file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
@@ -385,23 +382,6 @@ impl Segment {
             Arc::clone(&self.block_cache),
             Arc::clone(&self.block_index),
             range,
-        )
-    }
-
-    /// Creates a prefixed iterator over the `Segment`.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    #[must_use]
-    pub fn prefix(&self, prefix: &[u8]) -> PrefixedReader {
-        PrefixedReader::new(
-            self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
-            (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
-            prefix,
         )
     }
 

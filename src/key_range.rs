@@ -94,17 +94,6 @@ impl KeyRange {
 
         lo_included && hi_included
     }
-
-    pub fn contains_prefix(&self, prefix: &[u8]) -> bool {
-        if prefix.is_empty() {
-            return true;
-        }
-
-        let (start, end) = &self.0;
-        (&**start <= prefix && prefix <= end)
-            || start.starts_with(prefix)
-            || end.starts_with(prefix)
-    }
 }
 
 impl Serializable for KeyRange {
@@ -195,38 +184,5 @@ mod tests {
             &string_key_range("f", "z"),
         ];
         assert!(!KeyRange::is_disjoint(&ranges));
-    }
-
-    #[test]
-    fn key_range_contains_prefix() {
-        let key_range = string_key_range("a", "d");
-        assert!(key_range.contains_prefix(b"b"));
-
-        let key_range: KeyRange = string_key_range("d", "h");
-        assert!(!key_range.contains_prefix(b"b"));
-
-        let key_range = string_key_range("a", "d");
-        assert!(key_range.contains_prefix(b"abc"));
-
-        let key_range = string_key_range("a", "z");
-        assert!(key_range.contains_prefix(b"abc"));
-
-        let key_range = string_key_range("d", "h");
-        assert!(!key_range.contains_prefix(b"abc"));
-
-        let key_range = string_key_range("a", "z");
-        assert!(key_range.contains_prefix(b""));
-
-        let key_range = string_key_range("a", "c");
-        assert!(!key_range.contains_prefix(b"def"));
-
-        let key_range = string_key_range("a", "d");
-        assert!(key_range.contains_prefix(b"bbb"));
-
-        let key_range = string_key_range("a", "d");
-        assert!(!key_range.contains_prefix(b"da"));
-
-        let key_range = string_key_range("abc", "c");
-        assert!(key_range.contains_prefix(b"a"));
     }
 }

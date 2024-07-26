@@ -7,7 +7,7 @@ use crate::{
     file::fsync_directory,
     levels::LevelManifest,
     memtable::MemTable,
-    range::{MemtableLockGuard, TreeIter},
+    range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::Segment,
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
@@ -703,28 +703,8 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
-        let prefix = prefix.as_ref();
-
-        // NOTE: Mind lock order L -> M -> S
-        let level_manifest_lock =
-            guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
-
-        let active = guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
-            .expect("lock is poisoned");
-
-        let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
-            .expect("lock is poisoned");
-
-        TreeIter::create_prefix(
-            MemtableLockGuard {
-                active,
-                sealed,
-                ephemeral,
-            },
-            &prefix.into(),
-            seqno,
-            level_manifest_lock,
-        )
+        let range = prefix_to_range(prefix.as_ref());
+        self.create_range(&range, seqno, ephemeral)
     }
 
     /// Returns an iterator over a prefixed set of items.
