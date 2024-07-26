@@ -277,6 +277,7 @@ impl LevelManifest {
         level.insert(segment);
     }
 
+    #[must_use]
     pub fn is_disjoint(&self) -> bool {
         self.levels.iter().all(|x| x.is_disjoint)
     }

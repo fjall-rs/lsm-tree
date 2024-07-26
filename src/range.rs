@@ -3,13 +3,37 @@ use crate::{
     memtable::MemTable,
     merge::{BoxedIterator, Merger},
     mvcc_stream::{seqno_filter, MvccStream},
-    segment::{multi_reader::MultiReader, prefix::PrefixedReader, range::Range as RangeReader},
+    segment::{multi_reader::MultiReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
     value::{ParsedInternalKey, SeqNo, UserKey, UserValue},
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::Arc};
+
+#[must_use]
+#[allow(clippy::module_name_repetitions)]
+pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
+    use std::ops::Bound::{Excluded, Included, Unbounded};
+
+    if prefix.is_empty() {
+        return (Unbounded, Unbounded);
+    }
+
+    let mut end = prefix.to_vec();
+
+    for i in (0..end.len()).rev() {
+        let byte = end.get_mut(i).expect("should be in bounds");
+
+        if *byte < 255 {
+            *byte += 1;
+            end.truncate(i + 1);
+            return (Included(prefix.into()), Excluded(end.into()));
+        }
+    }
+
+    (Included(prefix.into()), Unbounded)
+}
 
 pub struct MemtableLockGuard {
     pub(crate) active: ArcRwLockReadGuardian<MemTable>,
@@ -42,25 +66,6 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
-fn collect_disjoint_tree_with_prefix(
-    level_manifest: &LevelManifest,
-    prefix: &[u8],
-) -> MultiReader<PrefixedReader> {
-    let mut readers: Vec<_> = level_manifest
-        .iter()
-        .filter(|x| x.metadata.key_range.contains_prefix(prefix))
-        .collect();
-
-    readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
-
-    let readers: VecDeque<_> = readers
-        .into_iter()
-        .map(|x| x.prefix(prefix))
-        .collect::<VecDeque<_>>();
-
-    MultiReader::new(readers)
-}
-
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
@@ -82,132 +87,6 @@ fn collect_disjoint_tree_with_range(
 
 impl TreeIter {
     #[must_use]
-    pub fn create_prefix(
-        guard: MemtableLockGuard,
-        prefix: &UserKey,
-        seqno: Option<SeqNo>,
-        level_manifest: ArcRwLockReadGuardian<LevelManifest>,
-    ) -> Self {
-        TreeIter::new(guard, |lock| {
-            let prefix = prefix.clone();
-
-            let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
-
-            // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
-            if level_manifest.is_disjoint() {
-                let reader = collect_disjoint_tree_with_prefix(&level_manifest, &prefix);
-
-                if let Some(seqno) = seqno {
-                    iters.push(Box::new(reader.filter(move |item| match item {
-                        Ok(item) => seqno_filter(item.key.seqno, seqno),
-                        Err(_) => true,
-                    })));
-                } else {
-                    iters.push(Box::new(reader));
-                }
-            } else {
-                for level in &level_manifest.levels {
-                    if level.is_disjoint {
-                        let mut level = level.clone();
-
-                        let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
-
-                        level.sort_by_key_range();
-
-                        for segment in &level.segments {
-                            if segment.metadata.key_range.contains_prefix(&prefix) {
-                                let reader = segment.prefix(&prefix);
-                                readers.push_back(Box::new(reader));
-                            }
-                        }
-
-                        if !readers.is_empty() {
-                            let multi_reader = MultiReader::new(readers);
-
-                            if let Some(seqno) = seqno {
-                                iters.push(Box::new(multi_reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                })));
-                            } else {
-                                iters.push(Box::new(multi_reader));
-                            }
-                        }
-                    } else {
-                        for segment in &level.segments {
-                            if segment.metadata.key_range.contains_prefix(&prefix) {
-                                let reader = segment.prefix(&prefix);
-
-                                if let Some(seqno) = seqno {
-                                    #[allow(clippy::option_if_let_else)]
-                                    iters.push(Box::new(reader.filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                        Err(_) => true,
-                                    })));
-                                } else {
-                                    iters.push(Box::new(reader));
-                                }
-                            }
-                        }
-                    }
-                }
-            };
-
-            drop(level_manifest);
-
-            // Sealed memtables
-            for (_, memtable) in lock.sealed.iter() {
-                let prefix = prefix.clone();
-
-                let iter = memtable.prefix(prefix);
-
-                if let Some(seqno) = seqno {
-                    iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                            .map(Ok),
-                    ));
-                } else {
-                    iters.push(Box::new(iter.map(Ok)));
-                }
-            }
-
-            // Active memtable
-            {
-                let iter = lock.active.prefix(prefix.clone());
-
-                if let Some(seqno) = seqno {
-                    iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                            .map(Ok),
-                    ));
-                } else {
-                    iters.push(Box::new(iter.map(Ok)));
-                }
-            }
-
-            // Add index
-            if let Some(index) = &lock.ephemeral {
-                iters.push(Box::new(index.prefix(prefix).map(Ok)));
-            }
-
-            let merged = Merger::new(iters);
-            let iter = MvccStream::new(Box::new(merged));
-
-            Box::new(
-                #[allow(clippy::option_if_let_else)]
-                iter.filter(|x| match x {
-                    Ok(value) => !value.key.is_tombstone(),
-                    Err(_) => true,
-                })
-                .map(|item| match item {
-                    Ok(kv) => Ok((kv.key.user_key, kv.value)),
-                    Err(e) => Err(e),
-                }),
-            )
-        })
-    }
-
-    #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn create_range(
         guard: MemtableLockGuard,
@@ -215,7 +94,7 @@ impl TreeIter {
         seqno: Option<SeqNo>,
         level_manifest: ArcRwLockReadGuardian<LevelManifest>,
     ) -> Self {
-        TreeIter::new(guard, |lock| {
+        Self::new(guard, |lock| {
             let lo = match &bounds.0 {
                 // NOTE: See memtable.rs for range explanation
                 Bound::Included(key) => Bound::Included(ParsedInternalKey::new(

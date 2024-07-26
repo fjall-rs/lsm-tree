@@ -1,9 +1,8 @@
 use crate::mvcc_stream::MvccStream;
+use crate::range::prefix_to_range;
 use crate::segment::block::ItemSize;
-use crate::segment::prefix::prefix_to_range;
 use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
-use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU32;
 
@@ -37,28 +36,6 @@ impl MemTable {
             key: entry.key().clone(),
             value: entry.value().clone(),
         })
-    }
-
-    /// Creates an iterator over a prefixed set of items.
-    pub fn prefix<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-    ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
-        let prefix = prefix.as_ref();
-        let (lower_bound, upper_bound) = prefix_to_range(prefix);
-
-        let lower_bound = match lower_bound {
-            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("lower bound cannot be excluded"),
-        };
-        let upper_bound = match upper_bound {
-            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("upper bound cannot be included"),
-        };
-
-        self.range((lower_bound, upper_bound))
     }
 
     /// Returns the item by key if it exists.
@@ -184,7 +161,7 @@ impl MemTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{value::ValueType, Slice};
+    use crate::value::ValueType;
     use test_log::test;
 
     #[test]
@@ -324,75 +301,6 @@ mod tests {
                 ValueType::Value,
             )),
             memtable.get("abc0", None)
-        );
-    }
-
-    #[test]
-    fn memtable_prefix() {
-        let memtable = MemTable::default();
-        memtable.insert(InternalValue::from_components(
-            b"a".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"abc".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"b".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"abcdef".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-
-        assert_eq!(3, memtable.prefix("a").count());
-    }
-
-    #[test]
-    fn memtable_range() {
-        let memtable = MemTable::default();
-        memtable.insert(InternalValue::from_components(
-            b"a".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"abc".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"b".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-        memtable.insert(InternalValue::from_components(
-            b"abcdef".to_vec(),
-            b"abc".to_vec(),
-            0,
-            ValueType::Value,
-        ));
-
-        let key: Slice = Slice::from("abcdef");
-
-        assert_eq!(
-            2,
-            memtable
-                .range(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)..)
-                .count()
         );
     }
 

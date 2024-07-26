@@ -239,7 +239,7 @@ impl AbstractTree for BlobTree {
             let value_size = value.len() as u32;
 
             if value_size > self.index.config.blob_file_separation_threshold {
-                let handle = blob_writer.get_next_value_handle(&item.key.user_key);
+                let handle = blob_writer.get_next_value_handle();
 
                 let indirection = MaybeInlineValue::Indirect {
                     handle,

@@ -5,7 +5,6 @@ pub mod id;
 pub mod meta;
 pub mod multi_reader;
 pub mod multi_writer;
-pub mod prefix;
 pub mod range;
 pub mod reader;
 pub mod trailer;
@@ -13,9 +12,7 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
-use self::{
-    block_index::BlockIndex, file_offsets::FileOffsets, prefix::PrefixedReader, range::Range,
-};
+use self::{block_index::BlockIndex, file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
@@ -87,7 +84,7 @@ impl Segment {
 
         let mut file = guard.file.lock().expect("lock is poisoned");
 
-        for handle in self.block_index.top_level_index.data.iter() {
+        for handle in &self.block_index.top_level_index.data {
             let block = match IndexBlock::from_file_compressed(&mut *file, handle.offset) {
                 Ok(v) => v,
                 Err(e) => {
@@ -403,23 +400,6 @@ impl Segment {
             self.block_cache.clone(),
             self.block_index.clone(),
             range,
-        )
-    }
-
-    /// Creates a prefixed iterator over the `Segment`.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    #[must_use]
-    pub fn prefix(&self, prefix: &[u8]) -> PrefixedReader {
-        PrefixedReader::new(
-            self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
-            self.block_cache.clone(),
-            self.block_index.clone(),
-            prefix,
         )
     }
 

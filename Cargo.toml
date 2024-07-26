@@ -23,9 +23,6 @@ miniz = ["dep:miniz_oxide"]
 bloom = ["dep:seahash"]
 all = ["bloom", "lz4", "miniz"]
 
-[package.metadata.cargo-all-features]
-denylist = ["all"]
-
 [dependencies]
 byteorder = "1.5.0"
 crc32fast = "1.4.2"
@@ -52,6 +49,9 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 fs_extra = "1.3.0"
 nanoid = "0.4.0"
 test-log = "0.2.16"
+
+[package.metadata.cargo-all-features]
+denylist = ["all"]
 
 [[bench]]
 name = "block"
