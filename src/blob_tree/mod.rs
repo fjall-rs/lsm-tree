@@ -183,6 +183,14 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        self.index.keys()
+    }
+
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        self.index.values()
+    }
+
     fn flush_memtable(
         &self,
         segment_id: SegmentId,

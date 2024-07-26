@@ -86,6 +86,8 @@ impl Snapshot {
         self.tree.iter_with_seqno(self.seqno, None)
     }
 
+    // TODO: 2.0.0 keys, values
+
     /// Returns an iterator over a range of items in the snapshot.
     ///
     /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).

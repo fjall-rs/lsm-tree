@@ -43,6 +43,14 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        Box::new(self.iter().map(|x| x.map(|(k, _)| k)))
+    }
+
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        Box::new(self.iter().map(|x| x.map(|(_, v)| v)))
+    }
+
     fn flush_memtable(
         &self,
         segment_id: SegmentId,

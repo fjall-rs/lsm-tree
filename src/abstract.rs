@@ -243,15 +243,23 @@ pub trait AbstractTree {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
     fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         self.range::<UserKey, _>(..)
     }
+
+    // TODO: 2.0.0 keys, values with_seqno
+
+    /// Returns an iterator that scans through the entire tree, returning keys only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>>;
+
+    /// Returns an iterator that scans through the entire tree, returning values only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>>;
 
     /// Creates an iterator over a snapshot instant.
     fn iter_with_seqno(
@@ -319,10 +327,6 @@ pub trait AbstractTree {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
