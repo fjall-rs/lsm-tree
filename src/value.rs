@@ -303,16 +303,16 @@ mod tests {
         #[rustfmt::skip]
         let  bytes = &[
             // Key
-            3, 1, 2, 3,
+            0, 3, 1, 2, 3,
 
             // Seqno
-            1,
+            0, 0, 0, 0, 0, 0, 0, 1,
             
             // Type
             0,
             
             // Value
-            3, 3, 2, 1,
+            0, 0, 0, 3, 3, 2, 1,
         ];
 
         // Deserialize the empty Value
