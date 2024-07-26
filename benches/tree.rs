@@ -583,13 +583,13 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
     tree.insert("g", "g", 0);
     tree.flush_active_memtable().unwrap();
 
-    group.bench_function(&"Tree::first_key_value".to_string(), |b| {
+    group.bench_function("Tree::first_key_value".to_string(), |b| {
         b.iter(|| {
             assert_eq!(&*tree.first_key_value().unwrap().unwrap().1, b"a");
         });
     });
 
-    group.bench_function(&"Tree::last_key_value".to_string(), |b| {
+    group.bench_function("Tree::last_key_value".to_string(), |b| {
         b.iter(|| {
             assert_eq!(&*tree.last_key_value().unwrap().unwrap().1, b"g");
         });
