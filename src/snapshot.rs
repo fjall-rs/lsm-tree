@@ -54,7 +54,6 @@ impl Snapshot {
         self.tree.get_with_seqno(key, self.seqno)
     }
 
-    #[allow(clippy::iter_not_returning_iterator)]
     /// Returns an iterator that scans through the entire snapshot.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
@@ -77,16 +76,64 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     #[must_use]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
         self.tree.iter_with_seqno(self.seqno, None)
     }
 
-    // TODO: 2.0.0 keys, values
+    /// Returns an iterator that scans through the entire snapshot, returning keys only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// let snapshot = tree.snapshot(2);
+    ///
+    /// tree.insert("g", "abc", 2);
+    ///
+    /// assert_eq!(2, snapshot.keys().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    #[must_use]
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserKey>> {
+        self.tree.keys_with_seqno(self.seqno, None)
+    }
+
+    /// Returns an iterator that scans through the entire snapshot, returning values only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// let snapshot = tree.snapshot(2);
+    ///
+    /// tree.insert("g", "abc", 2);
+    ///
+    /// assert_eq!(2, snapshot.values().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    #[must_use]
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserValue>> {
+        self.tree.values_with_seqno(self.seqno, None)
+    }
 
     /// Returns an iterator over a range of items in the snapshot.
     ///
@@ -110,10 +157,6 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
@@ -143,10 +186,6 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,

@@ -10,7 +10,7 @@ use crate::{
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, MemTable, SegmentId, SeqNo, Slice, Snapshot, UserKey, ValueType,
+    Config, KvPair, MemTable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
 };
 use compression::get_vlog_compressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -183,12 +183,38 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn verify(&self) -> crate::Result<usize> {
+        let index_tree_sum = self.index.verify()?;
+        let vlog_sum = self.blobs.verify()?;
+
+        Ok(index_tree_sum + vlog_sum)
+    }
+
+    fn keys_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        self.index.keys_with_seqno(seqno, index)
+    }
+
+    fn values_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>> {
+        Box::new(
+            self.iter_with_seqno(seqno, index)
+                .map(|x| x.map(|(_, v)| v)),
+        )
+    }
+
     fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
         self.index.keys()
     }
 
     fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
-        self.index.values()
+        Box::new(self.iter().map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(

@@ -15,6 +15,9 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    #[doc(hidden)]
+    fn verify(&self) -> crate::Result<usize>;
+
     /// Synchronously flushes a memtable to a disk segment.
     ///
     /// This method will not make the segment immediately available,
@@ -243,7 +246,6 @@ pub trait AbstractTree {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
     fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
         self.range::<UserKey, _>(..)
@@ -260,6 +262,24 @@ pub trait AbstractTree {
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
     fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>>;
+
+    /// Returns an iterator over a snapshot instant, returning keys only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    fn keys_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>>;
+
+    /// Returns an iterator over a snapshot instant, returning values only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    fn values_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>>;
 
     /// Creates an iterator over a snapshot instant.
     fn iter_with_seqno(

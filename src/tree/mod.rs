@@ -43,12 +43,51 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn verify(&self) -> crate::Result<usize> {
+        // NOTE: Lock memtable to prevent any tampering with disk segments
+        let _lock = self.lock_active_memtable();
+
+        let mut sum = 0;
+
+        let level_manifest = self.levels.read().expect("lock is poisoned");
+
+        for level in &level_manifest.levels {
+            for segment in &level.segments {
+                sum += segment.verify()?;
+            }
+        }
+
+        Ok(sum)
+    }
+
+    fn keys_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+        Box::new(
+            self.create_iter(Some(seqno), index)
+                .map(|x| x.map(|(k, _)| k)),
+        )
+    }
+
+    fn values_with_seqno(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<MemTable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>> {
+        Box::new(
+            self.create_iter(Some(seqno), index)
+                .map(|x| x.map(|(_, v)| v)),
+        )
+    }
+
     fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
-        Box::new(self.iter().map(|x| x.map(|(k, _)| k)))
+        Box::new(self.create_iter(None, None).map(|x| x.map(|(k, _)| k)))
     }
 
     fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
-        Box::new(self.iter().map(|x| x.map(|(_, v)| v)))
+        Box::new(self.create_iter(None, None).map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(
@@ -367,24 +406,6 @@ impl Tree {
 
     pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, MemTable> {
         self.active_memtable.read().expect("lock is poisoned")
-    }
-
-    #[doc(hidden)]
-    pub fn verify(&self) -> crate::Result<usize> {
-        // NOTE: Lock memtable to prevent any tampering with disk segments
-        let _lock = self.lock_active_memtable();
-
-        let mut sum = 0;
-
-        let level_manifest = self.levels.read().expect("lock is poisoned");
-
-        for level in &level_manifest.levels {
-            for segment in &level.segments {
-                sum += segment.verify()?;
-            }
-        }
-
-        Ok(sum)
     }
 
     // TODO: Expose as public function, however:
