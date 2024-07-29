@@ -127,7 +127,7 @@ impl BloomFilter {
         let m = n * bpk;
         let k = (((bpk as f32) * LN_2) as usize).max(1);
 
-        // NOTE: Round up so we don't get to little bits
+        // NOTE: Round up so we don't get too little bits
         let bytes = (m as f32 / 8.0).ceil() as usize;
 
         Self {
