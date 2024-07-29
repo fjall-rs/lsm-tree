@@ -283,8 +283,6 @@ impl Writer {
                 filter.set_with_hash(hash);
             }
 
-            // NOTE: BloomFilter::write_to_file fsyncs internally
-            // filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
             filter.serialize(&mut self.block_writer)?;
 
             bloom_ptr
