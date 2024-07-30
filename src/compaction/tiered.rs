@@ -146,9 +146,10 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                rf_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
             },
 

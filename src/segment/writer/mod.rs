@@ -292,9 +292,13 @@ impl Writer {
         let bloom_ptr = 0;
         log::trace!("bloom_ptr={bloom_ptr}");
 
+        // TODO: Write range filter
+        let rf_ptr = 0;
+        log::trace!("rf_ptr={rf_ptr}");
+
         // TODO: Write range tombstones
-        let range_tombstone_ptr = 0;
-        log::trace!("range_tombstone_ptr={range_tombstone_ptr}");
+        let range_tombstones_ptr = 0;
+        log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
 
         // Write metadata
         let metadata_ptr = self.block_writer.stream_position()?;
@@ -307,7 +311,8 @@ impl Writer {
             index_block_ptr,
             tli_ptr,
             bloom_ptr,
-            range_tombstone_ptr,
+            rf_ptr,
+            range_tombstones_ptr,
             metadata_ptr,
         };
 
