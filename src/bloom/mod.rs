@@ -41,9 +41,13 @@ impl Serializable for BloomFilter {
         // NOTE: Filter type (unused)
         writer.write_u8(0)?;
 
+        // NOTE: Hash type (unused)
+        writer.write_u8(0)?;
+
         writer.write_u64::<BigEndian>(self.m as u64)?;
         writer.write_u64::<BigEndian>(self.k as u64)?;
         writer.write_all(self.inner.bytes())?;
+
         Ok(())
     }
 }
@@ -59,6 +63,9 @@ impl Deserializable for BloomFilter {
         }
 
         // NOTE: Filter type (unused)
+        reader.read_u8()?;
+
+        // NOTE: Hash type (unused)
         reader.read_u8()?;
 
         let m = reader.read_u64::<BigEndian>()? as usize;
