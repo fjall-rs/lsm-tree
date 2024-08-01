@@ -224,6 +224,14 @@ fn merge_segments(
             #[cfg(feature = "bloom")]
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
+            let block_index = Arc::new(BlockIndex::from_file(
+                &segment_file_path,
+                tli_ptr,
+                (opts.tree_id, segment_id).into(),
+                opts.config.descriptor_table.clone(),
+                opts.config.block_cache.clone(),
+            )?);
+
             Ok(Arc::new(Segment {
                 tree_id: opts.tree_id,
 
@@ -235,14 +243,7 @@ fn merge_segments(
 
                 // TODO: if L0, L1, preload block index (non-partitioned)
                 #[allow(clippy::needless_borrows_for_generic_args)]
-                block_index: BlockIndex::from_file(
-                    &segment_file_path,
-                    tli_ptr,
-                    (opts.tree_id, segment_id).into(),
-                    opts.config.descriptor_table.clone(),
-                    opts.config.block_cache.clone(),
-                )?
-                .into(),
+                block_index,
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: {

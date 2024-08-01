@@ -251,8 +251,6 @@ pub trait AbstractTree {
         self.range::<UserKey, _>(..)
     }
 
-    // TODO: 2.0.0 keys, values with_seqno
-
     /// Returns an iterator that scans through the entire tree, returning keys only.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
