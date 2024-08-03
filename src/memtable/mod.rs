@@ -64,8 +64,6 @@ impl MemTable {
     /// The item with the highest seqno will be returned, if `seqno` is None
     #[allow(clippy::option_if_let_else)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
-        use std::ops::Bound::{Included, Unbounded};
-
         let prefix = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
