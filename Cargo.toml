@@ -53,6 +53,12 @@ test-log = "0.2.16"
 denylist = ["all"]
 
 [[bench]]
+name = "memtable"
+harness = false
+path = "benches/memtable.rs"
+required-features = []
+
+[[bench]]
 name = "block"
 harness = false
 path = "benches/block.rs"
