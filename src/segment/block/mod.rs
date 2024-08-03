@@ -71,38 +71,16 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
         Self::from_reader_compressed(reader)
     }
 
-    /// Calculates the CRC from a list of values
-    pub fn create_crc(items: &[T]) -> crate::Result<u32> {
-        let mut hasher = crc32fast::Hasher::new();
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        hasher.update(&(items.len() as u32).to_be_bytes());
-
-        for value in items {
-            let mut serialized_value = Vec::new();
-            value.serialize(&mut serialized_value)?;
-            hasher.update(&serialized_value);
-        }
-
-        Ok(hasher.finalize())
-    }
-
-    #[allow(unused)]
-    pub(crate) fn check_crc(&self, expected_crc: u32) -> crate::Result<bool> {
-        let crc = Self::create_crc(&self.items)?;
-        Ok(crc == expected_crc)
-    }
-
     pub fn to_bytes_compressed(
         items: &[T],
         previous_block_offset: u64,
         compression: CompressionType,
     ) -> crate::Result<(BlockHeader, Vec<u8>)> {
         let packed = Self::pack_items(items, compression)?;
+        let crc = crc32fast::hash(&packed);
 
         let header = BlockHeader {
-            crc: Self::create_crc(items)?,
+            crc,
             compression,
             previous_block_offset,
             data_length: packed.len() as u32,
@@ -154,7 +132,6 @@ mod tests {
             InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1.clone(), item2.clone()];
-        let crc = Block::create_crc(&items)?;
 
         // Serialize to bytes
         let mut serialized = Vec::new();
@@ -173,7 +150,7 @@ mod tests {
         assert_eq!(2, block.items.len());
         assert_eq!(block.items.first().cloned(), Some(item1));
         assert_eq!(block.items.get(1).cloned(), Some(item2));
-        assert_eq!(crc, block.header.crc);
+        todo!("check CRC");
 
         Ok(())
     }
@@ -199,7 +176,7 @@ mod tests {
         let mut cursor = Cursor::new(serialized);
         let block = ValueBlock::from_reader_compressed(&mut cursor)?;
 
-        assert!(!block.check_crc(54321)?);
+        todo!("check CRC");
 
         Ok(())
     }

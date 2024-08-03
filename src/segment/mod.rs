@@ -114,10 +114,12 @@ impl Segment {
                 };
 
                 let expected_crc = value_block.header.crc;
-                let actual_crc = ValueBlock::create_crc(&value_block.items)?;
+                // assert!(!block.check_crc(54321)?);
+                // let actual_crc = ValueBlock::create_crc(&value_block.items)?;
+                let actual_crc = todo!("create and check CRC");
 
                 if expected_crc != actual_crc {
-                    log::error!("{handle:?} is corrupt, invalid CRC value");
+                    log::error!("{handle:?} is corrupted, invalid CRC value");
                     broken_count += 1;
                 }
 

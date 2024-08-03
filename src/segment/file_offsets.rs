@@ -19,7 +19,7 @@ impl FileOffsets {
     /// Returns the on-disk size
     #[must_use]
     pub const fn serialized_len() -> usize {
-        5 * std::mem::size_of::<u64>()
+        6 * std::mem::size_of::<u64>()
     }
 }
 
