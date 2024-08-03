@@ -179,25 +179,6 @@ fn scan_vs_prefix(c: &mut Criterion) {
     }
 }
 
-fn memtable_get_upper_bound(c: &mut Criterion) {
-    c.bench_function("memtable get", |b| {
-        let memtable = MemTable::default();
-
-        for _ in 0..1_000_000 {
-            memtable.insert(InternalValue::from_components(
-                format!("abc_{}", nanoid!()).as_bytes(),
-                vec![],
-                0,
-                lsm_tree::ValueType::Value,
-            ));
-        }
-
-        b.iter(|| {
-            memtable.get("abc", None);
-        });
-    });
-}
-
 fn tli_find_item(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{
         block_handle::KeyedBlockHandle, top_level::TopLevelIndex,
@@ -443,7 +424,6 @@ criterion_group!(
     scan_vs_query,
     scan_vs_prefix,
     tli_find_item,
-    memtable_get_upper_bound,
     tree_get_pairs,
 );
 criterion_main!(benches);
