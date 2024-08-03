@@ -4,7 +4,6 @@ use crate::serde::{Deserializable, Serializable};
 use crate::{DeserializeError, SerializeError};
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use seahash::SeaHasher;
 use std::hash::Hasher;
 use std::io::{Read, Write};
 
@@ -208,13 +207,9 @@ impl BloomFilter {
     /// Gets the hash of a key
     #[must_use]
     pub fn get_hash(key: &[u8]) -> CompositeHash {
-        let mut hasher = SeaHasher::default();
-        hasher.write(key);
-        let h1 = hasher.finish();
-
-        hasher.write(key);
-        let h2 = hasher.finish();
-
+        let h0 = xxhash_rust::xxh3::xxh3_128(key);
+        let h1 = (h0 >> 64) as u64;
+        let h2 = h0 as u64;
         (h1, h2)
     }
 }

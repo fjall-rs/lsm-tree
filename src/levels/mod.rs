@@ -45,7 +45,7 @@ impl std::fmt::Display for LevelManifest {
             write!(f, "{idx}: ")?;
 
             if level.segments.is_empty() {
-                write!(f, "{{empty}}")?;
+                write!(f, "<empty>")?;
             } else if level.segments.len() >= 24 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {

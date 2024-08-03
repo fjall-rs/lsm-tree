@@ -20,7 +20,7 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
-bloom = ["dep:seahash"]
+bloom = ["dep:xxhash-rust"]
 all = ["bloom", "lz4", "miniz"]
 
 [dependencies]
@@ -37,11 +37,11 @@ path-absolutize = "3.1.1"
 quick_cache = { version = "0.6.0", default-features = false, features = [
   "ahash",
 ] }
-seahash = { version = "4.1.0", optional = true }
 self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
 tempfile = "3.10.1"
 value-log = { path = "../value-log" }
+xxhash-rust = { version = "0.8.12", features = ["xxh3"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
