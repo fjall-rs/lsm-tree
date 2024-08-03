@@ -31,6 +31,7 @@ fn value_block_size(c: &mut Criterion) {
                     crc: 0,
                     data_length: 0,
                     previous_block_offset: 0,
+                    uncompressed_length: 0,
                 },
             };
 
@@ -71,6 +72,7 @@ fn value_block_find(c: &mut Criterion) {
                 crc: 0,
                 data_length: 0,
                 previous_block_offset: 0,
+                uncompressed_length: 0,
             },
         };
 
@@ -117,6 +119,7 @@ fn index_block_find_handle(c: &mut Criterion) {
                     crc: 0,
                     data_length: 0,
                     previous_block_offset: 0,
+                    uncompressed_length: 0,
                 },
             };
             let key = &(item_count / 2).to_be_bytes();
@@ -165,6 +168,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                     crc: 0,
                     data_length: 0,
                     previous_block_offset: 0,
+                    uncompressed_length: 0,
                 },
             };
 
