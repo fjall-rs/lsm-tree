@@ -1,10 +1,31 @@
 use crate::mvcc_stream::MvccStream;
-use crate::range::prefix_to_range;
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU32;
+
+struct DoubleEndedWrapper<I>(I);
+
+impl<I> Iterator for DoubleEndedWrapper<I>
+where
+    I: Iterator,
+{
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl<I> DoubleEndedIterator for DoubleEndedWrapper<I>
+where
+    I: Iterator,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
 
 /// The memtable serves as an intermediary storage for new items
 #[derive(Default)]
@@ -41,8 +62,9 @@ impl MemTable {
     /// Returns the item by key if it exists.
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None
+    #[allow(clippy::option_if_let_else)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
-        use std::ops::Bound::{Excluded, Included, Unbounded};
+        use std::ops::Bound::{Included, Unbounded};
 
         let prefix = key.as_ref();
 
@@ -62,52 +84,43 @@ impl MemTable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let (lower_bound, upper_bound) = prefix_to_range(prefix);
-
-        // TODO: 1.77 Bound::Map
-        let lower_bound = match lower_bound {
-            Included(key) => Included(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("lower bound cannot be excluded"),
-        };
-        let upper_bound = match upper_bound {
-            Excluded(key) => Excluded(ParsedInternalKey::new(key, SeqNo::MAX, ValueType::Value)),
-            Unbounded => Unbounded,
-            _ => panic!("upper bound cannot be included"),
-        };
-
-        let range = (lower_bound, upper_bound);
+        let lower_bound = ParsedInternalKey::new(prefix, SeqNo::MAX, ValueType::Value);
 
         let iter = self
             .items
-            .range(range)
+            .range(lower_bound..)
+            .take_while(|entry| {
+                let key = entry.key();
+                &*key.user_key == prefix
+            })
             .filter_map(move |entry| {
                 let key = entry.key();
 
-                // NOTE: We are past the searched key, so we can immediately return None
-                if &*key.user_key > prefix {
-                    None
-                } else {
-                    // Check for seqno if needed
-                    if let Some(seqno) = seqno {
-                        if key.seqno < seqno {
-                            Some(InternalValue {
-                                key: entry.key().clone(),
-                                value: entry.value().clone(),
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
+                // Check for seqno if needed
+                if let Some(seqno) = seqno {
+                    if key.seqno < seqno {
                         Some(InternalValue {
                             key: entry.key().clone(),
                             value: entry.value().clone(),
                         })
+                    } else {
+                        None
                     }
+                } else {
+                    Some(InternalValue {
+                        key: entry.key().clone(),
+                        value: entry.value().clone(),
+                    })
                 }
             })
             .map(Ok);
 
+        // NOTE: Wrap it in a stupid adapter to make it "double ended" again...
+        // but we never call next_back anyways
+        let iter = DoubleEndedWrapper(iter);
+
+        // NOTE: We need to unwrap the return value again... memtables are not fallible, so it cannot panic
+        #[allow(clippy::expect_used)]
         MvccStream::new(iter)
             .next()
             .map(|x| x.expect("cannot fail"))
