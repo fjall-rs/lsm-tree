@@ -29,6 +29,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Bloom filters to increase point lookup performance (`bloom` feature, disabled by default)
 - Snapshots (MVCC)
 - Key-value separation (optional) [[2]](#footnotes)
+- Single deletion tombstones ("weak" deletion)
 
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 engine, larger keys and values have a bigger performance impact.
