@@ -59,16 +59,16 @@ path = "benches/memtable.rs"
 required-features = []
 
 [[bench]]
-name = "block"
-harness = false
-path = "benches/block.rs"
-required-features = ["lz4", "miniz"]
-
-[[bench]]
 name = "bloom"
 harness = false
 path = "benches/bloom.rs"
 required-features = ["bloom"]
+
+[[bench]]
+name = "block"
+harness = false
+path = "benches/block.rs"
+required-features = ["lz4", "miniz"]
 
 [[bench]]
 name = "tree"

@@ -4,7 +4,6 @@ use crate::serde::{Deserializable, Serializable};
 use crate::{DeserializeError, SerializeError};
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::hash::Hasher;
 use std::io::{Read, Write};
 
 pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'B', b'F', b'2'];

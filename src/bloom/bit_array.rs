@@ -1,7 +1,8 @@
+const BIT_MASK: u8 = 0b1000_0000_u8;
+
 /// Gets a bit from the byte
 fn get_bit(byte: u8, idx: usize) -> bool {
-    let bit_mask = 0b1000_0000_u8;
-    let bit_mask = bit_mask >> idx;
+    let bit_mask = BIT_MASK >> idx;
 
     let masked = byte & bit_mask;
     masked > 0
@@ -9,14 +10,13 @@ fn get_bit(byte: u8, idx: usize) -> bool {
 
 /// Sets a bit in the byte
 fn set_bit(byte: u8, idx: usize, value: bool) -> u8 {
-    let bit_mask = 0b1000_0000_u8;
-    let bit_mask = bit_mask >> idx;
+    let bit_mask = BIT_MASK >> idx;
 
-    if value {
-        byte | bit_mask
-    } else {
-        byte & !bit_mask
-    }
+    // NOTE: This is a bit bit mad
+    // The left side clears the bit
+    // The right side sets it depending on value
+    // This way we don't need a conditional jump
+    (byte & !bit_mask) | ((value as u8) << (7 - idx) & bit_mask)
 }
 
 /// Fixed-size bit array
