@@ -12,11 +12,11 @@ fn get_bit(byte: u8, idx: usize) -> bool {
 fn set_bit(byte: u8, idx: usize, value: bool) -> u8 {
     let bit_mask = BIT_MASK >> idx;
 
-    // NOTE: This is a bit bit mad
-    // The left side clears the bit
-    // The right side sets it depending on value
-    // This way we don't need a conditional jump
-    (byte & !bit_mask) | ((value as u8) << (7 - idx) & bit_mask)
+    if value {
+        byte | bit_mask
+    } else {
+        byte & !bit_mask
+    }
 }
 
 /// Fixed-size bit array
