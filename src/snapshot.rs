@@ -77,7 +77,7 @@ impl Snapshot {
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
     #[must_use]
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.iter_with_seqno(self.seqno, None)
     }
 
@@ -104,7 +104,7 @@ impl Snapshot {
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
     #[must_use]
-    pub fn keys(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserKey>> {
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static {
         self.tree.keys_with_seqno(self.seqno, None)
     }
 
@@ -131,7 +131,7 @@ impl Snapshot {
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
     #[must_use]
-    pub fn values(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserValue>> {
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static {
         self.tree.values_with_seqno(self.seqno, None)
     }
 
@@ -160,7 +160,7 @@ impl Snapshot {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.range_with_seqno(range, self.seqno, None)
     }
 
@@ -189,7 +189,7 @@ impl Snapshot {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.prefix_with_seqno(prefix, self.seqno, None)
     }
 

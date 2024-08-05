@@ -194,7 +194,7 @@ impl AbstractTree for BlobTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         self.index.keys_with_seqno(seqno, index)
     }
 
@@ -202,18 +202,18 @@ impl AbstractTree for BlobTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
         Box::new(
             self.iter_with_seqno(seqno, index)
                 .map(|x| x.map(|(_, v)| v)),
         )
     }
 
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         self.index.keys()
     }
 
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         Box::new(self.iter().map(|x| x.map(|(_, v)| v)))
     }
 
@@ -398,7 +398,7 @@ impl AbstractTree for BlobTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
 
@@ -407,7 +407,7 @@ impl AbstractTree for BlobTree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index
@@ -422,7 +422,7 @@ impl AbstractTree for BlobTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index
@@ -435,7 +435,7 @@ impl AbstractTree for BlobTree {
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index
@@ -448,7 +448,7 @@ impl AbstractTree for BlobTree {
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index

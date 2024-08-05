@@ -61,7 +61,8 @@ impl Deserializable for BloomFilter {
         }
 
         // NOTE: Filter type (unused)
-        reader.read_u8()?;
+        let filter_type = reader.read_u8()?;
+        assert_eq!(0, filter_type, "Invalid filter type");
 
         // NOTE: Hash type (unused)
         reader.read_u8()?;

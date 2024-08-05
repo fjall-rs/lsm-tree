@@ -52,7 +52,7 @@ impl MemTable {
     pub fn range<'a, R: RangeBounds<ParsedInternalKey> + 'a>(
         &'a self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = InternalValue> + 'a {
+    ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.range(range).map(|entry| InternalValue {
             key: entry.key().clone(),
             value: entry.value().clone(),

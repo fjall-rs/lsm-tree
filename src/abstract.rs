@@ -247,19 +247,19 @@ pub trait AbstractTree {
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
     #[must_use]
-    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    fn iter(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         self.range::<UserKey, _>(..)
     }
 
     /// Returns an iterator that scans through the entire tree, returning keys only.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>>;
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static>;
 
     /// Returns an iterator that scans through the entire tree, returning values only.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>>;
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static>;
 
     /// Returns an iterator over a snapshot instant, returning keys only.
     ///
@@ -268,7 +268,7 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static>;
 
     /// Returns an iterator over a snapshot instant, returning values only.
     ///
@@ -277,14 +277,14 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static>;
 
     /// Creates an iterator over a snapshot instant.
     fn iter_with_seqno(
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Creates an bounded iterator over a snapshot instant.
     fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
@@ -292,7 +292,7 @@ pub trait AbstractTree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Creates a prefix iterator over a snapshot instant.
     fn prefix_with_seqno<K: AsRef<[u8]>>(
@@ -300,7 +300,7 @@ pub trait AbstractTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Returns an iterator over a range of items.
     ///
@@ -324,7 +324,7 @@ pub trait AbstractTree {
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Returns an iterator over a prefixed set of items.
     ///
@@ -348,7 +348,7 @@ pub trait AbstractTree {
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>>;
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Retrieves an item from the tree.
     ///

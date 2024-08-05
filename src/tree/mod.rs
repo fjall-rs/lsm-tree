@@ -64,7 +64,7 @@ impl AbstractTree for Tree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         Box::new(
             self.create_iter(Some(seqno), index)
                 .map(|x| x.map(|(k, _)| k)),
@@ -75,18 +75,18 @@ impl AbstractTree for Tree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
         Box::new(
             self.create_iter(Some(seqno), index)
                 .map(|x| x.map(|(_, v)| v)),
         )
     }
 
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         Box::new(self.create_iter(None, None).map(|x| x.map(|(k, _)| k)))
     }
 
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>>> {
+    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         Box::new(self.create_iter(None, None).map(|x| x.map(|(_, v)| v)))
     }
 
@@ -312,7 +312,7 @@ impl AbstractTree for Tree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
 
@@ -321,7 +321,7 @@ impl AbstractTree for Tree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_range(&range, Some(seqno), index))
     }
 
@@ -330,21 +330,21 @@ impl AbstractTree for Tree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<MemTable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_prefix(prefix, Some(seqno), index))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_range(&range, None, None))
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>>> {
+    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_prefix(prefix, None, None))
     }
 
@@ -653,7 +653,7 @@ impl Tree {
         &self,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
 
@@ -708,7 +708,7 @@ impl Tree {
         prefix: K,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let range = prefix_to_range(prefix.as_ref());
         self.create_range(&range, seqno, ephemeral)
     }
