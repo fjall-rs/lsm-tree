@@ -48,7 +48,7 @@ jobs:
       - name: Clippy
         run: cargo clippy
       - name: Run tests
-        run: cargo test-all-features -v -- --nocapture
+        run: cargo test-all-features -r -v -- --nocapture
         env:
           RUST_LOG: debug
       - name: Build & test LSM examples
