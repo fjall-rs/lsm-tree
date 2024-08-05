@@ -1,11 +1,12 @@
 use crate::{
+    key::InternalKey,
     levels::LevelManifest,
     memtable::MemTable,
     merge::{BoxedIterator, Merger},
     mvcc_stream::{seqno_filter, MvccStream},
     segment::{multi_reader::MultiReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
-    value::{ParsedInternalKey, SeqNo, UserKey},
+    value::{SeqNo, UserKey},
     KvPair,
 };
 use guardian::ArcRwLockReadGuardian;
@@ -98,12 +99,12 @@ impl TreeIter {
         Self::new(guard, |lock| {
             let lo = match &bounds.0 {
                 // NOTE: See memtable.rs for range explanation
-                Bound::Included(key) => Bound::Included(ParsedInternalKey::new(
+                Bound::Included(key) => Bound::Included(InternalKey::new(
                     key.clone(),
                     SeqNo::MAX,
                     crate::value::ValueType::Tombstone,
                 )),
-                Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
+                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.clone(),
                     0,
                     crate::value::ValueType::Tombstone,
@@ -126,12 +127,12 @@ impl TreeIter {
                 // abcdef -> 6
                 // abcdef -> 5
                 //
-                Bound::Included(key) => Bound::Included(ParsedInternalKey::new(
+                Bound::Included(key) => Bound::Included(InternalKey::new(
                     key.clone(),
                     0,
                     crate::value::ValueType::Value,
                 )),
-                Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
+                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.clone(),
                     SeqNo::MAX,
                     crate::value::ValueType::Value,

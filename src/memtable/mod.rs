@@ -1,6 +1,7 @@
+use crate::key::InternalKey;
 use crate::mvcc_stream::MvccStream;
 use crate::segment::block::ItemSize;
-use crate::value::{InternalValue, ParsedInternalKey, SeqNo, UserValue, ValueType};
+use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU32;
@@ -31,7 +32,7 @@ where
 #[derive(Default)]
 pub struct MemTable {
     #[doc(hidden)]
-    items: SkipMap<ParsedInternalKey, UserValue>,
+    items: SkipMap<InternalKey, UserValue>,
 
     /// Approximate active memtable size
     ///
@@ -49,7 +50,7 @@ impl MemTable {
     }
 
     /// Creates an iterator over a range of items.
-    pub fn range<'a, R: RangeBounds<ParsedInternalKey> + 'a>(
+    pub fn range<'a, R: RangeBounds<InternalKey> + 'a>(
         &'a self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
@@ -82,7 +83,7 @@ impl MemTable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = ParsedInternalKey::new(prefix, SeqNo::MAX, ValueType::Value);
+        let lower_bound = InternalKey::new(prefix, SeqNo::MAX, ValueType::Value);
 
         let iter = self
             .items
@@ -151,7 +152,7 @@ impl MemTable {
             .approximate_size
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
-        let key = ParsedInternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
+        let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
         (item_size, size_before + item_size)

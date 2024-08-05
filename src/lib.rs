@@ -128,6 +128,7 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+mod key;
 mod key_range;
 
 #[doc(hidden)]

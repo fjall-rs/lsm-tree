@@ -1,13 +1,11 @@
 use crate::{
+    key::InternalKey,
     segment::block::ItemSize,
     serde::{Deserializable, DeserializeError, Serializable, SerializeError},
     Slice,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use std::{
-    cmp::Reverse,
-    io::{Read, Write},
-};
+use std::io::{Read, Write};
 
 /// User defined key
 pub type UserKey = Slice;
@@ -59,71 +57,12 @@ impl From<ValueType> for u8 {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct ParsedInternalKey {
-    pub user_key: UserKey,
-    pub seqno: SeqNo,
-    pub value_type: ValueType,
-}
-
-impl std::fmt::Debug for ParsedInternalKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:?}:{}:{}",
-            self.user_key,
-            self.seqno,
-            match self.value_type {
-                ValueType::Value => "V",
-                ValueType::Tombstone => "T",
-                ValueType::WeakTombstone => "wT",
-            },
-        )
-    }
-}
-
-impl ParsedInternalKey {
-    pub fn new<K: Into<UserKey>>(user_key: K, seqno: SeqNo, value_type: ValueType) -> Self {
-        let user_key = user_key.into();
-
-        assert!(
-            user_key.len() <= u16::MAX.into(),
-            "keys can be 65535 bytes in length"
-        );
-
-        Self {
-            user_key,
-            seqno,
-            value_type,
-        }
-    }
-
-    pub fn is_tombstone(&self) -> bool {
-        self.value_type == ValueType::Tombstone || self.value_type == ValueType::WeakTombstone
-    }
-}
-
-impl PartialOrd for ParsedInternalKey {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Order by user key, THEN by sequence number
-// This is one of the most important functions
-// Otherwise queries will not match expected behaviour
-impl Ord for ParsedInternalKey {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
-    }
-}
-
 /// Internal representation of KV pairs
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Eq, PartialEq)]
 pub struct InternalValue {
     /// Internal key
-    pub key: ParsedInternalKey,
+    pub key: InternalKey,
 
     /// User-defined value - an arbitrary byte array
     ///
@@ -137,7 +76,7 @@ impl InternalValue {
     /// # Panics
     ///
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
-    pub fn new<V: Into<UserValue>>(key: ParsedInternalKey, value: V) -> Self {
+    pub fn new<V: Into<UserValue>>(key: InternalKey, value: V) -> Self {
         let value = value.into();
 
         assert!(!key.user_key.is_empty(), "key may not be empty");
@@ -160,7 +99,7 @@ impl InternalValue {
         seqno: SeqNo,
         value_type: ValueType,
     ) -> Self {
-        let key = ParsedInternalKey::new(user_key, seqno, value_type);
+        let key = InternalKey::new(user_key, seqno, value_type);
         Self::new(key, value)
     }
 
@@ -171,7 +110,7 @@ impl InternalValue {
     /// Panics if the key length is empty or greater than 2^16.
     pub fn new_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
         let key = key.into();
-        let key = ParsedInternalKey::new(key, seqno, ValueType::Tombstone);
+        let key = InternalKey::new(key, seqno, ValueType::Tombstone);
         Self::new(key, vec![])
     }
 
@@ -182,7 +121,7 @@ impl InternalValue {
     /// Panics if the key length is empty or greater than 2^16.
     pub fn new_weak_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
         let key = key.into();
-        let key = ParsedInternalKey::new(key, seqno, ValueType::WeakTombstone);
+        let key = InternalKey::new(key, seqno, ValueType::WeakTombstone);
         Self::new(key, vec![])
     }
 
@@ -216,33 +155,6 @@ impl std::fmt::Debug for InternalValue {
     }
 }
 
-impl Serializable for ParsedInternalKey {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.user_key.len() as u16)?;
-        writer.write_all(&self.user_key)?;
-
-        writer.write_u64::<BigEndian>(self.seqno)?;
-        writer.write_u8(u8::from(self.value_type))?;
-
-        Ok(())
-    }
-}
-
-impl Deserializable for ParsedInternalKey {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let key_len = reader.read_u16::<BigEndian>()?;
-        let mut key = vec![0; key_len.into()];
-        reader.read_exact(&mut key)?;
-
-        let seqno = reader.read_u64::<BigEndian>()?;
-        let value_type = reader.read_u8()?.into();
-
-        Ok(Self::new(key, seqno, value_type))
-    }
-}
-
 impl Serializable for InternalValue {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         self.key.serialize(writer)?;
@@ -258,7 +170,7 @@ impl Serializable for InternalValue {
 
 impl Deserializable for InternalValue {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let key = ParsedInternalKey::deserialize(reader)?;
+        let key = InternalKey::deserialize(reader)?;
 
         let value_len = reader.read_u32::<BigEndian>()?;
         let mut value = vec![0; value_len as usize];
@@ -279,15 +191,15 @@ mod tests {
 
     #[test]
     fn pik_cmp_user_key() {
-        let a = ParsedInternalKey::new(*b"a", 0, ValueType::Value);
-        let b = ParsedInternalKey::new(*b"b", 0, ValueType::Value);
+        let a = InternalKey::new(*b"a", 0, ValueType::Value);
+        let b = InternalKey::new(*b"b", 0, ValueType::Value);
         assert!(a < b);
     }
 
     #[test]
     fn pik_cmp_seqno() {
-        let a = ParsedInternalKey::new(*b"a", 0, ValueType::Value);
-        let b = ParsedInternalKey::new(*b"a", 1, ValueType::Value);
+        let a = InternalKey::new(*b"a", 0, ValueType::Value);
+        let b = InternalKey::new(*b"a", 1, ValueType::Value);
         assert!(a > b);
     }
 
