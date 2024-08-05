@@ -59,7 +59,7 @@ impl Writer {
         })
     }
 
-    pub fn use_compression(mut self, compression: CompressionType) -> Self {
+    #[must_use] pub fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
         self
     }
