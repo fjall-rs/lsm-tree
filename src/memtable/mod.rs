@@ -30,7 +30,7 @@ impl MemTable {
     pub fn range<'a, R: RangeBounds<ParsedInternalKey> + 'a>(
         &'a self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = Value> + 'a {
+    ) -> impl DoubleEndedIterator<Item = Value> + '_ {
         self.items
             .range(range)
             .map(|entry| Value::from((entry.key().clone(), entry.value().clone())))

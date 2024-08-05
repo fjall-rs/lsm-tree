@@ -587,7 +587,7 @@ impl Tree {
         &self,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
 
@@ -616,7 +616,9 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
         self.create_iter(None, None)
     }
 
@@ -691,7 +693,7 @@ impl Tree {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
         self.create_range(&range, None, None)
     }
 
@@ -732,7 +734,7 @@ impl Tree {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
         self.create_prefix(prefix, None, None)
     }
 
