@@ -65,7 +65,8 @@ impl Deserializable for BloomFilter {
         assert_eq!(0, filter_type, "Invalid filter type");
 
         // NOTE: Hash type (unused)
-        reader.read_u8()?;
+        let hash_type = reader.read_u8()?;
+        assert_eq!(0, hash_type, "Invalid bloom hash type");
 
         let m = reader.read_u64::<BigEndian>()? as usize;
         let k = reader.read_u64::<BigEndian>()? as usize;
