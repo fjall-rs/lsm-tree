@@ -146,6 +146,9 @@ mod tree;
 mod value;
 mod version;
 
+/// KV-tuple, typically returned by an iterator
+pub type KvPair = (UserKey, UserValue);
+
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,

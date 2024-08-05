@@ -1,6 +1,6 @@
 use crate::{
-    value::{SeqNo, UserKey, UserValue},
-    Tree, Value,
+    value::{SeqNo, UserValue},
+    KvPair, Tree, Value,
 };
 use std::{
     ops::RangeBounds,
@@ -117,9 +117,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.create_iter(Some(self.seqno), None)
     }
 
@@ -152,7 +150,7 @@ impl Snapshot {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.create_range(&range, Some(self.seqno), None)
     }
 
@@ -185,7 +183,7 @@ impl Snapshot {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.tree.create_prefix(prefix, Some(self.seqno), None)
     }
 
@@ -216,7 +214,7 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    pub fn first_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.tree
             .create_iter(Some(self.seqno), None)
             .next()
@@ -250,7 +248,7 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    pub fn last_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.tree
             .create_iter(Some(self.seqno), None)
             .next_back()

@@ -4,7 +4,8 @@ use crate::{
     merge::{seqno_filter, BoxedIterator, MergeIterator},
     segment::{multi_reader::MultiReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
-    value::{ParsedInternalKey, SeqNo, UserKey, UserValue, ValueType},
+    value::{ParsedInternalKey, SeqNo, UserKey, ValueType},
+    KvPair,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
@@ -40,7 +41,7 @@ pub struct MemtableLockGuard {
     pub(crate) ephemeral: Option<Arc<MemTable>>,
 }
 
-type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'a>;
+type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
 
 self_cell!(
     pub struct TreeIter {
@@ -52,7 +53,7 @@ self_cell!(
 );
 
 impl Iterator for TreeIter {
-    type Item = crate::Result<(UserKey, UserValue)>;
+    type Item = crate::Result<KvPair>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next())

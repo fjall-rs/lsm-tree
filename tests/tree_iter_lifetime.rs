@@ -1,9 +1,9 @@
-use lsm_tree::{UserKey, UserValue};
+use lsm_tree::KvPair;
 use std::path::Path;
 
 fn iterrr(
     path: &Path,
-) -> lsm_tree::Result<impl DoubleEndedIterator<Item = lsm_tree::Result<(UserKey, UserValue)>>> {
+) -> lsm_tree::Result<impl DoubleEndedIterator<Item = lsm_tree::Result<KvPair>>> {
     let tree = lsm_tree::Config::new(path).open()?;
 
     for x in 0..100u32 {

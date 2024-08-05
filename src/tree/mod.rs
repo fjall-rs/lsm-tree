@@ -11,7 +11,7 @@ use crate::{
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     version::Version,
-    BlockCache, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
+    BlockCache, KvPair, SeqNo, Snapshot, UserKey, UserValue, Value, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -587,7 +587,7 @@ impl Tree {
         &self,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
 
@@ -616,9 +616,7 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::iter_not_returning_iterator)]
     #[must_use]
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_iter(None, None)
     }
 
@@ -628,7 +626,7 @@ impl Tree {
         range: &'a R,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -693,7 +691,7 @@ impl Tree {
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range(&range, None, None)
     }
 
@@ -703,7 +701,7 @@ impl Tree {
         prefix: K,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<MemTable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let range = prefix_to_range(prefix.as_ref());
         self.create_range(&range, seqno, ephemeral)
     }
@@ -734,7 +732,7 @@ impl Tree {
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<(UserKey, UserValue)>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_prefix(prefix, None, None)
     }
 
@@ -763,7 +761,7 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    pub fn first_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.iter().next().transpose()
     }
 
@@ -792,7 +790,7 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+    pub fn last_key_value(&self) -> crate::Result<Option<KvPair>> {
         self.iter().next_back().transpose()
     }
 
