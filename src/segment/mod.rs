@@ -360,11 +360,7 @@ impl Segment {
         {
             debug_assert!(false, "Use Segment::get_with_hash instead");
 
-            /*   let start = std::time::Instant::now(); */
-            let probe = self.bloom_filter.contains(key);
-            /* eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
-
-            if !probe {
+            if !self.bloom_filter.contains(key) {
                 return Ok(None);
             }
         }
