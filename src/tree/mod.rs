@@ -623,6 +623,8 @@ impl Tree {
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        // TODO: consolidate memtable & sealed behind single RwLock
+
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
         if let Some(entry) = memtable_lock.get(&key, seqno) {

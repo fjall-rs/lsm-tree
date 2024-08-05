@@ -7,6 +7,9 @@ use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
 // TODO: port remaining tests from merge.rs
 
+// TODO: split into two different functions... MvccStream -> double ended, for reading
+// TODO:                                       CompactionFilter -> forward only, for compaction, GC, single delete
+
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
     item_seqno < seqno
