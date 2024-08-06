@@ -102,7 +102,7 @@ impl Writer {
         let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.index_block_size)?;
+        let index_writer = IndexWriter::new(opts.index_block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
@@ -247,15 +247,9 @@ impl Writer {
             self.write_block()?;
         }
 
-        // No items written! Just delete segment folder and return nothing
+        // No items written! Just delete segment file and return nothing
         if self.meta.item_count == 0 {
             std::fs::remove_file(&self.segment_file_path)?;
-
-            if let Err(e) = std::fs::remove_file(&self.index_writer.index_block_tmp_file_path) {
-                debug_assert!(false, "should not happen");
-                log::warn!("Failed to delete tmp file: {e:?}");
-            };
-
             return Ok(None);
         }
 

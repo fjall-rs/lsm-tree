@@ -58,8 +58,6 @@ impl CompactionStrategy for Strategy {
                     let lifetime_us = now - segment.metadata.created_at;
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
-                    // eprintln!("TTL: {lifetime_sec} > {ttl_seconds}");
-
                     if lifetime_sec > ttl_seconds.into() {
                         segment_ids_to_delete.push(segment.metadata.id);
                     }

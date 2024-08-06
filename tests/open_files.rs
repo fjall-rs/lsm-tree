@@ -4,7 +4,8 @@ use test_log::test;
 
 #[test]
 fn open_file_limit() {
-    let folder = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir_in(".test").unwrap();
+
     let tree = Config::new(folder)
         .block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))

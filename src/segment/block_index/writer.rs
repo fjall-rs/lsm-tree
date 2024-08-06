@@ -3,31 +3,19 @@ use crate::{
     segment::{block::header::Header as BlockHeader, meta::CompressionType},
     serde::Serializable,
     value::UserKey,
-    SegmentId,
 };
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Seek, Write},
-    path::{Path, PathBuf},
+    io::{BufWriter, Seek, Write},
 };
 
-fn pipe_file_into_writer<P: AsRef<Path>, W: Write>(src_path: P, sink: &mut W) -> crate::Result<()> {
-    let reader = File::open(src_path)?;
-    let mut reader = BufReader::new(reader);
-
-    std::io::copy(&mut reader, sink)?;
-    sink.flush()?;
-
-    Ok(())
-}
-
 pub struct Writer {
-    pub index_block_tmp_file_path: PathBuf,
     file_pos: u64,
 
     prev_pos: (u64, u64),
 
-    block_writer: Option<BufWriter<File>>,
+    write_buffer: Vec<u8>,
+
     block_size: u32,
     compression: CompressionType,
     block_counter: u32,
@@ -36,21 +24,11 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new<P: AsRef<Path>>(
-        segment_id: SegmentId,
-        folder: P,
-        block_size: u32,
-    ) -> crate::Result<Self> {
-        let index_block_tmp_file_path = folder.as_ref().join(format!("tmp_ib{segment_id}"));
-
-        let block_writer = File::create(&index_block_tmp_file_path)?;
-        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
-
+    pub fn new(block_size: u32) -> crate::Result<Self> {
         Ok(Self {
-            index_block_tmp_file_path,
             file_pos: 0,
             prev_pos: (0, 0),
-            block_writer: Some(block_writer),
+            write_buffer: Vec::with_capacity(block_size as usize),
             block_counter: 0,
             block_size,
             compression: CompressionType::None,
@@ -59,14 +37,13 @@ impl Writer {
         })
     }
 
-    #[must_use] pub fn use_compression(mut self, compression: CompressionType) -> Self {
+    #[must_use]
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
         self
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
-        let mut block_writer = self.block_writer.as_mut().expect("should exist");
-
         // Write to file
         let (header, data) = IndexBlock::to_bytes_compressed(
             &self.block_handles,
@@ -74,8 +51,8 @@ impl Writer {
             self.compression,
         )?;
 
-        header.serialize(&mut block_writer)?;
-        block_writer.write_all(&data)?;
+        header.serialize(&mut self.write_buffer)?;
+        self.write_buffer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
@@ -127,12 +104,7 @@ impl Writer {
         block_file_writer: &mut BufWriter<File>,
         file_offset: u64,
     ) -> crate::Result<u64> {
-        // IMPORTANT: I hate this, but we need to drop the writer
-        // so the file is closed
-        // so it can be replaced when using Windows
-        self.block_writer = None;
-
-        pipe_file_into_writer(&self.index_block_tmp_file_path, block_file_writer)?;
+        block_file_writer.write_all(&self.write_buffer)?;
         let tli_ptr = block_file_writer.stream_position()?;
 
         log::trace!("Concatted index blocks onto blocks file");
@@ -168,17 +140,8 @@ impl Writer {
             self.write_block()?;
         }
 
-        {
-            let block_writer = self.block_writer.as_mut().expect("should exist");
-            block_writer.flush()?;
-            block_writer.get_mut().sync_all()?;
-        }
-
         let index_block_ptr = block_file_writer.stream_position()?;
         let tli_ptr = self.write_top_level_index(block_file_writer, index_block_ptr)?;
-
-        // TODO: add test to make sure writer is deleting this
-        std::fs::remove_file(&self.index_block_tmp_file_path)?;
 
         Ok(tli_ptr)
     }
