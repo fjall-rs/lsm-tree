@@ -22,6 +22,7 @@ impl<T: ItemSize> ItemSize for &[T] {
 /// A disk-based block
 ///
 /// A block is split into its header and a blob of data.
+/// The data blob may be compressed.
 ///
 /// \[ header \]
 /// \[  data  \]
@@ -158,7 +159,16 @@ mod tests {
         assert_eq!(2, block.items.len());
         assert_eq!(block.items.first().cloned(), Some(item1));
         assert_eq!(block.items.get(1).cloned(), Some(item2));
-        todo!("check checksum");
+
+        let checksum = {
+            let (_, data) = ValueBlock::to_bytes_compressed(
+                &block.items,
+                block.header.previous_block_offset,
+                block.header.compression,
+            )?;
+            Checksum::from_bytes(&data)
+        };
+        assert_eq!(block.header.checksum, checksum);
 
         Ok(())
     }
@@ -184,7 +194,15 @@ mod tests {
         let mut cursor = Cursor::new(serialized);
         let block = ValueBlock::from_reader(&mut cursor)?;
 
-        todo!("check checksum");
+        let checksum = {
+            let (_, data) = ValueBlock::to_bytes_compressed(
+                &block.items,
+                block.header.previous_block_offset,
+                block.header.compression,
+            )?;
+            Checksum::from_bytes(&data)
+        };
+        assert_eq!(block.header.checksum, checksum);
 
         Ok(())
     }
