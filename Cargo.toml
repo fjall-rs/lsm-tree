@@ -20,12 +20,11 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
-bloom = ["dep:xxhash-rust"]
+bloom = []
 all = ["bloom", "lz4", "miniz"]
 
 [dependencies]
 byteorder = "1.5.0"
-crc32fast = "1.4.2"
 crossbeam-skiplist = "0.1.3"
 double-ended-peekable = "0.1.0"
 enum_dispatch = "0.3.13"
@@ -41,7 +40,7 @@ self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
 tempfile = "3.10.1"
 value-log = { path = "../value-log" }
-xxhash-rust = { version = "0.8.12", features = ["xxh3"], optional = true }
+xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

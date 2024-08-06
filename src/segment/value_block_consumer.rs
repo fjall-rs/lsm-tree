@@ -103,7 +103,7 @@ mod tests {
         ValueBlock {
             header: Header {
                 compression: crate::segment::meta::CompressionType::None,
-                crc: 0,
+                checksum: 0,
                 data_length: 0,
                 previous_block_offset: 0,
                 uncompressed_length: 0,

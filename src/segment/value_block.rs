@@ -14,7 +14,7 @@ pub enum CachePolicy {
 /// Value blocks are the building blocks of a [`crate::segment::Segment`]. Each block is a sorted list of [`Value`]s,
 /// and stored in compressed form on disk, in sorted order.
 ///
-/// The integrity of a block can be checked using the CRC value that is saved in it.
+/// The integrity of a block can be checked using the checksum value that is saved in it.
 #[allow(clippy::module_name_repetitions)]
 pub type ValueBlock = Block<InternalValue>;
 
@@ -91,7 +91,7 @@ mod tests {
             items: items.into_boxed_slice(),
             header: BlockHeader {
                 compression: CompressionType::None,
-                crc: 0,
+                checksum: 0,
                 data_length: 0,
                 previous_block_offset: 0,
                 uncompressed_length: 0,

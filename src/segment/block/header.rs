@@ -8,14 +8,16 @@ use std::io::{Read, Write};
 
 pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2'];
 
+type Checksum = u64;
+
 /// Header of a disk-based block
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
     /// Compression type used
     pub compression: CompressionType,
 
-    /// CRC value to verify integrity of data
-    pub crc: u32,
+    /// Checksum value to verify integrity of data
+    pub checksum: Checksum,
 
     /// File offset of previous block - only used for data blocks
     pub previous_block_offset: u64,
@@ -34,8 +36,8 @@ impl Header {
             // NOTE: Compression is 2 bytes
             + std::mem::size_of::<u8>()
             + std::mem::size_of::<u8>()
-            // CRC
-            + std::mem::size_of::<u32>()
+            // Checksum
+            + std::mem::size_of::<Checksum>()
             // Backlink
             + std::mem::size_of::<u64>()
             // Data length
@@ -52,8 +54,8 @@ impl Serializable for Header {
 
         self.compression.serialize(writer)?;
 
-        // Write CRC
-        writer.write_u32::<BigEndian>(self.crc)?;
+        // Write checksum
+        writer.write_u64::<BigEndian>(self.checksum)?;
 
         // Write prev offset
         writer.write_u64::<BigEndian>(self.previous_block_offset)?;
@@ -80,8 +82,8 @@ impl Deserializable for Header {
 
         let compression = CompressionType::deserialize(reader)?;
 
-        // Read CRC
-        let crc = reader.read_u32::<BigEndian>()?;
+        // Read checksum
+        let checksum = reader.read_u64::<BigEndian>()?;
 
         // Read prev offset
         let previous_block_offset = reader.read_u64::<BigEndian>()?;
@@ -94,7 +96,7 @@ impl Deserializable for Header {
 
         Ok(Self {
             compression,
-            crc,
+            checksum,
             previous_block_offset,
             data_length,
             uncompressed_length,
@@ -112,7 +114,7 @@ mod tests {
     fn block_header_raw() -> crate::Result<()> {
         let header = Header {
             compression: CompressionType::None,
-            crc: 4,
+            checksum: 4,
             previous_block_offset: 2,
             data_length: 15,
             uncompressed_length: 15,
@@ -126,8 +128,8 @@ mod tests {
             // Compression
             0, 0,
             
-            // CRC
-            0, 0, 0, 4,
+            // Checksum
+            0, 0, 0, 0, 0, 0, 0, 4,
 
             0, 0, 0, 0, 0, 0, 0, 2, 
             

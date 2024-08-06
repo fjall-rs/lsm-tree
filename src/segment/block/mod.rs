@@ -5,6 +5,7 @@ use crate::serde::{Deserializable, Serializable};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use header::Header as BlockHeader;
 use std::io::{Cursor, Read};
+use xxhash_rust::xxh3::xxh3_64;
 
 // TODO: better name
 pub trait ItemSize {
@@ -18,7 +19,7 @@ pub trait ItemSize {
 /// \[ header \]
 /// \[  data  \]
 ///
-/// The integrity of a block can be checked using the CRC value that is saved in its header.
+/// The integrity of a block can be checked using the checksum value that is saved in its header.
 #[derive(Clone, Debug)]
 pub struct Block<T: Clone + Serializable + Deserializable + ItemSize> {
     pub header: BlockHeader,
@@ -77,10 +78,10 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
         compression: CompressionType,
     ) -> crate::Result<(BlockHeader, Vec<u8>)> {
         let packed = Self::pack_items(items, compression)?;
-        let crc = crc32fast::hash(&packed);
+        let checksum = xxh3_64(&packed);
 
         let header = BlockHeader {
-            crc,
+            checksum,
             compression,
             previous_block_offset,
             data_length: packed.len() as u32,
@@ -150,13 +151,13 @@ mod tests {
         assert_eq!(2, block.items.len());
         assert_eq!(block.items.first().cloned(), Some(item1));
         assert_eq!(block.items.get(1).cloned(), Some(item2));
-        todo!("check CRC");
+        todo!("check checksum");
 
         Ok(())
     }
 
     #[test]
-    fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
+    fn disk_block_deserialization_failure_checksum() -> crate::Result<()> {
         let item1 =
             InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
         let item2 =
@@ -176,7 +177,7 @@ mod tests {
         let mut cursor = Cursor::new(serialized);
         let block = ValueBlock::from_reader_compressed(&mut cursor)?;
 
-        todo!("check CRC");
+        todo!("check checksum");
 
         Ok(())
     }

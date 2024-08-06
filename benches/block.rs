@@ -28,7 +28,7 @@ fn value_block_size(c: &mut Criterion) {
                 items,
                 header: BlockHeader {
                     compression: CompressionType::Lz4,
-                    crc: 0,
+                    checksum: 0,
                     data_length: 0,
                     previous_block_offset: 0,
                     uncompressed_length: 0,
@@ -69,7 +69,7 @@ fn value_block_find(c: &mut Criterion) {
             items: items.into_boxed_slice(),
             header: BlockHeader {
                 compression: CompressionType::Lz4,
-                crc: 0,
+                checksum: 0,
                 data_length: 0,
                 previous_block_offset: 0,
                 uncompressed_length: 0,
@@ -116,7 +116,7 @@ fn index_block_find_handle(c: &mut Criterion) {
                 items,
                 header: BlockHeader {
                     compression: CompressionType::Lz4,
-                    crc: 0,
+                    checksum: 0,
                     data_length: 0,
                     previous_block_offset: 0,
                     uncompressed_length: 0,
@@ -165,7 +165,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                 items: items.clone().into_boxed_slice(),
                 header: BlockHeader {
                     compression: comp_type,
-                    crc: 0,
+                    checksum: 0,
                     data_length: 0,
                     previous_block_offset: 0,
                     uncompressed_length: 0,
@@ -173,7 +173,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
             };
 
             // Serialize block
-            block.header.crc = ValueBlock::create_crc(&block.items).unwrap();
+            block.header.checksum = ValueBlock::create_checksum(&block.items).unwrap();
             let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
@@ -185,7 +185,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                     let loaded_block = ValueBlock::from_file_compressed(&mut file, 0).unwrap();
 
                     assert_eq!(loaded_block.items.len(), block.items.len());
-                    assert_eq!(loaded_block.header.crc, block.header.crc);
+                    assert_eq!(loaded_block.header.checksum, block.header.checksum);
                 });
             });
         }

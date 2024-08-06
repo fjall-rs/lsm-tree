@@ -113,13 +113,13 @@ impl Segment {
                     }
                 };
 
-                let expected_crc = value_block.header.crc;
-                // assert!(!block.check_crc(54321)?);
-                // let actual_crc = ValueBlock::create_crc(&value_block.items)?;
-                let actual_crc = todo!("create and check CRC");
+                let expected_checksum = value_block.header.checksum;
+                // assert!(!block.check_checksum(54321)?);
+                // let actual_checksum = ValueBlock::create_checksum(&value_block.items)?;
+                let actual_checksum = todo!("create and check checksum");
 
-                if expected_crc != actual_crc {
-                    log::error!("{handle:?} is corrupted, invalid CRC value");
+                if expected_checksum != actual_checksum {
+                    log::error!("{handle:?} is corrupted, invalid checksum value");
                     broken_count += 1;
                 }
 
