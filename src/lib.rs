@@ -93,6 +93,7 @@
 #![warn(clippy::pedantic, clippy::nursery)]
 #![warn(clippy::expect_used)]
 #![allow(clippy::missing_const_for_fn)]
+#![warn(clippy::multiple_crate_versions)]
 
 macro_rules! fail_iter {
     ($e:expr) => {

@@ -29,16 +29,16 @@ crossbeam-skiplist = "0.1.3"
 double-ended-peekable = "0.1.0"
 enum_dispatch = "0.3.13"
 guardian = "1.1.0"
-log = "0.4.21"
+log = "0.4.22"
 lz4_flex = { version = "0.11.3", optional = true }
-miniz_oxide = { version = "0.7.3", optional = true }
+miniz_oxide = { version = "0.7.4", optional = true }
 path-absolutize = "3.1.1"
-quick_cache = { version = "0.6.0", default-features = false, features = [
+quick_cache = { version = "0.6.2", default-features = false, features = [
   "ahash",
 ] }
 self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
-tempfile = "3.10.1"
+tempfile = "3.12.0"
 value-log = { path = "../value-log" }
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
