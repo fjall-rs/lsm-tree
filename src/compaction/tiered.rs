@@ -155,7 +155,8 @@ mod tests {
 
             metadata: Metadata {
                 block_count: 0,
-                block_size: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at: 0,
                 id,
                 file_size: size_mib * 1_024 * 1_024,

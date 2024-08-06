@@ -50,8 +50,11 @@ pub struct Metadata {
     /// true size in bytes (if no compression were used)
     pub uncompressed_size: u64,
 
-    /// Block size (uncompressed)
-    pub block_size: u32,
+    /// Data block size (uncompressed)
+    pub data_block_size: u32,
+
+    /// Index block size (uncompressed)
+    pub index_block_size: u32,
 
     /// Number of written blocks
     pub block_count: u32,
@@ -86,7 +89,9 @@ impl Serializable for Metadata {
         writer.write_u64::<BigEndian>(self.file_size)?;
         writer.write_u64::<BigEndian>(self.uncompressed_size)?;
 
-        writer.write_u32::<BigEndian>(self.block_size)?;
+        writer.write_u32::<BigEndian>(self.data_block_size)?;
+        writer.write_u32::<BigEndian>(self.index_block_size)?;
+
         writer.write_u32::<BigEndian>(self.block_count)?;
 
         self.compression.serialize(writer)?;
@@ -124,7 +129,9 @@ impl Deserializable for Metadata {
         let file_size = reader.read_u64::<BigEndian>()?;
         let uncompressed_size = reader.read_u64::<BigEndian>()?;
 
-        let block_size = reader.read_u32::<BigEndian>()?;
+        let data_block_size = reader.read_u32::<BigEndian>()?;
+        let index_block_size = reader.read_u32::<BigEndian>()?;
+
         let block_count = reader.read_u32::<BigEndian>()?;
 
         let compression = CompressionType::deserialize(reader)?;
@@ -150,7 +157,9 @@ impl Deserializable for Metadata {
             file_size,
             uncompressed_size,
 
-            block_size,
+            data_block_size,
+            index_block_size,
+
             block_count,
 
             compression,
@@ -177,7 +186,9 @@ impl Metadata {
             table_type: TableType::Block,
 
             block_count: writer.meta.block_count as u32,
-            block_size: writer.opts.block_size,
+
+            data_block_size: writer.opts.data_block_size,
+            index_block_size: writer.opts.index_block_size,
 
             file_size: writer.meta.file_pos,
             uncompressed_size: writer.meta.uncompressed_size,
@@ -223,7 +234,8 @@ mod tests {
     fn segment_metadata_serde_round_trip() -> crate::Result<()> {
         let metadata = Metadata {
             block_count: 0,
-            block_size: 0,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             created_at: 5,
             id: 632_632,
             file_size: 1,

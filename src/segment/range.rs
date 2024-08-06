@@ -251,10 +251,10 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 1000, // NOTE: Block size 1 to for each item to be its own block
+            data_block_size: 1_000, // NOTE: Block size 1 to for each item to be its own block
+            index_block_size: 4_096,
         })?;
 
         let items = chars.iter().map(|&key| {
@@ -350,10 +350,10 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
@@ -545,15 +545,15 @@ mod tests {
 
     #[test]
     fn segment_range_reader_bounded_ranges() -> crate::Result<()> {
-        for block_size in [1, 10, 100, 200, 500, 1_000, 4_096] {
+        for data_block_size in [1, 10, 100, 200, 500, 1_000, 4_096] {
             let folder = tempfile::tempdir()?.into_path();
 
             let mut writer = Writer::new(Options {
                 segment_id: 0,
-
                 folder: folder.clone(),
                 evict_tombstones: false,
-                block_size,
+                data_block_size,
+                index_block_size: 4_096,
             })?;
 
             let items = (0u64..ITEM_COUNT).map(|i| {
@@ -653,10 +653,10 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 250,
+            data_block_size: 250,
+            index_block_size: 4_096,
         })?;
 
         let items = chars.iter().map(|&key| {

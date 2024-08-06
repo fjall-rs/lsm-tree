@@ -236,7 +236,8 @@ impl AbstractTree for BlobTree {
 
         let mut segment_writer = SegmentWriter::new(Options {
             segment_id,
-            block_size: self.index.config.inner.block_size,
+            data_block_size: self.index.config.inner.data_block_size,
+            index_block_size: self.index.config.inner.index_block_size,
             evict_tombstones: false,
             folder: lsm_segment_folder,
         })?

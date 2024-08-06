@@ -47,7 +47,8 @@ impl MultiWriter {
             segment_id: current_segment_id,
             folder: opts.folder.clone(),
             evict_tombstones: opts.evict_tombstones,
-            block_size: opts.block_size,
+            data_block_size: opts.data_block_size,
+            index_block_size: opts.index_block_size,
         })?;
 
         Ok(Self {
@@ -102,7 +103,8 @@ impl MultiWriter {
             segment_id: new_segment_id,
             folder: self.opts.folder.clone(),
             evict_tombstones: self.opts.evict_tombstones,
-            block_size: self.opts.block_size,
+            data_block_size: self.opts.data_block_size,
+            index_block_size: self.opts.index_block_size,
         })?
         .use_compression(self.compression);
 

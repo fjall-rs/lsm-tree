@@ -29,7 +29,6 @@ impl From<TreeType> for u8 {
     fn from(val: TreeType) -> Self {
         match val {
             TreeType::Standard => 0,
-
             TreeType::Blob => 1,
         }
     }
@@ -41,9 +40,7 @@ impl TryFrom<u8> for TreeType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Standard),
-
             1 => Ok(Self::Blob),
-
             _ => Err(()),
         }
     }
@@ -64,8 +61,11 @@ pub struct PersistedConfig {
     /// Table type (unused)
     table_type: TableType,
 
-    /// Block size of data and index blocks
-    pub block_size: u32,
+    /// Block size of data blocks
+    pub data_block_size: u32,
+
+    /// Block size of index blocks
+    pub index_block_size: u32,
 
     /// Amount of levels of the LSM tree (depth of tree)
     pub level_count: u8,
@@ -76,7 +76,8 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 impl Default for PersistedConfig {
     fn default() -> Self {
         Self {
-            block_size: 4_096,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             level_count: 7,
             r#type: TreeType::Standard,
             table_type: TableType::Block,
@@ -94,7 +95,9 @@ impl Serializable for PersistedConfig {
         self.compression.serialize(writer)?;
         writer.write_u8(self.table_type.into())?;
 
-        writer.write_u32::<BigEndian>(self.block_size)?;
+        writer.write_u32::<BigEndian>(self.data_block_size)?;
+        writer.write_u32::<BigEndian>(self.index_block_size)?;
+
         writer.write_u8(self.level_count)?;
 
         Ok(())
@@ -121,7 +124,8 @@ impl Deserializable for PersistedConfig {
         let table_type = TableType::try_from(table_type)
             .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
 
-        let block_size = reader.read_u32::<BigEndian>()?;
+        let data_block_size = reader.read_u32::<BigEndian>()?;
+        let index_block_size = reader.read_u32::<BigEndian>()?;
 
         let level_count = reader.read_u8()?;
 
@@ -129,7 +133,8 @@ impl Deserializable for PersistedConfig {
             r#type: tree_type,
             compression,
             table_type,
-            block_size,
+            data_block_size,
+            index_block_size,
             level_count,
         })
     }
@@ -240,7 +245,9 @@ impl Config {
     pub fn block_size(mut self, block_size: u32) -> Self {
         assert!(block_size >= 1_024);
 
-        self.inner.block_size = block_size;
+        self.inner.data_block_size = block_size;
+        self.inner.index_block_size = block_size;
+
         self
     }
 
@@ -340,7 +347,8 @@ mod tests {
             r#type: TreeType::Standard,
             compression: CompressionType::None,
             table_type: TableType::Block,
-            block_size: 4_096,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             level_count: 7,
         };
 
@@ -361,7 +369,10 @@ mod tests {
             // Table type
             0,
 
-            // Block size
+            // Data block size
+            0, 0, 0x10, 0x00,
+
+            // Index block size
             0, 0, 0x10, 0x00,
 
             // Levels
@@ -379,7 +390,8 @@ mod tests {
             r#type: TreeType::Standard,
             compression: CompressionType::None,
             table_type: TableType::Block,
-            block_size: 4_096,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             level_count: 7,
         };
 

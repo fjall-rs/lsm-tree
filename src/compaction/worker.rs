@@ -182,11 +182,11 @@ fn merge_segments(
         opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
-            segment_id: 0, // TODO: this is never used in MultiWriter
-
-            block_size: opts.config.inner.block_size,
-            evict_tombstones: should_evict_tombstones,
             folder: segments_base_folder.clone(),
+            evict_tombstones: should_evict_tombstones,
+            segment_id: 0, // TODO: this is never used in MultiWriter
+            data_block_size: opts.config.inner.data_block_size,
+            index_block_size: opts.config.inner.index_block_size,
         },
     )?
     .use_compression(opts.config.inner.compression);

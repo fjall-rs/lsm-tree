@@ -107,7 +107,8 @@ impl AbstractTree for Tree {
             segment_id,
             folder,
             evict_tombstones: false,
-            block_size: self.config.inner.block_size,
+            data_block_size: self.config.inner.data_block_size,
+            index_block_size: self.config.inner.index_block_size,
         })?
         .use_compression(self.config.inner.compression);
 

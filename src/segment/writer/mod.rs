@@ -89,8 +89,8 @@ impl BloomConstructionPolicy {
 pub struct Options {
     pub folder: PathBuf,
     pub evict_tombstones: bool,
-    pub block_size: u32,
-
+    pub data_block_size: u32,
+    pub index_block_size: u32,
     pub segment_id: SegmentId,
 }
 
@@ -102,7 +102,7 @@ impl Writer {
         let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.block_size)?;
+        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.index_block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
@@ -218,7 +218,7 @@ impl Writer {
         self.chunk_size += item.size();
         self.chunk.push(item);
 
-        if self.chunk_size >= self.opts.block_size as usize {
+        if self.chunk_size >= self.opts.data_block_size as usize {
             self.write_block()?;
             self.chunk_size = 0;
         }
@@ -360,8 +360,8 @@ mod tests {
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
-
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             segment_id,
         })?;
 
@@ -416,8 +416,8 @@ mod tests {
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
-
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             segment_id,
         })?;
 
