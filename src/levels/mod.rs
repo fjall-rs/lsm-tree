@@ -19,8 +19,6 @@ use std::{
 
 pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'2'];
 
-// TODO: 2.0.0 trailer instead of header
-
 pub type HiddenSet = HashSet<SegmentId>;
 
 /// Represents the levels of a log-structured merge tree.
