@@ -40,7 +40,7 @@ impl TopLevelIndex {
 
         let mut file = File::open(path)?;
 
-        let items = IndexBlock::from_file_compressed(&mut file, offset)?.items;
+        let items = IndexBlock::from_file(&mut file, offset)?.items;
         log::trace!("loaded TLI ({path:?}): {items:#?}");
 
         debug_assert!(!items.is_empty());

@@ -1,3 +1,4 @@
+use super::checksum::Checksum;
 use crate::{
     segment::meta::CompressionType,
     serde::{Deserializable, Serializable},
@@ -7,8 +8,6 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2'];
-
-type Checksum = u64;
 
 /// Header of a disk-based block
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,7 +54,7 @@ impl Serializable for Header {
         self.compression.serialize(writer)?;
 
         // Write checksum
-        writer.write_u64::<BigEndian>(self.checksum)?;
+        writer.write_u64::<BigEndian>(*self.checksum)?;
 
         // Write prev offset
         writer.write_u64::<BigEndian>(self.previous_block_offset)?;
@@ -96,7 +95,7 @@ impl Deserializable for Header {
 
         Ok(Self {
             compression,
-            checksum,
+            checksum: Checksum::from_raw(checksum),
             previous_block_offset,
             data_length,
             uncompressed_length,
@@ -114,7 +113,7 @@ mod tests {
     fn block_header_raw() -> crate::Result<()> {
         let header = Header {
             compression: CompressionType::None,
-            checksum: 4,
+            checksum: Checksum::from_raw(4),
             previous_block_offset: 2,
             data_length: 15,
             uncompressed_length: 15,
@@ -131,6 +130,7 @@ mod tests {
             // Checksum
             0, 0, 0, 0, 0, 0, 0, 4,
 
+            // Backlink
             0, 0, 0, 0, 0, 0, 0, 2, 
             
             // Data length

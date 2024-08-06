@@ -213,7 +213,7 @@ impl BlockIndex {
                 .access(&self.segment_id)?
                 .expect("should acquire file handle");
 
-            let block = IndexBlock::from_file_compressed(
+            let block = IndexBlock::from_file(
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
                 block_handle.offset,
             )?;

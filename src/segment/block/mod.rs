@@ -1,15 +1,22 @@
+pub mod checksum;
 pub mod header;
 
 use super::meta::CompressionType;
 use crate::serde::{Deserializable, Serializable};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use checksum::Checksum;
 use header::Header as BlockHeader;
 use std::io::{Cursor, Read};
-use xxhash_rust::xxh3::xxh3_64;
 
 // TODO: better name
 pub trait ItemSize {
     fn size(&self) -> usize;
+}
+
+impl<T: ItemSize> ItemSize for &[T] {
+    fn size(&self) -> usize {
+        self.iter().map(ItemSize::size).sum()
+    }
 }
 
 /// A disk-based block
@@ -27,7 +34,7 @@ pub struct Block<T: Clone + Serializable + Deserializable + ItemSize> {
 }
 
 impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
-    pub fn from_reader_compressed<R: Read>(reader: &mut R) -> crate::Result<Self> {
+    pub fn from_reader<R: Read>(reader: &mut R) -> crate::Result<Self> {
         // Read block header
         let header = BlockHeader::deserialize(reader)?;
 
@@ -64,12 +71,12 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
         })
     }
 
-    pub fn from_file_compressed<R: std::io::Read + std::io::Seek>(
+    pub fn from_file<R: std::io::Read + std::io::Seek>(
         reader: &mut R,
         offset: u64,
     ) -> crate::Result<Self> {
         reader.seek(std::io::SeekFrom::Start(offset))?;
-        Self::from_reader_compressed(reader)
+        Self::from_reader(reader)
     }
 
     pub fn to_bytes_compressed(
@@ -78,14 +85,14 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
         compression: CompressionType,
     ) -> crate::Result<(BlockHeader, Vec<u8>)> {
         let packed = Self::pack_items(items, compression)?;
-        let checksum = xxh3_64(&packed);
+        let checksum = Checksum::from_bytes(&packed);
 
         let header = BlockHeader {
             checksum,
             compression,
             previous_block_offset,
             data_length: packed.len() as u32,
-            uncompressed_length: items.iter().map(ItemSize::size).sum::<usize>() as u32,
+            uncompressed_length: items.size() as u32,
         };
 
         Ok((header, packed))
@@ -146,7 +153,7 @@ mod tests {
 
         // Deserialize from bytes
         let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
+        let block = ValueBlock::from_reader(&mut cursor)?;
 
         assert_eq!(2, block.items.len());
         assert_eq!(block.items.first().cloned(), Some(item1));
@@ -175,7 +182,7 @@ mod tests {
 
         // Deserialize from bytes
         let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
+        let block = ValueBlock::from_reader(&mut cursor)?;
 
         todo!("check checksum");
 

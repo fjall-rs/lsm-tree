@@ -12,6 +12,8 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
+use block::checksum::Checksum;
+
 use self::{block_index::BlockIndex, file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
@@ -74,7 +76,7 @@ impl Segment {
         use block_index::IndexBlock;
         use value_block::ValueBlock;
 
-        let mut count = 0;
+        let mut data_block_count = 0;
         let mut broken_count = 0;
 
         let guard = self
@@ -87,51 +89,54 @@ impl Segment {
         // NOTE: TODO: because of 1.74.0
         #[allow(clippy::explicit_iter_loop)]
         for handle in self.block_index.top_level_index.data.iter() {
-            let block = match IndexBlock::from_file_compressed(&mut *file, handle.offset) {
+            let block = match IndexBlock::from_file(&mut *file, handle.offset) {
                 Ok(v) => v,
                 Err(e) => {
                     log::error!(
                         "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
                     );
                     broken_count += 1;
-                    count += 1;
                     continue;
                 }
             };
 
             for handle in &*block.items {
-                let value_block = match ValueBlock::from_file_compressed(&mut *file, handle.offset)
-                {
+                let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(
                             "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
                         );
                         broken_count += 1;
-                        count += 1;
+                        data_block_count += 1;
                         continue;
                     }
                 };
 
-                let expected_checksum = value_block.header.checksum;
-                // assert!(!block.check_checksum(54321)?);
-                // let actual_checksum = ValueBlock::create_checksum(&value_block.items)?;
-                let actual_checksum = todo!("create and check checksum");
+                let (_, data) = ValueBlock::to_bytes_compressed(
+                    &value_block.items,
+                    value_block.header.previous_block_offset,
+                    value_block.header.compression,
+                )?;
+                let actual_checksum = Checksum::from_bytes(&data);
 
-                if expected_checksum != actual_checksum {
+                if value_block.header.checksum != actual_checksum {
                     log::error!("{handle:?} is corrupted, invalid checksum value");
                     broken_count += 1;
                 }
 
-                count += 1;
+                data_block_count += 1;
 
-                if broken_count % 10_000 == 0 {
-                    log::info!("Checked {count} data blocks");
+                if data_block_count % 1_000 == 0 {
+                    log::debug!("Checked {data_block_count} data blocks");
                 }
             }
         }
 
-        assert_eq!(count, self.metadata.block_count);
+        assert_eq!(
+            data_block_count, self.metadata.block_count,
+            "not all data blocks were visited"
+        );
 
         Ok(broken_count)
     }

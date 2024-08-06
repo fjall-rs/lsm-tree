@@ -48,7 +48,7 @@ impl ValueBlock {
                     .access(&segment_id)?
                     .expect("should acquire file handle");
 
-                let block = Self::from_file_compressed(
+                let block = Self::from_file(
                     &mut *file_guard.file.lock().expect("lock is poisoned"),
                     offset,
                 )?;
@@ -71,7 +71,10 @@ impl ValueBlock {
 mod tests {
     use super::*;
     use crate::{
-        segment::{block::header::Header as BlockHeader, meta::CompressionType},
+        segment::{
+            block::{checksum::Checksum, header::Header as BlockHeader},
+            meta::CompressionType,
+        },
         ValueType,
     };
     use test_log::test;
@@ -91,7 +94,7 @@ mod tests {
             items: items.into_boxed_slice(),
             header: BlockHeader {
                 compression: CompressionType::None,
-                checksum: 0,
+                checksum: Checksum::from_raw(0),
                 data_length: 0,
                 previous_block_offset: 0,
                 uncompressed_length: 0,
