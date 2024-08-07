@@ -27,12 +27,8 @@ impl KeyRange {
 
     /// Returns `true` if the list of key ranges is disjoint
     pub fn is_disjoint(ranges: &[&Self]) -> bool {
-        for i in 0..ranges.len() {
-            let a = ranges.get(i).expect("should exist");
-
-            for j in (i + 1)..ranges.len() {
-                let b = ranges.get(j).expect("should exist");
-
+        for (idx, a) in ranges.iter().enumerate() {
+            for b in ranges.iter().skip(idx + 1) {
                 if a.overlaps_with_key_range(b) {
                     return false;
                 }
@@ -54,7 +50,6 @@ impl KeyRange {
         end1 >= start2 && start1 <= end2
     }
 
-    // TODO: unit tests
     pub fn overlaps_with_bounds(&self, bounds: &(Bound<UserKey>, Bound<UserKey>)) -> bool {
         let (lo, hi) = bounds;
         let (my_lo, my_hi) = &self.0;
@@ -139,49 +134,99 @@ mod tests {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
     }
 
-    #[test]
-    fn key_range_number_disjoint() {
-        let ranges = [&int_key_range(0, 4), &int_key_range(0, 4)];
-        assert!(!KeyRange::is_disjoint(&ranges));
+    mod is_disjoint {
+        use super::*;
+
+        #[test]
+        fn key_range_number() {
+            let ranges = [&int_key_range(0, 4), &int_key_range(0, 4)];
+            assert!(!KeyRange::is_disjoint(&ranges));
+        }
+
+        #[test]
+        fn key_range_string() {
+            let ranges = [&string_key_range("a", "d"), &string_key_range("g", "z")];
+            assert!(KeyRange::is_disjoint(&ranges));
+        }
+
+        #[test]
+        fn key_range_not_disjoint() {
+            let ranges = [&string_key_range("a", "f"), &string_key_range("b", "h")];
+            assert!(!KeyRange::is_disjoint(&ranges));
+
+            let ranges = [
+                &string_key_range("a", "d"),
+                &string_key_range("d", "e"),
+                &string_key_range("f", "z"),
+            ];
+            assert!(!KeyRange::is_disjoint(&ranges));
+        }
     }
 
-    #[test]
-    fn key_range_disjoint() {
-        let ranges = [&string_key_range("a", "d"), &string_key_range("g", "z")];
-        assert!(KeyRange::is_disjoint(&ranges));
+    mod overflap_key_range {
+        use super::*;
+
+        #[test]
+        fn key_range_overlap() {
+            let a = string_key_range("a", "f");
+            let b = string_key_range("b", "h");
+            assert!(a.overlaps_with_key_range(&b));
+        }
+
+        #[test]
+        fn key_range_overlap_edge() {
+            let a = string_key_range("a", "f");
+            let b = string_key_range("f", "t");
+            assert!(a.overlaps_with_key_range(&b));
+        }
+
+        #[test]
+        fn key_range_no_overlap() {
+            let a = string_key_range("a", "f");
+            let b = string_key_range("g", "t");
+            assert!(!a.overlaps_with_key_range(&b));
+        }
     }
 
-    #[test]
-    fn key_range_overlap() {
-        let a = string_key_range("a", "f");
-        let b = string_key_range("b", "h");
-        assert!(a.overlaps_with_key_range(&b));
-    }
+    mod overlaps_with_bounds {
+        use super::*;
+        use std::ops::Bound::{Excluded, Included, Unbounded};
 
-    #[test]
-    fn key_range_overlap_edge() {
-        let a = string_key_range("a", "f");
-        let b = string_key_range("f", "t");
-        assert!(a.overlaps_with_key_range(&b));
-    }
+        #[test]
+        fn inclusive() {
+            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let bounds = (
+                Included(UserKey::from("key1")),
+                Included(UserKey::from("key5")),
+            );
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
 
-    #[test]
-    fn key_range_no_overlap() {
-        let a = string_key_range("a", "f");
-        let b = string_key_range("g", "t");
-        assert!(!a.overlaps_with_key_range(&b));
-    }
+        #[test]
+        fn exclusive() {
+            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let bounds = (
+                Excluded(UserKey::from("key0")),
+                Excluded(UserKey::from("key6")),
+            );
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
 
-    #[test]
-    fn key_range_not_disjoint() {
-        let ranges = [&string_key_range("a", "f"), &string_key_range("b", "h")];
-        assert!(!KeyRange::is_disjoint(&ranges));
+        #[test]
+        fn no_overlap() {
+            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let bounds = (
+                Excluded(UserKey::from("key5")),
+                Excluded(UserKey::from("key6")),
+            );
+            assert!(!key_range.overlaps_with_bounds(&bounds));
+        }
 
-        let ranges = [
-            &string_key_range("a", "d"),
-            &string_key_range("d", "e"),
-            &string_key_range("f", "z"),
-        ];
-        assert!(!KeyRange::is_disjoint(&ranges));
+        #[test]
+        fn unbounded() {
+            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let bounds = (Unbounded, Unbounded);
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
     }
 }

@@ -63,7 +63,6 @@ impl MemTable {
     /// Returns the item by key if it exists.
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None.
-    #[allow(clippy::option_if_let_else)]
     #[doc(hidden)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
         let prefix = key.as_ref();
