@@ -2,9 +2,6 @@ use super::{Choice, CompactionStrategy};
 use crate::{config::Config, levels::LevelManifest, time::unix_timestamp};
 use std::ops::Deref;
 
-// TODO: L0 stall/halt thresholds should be configurable
-// Useful in a timeseries scenario
-
 /// FIFO-style compaction.
 ///
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)

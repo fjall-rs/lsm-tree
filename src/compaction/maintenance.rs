@@ -16,8 +16,6 @@ const L0_SEGMENT_CAP: usize = 20;
 #[derive(Default)]
 pub struct Strategy;
 
-// TODO: add test case
-
 /// Choose a run of segments that has the least file size sum.
 ///
 /// This minimizes the compaction time (+ write amp) for a set of segments we

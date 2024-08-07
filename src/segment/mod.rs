@@ -232,8 +232,6 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
-    // TODO: single delete
-
     fn point_read<K: AsRef<[u8]>>(
         &self,
         key: K,

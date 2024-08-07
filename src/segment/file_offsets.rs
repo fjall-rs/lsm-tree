@@ -10,8 +10,13 @@ pub struct FileOffsets {
     pub index_block_ptr: u64,
     pub tli_ptr: u64,
     pub bloom_ptr: u64,
-    pub rf_ptr: u64,               // TODO: forwards compat
-    pub range_tombstones_ptr: u64, // TODO: forwards compat
+
+    // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46
+    pub rf_ptr: u64,
+
+    // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
+    pub range_tombstones_ptr: u64,
+
     pub metadata_ptr: u64,
 }
 

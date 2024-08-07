@@ -56,7 +56,8 @@ impl Writer {
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
-        // Expect is fine, because the chunk is not empty
+        // NOTE: Expect is fine, because the chunk is not empty
+        #[allow(clippy::expect_used)]
         let last = self
             .block_handles
             .last()
@@ -81,6 +82,8 @@ impl Writer {
     }
 
     pub fn register_block(&mut self, start_key: UserKey, offset: u64) -> crate::Result<()> {
+        // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
+        #[allow(clippy::cast_possible_truncation)]
         let block_handle_size = (start_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
         let block_handle = KeyedBlockHandle {

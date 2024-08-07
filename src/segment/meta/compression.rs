@@ -20,7 +20,6 @@ pub enum CompressionType {
     #[cfg(feature = "lz4")]
     Lz4,
 
-    // TODO: benchmark
     /// zlib/DEFLATE compression
     ///
     /// Compression level (0-10) can be adjusted.

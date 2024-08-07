@@ -46,8 +46,6 @@ impl TryFrom<u8> for TreeType {
     }
 }
 
-// TODO: more granular compression settings... per level (e.g. disable on L0), and diff compression for vLog
-
 /// Tree configuration
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]

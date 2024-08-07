@@ -262,8 +262,6 @@ impl AbstractTree for BlobTree {
 
         let mut blob_writer = self.blobs.get_writer()?;
 
-        // TODO: bug that drops latest blob file for some reason?? see html benchmark w/ delete + gc
-
         for item in memtable.iter() {
             if item.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree

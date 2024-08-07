@@ -139,8 +139,6 @@ impl Writer {
         self
     }
 
-    // TODO: with_block_size(n)
-
     #[must_use]
     #[cfg(feature = "bloom")]
     pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
@@ -286,11 +284,11 @@ impl Writer {
         let bloom_ptr = 0;
         log::trace!("bloom_ptr={bloom_ptr}");
 
-        // TODO: Write range filter
+        // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
         let rf_ptr = 0;
         log::trace!("rf_ptr={rf_ptr}");
 
-        // TODO: Write range tombstones
+        // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2 - Write range tombstones
         let range_tombstones_ptr = 0;
         log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
 

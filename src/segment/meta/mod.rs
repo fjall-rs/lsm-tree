@@ -173,7 +173,9 @@ impl Deserializable for Metadata {
 }
 
 impl Metadata {
-    /// Consumes a writer and its metadata to create the segment metadata
+    /// Consumes a writer and its metadata to create the segment metadata.
+    ///
+    /// The writer should not be empty.
     pub fn from_writer(id: SegmentId, writer: &Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
@@ -185,6 +187,8 @@ impl Metadata {
             compression: CompressionType::None,
             table_type: TableType::Block,
 
+            // NOTE: Truncation is OK - even with the smallest block size (1 KiB), 4 billion blocks would be 4 TB
+            #[allow(clippy::cast_possible_truncation)]
             block_count: writer.meta.block_count as u32,
 
             data_block_size: writer.opts.data_block_size,
@@ -195,6 +199,8 @@ impl Metadata {
             item_count: writer.meta.item_count as u64,
             key_count: writer.meta.key_count as u64,
 
+            // NOTE: from_writer should not be called when the writer wrote nothing
+            #[allow(clippy::expect_used)]
             key_range: KeyRange::new((
                 writer
                     .meta
@@ -211,7 +217,9 @@ impl Metadata {
             seqnos: (writer.meta.lowest_seqno, writer.meta.highest_seqno),
 
             tombstone_count: writer.meta.tombstone_count as u64,
-            range_tombstone_count: 0, // TODO:
+
+            // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
+            range_tombstone_count: 0,
         })
     }
 

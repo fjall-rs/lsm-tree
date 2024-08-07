@@ -73,8 +73,6 @@ impl MultiWriter {
         self
     }
 
-    // TODO: with_block_size(n)
-
     #[must_use]
     #[cfg(feature = "bloom")]
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
