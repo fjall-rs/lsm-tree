@@ -388,9 +388,13 @@ impl Serializable for Vec<Level> {
         // Write header
         writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
 
+        // NOTE: "Truncation" is OK, because levels are created from a u8
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u8(self.len() as u8)?;
 
         for level in self {
+            // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
+            #[allow(clippy::cast_possible_truncation)]
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {

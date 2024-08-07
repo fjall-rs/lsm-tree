@@ -92,7 +92,13 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
             checksum,
             compression,
             previous_block_offset,
+
+            // NOTE: Truncation is OK because block size is max 512 KiB
+            #[allow(clippy::cast_possible_truncation)]
             data_length: packed.len() as u32,
+
+            // NOTE: Truncation is OK because a block cannot possible contain 4 billion items
+            #[allow(clippy::cast_possible_truncation)]
             uncompressed_length: items.size() as u32,
         };
 

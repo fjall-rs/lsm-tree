@@ -240,10 +240,11 @@ impl Config {
     ///
     /// # Panics
     ///
-    /// Panics if the block size is smaller than 1 KiB (1024 bytes).
+    /// Panics if the block size is smaller than 1 KiB or larger than 512 KiB.
     #[must_use]
     pub fn block_size(mut self, block_size: u32) -> Self {
         assert!(block_size >= 1_024);
+        assert!(block_size <= 512 * 1_024);
 
         self.inner.data_block_size = block_size;
         self.inner.index_block_size = block_size;
