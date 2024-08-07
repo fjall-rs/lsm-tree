@@ -1,7 +1,7 @@
 use crate::{BlobTree, Tree};
 use enum_dispatch::enum_dispatch;
 
-/// May be a standard [`Tree`] or a [`BlobTree`].
+/// May be a standard [`Tree`] or a [`BlobTree`]
 #[derive(Clone)]
 #[enum_dispatch(AbstractTree)]
 pub enum AnyTree {

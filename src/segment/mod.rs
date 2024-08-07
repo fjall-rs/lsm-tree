@@ -36,8 +36,8 @@ use crate::bloom::{BloomFilter, CompositeHash};
 ///
 /// Deleted entries are represented by tombstones.
 ///
-/// Segments can be merged together to remove duplicate items, reducing disk space and improving read performance.
-#[doc(alias = "sstable")]
+/// Segments can be merged together to improve read performance and reduce disk space by removing outdated item versions.
+#[doc(alias("sstable", "sst", "sorted string table"))]
 pub struct Segment {
     pub(crate) tree_id: TreeId,
 
@@ -45,9 +45,10 @@ pub struct Segment {
     pub descriptor_table: Arc<FileDescriptorTable>,
 
     /// Segment metadata object
+    #[doc(hidden)]
     pub metadata: meta::Metadata,
 
-    pub offsets: FileOffsets,
+    pub(crate) offsets: FileOffsets,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
@@ -142,7 +143,7 @@ impl Segment {
     }
 
     /// Tries to recover a segment from a file.
-    pub fn recover<P: AsRef<Path>>(
+    pub(crate) fn recover<P: AsRef<Path>>(
         file_path: P,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
@@ -344,7 +345,7 @@ impl Segment {
     /// # Errors
     ///get
     /// Will return `Err` if an IO error occurs.
-    pub fn get<K: AsRef<[u8]>>(
+    pub(crate) fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
         seqno: Option<SeqNo>,
@@ -373,6 +374,7 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
+    // TODO: move segment tests into module, then make pub(crate)
     /// Creates an iterator over the `Segment`.
     ///
     /// # Errors
@@ -380,6 +382,7 @@ impl Segment {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
+    #[doc(hidden)]
     pub fn iter(&self) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
@@ -397,7 +400,7 @@ impl Segment {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
+    pub(crate) fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
@@ -410,7 +413,7 @@ impl Segment {
 
     /// Returns the highest sequence number in the segment.
     #[must_use]
-    pub fn get_lsn(&self) -> SeqNo {
+    pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1
     }
 

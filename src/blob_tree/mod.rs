@@ -61,7 +61,7 @@ pub struct BlobTree {
 }
 
 impl BlobTree {
-    pub fn open(config: Config) -> crate::Result<Self> {
+    pub(crate) fn open(config: Config) -> crate::Result<Self> {
         let path = &config.path;
 
         let vlog_path = path.join(BLOBS_FOLDER);
@@ -171,6 +171,7 @@ impl BlobTree {
         Ok(())
     }
 
+    #[doc(hidden)]
     pub fn flush_active_memtable(&self) -> crate::Result<Option<Arc<crate::Segment>>> {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
@@ -345,8 +346,8 @@ impl AbstractTree for BlobTree {
         &self.index.config
     }
 
-    fn get_lsn(&self) -> Option<SeqNo> {
-        self.index.get_lsn()
+    fn get_highest_seqno(&self) -> Option<SeqNo> {
+        self.index.get_highest_seqno()
     }
 
     fn active_memtable_size(&self) -> u32 {
@@ -390,12 +391,12 @@ impl AbstractTree for BlobTree {
         self.index.disk_space() + self.blobs.manifest.disk_space_used()
     }
 
-    fn get_memtable_lsn(&self) -> Option<SeqNo> {
-        self.index.get_memtable_lsn()
+    fn get_higest_memtable_seqno(&self) -> Option<SeqNo> {
+        self.index.get_higest_memtable_seqno()
     }
 
-    fn get_segment_lsn(&self) -> Option<SeqNo> {
-        self.index.get_segment_lsn()
+    fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
+        self.index.get_highest_persisted_seqno()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {

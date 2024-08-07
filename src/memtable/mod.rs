@@ -42,7 +42,7 @@ pub struct MemTable {
 
 impl MemTable {
     /// Creates an iterator over all items.
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.iter().map(|entry| InternalValue {
             key: entry.key().clone(),
             value: entry.value().clone(),
@@ -50,7 +50,7 @@ impl MemTable {
     }
 
     /// Creates an iterator over a range of items.
-    pub fn range<'a, R: RangeBounds<InternalKey> + 'a>(
+    pub(crate) fn range<'a, R: RangeBounds<InternalKey> + 'a>(
         &'a self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
@@ -62,8 +62,9 @@ impl MemTable {
 
     /// Returns the item by key if it exists.
     ///
-    /// The item with the highest seqno will be returned, if `seqno` is None
+    /// The item with the highest seqno will be returned, if `seqno` is None.
     #[allow(clippy::option_if_let_else)]
+    #[doc(hidden)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
         let prefix = key.as_ref();
 
@@ -125,24 +126,25 @@ impl MemTable {
             .map(|x| x.expect("cannot fail"))
     }
 
-    /// Get approximate size of memtable in bytes.
+    /// Gets approximate size of memtable in bytes.
     pub fn size(&self) -> u32 {
         self.approximate_size
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Count the amount of items in the memtable.
-    pub fn len(&self) -> usize {
+    /// Counts the amount of items in the memtable.
+    pub(crate) fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Returns `true` if the memtable is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// Inserts an item into the memtable
+    #[doc(hidden)]
     pub fn insert(&self, item: InternalValue) -> (u32, u32) {
         // NOTE: Value length is u32 max
         #[allow(clippy::cast_possible_truncation)]
@@ -159,7 +161,7 @@ impl MemTable {
     }
 
     /// Returns the highest sequence number in the memtable.
-    pub fn get_lsn(&self) -> Option<SeqNo> {
+    pub fn get_highest_seqno(&self) -> Option<SeqNo> {
         self.items
             .iter()
             .map(|x| {

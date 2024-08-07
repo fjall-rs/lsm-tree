@@ -92,7 +92,16 @@ pub trait AbstractTree {
     fn tree_config(&self) -> &Config;
 
     /// Returns the highest sequence number.
-    fn get_lsn(&self) -> Option<SeqNo>;
+    fn get_highest_seqno(&self) -> Option<SeqNo> {
+        let memtable_seqno = self.get_higest_memtable_seqno();
+        let segment_seqno = self.get_highest_persisted_seqno();
+
+        match (memtable_seqno, segment_seqno) {
+            (Some(x), Some(y)) => Some(x.max(y)),
+            (Some(x), None) | (None, Some(x)) => Some(x),
+            (None, None) => None,
+        }
+    }
 
     /// Returns the approximate size of the active memtable in bytes.
     ///
@@ -118,10 +127,10 @@ pub trait AbstractTree {
     fn disk_space(&self) -> u64;
 
     /// Returns the highest sequence number of the active memtable.
-    fn get_memtable_lsn(&self) -> Option<SeqNo>;
+    fn get_higest_memtable_seqno(&self) -> Option<SeqNo>;
 
     /// Returns the highest sequence number that is flushed to disk.
-    fn get_segment_lsn(&self) -> Option<SeqNo>;
+    fn get_highest_persisted_seqno(&self) -> Option<SeqNo>;
 
     /// Scans the entire tree, returning the amount of items.
     ///
@@ -263,7 +272,7 @@ pub trait AbstractTree {
     /// tree.insert("a", "abc", 0);
     /// tree.insert("f", "abc", 1);
     /// tree.insert("g", "abc", 2);
-    /// assert_eq!(3, tree.iter().into_iter().count());
+    /// assert_eq!(3, tree.iter().count());
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -275,11 +284,43 @@ pub trait AbstractTree {
     /// Returns an iterator that scans through the entire tree, returning keys only.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// tree.insert("g", "abc", 2);
+    /// assert_eq!(3, tree.keys().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
     fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static>;
 
     /// Returns an iterator that scans through the entire tree, returning values only.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// tree.insert("g", "abc", 2);
+    /// assert_eq!(3, tree.values().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
     fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static>;
 
     /// Returns an iterator over a snapshot instant, returning keys only.

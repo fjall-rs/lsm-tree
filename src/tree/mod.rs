@@ -198,22 +198,6 @@ impl AbstractTree for Tree {
         &self.config
     }
 
-    fn get_lsn(&self) -> Option<SeqNo> {
-        let memtable_lsn = self
-            .active_memtable
-            .read()
-            .expect("lock is poisoned")
-            .get_lsn();
-
-        let segment_lsn = self.get_segment_lsn();
-
-        match (memtable_lsn, segment_lsn) {
-            (Some(x), Some(y)) => Some(x.max(y)),
-            (Some(x), None) | (None, Some(x)) => Some(x),
-            (None, None) => None,
-        }
-    }
-
     fn active_memtable_size(&self) -> u32 {
         use std::sync::atomic::Ordering::Acquire;
 
@@ -285,16 +269,18 @@ impl AbstractTree for Tree {
         levels.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    fn get_memtable_lsn(&self) -> Option<SeqNo> {
+    fn get_higest_memtable_seqno(&self) -> Option<SeqNo> {
+        // TODO: 2.0.0 get from sealed as well + unit test
+
         self.active_memtable
             .read()
             .expect("lock is poisoned")
-            .get_lsn()
+            .get_highest_seqno()
     }
 
-    fn get_segment_lsn(&self) -> Option<SeqNo> {
+    fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(|s| s.get_lsn()).max()
+        levels.iter().map(|s| s.get_highest_seqno()).max()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
@@ -399,7 +385,7 @@ impl Tree {
     /// # Errors
     ///
     /// Returns error, if an IO error occured.
-    pub fn open(config: Config) -> crate::Result<Self> {
+    pub(crate) fn open(config: Config) -> crate::Result<Self> {
         use crate::file::LSM_MARKER;
 
         log::debug!("Opening LSM-tree at {:?}", config.path);
@@ -507,6 +493,7 @@ impl Tree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
     pub fn flush_active_memtable(&self) -> crate::Result<Option<Arc<Segment>>> {
         log::debug!("flush: flushing active memtable");
 
