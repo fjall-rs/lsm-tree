@@ -9,6 +9,7 @@ use std::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
+#[allow(clippy::module_name_repetitions)]
 pub struct InternalKey {
     pub user_key: UserKey,
     pub seqno: SeqNo,
