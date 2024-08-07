@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-/// An immutable byte slice that can be cloned without additional heap allocation.
+/// An immutable byte slice that can be cloned without additional heap allocation
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Slice(Arc<[u8]>);
 
