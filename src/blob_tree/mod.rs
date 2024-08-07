@@ -18,6 +18,7 @@ use index::IndexTree;
 use std::{
     io::Cursor,
     ops::RangeBounds,
+    path::Path,
     sync::{Arc, RwLockWriteGuard},
 };
 use value_log::ValueLog;
@@ -183,6 +184,14 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
+        todo!()
+    }
+
+    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
+        todo!()
+    }
+
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
         let vlog_sum = self.blobs.verify()?;

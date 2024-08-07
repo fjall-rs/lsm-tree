@@ -6,6 +6,7 @@ use crate::{
 use enum_dispatch::enum_dispatch;
 use std::{
     ops::RangeBounds,
+    path::Path,
     sync::{Arc, RwLockWriteGuard},
 };
 
@@ -15,6 +16,26 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Imports data from a flat file (see [`Tree::export`]),
+    /// blocking the caller until it is done.
+    ///
+    /// # Errors
+    ///
+    /// Returns error, if an IO error occured, or the import was not successful.
+    fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
+
+    /// Exports the entire tree into a single flat file,
+    /// blocking the caller until it is done.
+    ///
+    /// The format is as follows (numbers are big endian):
+    ///
+    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[crc; 4 bytes]\[trailer; "LSMTEXP0"]
+    ///
+    /// # Errors
+    ///
+    /// Returns error, if an IO error occured.
+    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
+
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize>;
 
