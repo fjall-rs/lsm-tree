@@ -42,7 +42,7 @@ pub struct MemTable {
 
 impl MemTable {
     /// Creates an iterator over all items.
-    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.iter().map(|entry| InternalValue {
             key: entry.key().clone(),
             value: entry.value().clone(),
@@ -132,13 +132,13 @@ impl MemTable {
     }
 
     /// Counts the amount of items in the memtable.
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Returns `true` if the memtable is empty.
     #[must_use]
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
