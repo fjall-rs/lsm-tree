@@ -40,6 +40,7 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
     tree.flush_active_memtable()?;
 
     assert_eq!(1, tree.segment_count());
+    assert_eq!(0, tree.len()?);
 
     Ok(())
 }
