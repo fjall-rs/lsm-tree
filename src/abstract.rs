@@ -21,7 +21,7 @@ pub trait AbstractTree {
     ///
     /// # Errors
     ///
-    /// Returns error, if an IO error occured, or the import was not successful.
+    /// Returns error, if an IO error occurred, or the import was not successful.
     fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
 
     /// Exports the entire tree into a single flat file,
@@ -29,11 +29,11 @@ pub trait AbstractTree {
     ///
     /// The format is as follows (numbers are big endian):
     ///
-    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[crc; 4 bytes]\[trailer; "LSMTEXP0"]
+    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[crc; 8 bytes]\[trailer; "LSMTEXP2"]
     ///
     /// # Errors
     ///
-    /// Returns error, if an IO error occured.
+    /// Returns error, if an IO error occurred.
     fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
 
     #[doc(hidden)]

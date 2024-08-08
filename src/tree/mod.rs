@@ -394,7 +394,7 @@ impl Tree {
     ///
     /// # Errors
     ///
-    /// Returns error, if an IO error occured.
+    /// Returns error, if an IO error occurred.
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
         use crate::file::LSM_MARKER;
 
@@ -732,7 +732,7 @@ impl Tree {
     ///
     /// # Errors
     ///
-    /// Returns error, if an IO error occured.
+    /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
         use crate::file::{CONFIG_FILE, LSM_MARKER};
         use inner::get_next_tree_id;
