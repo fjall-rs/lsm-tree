@@ -29,7 +29,7 @@ pub trait AbstractTree {
     ///
     /// The format is as follows (numbers are big endian):
     ///
-    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[crc; 8 bytes]\[trailer; "LSMTEXP2"]
+    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[checksum; 8 bytes]\[trailer; "LSMTEXP2"]
     ///
     /// # Errors
     ///
