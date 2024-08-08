@@ -21,7 +21,7 @@ impl<'a> LevelManifestIterator<'a> {
 }
 
 impl<'a> Iterator for LevelManifestIterator<'a> {
-    type Item = Arc<Segment>;
+    type Item = &'a Arc<Segment>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -30,8 +30,7 @@ impl<'a> Iterator for LevelManifestIterator<'a> {
                 .levels
                 .get(self.current_level)?
                 .segments
-                .get(self.current_idx)
-                .cloned();
+                .get(self.current_idx);
 
             if let Some(segment) = segment {
                 self.current_idx += 1;

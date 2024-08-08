@@ -16,7 +16,7 @@ use std::{
 };
 pub use {compression::CompressionType, table_type::TableType};
 
-pub const METADATA_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'M', b'D', b'1'];
+pub const METADATA_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'M', b'D', b'2'];
 
 pub type SegmentId = u64;
 
@@ -50,8 +50,11 @@ pub struct Metadata {
     /// true size in bytes (if no compression were used)
     pub uncompressed_size: u64,
 
-    /// Block size (uncompressed)
-    pub block_size: u32,
+    /// Data block size (uncompressed)
+    pub data_block_size: u32,
+
+    /// Index block size (uncompressed)
+    pub index_block_size: u32,
 
     /// Number of written blocks
     pub block_count: u32,
@@ -86,10 +89,13 @@ impl Serializable for Metadata {
         writer.write_u64::<BigEndian>(self.file_size)?;
         writer.write_u64::<BigEndian>(self.uncompressed_size)?;
 
-        writer.write_u32::<BigEndian>(self.block_size)?;
+        writer.write_u32::<BigEndian>(self.data_block_size)?;
+        writer.write_u32::<BigEndian>(self.index_block_size)?;
+
         writer.write_u32::<BigEndian>(self.block_count)?;
 
-        writer.write_u8(self.compression.into())?;
+        self.compression.serialize(writer)?;
+
         writer.write_u8(self.table_type.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
@@ -123,12 +129,12 @@ impl Deserializable for Metadata {
         let file_size = reader.read_u64::<BigEndian>()?;
         let uncompressed_size = reader.read_u64::<BigEndian>()?;
 
-        let block_size = reader.read_u32::<BigEndian>()?;
+        let data_block_size = reader.read_u32::<BigEndian>()?;
+        let index_block_size = reader.read_u32::<BigEndian>()?;
+
         let block_count = reader.read_u32::<BigEndian>()?;
 
-        let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression)
-            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
+        let compression = CompressionType::deserialize(reader)?;
 
         let table_type = reader.read_u8()?;
         let table_type = TableType::try_from(table_type)
@@ -151,7 +157,9 @@ impl Deserializable for Metadata {
             file_size,
             uncompressed_size,
 
-            block_size,
+            data_block_size,
+            index_block_size,
+
             block_count,
 
             compression,
@@ -165,38 +173,53 @@ impl Deserializable for Metadata {
 }
 
 impl Metadata {
-    /// Consumes a writer and its metadata to create the segment metadata
+    /// Consumes a writer and its metadata to create the segment metadata.
+    ///
+    /// The writer should not be empty.
     pub fn from_writer(id: SegmentId, writer: &Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
-            block_count: writer.block_count as u32,
-            block_size: writer.opts.block_size,
 
             // NOTE: Using seconds is not granular enough
             // But because millis already returns u128, might as well use micros :)
             created_at: unix_timestamp().as_micros(),
 
-            file_size: writer.file_pos,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
-            item_count: writer.item_count as u64,
-            key_count: writer.key_count as u64,
 
+            // NOTE: Truncation is OK - even with the smallest block size (1 KiB), 4 billion blocks would be 4 TB
+            #[allow(clippy::cast_possible_truncation)]
+            block_count: writer.meta.block_count as u32,
+
+            data_block_size: writer.opts.data_block_size,
+            index_block_size: writer.opts.index_block_size,
+
+            file_size: writer.meta.file_pos,
+            uncompressed_size: writer.meta.uncompressed_size,
+            item_count: writer.meta.item_count as u64,
+            key_count: writer.meta.key_count as u64,
+
+            // NOTE: from_writer should not be called when the writer wrote nothing
+            #[allow(clippy::expect_used)]
             key_range: KeyRange::new((
                 writer
+                    .meta
                     .first_key
                     .clone()
                     .expect("should have written at least 1 item"),
                 writer
+                    .meta
                     .last_key
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
 
-            seqnos: (writer.lowest_seqno, writer.highest_seqno),
-            tombstone_count: writer.tombstone_count as u64,
-            range_tombstone_count: 0, // TODO:
-            uncompressed_size: writer.uncompressed_size,
+            seqnos: (writer.meta.lowest_seqno, writer.meta.highest_seqno),
+
+            tombstone_count: writer.meta.tombstone_count as u64,
+
+            // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
+            range_tombstone_count: 0,
         })
     }
 
@@ -219,11 +242,12 @@ mod tests {
     fn segment_metadata_serde_round_trip() -> crate::Result<()> {
         let metadata = Metadata {
             block_count: 0,
-            block_size: 0,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             created_at: 5,
             id: 632_632,
             file_size: 1,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             item_count: 0,
             key_count: 0,

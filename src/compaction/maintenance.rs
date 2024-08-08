@@ -16,8 +16,6 @@ const L0_SEGMENT_CAP: usize = 20;
 #[derive(Default)]
 pub struct Strategy;
 
-// TODO: add test case
-
 /// Choose a run of segments that has the least file size sum.
 ///
 /// This minimizes the compaction time (+ write amp) for a set of segments we
@@ -101,19 +99,21 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                rf_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
             },
 
             metadata: Metadata {
                 block_count: 0,
-                block_size: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at,
                 id,
                 file_size: 1,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,

@@ -213,7 +213,7 @@ impl BlockIndex {
                 .access(&self.segment_id)?
                 .expect("should acquire file handle");
 
-            let block = IndexBlock::from_file_compressed(
+            let block = IndexBlock::from_file(
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
                 block_handle.offset,
             )?;
@@ -224,7 +224,7 @@ impl BlockIndex {
 
             if cache_policy == CachePolicy::Write {
                 self.blocks
-                    .insert(self.segment_id, block_handle.offset, Arc::clone(&block));
+                    .insert(self.segment_id, block_handle.offset, block.clone());
             }
 
             Ok(block)
@@ -243,16 +243,6 @@ impl BlockIndex {
             top_level_index: TopLevelIndex::from_boxed_slice(Box::default()),
         }
     }
-
-    /* pub fn preload(&self) -> crate::Result<()> {
-        for (block_key, block_handle) in &self.top_level_index.data {
-            // TODO: this function seeks every time
-            // can and should probably be optimized
-            self.load_and_cache_index_block(block_key, block_handle)?;
-        }
-
-        Ok(())
-    } */
 
     pub fn from_file<P: AsRef<Path>>(
         file_path: P,

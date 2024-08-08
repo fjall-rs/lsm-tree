@@ -1,8 +1,8 @@
 use crate::{
     serde::{DeserializeError, SerializeError},
     version::Version,
+    Checksum, CompressionType,
 };
-use lz4_flex::block::DecompressError;
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
@@ -17,10 +17,19 @@ pub enum Error {
     Deserialize(DeserializeError),
 
     /// Decompression failed
-    Decompress(DecompressError),
+    Decompress(CompressionType),
 
     /// Invalid or unparseable data format version
     InvalidVersion(Option<Version>),
+
+    /// Some required segments could not be required from disk
+    Unrecoverable,
+
+    /// Invalid checksum value (got, expected)
+    InvalidChecksum((Checksum, Checksum)),
+
+    /// Value log errors
+    ValueLog(value_log::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -49,9 +58,9 @@ impl From<DeserializeError> for Error {
     }
 }
 
-impl From<DecompressError> for Error {
-    fn from(value: DecompressError) -> Self {
-        Self::Decompress(value)
+impl From<value_log::Error> for Error {
+    fn from(value: value_log::Error) -> Self {
+        Self::ValueLog(value)
     }
 }
 

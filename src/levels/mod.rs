@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
 };
 
-pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1'];
+pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'2'];
 
 pub type HiddenSet = HashSet<SegmentId>;
 
@@ -43,7 +43,7 @@ impl std::fmt::Display for LevelManifest {
             write!(f, "{idx}: ")?;
 
             if level.segments.is_empty() {
-                write!(f, "{{empty}}")?;
+                write!(f, "<empty>")?;
             } else if level.segments.len() >= 24 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
@@ -195,14 +195,11 @@ impl LevelManifest {
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
-        #[allow(unused_mut)]
-        let levels = Self {
+        Ok(Self {
             levels,
             hidden_set: HashSet::with_capacity(10),
             path: path.as_ref().to_path_buf(),
-        };
-
-        Ok(levels)
+        })
     }
 
     pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
@@ -226,17 +223,17 @@ impl LevelManifest {
     }
 
     /// Modifies the level manifest atomically.
-    pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+    pub(crate) fn atomic_swap<F: FnOnce(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
         // NOTE: Create a copy of the levels we can operate on
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let mut level_working_copy = self.levels.clone();
+        let mut working_copy = self.levels.clone();
 
-        f(&mut level_working_copy);
+        f(&mut working_copy);
 
-        Self::write_to_disk(&self.path, &level_working_copy)?;
-        self.levels = level_working_copy;
+        Self::write_to_disk(&self.path, &working_copy)?;
+        self.levels = working_copy;
 
         log::trace!("Swapped level manifest to:\n{self}");
 
@@ -359,14 +356,14 @@ impl LevelManifest {
         output
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<Segment>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<Segment>> + '_ {
         LevelManifestIterator::new(self)
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         let mut output = HashMap::new();
 
-        for segment in self.iter() {
+        for segment in self.iter().cloned() {
             output.insert(segment.metadata.id, segment);
         }
 
@@ -391,9 +388,13 @@ impl Serializable for Vec<Level> {
         // Write header
         writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
 
+        // NOTE: "Truncation" is OK, because levels are created from a u8
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u8(self.len() as u8)?;
 
         for level in self {
+            // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
+            #[allow(clippy::cast_possible_truncation)]
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
@@ -420,8 +421,10 @@ mod tests {
             Segment,
         },
         serde::Serializable,
+        AbstractTree,
     };
     use std::{collections::HashSet, sync::Arc};
+    use test_log::test;
 
     #[cfg(feature = "bloom")]
     use crate::bloom::BloomFilter;
@@ -437,19 +440,21 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                rf_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
             },
 
             metadata: Metadata {
                 block_count: 0,
-                block_size: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at: 0,
                 id,
                 file_size: 0,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,
@@ -481,7 +486,7 @@ mod tests {
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.major_compact(u64::MAX)?;
+        tree.major_compact(u64::MAX, 3)?;
 
         assert_eq!(1, tree.segment_count());
 
@@ -494,7 +499,7 @@ mod tests {
         // to force an I/O error
         tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
 
-        assert!(tree.major_compact(u64::MAX).is_err());
+        assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
             .levels
@@ -522,7 +527,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1',
+            b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'2',
 
             // Count
             0,

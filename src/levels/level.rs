@@ -15,6 +15,16 @@ pub struct Level {
     pub is_disjoint: bool,
 }
 
+impl std::fmt::Display for Level {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for segment in self.segments.iter().rev().take(2).rev() {
+            let id = segment.metadata.id;
+            write!(f, "[{id}]")?;
+        }
+        Ok(())
+    }
+}
+
 impl std::ops::Deref for Level {
     type Target = Vec<Arc<Segment>>;
 
@@ -94,8 +104,6 @@ impl Level {
 
     /// Checks if the level is disjoint and caches the result in `is_disjoint`.
     fn set_disjoint_flag(&mut self) {
-        // TODO: calculate without heap allocation? possible?
-
         let ranges = self
             .segments
             .iter()

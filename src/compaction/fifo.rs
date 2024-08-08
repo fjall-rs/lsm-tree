@@ -2,9 +2,6 @@ use super::{Choice, CompactionStrategy};
 use crate::{config::Config, levels::LevelManifest, time::unix_timestamp};
 use std::ops::Deref;
 
-// TODO: L0 stall/halt thresholds should be configurable
-// Useful in a timeseries scenario
-
 /// FIFO-style compaction.
 ///
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)
@@ -22,8 +19,6 @@ use std::ops::Deref;
 /// 1) You only want to store recent data (unimportant logs, ...)
 /// 2) Your keyspace grows monotonically (time series)
 /// 3) You only insert new data
-///
-/// More info here: <https://github.com/facebook/rocksdb/wiki/FIFO-compaction-style>
 pub struct Strategy {
     /// Data set size limit in bytes
     limit: u64,
@@ -59,8 +54,6 @@ impl CompactionStrategy for Strategy {
                 for segment in &first_level {
                     let lifetime_us = now - segment.metadata.created_at;
                     let lifetime_sec = lifetime_us / 1000 / 1000;
-
-                    // eprintln!("TTL: {lifetime_sec} > {ttl_seconds}");
 
                     if lifetime_sec > ttl_seconds.into() {
                         segment_ids_to_delete.push(segment.metadata.id);
@@ -123,6 +116,7 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
+    #[allow(clippy::cast_possible_truncation)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
@@ -133,19 +127,21 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                rf_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
             },
 
             metadata: Metadata {
                 block_count: 0,
-                block_size: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at,
                 id,
                 file_size: 1,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,

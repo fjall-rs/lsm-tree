@@ -50,6 +50,7 @@ pub struct FileDescriptorTableInner {
     size: AtomicUsize,
 }
 
+#[doc(alias("table cache"))]
 #[allow(clippy::module_name_repetitions)]
 pub struct FileDescriptorTable {
     inner: RwLock<FileDescriptorTableInner>,
@@ -165,6 +166,7 @@ impl FileDescriptorTable {
                     if shard.is_used.compare_exchange(
                         false,
                         true,
+                        // TODO: could probably be not SeqCst
                         std::sync::atomic::Ordering::SeqCst,
                         std::sync::atomic::Ordering::SeqCst,
                     ) == Ok(false)

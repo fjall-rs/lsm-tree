@@ -31,7 +31,7 @@
 //! # Example usage
 //!
 //! ```
-//! use lsm_tree::{Tree, Config};
+//! use lsm_tree::{AbstractTree, Config, Tree};
 //! #
 //! # let folder = tempfile::tempdir()?;
 //!
@@ -71,11 +71,13 @@
 //! // to reduce the amount of disk segments
 //!
 //! // Choose compaction strategy based on workload
-//! use lsm_tree::compaction::Levelled;
+//! use lsm_tree::compaction::Leveled;
 //! # use std::sync::Arc;
 //!
-//! let strategy = Levelled::default();
-//! tree.compact(Arc::new(strategy))?;
+//! let strategy = Leveled::default();
+//!
+//! let version_gc_threshold = 0;
+//! tree.compact(Arc::new(strategy), version_gc_threshold)?;
 //!
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //! #
@@ -91,6 +93,24 @@
 #![warn(clippy::pedantic, clippy::nursery)]
 #![warn(clippy::expect_used)]
 #![allow(clippy::missing_const_for_fn)]
+#![warn(clippy::multiple_crate_versions)]
+#![allow(clippy::option_if_let_else)]
+
+macro_rules! fail_iter {
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        }
+    };
+}
+
+mod any_tree;
+
+mod r#abstract;
+
+#[doc(hidden)]
+pub mod blob_tree;
 
 mod block_cache;
 
@@ -106,13 +126,12 @@ pub mod descriptor_table;
 
 mod either;
 mod error;
+mod export;
 
 #[doc(hidden)]
 pub mod file;
 
-#[doc(hidden)]
-pub mod flush;
-
+mod key;
 mod key_range;
 
 #[doc(hidden)]
@@ -123,6 +142,7 @@ mod memtable;
 #[doc(hidden)]
 pub mod merge;
 
+mod mvcc_stream;
 mod path;
 
 #[doc(hidden)]
@@ -135,6 +155,8 @@ mod seqno;
 
 #[doc(hidden)]
 pub mod serde;
+
+mod slice;
 
 mod snapshot;
 
@@ -152,19 +174,29 @@ pub type KvPair = (UserKey, UserValue);
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::{id::GlobalSegmentId, meta::SegmentId},
+    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
+    value::InternalValue,
 };
 
 pub use {
     block_cache::BlockCache,
-    config::Config,
+    config::{Config, TreeType},
     error::{Error, Result},
     memtable::MemTable,
-    segment::Segment,
+    r#abstract::AbstractTree,
+    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
+    slice::Slice,
     snapshot::Snapshot,
     tree::Tree,
-    value::{SeqNo, UserKey, UserValue, Value, ValueType},
+    value::{SeqNo, UserKey, UserValue, ValueType},
+    version::Version,
 };
+
+pub use any_tree::AnyTree;
+
+pub use blob_tree::BlobTree;
+
+pub use value_log::BlobCache;

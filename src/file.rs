@@ -5,6 +5,8 @@ pub const CONFIG_FILE: &str = "config";
 pub const SEGMENTS_FOLDER: &str = "segments";
 pub const LEVELS_MANIFEST_FILE: &str = "levels";
 
+pub const BLOBS_FOLDER: &str = "blobs";
+
 /// Atomically rewrites a file
 pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Result<()> {
     let path = path.as_ref();

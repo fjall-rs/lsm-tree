@@ -1,8 +1,9 @@
+use crate::segment::block::ItemSize;
 use crate::serde::{Deserializable, Serializable};
 use crate::value::UserKey;
+use crate::Slice;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-use std::sync::Arc;
 
 /// Points to a block on file
 #[derive(Clone, Debug)]
@@ -13,6 +14,12 @@ pub struct KeyedBlockHandle {
 
     /// Position of block in file
     pub offset: u64,
+}
+
+impl ItemSize for KeyedBlockHandle {
+    fn size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.end_key.len()
+    }
 }
 
 impl PartialEq for KeyedBlockHandle {
@@ -68,7 +75,7 @@ impl Deserializable for KeyedBlockHandle {
 
         Ok(Self {
             offset,
-            end_key: Arc::from(key),
+            end_key: Slice::from(key),
         })
     }
 }

@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use criterion::{criterion_group, criterion_main, Criterion};
+use std::sync::Arc;
 
 fn file_descriptor_table(c: &mut Criterion) {
     use std::fs::File;

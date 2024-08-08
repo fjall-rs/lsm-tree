@@ -4,8 +4,9 @@ use super::reader::Reader;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
+use crate::value::InternalValue;
 use crate::value::UserKey;
-use crate::Value;
+use crate::Slice;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
@@ -74,7 +75,7 @@ impl Range {
             }
         };
 
-        let end_key: Option<&Arc<[u8]>> = match self.range.end_bound() {
+        let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self
                     .block_index
@@ -110,7 +111,7 @@ impl Range {
 }
 
 impl Iterator for Range {
-    type Item = crate::Result<Value>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.is_initialized {
@@ -126,13 +127,13 @@ impl Iterator for Range {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
-                            if entry.key < *start {
+                            if entry.key.user_key < *start {
                                 // Before min key
                                 continue;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key <= *start {
+                            if entry.key.user_key <= *start {
                                 // Before or equal min key
                                 continue;
                             }
@@ -142,13 +143,13 @@ impl Iterator for Range {
 
                     match self.range.end_bound() {
                         Bound::Included(start) => {
-                            if entry.key > *start {
+                            if entry.key.user_key > *start {
                                 // After max key
                                 return None;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key >= *start {
+                            if entry.key.user_key >= *start {
                                 // Reached max key
                                 return None;
                             }
@@ -179,13 +180,13 @@ impl DoubleEndedIterator for Range {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
-                            if entry.key < *start {
+                            if entry.key.user_key < *start {
                                 // Reached min key
                                 return None;
                             }
                         }
                         Bound::Excluded(start) => {
-                            if entry.key <= *start {
+                            if entry.key.user_key <= *start {
                                 // Before min key
                                 return None;
                             }
@@ -195,13 +196,13 @@ impl DoubleEndedIterator for Range {
 
                     match self.range.end_bound() {
                         Bound::Included(end) => {
-                            if entry.key > *end {
+                            if entry.key.user_key > *end {
                                 // After max key
                                 continue;
                             }
                         }
                         Bound::Excluded(end) => {
-                            if entry.key >= *end {
+                            if entry.key.user_key >= *end {
                                 // After or equal max key
                                 continue;
                             }
@@ -229,8 +230,8 @@ mod tests {
             range::Range,
             writer::{Options, Writer},
         },
-        value::{UserKey, ValueType},
-        Value,
+        value::{InternalValue, UserKey, ValueType},
+        Slice,
     };
     use std::ops::{
         Bound::{self, *},
@@ -250,17 +251,14 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 1000, // NOTE: Block size 1 to for each item to be its own block
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
+            data_block_size: 1_000, // NOTE: Block size 1 to for each item to be its own block
+            index_block_size: 4_096,
         })?;
 
         let items = chars.iter().map(|&key| {
-            Value::new(
+            InternalValue::from_components(
                 &[key][..],
                 *b"dsgfgfdsgsfdsgfdgfdfgdsgfdhsnreezrzsernszsdaadsadsadsadsadsadsadsadsadsadsdsensnzersnzers",
                 0,
@@ -285,7 +283,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         let iter = Range::new(
@@ -300,7 +298,7 @@ mod tests {
 
         for start_char in chars {
             let key = &[start_char][..];
-            let key: Arc<[u8]> = Arc::from(key);
+            let key = Slice::from(key);
 
             log::debug!("{}..=z", start_char as char);
 
@@ -317,7 +315,7 @@ mod tests {
             );
             let items = iter
                 .flatten()
-                .map(|x| x.key.first().copied().expect("is ok"))
+                .map(|x| x.key.user_key.first().copied().expect("is ok"))
                 .collect::<Vec<_>>();
 
             assert_eq!(items, expected_range);
@@ -336,7 +334,7 @@ mod tests {
             let items = iter
                 .rev()
                 .flatten()
-                .map(|x| x.key.first().copied().expect("is ok"))
+                .map(|x| x.key.user_key.first().copied().expect("is ok"))
                 .collect::<Vec<_>>();
 
             assert_eq!(items, expected_range);
@@ -352,17 +350,14 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
-            Value::new(
+            InternalValue::from_components(
                 i.to_be_bytes(),
                 nanoid::nanoid!().as_bytes(),
                 1000 + i,
@@ -387,7 +382,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         {
@@ -395,105 +390,105 @@ mod tests {
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..),
             );
 
             for key in (0u64..ITEM_COUNT).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..),
             );
 
             for key in (0u64..ITEM_COUNT).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
         {
             log::info!("Getting every item (unbounded start)");
 
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple::<UserKey>(&..end),
             );
 
             for key in (0..5_000).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             log::info!("Getting every item in reverse (unbounded start)");
 
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&..end),
             );
 
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
         {
             log::info!("Getting every item (unbounded end)");
 
-            let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
+            let start: Slice = 1_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
                 table.clone(),
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache.clone(),
+                block_index.clone(),
                 range_bounds_to_tuple(&(start..)),
             );
 
             for key in (1_000..5_000).map(u64::to_be_bytes) {
                 let item = iter.next().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
 
             log::info!("Getting every item in reverse (unbounded end)");
 
-            let start: Arc<[u8]> = 1_000_u64.to_be_bytes().into();
-            let end: Arc<[u8]> = 5_000_u64.to_be_bytes().into();
+            let start: Slice = 1_000_u64.to_be_bytes().into();
+            let end: Slice = 5_000_u64.to_be_bytes().into();
 
             let mut iter = Range::new(
                 trailer.offsets.index_block_ptr,
                 table,
                 (0, 0).into(),
-                Arc::clone(&block_cache),
-                Arc::clone(&block_index),
+                block_cache,
+                block_index,
                 range_bounds_to_tuple(&(start..end)),
             );
 
             for key in (1_000..5_000).rev().map(u64::to_be_bytes) {
                 let item = iter.next_back().expect("item should exist")?;
-                assert_eq!(key, &*item.key);
+                assert_eq!(key, &*item.key.user_key);
             }
         }
 
@@ -550,22 +545,19 @@ mod tests {
 
     #[test]
     fn segment_range_reader_bounded_ranges() -> crate::Result<()> {
-        for block_size in [1, 10, 100, 200, 500, 1_000, 4_096] {
+        for data_block_size in [1, 10, 100, 200, 500, 1_000, 4_096] {
             let folder = tempfile::tempdir()?.into_path();
 
             let mut writer = Writer::new(Options {
                 segment_id: 0,
-
                 folder: folder.clone(),
                 evict_tombstones: false,
-                block_size,
-
-                #[cfg(feature = "bloom")]
-                bloom_fp_rate: 0.01,
+                data_block_size,
+                index_block_size: 4_096,
             })?;
 
             let items = (0u64..ITEM_COUNT).map(|i| {
-                Value::new(
+                InternalValue::from_components(
                     i.to_be_bytes(),
                     nanoid::nanoid!().as_bytes(),
                     1000 + i,
@@ -590,7 +582,7 @@ mod tests {
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
-                Arc::clone(&block_cache),
+                block_cache.clone(),
             )?);
 
             let ranges: Vec<(Bound<u64>, Bound<u64>)> = vec![
@@ -614,8 +606,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     bounds_u64_to_bytes(&bounds),
                 );
 
@@ -624,7 +616,7 @@ mod tests {
                         panic!("item should exist: {:?} ({})", key, u64::from_be_bytes(key))
                     })?;
 
-                    assert_eq!(key, &*item.key);
+                    assert_eq!(key, &*item.key.user_key);
                 }
 
                 log::debug!("Getting every item in range in reverse");
@@ -634,8 +626,8 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     bounds_u64_to_bytes(&bounds),
                 );
 
@@ -644,7 +636,7 @@ mod tests {
                         panic!("item should exist: {:?} ({})", key, u64::from_be_bytes(key))
                     })?;
 
-                    assert_eq!(key, &*item.key);
+                    assert_eq!(key, &*item.key.user_key);
                 }
             }
         }
@@ -661,17 +653,14 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
-
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 250,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
+            data_block_size: 250,
+            index_block_size: 4_096,
         })?;
 
         let items = chars.iter().map(|&key| {
-            Value::new(
+            InternalValue::from_components(
                 &[key][..],
                 *b"dsgfgfdsgsfdsgfdgfdfgdsgfdhsnreezrzsernszsdaadsadsadsadsadsdsensnzersnzers",
                 0,
@@ -696,7 +685,7 @@ mod tests {
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?);
 
         for (i, &start_char) in chars.iter().enumerate() {
@@ -709,15 +698,15 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     (
-                        Included(Arc::new([start_char])),
-                        Included(Arc::new([end_char])),
+                        Included(Slice::from([start_char])),
+                        Included(Slice::from([end_char])),
                     ),
                 );
 
-                let mut range = iter.flatten().map(|x| x.key);
+                let mut range = iter.flatten().map(|x| x.key.user_key);
 
                 for &item in &expected_range {
                     assert_eq!(&*range.next().expect("should exist"), &[item]);
@@ -727,15 +716,15 @@ mod tests {
                     trailer.offsets.index_block_ptr,
                     table.clone(),
                     (0, 0).into(),
-                    Arc::clone(&block_cache),
-                    Arc::clone(&block_index),
+                    block_cache.clone(),
+                    block_index.clone(),
                     (
-                        Included(Arc::new([start_char])),
-                        Included(Arc::new([end_char])),
+                        Included(Slice::from([start_char])),
+                        Included(Slice::from([end_char])),
                     ),
                 );
 
-                let mut range = iter.flatten().map(|x| x.key);
+                let mut range = iter.flatten().map(|x| x.key.user_key);
 
                 for &item in expected_range.iter().rev() {
                     assert_eq!(&*range.next_back().expect("should exist"), &[item]);

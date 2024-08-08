@@ -1,21 +1,22 @@
 //! Contains compaction strategies
 
 pub(crate) mod fifo;
-pub(crate) mod levelled;
+pub(crate) mod leveled;
 pub(crate) mod maintenance;
 pub(crate) mod major;
 pub(crate) mod pulldown;
+pub(crate) mod stream;
 pub(crate) mod tiered;
 pub(crate) mod worker;
 
 use crate::{config::Config, levels::LevelManifest, segment::meta::SegmentId};
 
 pub use fifo::Strategy as Fifo;
-pub use levelled::Strategy as Levelled;
+pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
-/// Alias for `Levelled`
-pub type Leveled = Levelled;
+/// Alias for `Leveled`
+pub type Levelled = Leveled;
 
 #[doc(hidden)]
 pub use pulldown::Strategy as PullDown;
