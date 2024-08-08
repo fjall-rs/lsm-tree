@@ -1,4 +1,4 @@
-use lsm_tree::{MemTable, SeqNo, Value, ValueType};
+use lsm_tree::{InternalValue, MemTable, SeqNo, ValueType};
 use serde::{Deserialize, Serialize};
 use std::io::{Seek, Write};
 use std::sync::Mutex;
@@ -24,28 +24,28 @@ pub struct WalEntry {
     value_type: u8,
 }
 
-impl From<WalEntry> for Value {
+impl From<WalEntry> for InternalValue {
     fn from(entry: WalEntry) -> Self {
-        Self {
-            key: entry.key.into(),
-            value: entry.value.into(),
-            seqno: entry.seqno,
-            value_type: ValueType::from(entry.value_type),
-        }
+        Self::from_components(
+            entry.key,
+            entry.value,
+            entry.seqno,
+            ValueType::from(entry.value_type),
+        )
     }
 }
 
-impl From<Value> for WalEntry {
-    fn from(entry: Value) -> Self {
+impl From<InternalValue> for WalEntry {
+    fn from(entry: InternalValue) -> Self {
         Self {
-            key: std::str::from_utf8(&entry.key)
+            key: std::str::from_utf8(&entry.key.user_key)
                 .expect("should be valid utf-8")
                 .into(),
             value: std::str::from_utf8(&entry.value)
                 .expect("should be valid utf-8")
                 .into(),
-            seqno: entry.seqno,
-            value_type: entry.value_type.into(),
+            seqno: entry.key.seqno,
+            value_type: entry.key.value_type.into(),
         }
     }
 }
@@ -81,7 +81,7 @@ impl Wal {
         }
     }
 
-    pub fn write(&mut self, value: Value) -> lsm_tree::Result<()> {
+    pub fn write(&mut self, value: InternalValue) -> lsm_tree::Result<()> {
         let mut writer = self.writer.lock().expect("lock is poisoned");
 
         let wal_entry: WalEntry = value.into();
