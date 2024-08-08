@@ -76,6 +76,7 @@ mod tests {
             .read()
             .expect("lock is poisoned")
             .iter()
+            .cloned()
             .collect::<Vec<_>>();
 
         #[allow(clippy::unwrap_used)]

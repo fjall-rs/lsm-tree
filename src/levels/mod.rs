@@ -356,14 +356,14 @@ impl LevelManifest {
         output
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<Segment>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<Segment>> + '_ {
         LevelManifestIterator::new(self)
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
         let mut output = HashMap::new();
 
-        for segment in self.iter() {
+        for segment in self.iter().cloned() {
             output.insert(segment.metadata.id, segment);
         }
 
