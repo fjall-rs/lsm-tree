@@ -44,6 +44,27 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(folder).open_as_blob_tree()?;
+
+    for x in 0..ITEM_COUNT as u64 {
+        let key = x.to_be_bytes();
+        let value = nanoid::nanoid!();
+        tree.insert(key, value.as_bytes(), 0);
+    }
+
+    tree.flush_active_memtable()?;
+
+    assert_eq!(tree.len()?, ITEM_COUNT);
+    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+
+    Ok(())
+}
+
+#[test]
 fn tree_non_locking_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 

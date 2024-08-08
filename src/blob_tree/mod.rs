@@ -278,7 +278,7 @@ impl AbstractTree for BlobTree {
             #[allow(clippy::cast_possible_truncation)]
             let value_size = value.len() as u32;
 
-            if value_size > self.index.config.blob_file_separation_threshold {
+            if value_size >= self.index.config.blob_file_separation_threshold {
                 let handle = blob_writer.get_next_value_handle();
 
                 let indirection = MaybeInlineValue::Indirect {

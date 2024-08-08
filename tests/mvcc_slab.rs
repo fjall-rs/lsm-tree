@@ -35,7 +35,7 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn blob_tree_segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
+fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder).block_size(1_024).open_as_blob_tree()?;
