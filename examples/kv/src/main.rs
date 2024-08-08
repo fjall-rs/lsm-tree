@@ -1,6 +1,6 @@
 mod wal;
 
-use lsm_tree::{Config, SequenceNumberCounter, Tree, Value};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, Tree, Value};
 use nanoid::nanoid;
 use std::{
     path::Path,
