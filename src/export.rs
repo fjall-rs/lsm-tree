@@ -125,6 +125,19 @@ mod tests {
     }
 
     #[test]
+    fn import_v1_fixture_blob() -> crate::Result<()> {
+        let folder = "test_fixture/v1_export";
+
+        let dir = tempfile::tempdir()?;
+        let tree = crate::Config::new(dir.path()).open_as_blob_tree()?;
+        tree.import(folder)?;
+
+        assert_eq!(4, tree.len()?);
+
+        Ok(())
+    }
+
+    #[test]
     fn import_v1_fixture_corrupt() -> crate::Result<()> {
         let folder = "test_fixture/v1_export_corrupt";
 
@@ -144,6 +157,28 @@ mod tests {
         let dir = tempfile::tempdir()?;
 
         let tree = crate::Config::new(dir.path()).open()?;
+
+        tree.insert("a", "Oh, don't see you now", 0);
+        tree.insert("b", "Wait, don't just give out", 0);
+        tree.insert("c", "Move from your old house", 0);
+        tree.insert("d", "This city can be so loud", 0);
+
+        let export_path = dir.path().join("export");
+        tree.export(&export_path)?;
+
+        assert_eq!(
+            std::fs::read("test_fixture/v1_export")?,
+            std::fs::read(export_path)?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn export_v1_fixture_blob() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(dir.path()).open_as_blob_tree()?;
 
         tree.insert("a", "Oh, don't see you now", 0);
         tree.insert("b", "Wait, don't just give out", 0);
