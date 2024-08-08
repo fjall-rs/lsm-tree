@@ -302,8 +302,8 @@ impl Config {
     ///
     /// This function has no effect when not used for opening a blob tree.
     #[must_use]
-    pub fn blob_file_separation_threshold(mut self, bytes: u64) -> Self {
-        self.blob_file_target_size = bytes;
+    pub fn blob_file_separation_threshold(mut self, bytes: u32) -> Self {
+        self.blob_file_separation_threshold = bytes;
         self
     }
 
