@@ -104,8 +104,6 @@ impl Level {
 
     /// Checks if the level is disjoint and caches the result in `is_disjoint`.
     fn set_disjoint_flag(&mut self) {
-        // TODO: calculate without heap allocation? possible?
-
         let ranges = self
             .segments
             .iter()

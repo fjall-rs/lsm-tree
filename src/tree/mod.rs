@@ -173,7 +173,6 @@ impl AbstractTree for Tree {
         memtable_lock.add(id, memtable);
     }
 
-    // TODO: eviction seqno
     fn compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -889,9 +888,7 @@ impl Tree {
 
         if segments.len() < segment_ids_to_recover.len() {
             log::error!("Expected segments: {segment_ids_to_recover:?}");
-
-            // TODO: no panic here
-            panic!("Some segments were not recovered")
+            return Err(crate::Error::Unrecoverable);
         }
 
         log::debug!("Recovered {} segments", segments.len());

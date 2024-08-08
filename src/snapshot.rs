@@ -23,11 +23,6 @@ impl Snapshot {
         Self { tree, seqno }
     }
 
-    /*  #[doc(hidden)]
-    pub fn get_internal_entry<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Value>> {
-        self.tree.get_internal_entry(key, true, Some(self.seqno))
-    } */
-
     /// Retrieves an item from the snapshot.
     ///
     /// # Examples

@@ -243,7 +243,6 @@ fn merge_segments(
                 metadata: trailer.metadata,
                 offsets: trailer.offsets,
 
-                // TODO: if L0, L1, preload block index (non-partitioned)
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index,
 

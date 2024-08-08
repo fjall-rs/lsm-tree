@@ -22,6 +22,9 @@ pub enum Error {
     /// Invalid or unparseable data format version
     InvalidVersion(Option<Version>),
 
+    /// Some required segments could not be required from disk
+    Unrecoverable,
+
     /// Value log errors
     ValueLog(value_log::Error),
 }
