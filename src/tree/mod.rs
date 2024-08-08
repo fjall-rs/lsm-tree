@@ -436,7 +436,6 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        // TODO: if L0, preload block index (non-partitioned)
         let block_index = Arc::new(BlockIndex::from_file(
             &segment_file_path,
             trailer.offsets.tli_ptr,
