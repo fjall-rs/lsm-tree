@@ -193,10 +193,10 @@ impl AbstractTree for BlobTree {
         todo!()
     }
 
+    #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
         let vlog_sum = self.blobs.verify()?;
-
         Ok(index_tree_sum + vlog_sum)
     }
 
