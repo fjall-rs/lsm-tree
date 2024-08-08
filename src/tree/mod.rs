@@ -270,12 +270,22 @@ impl AbstractTree for Tree {
     }
 
     fn get_higest_memtable_seqno(&self) -> Option<SeqNo> {
-        // TODO: 2.0.0 get from sealed as well + unit test
-
-        self.active_memtable
+        let active = self
+            .active_memtable
             .read()
             .expect("lock is poisoned")
-            .get_highest_seqno()
+            .get_highest_seqno();
+
+        let sealed = self
+            .sealed_memtables
+            .read()
+            .expect("Lock is poisoned")
+            .iter()
+            .map(|(_, table)| table.get_highest_seqno())
+            .max()
+            .flatten();
+
+        active.max(sealed)
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {

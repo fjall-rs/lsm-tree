@@ -1,10 +1,9 @@
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
-    compaction::Choice,
+    compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     levels::LevelManifest,
     merge::{BoxedIterator, Merger},
-    mvcc_stream::MvccStream,
     segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
@@ -153,7 +152,7 @@ fn merge_segments(
         }
 
         let merged = Merger::new(segment_readers);
-        MvccStream::new(Box::new(merged)).gc_seqno_threshold(opts.eviction_seqno)
+        CompactionStream::new(Box::new(merged), opts.eviction_seqno)
     };
 
     let last_level = levels.last_level_index();

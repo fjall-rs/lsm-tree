@@ -5,6 +5,7 @@ pub(crate) mod leveled;
 pub(crate) mod maintenance;
 pub(crate) mod major;
 pub(crate) mod pulldown;
+pub(crate) mod stream;
 pub(crate) mod tiered;
 pub(crate) mod worker;
 

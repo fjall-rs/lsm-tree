@@ -39,5 +39,17 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
     assert_eq!(tree.get_higest_memtable_seqno(), Some(4));
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
+    let (segment_id, sealed) = tree.rotate_memtable().unwrap();
+    assert_eq!(tree.get_highest_seqno(), Some(4));
+    assert_eq!(tree.get_higest_memtable_seqno(), Some(4));
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
+
+    let segment = tree.flush_memtable(segment_id, &sealed)?;
+    tree.register_segments(&[segment])?;
+
+    assert_eq!(tree.get_highest_seqno(), Some(4));
+    assert_eq!(tree.get_higest_memtable_seqno(), None);
+    assert_eq!(tree.get_highest_persisted_seqno(), Some(4));
+
     Ok(())
 }

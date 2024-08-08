@@ -1,25 +1,17 @@
 use crate::{InternalValue, SeqNo, UserKey, ValueType};
 use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
-// TODO: need to differentiate between evicting tombstones and evicting nothing at all
-// TODO: even if it's not the last level, we may want to drop weak tombstones...
-// TODO: weak tombstone may have to depend on seqno that we can free...
-
-// TODO: port remaining tests from merge.rs
-
-// TODO: split into two different functions... MvccStream -> double ended, for reading
-// TODO:                                       CompactionFilter -> forward only, for compaction, GC, single delete
-
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
     item_seqno < seqno
 }
 
 /// Consumes a stream of KVs and emits a new stream according to MVCC and tombstone rules
+///
+/// This iterator is used for read operations.
 #[allow(clippy::module_name_repetitions)]
 pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     inner: DoubleEndedPeekable<I>,
-    gc_seqno_threshold: Option<SeqNo>,
 }
 
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
@@ -28,17 +20,7 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
     pub fn new(iter: I) -> Self {
         let iter = iter.double_ended_peekable();
 
-        Self {
-            inner: iter,
-            gc_seqno_threshold: None,
-        }
-    }
-
-    /// Evict old versions by skipping over them, if they are older than this threshold.
-    #[must_use]
-    pub fn gc_seqno_threshold(mut self, seqno: SeqNo) -> Self {
-        self.gc_seqno_threshold = Some(seqno);
-        self
+        Self { inner: iter }
     }
 
     fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
@@ -48,6 +30,8 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
             };
 
             let Ok(next) = next else {
+                // NOTE: We just asserted, the peeked value is an error
+                #[allow(clippy::expect_used)]
                 return Err(self
                     .inner
                     .next()
@@ -55,8 +39,10 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
                     .expect_err("should be error"));
             };
 
+            // Consume version
             if &next.key.user_key == key {
-                // Consume key
+                // NOTE: We know the next value is not empty, because we just peeked it
+                #[allow(clippy::expect_used)]
                 self.inner.next().expect("should not be empty")?;
             } else {
                 return Ok(());
@@ -69,49 +55,6 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for M
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(seqno) = self.gc_seqno_threshold {
-            loop {
-                let head = fail_iter!(self.inner.next()?);
-
-                // TODO: unit test
-
-                if let Some(peeked) = self.inner.peek() {
-                    let peeked = match peeked {
-                        Ok(v) => v,
-                        Err(_) => {
-                            return Some(Err(self
-                                .inner
-                                .next()
-                                .expect("value should exist")
-                                .expect_err("should be error")))
-                        }
-                    };
-
-                    // NOTE: Only item of this key and thus latest version, so return it no matter what
-                    if peeked.key.user_key > head.key.user_key {
-                        return Some(Ok(head));
-                    }
-
-                    // NOTE: Next item is expired is expired,
-                    // so the tail of this user key is entirely expired, so drain it all
-                    if peeked.key.seqno < seqno {
-                        // NOTE: If next item is an actual value, and current value is weak tombstone,
-                        // drop the tombstone
-                        let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
-                            && head.key.value_type == ValueType::WeakTombstone;
-
-                        fail_iter!(self.drain_key_min(&head.key.user_key));
-
-                        if drop_weak_tombstone {
-                            continue;
-                        }
-                    }
-                }
-
-                return Some(Ok(head));
-            }
-        }
-
         loop {
             let head = fail_iter!(self.inner.next()?);
 
@@ -120,11 +63,13 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for M
                 let next = match self.inner.peek() {
                     Some(Ok(next)) => next,
                     Some(Err(_)) => {
+                        // NOTE: We just asserted, the peeked value is an error
+                        #[allow(clippy::expect_used)]
                         return Some(Err(self
                             .inner
                             .next()
                             .expect("should exist")
-                            .expect_err("should be error")))
+                            .expect_err("should be error")));
                     }
                     None => return Some(Ok(head)),
                 };
@@ -150,11 +95,6 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
     for MvccStream<I>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if let Some(_seqno) = self.gc_seqno_threshold {
-            panic!("Should probably implement this, but it's not really needed right now");
-            // return self.inner.next_back();
-        }
-
         // NOTE: Many versions are pretty unlikely, so we can probably skip a lot of heap allocations
         // when there are only 1-5 versions.
         let mut stack: smallvec::SmallVec<[InternalValue; 5]> = smallvec::smallvec![];
@@ -165,11 +105,13 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
             let prev = match self.inner.peek_back() {
                 Some(Ok(prev)) => prev,
                 Some(Err(_)) => {
+                    // NOTE: We just asserted, the peeked value is an error
+                    #[allow(clippy::expect_used)]
                     return Some(Err(self
                         .inner
                         .next_back()
                         .expect("should exist")
-                        .expect_err("should be error")))
+                        .expect_err("should be error")));
                 }
                 None => {
                     if tail.key.value_type == ValueType::WeakTombstone {
@@ -236,6 +178,7 @@ mod tests {
         };
     }
 
+    // NOTE: Tests that the iterator emit the same stuff forwards and backwards, just in reverse
     macro_rules! test_reverse {
         ($v:expr) => {
             let iter = Box::new($v.iter().cloned().map(Ok));
@@ -253,88 +196,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_no_evict_simple() -> crate::Result<()> {
-        #[rustfmt::skip]
-        let vec = stream![
-          "a", "old", "V",
-          "b", "old", "V",
-          "c", "old", "V",
-        ];
-
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-        let mut iter = MvccStream::new(iter).gc_seqno_threshold(0);
-
-        assert_eq!(
-            InternalValue::from_components(*b"a", *b"old", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"b", *b"old", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"c", *b"old", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert!(iter.next().is_none(), "iterator should be closed (done)");
-
-        Ok(())
-    }
-
-    #[test_log::test]
-    #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_no_evict_simple_multi_keys() -> crate::Result<()> {
-        #[rustfmt::skip]
-        let vec = stream![
-          "a", "new", "V",
-          "a", "old", "V",
-          "b", "new", "V",
-          "b", "old", "V",
-          "c", "newnew", "V",
-          "c", "new", "V",
-          "c", "old", "V",
-        ];
-
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
-        let mut iter = MvccStream::new(iter).gc_seqno_threshold(0);
-
-        assert_eq!(
-            InternalValue::from_components(*b"a", *b"new", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"a", *b"old", 998, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"b", *b"new", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"b", *b"old", 998, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"c", *b"newnew", 999, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"c", *b"new", 998, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert_eq!(
-            InternalValue::from_components(*b"c", *b"old", 997, ValueType::Value),
-            iter.next().unwrap()?,
-        );
-        assert!(iter.next().is_none(), "iterator should be closed (done)");
-
-        Ok(())
-    }
-
-    #[test_log::test]
-    #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_simple() -> crate::Result<()> {
+    fn mvcc_stream_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "new", "V",
@@ -358,7 +220,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_simple_multi_keys() -> crate::Result<()> {
+    fn mvcc_stream_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "new", "V",
@@ -395,7 +257,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_tombstone() -> crate::Result<()> {
+    fn mvcc_stream_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "T",
@@ -419,7 +281,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_tombstone_multi_keys() -> crate::Result<()> {
+    fn mvcc_stream_tombstone_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "T",
@@ -456,7 +318,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_weak_tombstone_simple() {
+    fn mvcc_stream_weak_tombstone_simple() {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "W",
@@ -474,7 +336,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_weak_tombstone_resurrection() -> crate::Result<()> {
+    fn mvcc_stream_weak_tombstone_resurrection() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "W",
@@ -499,7 +361,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_weak_tombstone_priority() -> crate::Result<()> {
+    fn mvcc_stream_weak_tombstone_priority() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "T",  
@@ -525,7 +387,7 @@ mod tests {
 
     #[test_log::test]
     #[allow(clippy::unwrap_used)]
-    fn mvcc_stream_evict_weak_tombstone_multi_keys() {
+    fn mvcc_stream_weak_tombstone_multi_keys() {
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "W",
