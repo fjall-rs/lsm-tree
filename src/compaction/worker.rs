@@ -224,7 +224,7 @@ fn merge_segments(
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
             let block_index = Arc::new(BlockIndex::from_file(
-                &segment_file_path,
+                segment_file_path,
                 tli_ptr,
                 (opts.tree_id, segment_id).into(),
                 opts.config.descriptor_table.clone(),
