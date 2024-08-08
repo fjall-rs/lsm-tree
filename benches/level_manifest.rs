@@ -28,19 +28,19 @@ fn find_segment(c: &mut Criterion) {
     let mut group = c.benchmark_group("Find segment in disjoint level");
 
     for segment_count in [1u64, 5, 10, 100, 500, 1_000] {
-        let folder = tempfile::tempdir().unwrap();
-        let tree = Config::new(folder).block_size(1_024).open().unwrap();
-
-        for x in 0..segment_count {
-            tree.insert(x.to_be_bytes(), "", x);
-            tree.flush_active_memtable().unwrap();
-        }
-
-        let key = (segment_count / 2).to_be_bytes();
-
         group.bench_function(
             &format!("find segment in {segment_count} segments - binary search"),
             |b| {
+                let folder = tempfile::tempdir().unwrap();
+                let tree = Config::new(folder).block_size(1_024).open().unwrap();
+
+                for x in 0..segment_count {
+                    tree.insert(x.to_be_bytes(), "", x);
+                    tree.flush_active_memtable().unwrap();
+                }
+
+                let key = (segment_count / 2).to_be_bytes();
+
                 let levels = tree.levels.read().unwrap();
 
                 b.iter(|| {
@@ -57,6 +57,16 @@ fn find_segment(c: &mut Criterion) {
         group.bench_function(
             &format!("find segment in {segment_count} segments - linear search"),
             |b| {
+                let folder = tempfile::tempdir().unwrap();
+                let tree = Config::new(folder).block_size(1_024).open().unwrap();
+
+                for x in 0..segment_count {
+                    tree.insert(x.to_be_bytes(), "", x);
+                    tree.flush_active_memtable().unwrap();
+                }
+
+                let key = (segment_count / 2).to_be_bytes();
+
                 let levels = tree.levels.read().unwrap();
 
                 b.iter(|| {
