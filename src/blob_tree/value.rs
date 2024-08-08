@@ -7,6 +7,9 @@ use std::io::{Read, Write};
 use value_log::ValueHandle;
 
 /// A value which may or may not be inlined into an index tree
+///
+/// If not inlined, the value is present in the value log, so it needs
+/// to be fetched using the given value handle.
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub enum MaybeInlineValue {
