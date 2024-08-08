@@ -173,7 +173,7 @@ pub type KvPair = (UserKey, UserValue);
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::{id::GlobalSegmentId, meta::SegmentId},
+    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };

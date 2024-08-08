@@ -1,12 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{
-    segment::{
-        block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
-    },
-    serde::Serializable,
-    AbstractTree, BlockCache, Config, InternalValue, MemTable, Slice,
-};
-use nanoid::nanoid;
+use lsm_tree::{AbstractTree, BlockCache, Config, Slice};
 use std::sync::Arc;
 use tempfile::tempdir;
 

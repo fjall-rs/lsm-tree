@@ -1,14 +1,16 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
     segment::{
-        block::header::Header as BlockHeader, meta::CompressionType, value_block::ValueBlock,
+        block::{header::Header as BlockHeader, ItemSize},
+        meta::CompressionType,
+        value_block::ValueBlock,
     },
     serde::Serializable,
-    InternalValue,
+    Checksum, InternalValue,
 };
 use std::io::Write;
 
-fn value_block_size(c: &mut Criterion) {
+/* fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
 
     for item_count in [10, 100, 1_000] {
@@ -28,7 +30,7 @@ fn value_block_size(c: &mut Criterion) {
                 items,
                 header: BlockHeader {
                     compression: CompressionType::Lz4,
-                    checksum: 0,
+                    checksum: Checksum::from_raw(0),
                     data_length: 0,
                     previous_block_offset: 0,
                     uncompressed_length: 0,
@@ -36,11 +38,11 @@ fn value_block_size(c: &mut Criterion) {
             };
 
             b.iter(|| {
-                block.size();
+                (&*block.items).size();
             })
         });
     }
-}
+} */
 
 fn value_block_find(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::find_latest");
@@ -69,7 +71,7 @@ fn value_block_find(c: &mut Criterion) {
             items: items.into_boxed_slice(),
             header: BlockHeader {
                 compression: CompressionType::Lz4,
-                checksum: 0,
+                checksum: Checksum::from_raw(0),
                 data_length: 0,
                 previous_block_offset: 0,
                 uncompressed_length: 0,
@@ -116,7 +118,7 @@ fn index_block_find_handle(c: &mut Criterion) {
                 items,
                 header: BlockHeader {
                     compression: CompressionType::Lz4,
-                    checksum: 0,
+                    checksum: Checksum::from_raw(0),
                     data_length: 0,
                     previous_block_offset: 0,
                     uncompressed_length: 0,
@@ -161,31 +163,25 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                 }
             }
 
-            let mut block = ValueBlock {
-                items: items.clone().into_boxed_slice(),
-                header: BlockHeader {
-                    compression: comp_type,
-                    checksum: 0,
-                    data_length: 0,
-                    previous_block_offset: 0,
-                    uncompressed_length: 0,
-                },
-            };
-
             // Serialize block
-            block.header.checksum = ValueBlock::create_checksum(&block.items).unwrap();
-            let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
+            let (mut header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
+            header.checksum = Checksum::from_bytes(&data);
 
             let mut file = tempfile::tempfile().unwrap();
             header.serialize(&mut file).unwrap();
             file.write_all(&data).unwrap();
 
+            let expected_block = ValueBlock {
+                items: items.clone().into_boxed_slice(),
+                header,
+            };
+
             group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
                 b.iter(|| {
-                    let loaded_block = ValueBlock::from_file_compressed(&mut file, 0).unwrap();
+                    let loaded_block = ValueBlock::from_file(&mut file, 0).unwrap();
 
-                    assert_eq!(loaded_block.items.len(), block.items.len());
-                    assert_eq!(loaded_block.header.checksum, block.header.checksum);
+                    assert_eq!(loaded_block.items.len(), expected_block.items.len());
+                    assert_eq!(loaded_block.header.checksum, expected_block.header.checksum);
                 });
             });
         }
@@ -196,7 +192,7 @@ criterion_group!(
     benches,
     value_block_find,
     index_block_find_handle,
-    value_block_size,
     load_value_block_from_disk,
+    // value_block_size,
 );
 criterion_main!(benches);
