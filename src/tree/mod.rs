@@ -268,7 +268,7 @@ impl AbstractTree for Tree {
         levels.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    fn get_higest_memtable_seqno(&self) -> Option<SeqNo> {
+    fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         let active = self
             .active_memtable
             .read()

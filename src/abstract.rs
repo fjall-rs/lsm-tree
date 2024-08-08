@@ -93,7 +93,7 @@ pub trait AbstractTree {
 
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
-        let memtable_seqno = self.get_higest_memtable_seqno();
+        let memtable_seqno = self.get_highest_memtable_seqno();
         let segment_seqno = self.get_highest_persisted_seqno();
         memtable_seqno.max(segment_seqno)
     }
@@ -122,7 +122,7 @@ pub trait AbstractTree {
     fn disk_space(&self) -> u64;
 
     /// Returns the highest sequence number of the active memtable.
-    fn get_higest_memtable_seqno(&self) -> Option<SeqNo>;
+    fn get_highest_memtable_seqno(&self) -> Option<SeqNo>;
 
     /// Returns the highest sequence number that is flushed to disk.
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo>;

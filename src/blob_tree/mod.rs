@@ -389,8 +389,8 @@ impl AbstractTree for BlobTree {
         self.index.disk_space() + self.blobs.manifest.disk_space_used()
     }
 
-    fn get_higest_memtable_seqno(&self) -> Option<SeqNo> {
-        self.index.get_higest_memtable_seqno()
+    fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
+        self.index.get_highest_memtable_seqno()
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
