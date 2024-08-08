@@ -3,6 +3,7 @@ use lsm_tree::{AbstractTree, Config};
 
 fn iterate_segments(c: &mut Criterion) {
     let mut group = c.benchmark_group("Iterate level manifest");
+    group.sample_size(10);
 
     for segment_count in [0, 1, 5, 10, 100, 500, 1_000] {
         group.bench_function(&format!("iterate {segment_count} segments"), |b| {
