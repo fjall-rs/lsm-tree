@@ -223,6 +223,9 @@ fn merge_segments(
             #[cfg(feature = "bloom")]
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
+            // NOTE: Need to allow because of false positive in Clippy
+            // because of "bloom" feature
+            #[allow(clippy::needless_borrows_for_generic_args)]
             let block_index = Arc::new(BlockIndex::from_file(
                 &segment_file_path,
                 tli_ptr,
