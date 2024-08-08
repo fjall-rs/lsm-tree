@@ -5,6 +5,7 @@ pub mod value;
 
 use self::value::MaybeInlineValue;
 use crate::{
+    export::import_tree,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
     serde::{Deserializable, Serializable},
@@ -186,11 +187,7 @@ impl BlobTree {
 
 impl AbstractTree for BlobTree {
     fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        todo!()
-    }
-
-    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        todo!()
+        import_tree(path, self)
     }
 
     #[doc(hidden)]

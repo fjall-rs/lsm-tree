@@ -126,6 +126,7 @@ pub mod descriptor_table;
 
 mod either;
 mod error;
+mod export;
 
 #[doc(hidden)]
 pub mod file;

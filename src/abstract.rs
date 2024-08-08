@@ -1,7 +1,10 @@
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
-    Config, KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
-    ValueType,
+    compaction::CompactionStrategy,
+    config::TreeType,
+    export::{export_tree, import_tree},
+    tree::inner::MemtableId,
+    AnyTree, BlobTree, Config, KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree,
+    UserKey, UserValue, ValueType,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -34,7 +37,9 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
-    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
+    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
+        export_tree(path, self.iter())
+    }
 
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize>;

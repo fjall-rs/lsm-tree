@@ -1,7 +1,7 @@
 use crate::{
     serde::{DeserializeError, SerializeError},
     version::Version,
-    CompressionType,
+    Checksum, CompressionType,
 };
 
 /// Represents errors that can occur in the LSM-tree
@@ -24,6 +24,9 @@ pub enum Error {
 
     /// Some required segments could not be required from disk
     Unrecoverable,
+
+    /// Invalid checksum value (got, expected)
+    InvalidChecksum((Checksum, Checksum)),
 
     /// Value log errors
     ValueLog(value_log::Error),

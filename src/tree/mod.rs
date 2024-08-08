@@ -4,6 +4,7 @@ use crate::{
     compaction::CompactionStrategy,
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
+    export::import_tree,
     levels::LevelManifest,
     memtable::MemTable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
@@ -44,11 +45,7 @@ impl std::ops::Deref for Tree {
 
 impl AbstractTree for Tree {
     fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        todo!()
-    }
-
-    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        todo!()
+        import_tree(path, self)
     }
 
     fn verify(&self) -> crate::Result<usize> {
