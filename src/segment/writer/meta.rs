@@ -1,8 +1,11 @@
 use crate::{SeqNo, UserKey};
 
 pub struct Metadata {
-    /// Written block count
-    pub block_count: usize,
+    /// Written data block count
+    pub data_block_count: usize,
+
+    /// Written index block count
+    pub index_block_count: usize,
 
     /// Written item count
     pub item_count: usize,
@@ -35,7 +38,9 @@ pub struct Metadata {
 impl Default for Metadata {
     fn default() -> Self {
         Self {
-            block_count: 0,
+            data_block_count: 0,
+            index_block_count: 0,
+
             item_count: 0,
             tombstone_count: 0,
             key_count: 0,

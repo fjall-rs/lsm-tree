@@ -18,9 +18,13 @@ pub struct Writer {
 
     block_size: u32,
     compression: CompressionType,
-    block_counter: u32,
+
+    buffer_size: u32,
+
     block_handles: Vec<KeyedBlockHandle>,
     tli_pointers: Vec<KeyedBlockHandle>,
+
+    pub block_count: usize,
 }
 
 impl Writer {
@@ -29,11 +33,12 @@ impl Writer {
             file_pos: 0,
             prev_pos: (0, 0),
             write_buffer: Vec::with_capacity(block_size as usize),
-            block_counter: 0,
+            buffer_size: 0,
             block_size,
             compression: CompressionType::None,
             block_handles: Vec::with_capacity(1_000),
             tli_pointers: Vec::with_capacity(1_000),
+            block_count: 0,
         })
     }
 
@@ -70,11 +75,13 @@ impl Writer {
 
         self.tli_pointers.push(index_block_handle);
 
-        self.block_counter = 0;
+        self.buffer_size = 0;
         self.file_pos += bytes_written;
 
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
+
+        self.block_count += 1;
 
         self.block_handles.clear();
 
@@ -93,9 +100,9 @@ impl Writer {
 
         self.block_handles.push(block_handle);
 
-        self.block_counter += block_handle_size;
+        self.buffer_size += block_handle_size;
 
-        if self.block_counter >= self.block_size {
+        if self.buffer_size >= self.block_size {
             self.write_block()?;
         }
 
@@ -139,7 +146,7 @@ impl Writer {
 
     /// Returns the offset in the file to TLI
     pub fn finish(&mut self, block_file_writer: &mut BufWriter<File>) -> crate::Result<u64> {
-        if self.block_counter > 0 {
+        if self.buffer_size > 0 {
             self.write_block()?;
         }
 

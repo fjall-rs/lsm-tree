@@ -448,7 +448,8 @@ mod tests {
             },
 
             metadata: Metadata {
-                block_count: 0,
+                data_block_count: 0,
+                index_block_count: 0,
                 data_block_size: 4_096,
                 index_block_size: 4_096,
                 created_at: 0,

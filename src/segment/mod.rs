@@ -135,7 +135,7 @@ impl Segment {
         }
 
         assert_eq!(
-            data_block_count, self.metadata.block_count,
+            data_block_count, self.metadata.data_block_count,
             "not all data blocks were visited"
         );
 

@@ -172,7 +172,7 @@ impl Writer {
         // Adjust metadata
         self.meta.file_pos += bytes_written;
         self.meta.item_count += self.chunk.len();
-        self.meta.block_count += 1;
+        self.meta.data_block_count += 1;
 
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
@@ -258,6 +258,8 @@ impl Writer {
         let tli_ptr = self.index_writer.finish(&mut self.block_writer)?;
         log::trace!("tli_ptr={tli_ptr}");
 
+        self.meta.index_block_count = self.index_writer.block_count;
+
         // Write bloom filter
         #[cfg(feature = "bloom")]
         let bloom_ptr = {
@@ -322,7 +324,7 @@ impl Writer {
         log::debug!(
             "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
             self.meta.item_count,
-            self.meta.block_count,
+            self.meta.data_block_count,
             self.meta.file_pos / 1_024 / 1_024
         );
 
@@ -336,6 +338,7 @@ mod tests {
     use super::*;
     use crate::block_cache::BlockCache;
     use crate::descriptor_table::FileDescriptorTable;
+    use crate::segment::block_index::top_level::TopLevelIndex;
     use crate::segment::reader::Reader;
     use crate::value::{InternalValue, ValueType};
     use std::sync::Arc;
@@ -376,6 +379,11 @@ mod tests {
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
 
         let segment_file_path = folder.join(segment_id.to_string());
+
+        {
+            let tli = TopLevelIndex::from_file(&segment_file_path, trailer.offsets.tli_ptr)?;
+            assert_eq!(tli.data.len() as u32, trailer.metadata.index_block_count);
+        }
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(segment_file_path, (0, segment_id).into());

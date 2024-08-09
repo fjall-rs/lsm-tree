@@ -56,8 +56,11 @@ pub struct Metadata {
     /// Index block size (uncompressed)
     pub index_block_size: u32,
 
-    /// Number of written blocks
-    pub block_count: u32,
+    /// Number of written data blocks
+    pub data_block_count: u32,
+
+    /// Number of written index blocks
+    pub index_block_count: u32,
 
     /// What type of compression is used
     pub compression: CompressionType,
@@ -92,7 +95,8 @@ impl Serializable for Metadata {
         writer.write_u32::<BigEndian>(self.data_block_size)?;
         writer.write_u32::<BigEndian>(self.index_block_size)?;
 
-        writer.write_u32::<BigEndian>(self.block_count)?;
+        writer.write_u32::<BigEndian>(self.data_block_count)?;
+        writer.write_u32::<BigEndian>(self.index_block_count)?;
 
         self.compression.serialize(writer)?;
 
@@ -132,7 +136,8 @@ impl Deserializable for Metadata {
         let data_block_size = reader.read_u32::<BigEndian>()?;
         let index_block_size = reader.read_u32::<BigEndian>()?;
 
-        let block_count = reader.read_u32::<BigEndian>()?;
+        let data_block_count = reader.read_u32::<BigEndian>()?;
+        let index_block_count = reader.read_u32::<BigEndian>()?;
 
         let compression = CompressionType::deserialize(reader)?;
 
@@ -160,7 +165,8 @@ impl Deserializable for Metadata {
             data_block_size,
             index_block_size,
 
-            block_count,
+            data_block_count,
+            index_block_count,
 
             compression,
             table_type,
@@ -189,7 +195,11 @@ impl Metadata {
 
             // NOTE: Truncation is OK - even with the smallest block size (1 KiB), 4 billion blocks would be 4 TB
             #[allow(clippy::cast_possible_truncation)]
-            block_count: writer.meta.block_count as u32,
+            data_block_count: writer.meta.data_block_count as u32,
+
+            // NOTE: Truncation is OK as well
+            #[allow(clippy::cast_possible_truncation)]
+            index_block_count: writer.meta.index_block_count as u32,
 
             data_block_size: writer.opts.data_block_size,
             index_block_size: writer.opts.index_block_size,
@@ -241,7 +251,8 @@ mod tests {
     #[test]
     fn segment_metadata_serde_round_trip() -> crate::Result<()> {
         let metadata = Metadata {
-            block_count: 0,
+            data_block_count: 0,
+            index_block_count: 0,
             data_block_size: 4_096,
             index_block_size: 4_096,
             created_at: 5,
