@@ -56,7 +56,11 @@ Uses bloom filters to reduce superfluous disk I/O during point reads, improving 
 
 ## Stable disk format
 
-The disk format is stable as of 1.0.0. Future breaking changes will result in a major version bump and a migration path.
+The disk format is stable as of 1.0.0. 
+
+2.0.0 uses a new disk format and needs a manual format migration (`Tree::export` and `Tree::import`).
+
+Future breaking changes will result in a major version bump and a migration path.
 
 ## License
 
