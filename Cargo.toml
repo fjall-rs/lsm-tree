@@ -52,6 +52,12 @@ test-log = "0.2.16"
 denylist = ["all"]
 
 [[bench]]
+name = "tli"
+harness = false
+path = "benches/tli.rs"
+required-features = []
+
+[[bench]]
 name = "memtable"
 harness = false
 path = "benches/memtable.rs"
