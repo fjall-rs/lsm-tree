@@ -13,7 +13,9 @@ use std::ops::RangeBounds;
 #[derive(Clone)]
 pub struct Snapshot {
     tree: AnyTree,
-    seqno: SeqNo,
+
+    #[doc(hidden)]
+    pub seqno: SeqNo,
 }
 
 impl Snapshot {
