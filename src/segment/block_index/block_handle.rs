@@ -18,7 +18,7 @@ pub struct KeyedBlockHandle {
 
 impl ItemSize for KeyedBlockHandle {
     fn size(&self) -> usize {
-        std::mem::size_of::<Self>() + self.end_key.len()
+        self.end_key.len()
     }
 }
 
