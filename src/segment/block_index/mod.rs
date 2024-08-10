@@ -24,14 +24,7 @@ impl IndexBlock {
         key: &[u8],
     ) -> Option<&KeyedBlockHandle> {
         let idx = self.items.partition_point(|x| &*x.end_key < key);
-
-        let handle = self.items.get(idx)?;
-
-        if key > &*handle.end_key {
-            None
-        } else {
-            Some(handle)
-        }
+        self.items.get(idx)
     }
 }
 

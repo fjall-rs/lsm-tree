@@ -63,14 +63,7 @@ impl TopLevelIndex {
     #[must_use]
     pub fn get_lowest_block_containing_key(&self, key: &[u8]) -> Option<&KeyedBlockHandle> {
         let idx = self.data.partition_point(|x| &*x.end_key < key);
-
-        let block = self.data.get(idx)?;
-
-        if key > &*block.end_key {
-            None
-        } else {
-            Some(block)
-        }
+        self.data.get(idx)
     }
 
     /// Returns a handle to the last index block which can possibly contain a key
