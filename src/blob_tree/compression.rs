@@ -1,45 +1,40 @@
 use crate::CompressionType;
-use std::sync::Arc;
 use value_log::Compressor;
 
-#[cfg(feature = "lz4")]
-struct Lz4Compressor;
+#[derive(Copy, Clone, Debug)]
+pub struct MyCompressor(CompressionType);
 
-#[cfg(feature = "lz4")]
-impl Compressor for Lz4Compressor {
-    fn compress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::CompressError> {
-        Ok(lz4_flex::compress_prepend_size(bytes))
-    }
-
-    fn decompress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::DecompressError> {
-        lz4_flex::decompress_size_prepended(bytes)
-            .map_err(|e| value_log::DecompressError(e.to_string()))
+impl Default for MyCompressor {
+    fn default() -> Self {
+        Self(CompressionType::None)
     }
 }
 
-#[cfg(feature = "miniz")]
-struct MinizCompressor(u8);
+impl Compressor for MyCompressor {
+    fn compress(&self, bytes: &[u8]) -> value_log::Result<Vec<u8>> {
+        Ok(match self.0 {
+            CompressionType::None => bytes.into(),
 
-#[cfg(feature = "miniz")]
-impl Compressor for MinizCompressor {
-    fn compress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::CompressError> {
-        Ok(miniz_oxide::deflate::compress_to_vec(bytes, self.0))
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => lz4_flex::compress_prepend_size(bytes),
+
+            #[cfg(feature = "miniz")]
+            CompressionType::Miniz(lvl) => miniz_oxide::deflate::compress_to_vec(bytes, lvl),
+        })
     }
 
-    fn decompress(&self, bytes: &[u8]) -> Result<Vec<u8>, value_log::DecompressError> {
-        miniz_oxide::inflate::decompress_to_vec(bytes)
-            .map_err(|e| value_log::DecompressError(e.to_string()))
-    }
-}
+    fn decompress(&self, bytes: &[u8]) -> value_log::Result<Vec<u8>> {
+        match self.0 {
+            CompressionType::None => Ok(bytes.into()),
 
-pub fn get_vlog_compressor(compression: CompressionType) -> Arc<dyn Compressor + Send + Sync> {
-    match compression {
-        CompressionType::None => Arc::new(value_log::NoCompressor),
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                lz4_flex::decompress_size_prepended(bytes).map_err(|_| value_log::Error::Decompress)
+            }
 
-        #[cfg(feature = "lz4")]
-        CompressionType::Lz4 => Arc::new(Lz4Compressor),
-
-        #[cfg(feature = "miniz")]
-        CompressionType::Miniz(level) => Arc::new(MinizCompressor(level)),
+            #[cfg(feature = "miniz")]
+            CompressionType::Miniz(_) => miniz_oxide::inflate::decompress_to_vec(bytes)
+                .map_err(|_| value_log::Error::Decompress),
+        }
     }
 }

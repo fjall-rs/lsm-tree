@@ -13,7 +13,7 @@ use crate::{
     value::InternalValue,
     Config, KvPair, MemTable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
 };
-use compression::get_vlog_compressor;
+use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
 use std::{
@@ -24,7 +24,7 @@ use std::{
 };
 use value_log::ValueLog;
 
-fn resolve_value_handle(vlog: &ValueLog, item: RangeItem) -> RangeItem {
+fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {
     match item {
         Ok((key, value)) => {
             let mut cursor = Cursor::new(value);
@@ -58,7 +58,7 @@ pub struct BlobTree {
 
     /// Log-structured value-log that stores large values
     #[doc(hidden)]
-    pub blobs: ValueLog,
+    pub blobs: ValueLog<MyCompressor>,
 }
 
 impl BlobTree {
@@ -66,10 +66,9 @@ impl BlobTree {
         let path = &config.path;
 
         let vlog_path = path.join(BLOBS_FOLDER);
-        let vlog_cfg = value_log::Config::default()
+        let vlog_cfg = value_log::Config::<MyCompressor>::default()
             .blob_cache(config.blob_cache.clone())
-            .segment_size_bytes(config.blob_file_target_size)
-            .use_compression(get_vlog_compressor(config.inner.compression));
+            .segment_size_bytes(config.blob_file_target_size);
 
         let index: IndexTree = config.open()?.into();
 
