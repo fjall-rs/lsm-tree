@@ -4,7 +4,10 @@ use crate::{
     file::SEGMENTS_FOLDER,
     levels::LevelManifest,
     merge::{BoxedIterator, Merger},
-    segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
+    segment::{
+        block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
+        multi_writer::MultiWriter, Segment,
+    },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
     Config,
@@ -226,7 +229,7 @@ fn merge_segments(
             // NOTE: Need to allow because of false positive in Clippy
             // because of "bloom" feature
             #[allow(clippy::needless_borrows_for_generic_args)]
-            let block_index = Arc::new(BlockIndex::from_file(
+            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
                 &segment_file_path,
                 tli_ptr,
                 (opts.tree_id, segment_id).into(),

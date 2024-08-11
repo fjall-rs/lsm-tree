@@ -1,4 +1,4 @@
-use super::block_index::BlockIndex;
+use super::block_index::two_level_index::TwoLevelBlockIndex;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
 use super::value_block::CachePolicy;
@@ -12,7 +12,7 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 pub struct Range {
-    block_index: Arc<BlockIndex>,
+    block_index: Arc<TwoLevelBlockIndex>,
 
     is_initialized: bool,
 
@@ -29,7 +29,7 @@ impl Range {
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
-        block_index: Arc<BlockIndex>,
+        block_index: Arc<TwoLevelBlockIndex>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
         let reader = Reader::new(
@@ -75,6 +75,8 @@ impl Range {
             }
         };
 
+        // TODO: can we skip searching for upper bound until next_back is called at least once...?
+        // would make short ranges 2x faster
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self
@@ -226,7 +228,7 @@ mod tests {
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         segment::{
-            block_index::BlockIndex,
+            block_index::two_level_index::TwoLevelBlockIndex,
             range::Range,
             writer::{Options, Writer},
         },
@@ -278,7 +280,7 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
+        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
             segment_file_path,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -377,7 +379,7 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
+        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
             segment_file_path,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -577,7 +579,7 @@ mod tests {
             table.insert(&segment_file_path, (0, 0).into());
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-            let block_index = Arc::new(BlockIndex::from_file(
+            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
                 segment_file_path,
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
@@ -680,7 +682,7 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(BlockIndex::from_file(
+        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
             segment_file_path,
             trailer.offsets.tli_ptr,
             (0, 0).into(),

@@ -12,9 +12,7 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
-use block::checksum::Checksum;
-
-use self::{block_index::BlockIndex, file_offsets::FileOffsets, range::Range};
+use self::{file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
@@ -24,6 +22,8 @@ use crate::{
     value::{InternalValue, SeqNo, UserKey},
     ValueType,
 };
+use block::checksum::Checksum;
+use block_index::two_level_index::TwoLevelBlockIndex;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
@@ -52,7 +52,7 @@ pub struct Segment {
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
-    pub block_index: Arc<BlockIndex>,
+    pub block_index: Arc<TwoLevelBlockIndex>,
 
     /// Block cache
     ///
@@ -89,7 +89,7 @@ impl Segment {
 
         // NOTE: TODO: because of 1.74.0
         #[allow(clippy::explicit_iter_loop)]
-        for handle in self.block_index.top_level_index.data.iter() {
+        for handle in self.block_index.top_level_index.iter() {
             let block = match IndexBlock::from_file(&mut *file, handle.offset) {
                 Ok(v) => v,
                 Err(e) => {
@@ -160,7 +160,7 @@ impl Segment {
             "Creating block index, with tli_ptr={}",
             trailer.offsets.tli_ptr
         );
-        let block_index = BlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             file_path,
             trailer.offsets.tli_ptr,
             (tree_id, trailer.metadata.id).into(),

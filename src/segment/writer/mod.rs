@@ -382,7 +382,7 @@ mod tests {
 
         {
             let tli = TopLevelIndex::from_file(&segment_file_path, trailer.offsets.tli_ptr)?;
-            assert_eq!(tli.data.len() as u32, trailer.metadata.index_block_count);
+            assert_eq!(tli.len() as u32, trailer.metadata.index_block_count);
         }
 
         let table = Arc::new(FileDescriptorTable::new(512, 1));

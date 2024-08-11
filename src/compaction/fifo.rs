@@ -102,7 +102,7 @@ mod tests {
         key_range::KeyRange,
         levels::LevelManifest,
         segment::{
-            block_index::BlockIndex,
+            block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             Segment,
@@ -123,7 +123,7 @@ mod tests {
         Arc::new(Segment {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
