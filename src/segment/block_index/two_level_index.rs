@@ -1,12 +1,11 @@
-use self::super::block_handle::KeyedBlockHandle;
-use super::super::id::GlobalSegmentId;
-use super::super::value_block::CachePolicy;
-use super::top_level::TopLevelIndex;
-use super::{BlockIndex, IndexBlock};
-use crate::block_cache::BlockCache;
-use crate::descriptor_table::FileDescriptorTable;
-use std::path::Path;
-use std::sync::Arc;
+use super::{
+    super::{id::GlobalSegmentId, value_block::CachePolicy},
+    block_handle::KeyedBlockHandle,
+    top_level::TopLevelIndex,
+    BlockIndex, IndexBlock,
+};
+use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable};
+use std::{path::Path, sync::Arc};
 
 /// Allows reading index blocks - just a wrapper around a block cache
 #[allow(clippy::module_name_repetitions)]

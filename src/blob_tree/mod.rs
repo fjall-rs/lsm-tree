@@ -3,7 +3,6 @@ mod gc;
 pub mod index;
 pub mod value;
 
-use self::value::MaybeInlineValue;
 use crate::{
     export::import_tree,
     file::BLOBS_FOLDER,
@@ -22,6 +21,7 @@ use std::{
     path::Path,
     sync::{Arc, RwLockWriteGuard},
 };
+use value::MaybeInlineValue;
 use value_log::ValueLog;
 
 fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {

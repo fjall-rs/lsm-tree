@@ -3,9 +3,8 @@ pub mod top_level;
 pub mod two_level_index;
 pub mod writer;
 
-use self::block_handle::KeyedBlockHandle;
-use super::block::Block;
-use super::value_block::CachePolicy;
+use super::{block::Block, value_block::CachePolicy};
+use block_handle::KeyedBlockHandle;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 

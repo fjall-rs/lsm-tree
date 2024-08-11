@@ -1,7 +1,6 @@
 pub mod iter;
 mod level;
 
-use self::level::Level;
 use crate::{
     file::rewrite_atomic,
     segment::{meta::SegmentId, Segment},
@@ -10,6 +9,7 @@ use crate::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
+use level::Level;
 use std::{
     collections::{HashMap, HashSet},
     io::{Cursor, Read, Write},

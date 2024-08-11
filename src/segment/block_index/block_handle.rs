@@ -1,7 +1,9 @@
-use crate::segment::block::ItemSize;
-use crate::serde::{Deserializable, Serializable};
-use crate::value::UserKey;
-use crate::Slice;
+use crate::{
+    segment::block::ItemSize,
+    serde::{Deserializable, Serializable},
+    value::UserKey,
+    Slice,
+};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 

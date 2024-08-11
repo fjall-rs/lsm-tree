@@ -12,7 +12,6 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
-use self::{file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
@@ -24,6 +23,8 @@ use crate::{
 };
 use block::checksum::Checksum;
 use block_index::two_level_index::TwoLevelBlockIndex;
+use file_offsets::FileOffsets;
+use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
