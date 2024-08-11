@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
     compaction::CompactionStrategy, config::TreeType, export::export_tree, tree::inner::MemtableId,
     AnyTree, BlobTree, Config, KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree,

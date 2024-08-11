@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{block_handle::KeyedBlockHandle, BlockIndex};
 use crate::segment::{block_index::IndexBlock, value_block::CachePolicy};
 use std::{fs::File, path::Path};

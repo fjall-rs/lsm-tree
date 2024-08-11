@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 //! A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs).
 //!
 //! ##### NOTE

@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 const BIT_MASK: u8 = 0b1000_0000_u8;
 
 /// Gets a bit from the byte
