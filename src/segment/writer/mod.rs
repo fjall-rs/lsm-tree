@@ -68,7 +68,7 @@ pub struct Writer {
 #[derive(Copy, Clone, Debug)]
 #[cfg(feature = "bloom")]
 pub enum BloomConstructionPolicy {
-    BitsPerKey(usize),
+    BitsPerKey(u8),
     FpRate(f32),
 }
 

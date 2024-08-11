@@ -71,6 +71,11 @@ pub struct PersistedConfig {
 
     /// Amount of levels of the LSM tree (depth of tree)
     pub level_count: u8,
+
+    /// Bits per key for levels that are not L0, L1, L2
+    // NOTE: bloom_bits_per_key is not conditionally compiled,
+    // because that would change the file format
+    pub bloom_bits_per_key: i8,
 }
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
@@ -84,6 +89,7 @@ impl Default for PersistedConfig {
             r#type: TreeType::Standard,
             table_type: TableType::Block,
             compression: CompressionType::None,
+            bloom_bits_per_key: 10,
         }
     }
 }
@@ -101,6 +107,8 @@ impl Serializable for PersistedConfig {
         writer.write_u32::<BigEndian>(self.index_block_size)?;
 
         writer.write_u8(self.level_count)?;
+
+        writer.write_i8(self.bloom_bits_per_key)?;
 
         Ok(())
     }
@@ -131,6 +139,8 @@ impl Deserializable for PersistedConfig {
 
         let level_count = reader.read_u8()?;
 
+        let bloom_bits_per_key = reader.read_i8()?;
+
         Ok(Self {
             r#type: tree_type,
             compression,
@@ -138,6 +148,7 @@ impl Deserializable for PersistedConfig {
             data_block_size,
             index_block_size,
             level_count,
+            bloom_bits_per_key,
         })
     }
 }
@@ -203,6 +214,26 @@ impl Config {
             ..Default::default()
         }
     }
+
+    /// Sets the bits per key to use for bloom filters
+    /// in levels that are not L0 or L1.
+    ///
+    /// Use -1 to disable bloom filters even in L0, L1, L2.
+    ///
+    /// Defaults to 10 bits.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is less than -1.
+    #[must_use]
+    #[cfg(feature = "bloom")]
+    pub fn bloom_bits_per_key(mut self, bits: i8) -> Self {
+        assert!(bits >= -1, "invalid bits_per_key value");
+
+        self.inner.bloom_bits_per_key = bits;
+        self
+    }
+    // TODO: 2.0.0 ^^ add to fjall
 
     /// Sets the compression method.
     ///
@@ -353,6 +384,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             level_count: 7,
+            bloom_bits_per_key: 10,
         };
 
         let mut bytes = vec![];
@@ -380,6 +412,9 @@ mod tests {
 
             // Levels
             7,
+
+            // Bloom BPK
+            0xA,
         ];
 
         assert_eq!(bytes, raw);
@@ -396,6 +431,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             level_count: 7,
+            bloom_bits_per_key: 10,
         };
 
         let mut bytes = vec![];

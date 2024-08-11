@@ -129,11 +129,13 @@ impl BloomFilter {
     ///
     /// 10 bits per key is a sensible default.
     #[must_use]
-    pub fn with_bpk(n: usize, bpk: usize) -> Self {
+    pub fn with_bpk(n: usize, bpk: u8) -> Self {
         use std::f32::consts::LN_2;
 
         assert!(bpk > 0);
         assert!(n > 0);
+
+        let bpk = bpk as usize;
 
         let m = n * bpk;
         let k = (((bpk as f32) * LN_2) as usize).max(1);

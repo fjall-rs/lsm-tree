@@ -174,16 +174,6 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    // NOTE: Apply some MONKEY to have very high FPR on small levels
-    // because it's cheap
-    #[cfg(feature = "bloom")]
-    let bloom_policy = match payload.dest_level {
-        0 => BloomConstructionPolicy::FpRate(0.0001),
-        1 => BloomConstructionPolicy::FpRate(0.001),
-        2 => BloomConstructionPolicy::FpRate(0.01),
-        _ => BloomConstructionPolicy::BitsPerKey(10),
-    };
-
     let mut segment_writer = MultiWriter::new(
         opts.segment_id_generator.clone(),
         payload.target_size,
@@ -199,7 +189,20 @@ fn merge_segments(
 
     #[cfg(feature = "bloom")]
     {
-        segment_writer = segment_writer.use_bloom_policy(bloom_policy);
+        if opts.config.inner.bloom_bits_per_key >= 0 {
+            // NOTE: Apply some MONKEY to have very high FPR on small levels
+            // because it's cheap
+            let bloom_policy = match payload.dest_level {
+                0 => BloomConstructionPolicy::FpRate(0.0001),
+                1 => BloomConstructionPolicy::FpRate(0.001),
+                2 => BloomConstructionPolicy::FpRate(0.01),
+                _ => BloomConstructionPolicy::BitsPerKey(
+                    opts.config.inner.bloom_bits_per_key.abs() as u8,
+                ),
+            };
+
+            segment_writer = segment_writer.use_bloom_policy(bloom_policy);
+        }
     }
 
     for (idx, item) in merge_iter.enumerate() {

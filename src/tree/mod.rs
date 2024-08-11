@@ -123,9 +123,11 @@ impl AbstractTree for Tree {
 
         #[cfg(feature = "bloom")]
         {
-            segment_writer = segment_writer.use_bloom_policy(
-                crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-            );
+            if self.config.inner.bloom_bits_per_key >= 0 {
+                segment_writer = segment_writer.use_bloom_policy(
+                    crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
+                );
+            }
         }
 
         for item in memtable.iter() {
