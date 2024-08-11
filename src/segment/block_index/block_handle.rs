@@ -22,9 +22,19 @@ pub struct KeyedBlockHandle {
     pub offset: u64,
 }
 
+impl KeyedBlockHandle {
+    #[must_use]
+    pub fn new<K: Into<Slice>>(end_key: K, offset: u64) -> Self {
+        Self {
+            end_key: end_key.into(),
+            offset,
+        }
+    }
+}
+
 impl ItemSize for KeyedBlockHandle {
     fn size(&self) -> usize {
-        self.end_key.len()
+        std::mem::size_of::<u64>() + self.end_key.len()
     }
 }
 
@@ -83,5 +93,19 @@ impl Deserializable for KeyedBlockHandle {
             offset,
             end_key: Slice::from(key),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_block_size() {
+        let items = [
+            KeyedBlockHandle::new("abcd", 5),
+            KeyedBlockHandle::new("efghij", 10),
+        ];
+        assert_eq!(26, items.size());
     }
 }

@@ -17,7 +17,7 @@ pub trait ItemSize {
     fn size(&self) -> usize;
 }
 
-impl<T: ItemSize> ItemSize for &[T] {
+impl<T: ItemSize> ItemSize for [T] {
     fn size(&self) -> usize {
         self.iter().map(ItemSize::size).sum()
     }

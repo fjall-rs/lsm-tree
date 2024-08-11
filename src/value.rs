@@ -138,9 +138,10 @@ impl InternalValue {
 
 impl ItemSize for InternalValue {
     fn size(&self) -> usize {
-        let key_size = self.key.user_key.len();
-        let value_size = self.value.len();
-        key_size + value_size
+        std::mem::size_of::<SeqNo>()
+            + std::mem::size_of::<ValueType>()
+            + self.key.user_key.len()
+            + self.value.len()
     }
 }
 

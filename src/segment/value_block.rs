@@ -76,7 +76,7 @@ mod tests {
     use super::*;
     use crate::{
         segment::{
-            block::{checksum::Checksum, header::Header as BlockHeader},
+            block::{checksum::Checksum, header::Header as BlockHeader, ItemSize},
             meta::CompressionType,
         },
         ValueType,
@@ -84,9 +84,18 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn value_block_size() {
+        let items = [
+            InternalValue::from_components(*b"ba", *b"asd", 2, ValueType::Value),
+            InternalValue::from_components(*b"bb", *b"def", 1, ValueType::Value),
+        ];
+        assert_eq!(28, items.size());
+    }
+
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn value_block_find_latest() {
-        let items = vec![
+        let items = [
             InternalValue::from_components(*b"b", *b"b", 2, ValueType::Value),
             InternalValue::from_components(*b"b", *b"b", 1, ValueType::Value),
             InternalValue::from_components(*b"b", *b"b", 0, ValueType::Value),
@@ -95,7 +104,7 @@ mod tests {
         ];
 
         let block = ValueBlock {
-            items: items.into_boxed_slice(),
+            items: items.into(),
             header: BlockHeader {
                 compression: CompressionType::None,
                 checksum: Checksum::from_raw(0),
