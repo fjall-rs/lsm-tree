@@ -35,7 +35,7 @@ impl BlockIndex for [KeyedBlockHandle] {
     }
 }
 
-trait BlockIndex {
+pub trait BlockIndex {
     /// Gets the lowest block handle that may contain the given item
     fn get_lowest_block_containing_key(
         &self,

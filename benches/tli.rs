@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::Slice;
+use lsm_tree::segment::{block_index::BlockIndex, value_block::CachePolicy};
 
 fn tli_find_item(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{
@@ -25,23 +25,6 @@ fn tli_find_item(c: &mut Criterion) {
         let index = TopLevelIndex::from_boxed_slice(items.into());
 
         group.bench_function(
-            format!("TLI get_next_block_handle ({item_count} items)"),
-            |b| {
-                let key = (item_count / 10 * 6).to_be_bytes();
-                let expected: Slice = (item_count / 10 * 6 + 1).to_be_bytes().into();
-
-                let block = index.get_lowest_block_containing_key(&key).unwrap();
-
-                b.iter(|| {
-                    assert_eq!(
-                        expected,
-                        index.get_next_block_handle(block.offset).unwrap().end_key
-                    );
-                })
-            },
-        );
-
-        group.bench_function(
             format!("TLI get_block_containing_item ({item_count} items)"),
             |b| {
                 let key = (item_count / 10 * 6).to_be_bytes();
@@ -49,7 +32,11 @@ fn tli_find_item(c: &mut Criterion) {
                 b.iter(|| {
                     assert_eq!(
                         key,
-                        &*index.get_lowest_block_containing_key(&key).unwrap().end_key
+                        &*index
+                            .get_lowest_block_containing_key(&key, CachePolicy::Read)
+                            .unwrap()
+                            .unwrap()
+                            .end_key
                     );
                 })
             },
@@ -57,5 +44,5 @@ fn tli_find_item(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, tli_find_item,);
+criterion_group!(benches, tli_find_item);
 criterion_main!(benches);

@@ -99,38 +99,6 @@ fn value_block_find(c: &mut Criterion) {
     }
 }
 
-fn index_block_find_handle(c: &mut Criterion) {
-    use lsm_tree::segment::block_index::{block_handle::KeyedBlockHandle, IndexBlock};
-
-    let mut group = c.benchmark_group("Find item in IndexBlock");
-
-    // NOTE: Anything above 1000 is unlikely
-    for item_count in [10, 100, 500, 1_000, 5_000] {
-        group.bench_function(format!("{item_count} items"), |b| {
-            let items = (0u64..item_count)
-                .map(|x| KeyedBlockHandle {
-                    end_key: x.to_be_bytes().into(),
-                    offset: 56,
-                })
-                .collect();
-
-            let block = IndexBlock {
-                items,
-                header: BlockHeader {
-                    compression: CompressionType::Lz4,
-                    checksum: Checksum::from_raw(0),
-                    data_length: 0,
-                    previous_block_offset: 0,
-                    uncompressed_length: 0,
-                },
-            };
-            let key = &(item_count / 2).to_be_bytes();
-
-            b.iter(|| block.get_lowest_data_block_handle_containing_item(key))
-        });
-    }
-}
-
 fn load_value_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
@@ -188,11 +156,5 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     }
 }
 
-criterion_group!(
-    benches,
-    value_block_find,
-    index_block_find_handle,
-    load_value_block_from_disk,
-    // value_block_size,
-);
+criterion_group!(benches, value_block_find, load_value_block_from_disk,);
 criterion_main!(benches);
