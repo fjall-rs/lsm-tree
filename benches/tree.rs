@@ -5,6 +5,7 @@ use tempfile::tempdir;
 
 fn full_scan(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan all");
+    group.sample_size(10);
 
     for item_count in [10_000, 100_000, 1_000_000] {
         group.bench_function(format!("scan all uncached, {item_count} items"), |b| {
@@ -85,32 +86,32 @@ fn scan_vs_query(c: &mut Criterion) {
                             let buf = &key[..8];
                             let (int_bytes, _rest) = buf.split_at(std::mem::size_of::<u64>());
                             let num = u64::from_be_bytes(int_bytes.try_into().unwrap());
-                            (60000..61000).contains(&num)
+                            (60000..60010).contains(&num)
                         }
                         Err(_) => false,
                     })
                     .count();
-                assert_eq!(count, 1000);
+                assert_eq!(count, 10);
             })
         });
         group.bench_function(format!("query {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.range((
                     Included(60000_u64.to_be_bytes().to_vec()),
-                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                    Excluded(60010_u64.to_be_bytes().to_vec()),
                 ));
                 let iter = iter.into_iter();
-                assert_eq!(iter.count(), 1000);
+                assert_eq!(iter.count(), 10);
             })
         });
         group.bench_function(format!("query rev {}", size), |b| {
             b.iter(|| {
                 let iter = tree.range((
                     Included(60000_u64.to_be_bytes().to_vec()),
-                    Excluded(61000_u64.to_be_bytes().to_vec()),
+                    Excluded(60010_u64.to_be_bytes().to_vec()),
                 ));
                 let iter = iter.into_iter();
-                assert_eq!(iter.rev().count(), 1000);
+                assert_eq!(iter.rev().count(), 10);
             })
         });
     }
@@ -135,14 +136,14 @@ fn scan_vs_prefix(c: &mut Criterion) {
 
         let prefix = "hello$$$";
 
-        for _ in 0..1000_u64 {
+        for _ in 0..10_u64 {
             let key = format!("{}:{}", prefix, nanoid::nanoid!());
             let value = nanoid::nanoid!();
             tree.insert(key, value, 0);
         }
 
         tree.flush_active_memtable().unwrap();
-        assert_eq!(tree.len().unwrap() as u64, size + 1000);
+        assert_eq!(tree.len().unwrap() as u64, size + 10);
 
         group.sample_size(10);
         group.bench_function(format!("scan {} (uncached)", size), |b| {
@@ -152,21 +153,21 @@ fn scan_vs_prefix(c: &mut Criterion) {
                     Ok((key, _)) => key.starts_with(prefix.as_bytes()),
                     Err(_) => false,
                 });
-                assert_eq!(iter.count(), 1000);
+                assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
                 let iter = iter.into_iter();
-                assert_eq!(iter.count(), 1000);
+                assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
                 let iter = iter.into_iter();
-                assert_eq!(iter.rev().count(), 1000);
+                assert_eq!(iter.rev().count(), 10);
             });
         });
     }

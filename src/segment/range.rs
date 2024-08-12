@@ -65,6 +65,8 @@ impl Range {
     }
 
     fn initialize(&mut self) -> crate::Result<()> {
+        // TODO: can we skip searching for lower bound until next is called at least once...?
+        // would make short ranges 1.5-2x faster if only one direction is used
         let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => {
@@ -80,7 +82,7 @@ impl Range {
         };
 
         // TODO: can we skip searching for upper bound until next_back is called at least once...?
-        // would make short ranges 2x faster
+        // would make short ranges 1.5-2x faster if only one direction is used
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self
@@ -94,7 +96,7 @@ impl Range {
             Bound::Included(end) | Bound::Excluded(end) => {
                 if let Some(upper_bound) = self
                     .block_index
-                    .get_lowest_data_block_handle_not_containing_item(end, CachePolicy::Write)?
+                    .get_last_data_block_handle_containing_item(end, CachePolicy::Write)?
                 {
                     self.reader.hi_block_offset = Some(upper_bound.offset);
                 }
@@ -227,7 +229,6 @@ impl DoubleEndedIterator for Range {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    // use super::Reader as SegmentReader;
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,

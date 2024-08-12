@@ -6,6 +6,9 @@ use super::value_block::ValueBlock;
 use crate::{value::InternalValue, UserKey};
 use std::sync::Arc;
 
+// TODO: VecDeque<InternalValue> ? becaue vecdeque::pop_* would give us ownership of value
+// avoiding RC clone for each value
+
 pub struct ValueBlockConsumer {
     pub(crate) inner: Arc<ValueBlock>,
     lo: usize,

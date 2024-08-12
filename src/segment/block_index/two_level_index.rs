@@ -76,14 +76,15 @@ impl TwoLevelBlockIndex {
             .cloned())
     }
 
-    pub fn get_lowest_data_block_handle_not_containing_item(
+    /// Gets the last block handle that may contain the given item
+    pub fn get_last_data_block_handle_containing_item(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<KeyedBlockHandle>> {
         let Some(index_block_handle) = self
             .top_level_index
-            .get_lowest_block_not_containing_key(key, cache_policy)
+            .get_last_block_containing_key(key, cache_policy)
             .expect("cannot fail")
         else {
             return Ok(Some(self.get_last_data_block_handle(cache_policy)?));
@@ -91,7 +92,11 @@ impl TwoLevelBlockIndex {
 
         let index_block = self.load_index_block(index_block_handle, cache_policy)?;
 
-        Ok(index_block.items.first().cloned())
+        Ok(index_block
+            .items
+            .get_last_block_containing_key(key, cache_policy)
+            .expect("cannot fail")
+            .cloned())
     }
 
     pub fn get_last_data_block_handle(
