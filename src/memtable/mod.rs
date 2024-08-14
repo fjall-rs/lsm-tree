@@ -34,7 +34,7 @@ where
 
 /// The memtable serves as an intermediary storage for new items
 #[derive(Default)]
-pub struct MemTable {
+pub struct Memtable {
     #[doc(hidden)]
     items: SkipMap<InternalKey, UserValue>,
 
@@ -44,7 +44,7 @@ pub struct MemTable {
     pub(crate) approximate_size: AtomicU32,
 }
 
-impl MemTable {
+impl Memtable {
     /// Creates an iterator over all items.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.iter().map(|entry| InternalValue {
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
-        let memtable = MemTable::default();
+        let memtable = Memtable::default();
 
         memtable.insert(InternalValue::from_components(
             *b"hello-key-999991",
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn memtable_get() {
-        let memtable = MemTable::default();
+        let memtable = Memtable::default();
 
         let value =
             InternalValue::from_components(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn memtable_get_highest_seqno() {
-        let memtable = MemTable::default();
+        let memtable = Memtable::default();
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn memtable_get_prefix() {
-        let memtable = MemTable::default();
+        let memtable = Memtable::default();
 
         memtable.insert(InternalValue::from_components(
             b"abc0".to_vec(),
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn memtable_get_old_version() {
-        let memtable = MemTable::default();
+        let memtable = Memtable::default();
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),

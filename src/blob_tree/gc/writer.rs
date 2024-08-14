@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::value::MaybeInlineValue, serde::Serializable, value::InternalValue, MemTable, SeqNo,
+    blob_tree::value::MaybeInlineValue, serde::Serializable, value::InternalValue, Memtable, SeqNo,
     UserKey,
 };
 use std::sync::RwLockWriteGuard;
@@ -13,11 +13,11 @@ use value_log::ValueHandle;
 pub struct GcWriter<'a> {
     seqno: SeqNo,
     buffer: Vec<(UserKey, ValueHandle, u32)>,
-    memtable: &'a RwLockWriteGuard<'a, MemTable>,
+    memtable: &'a RwLockWriteGuard<'a, Memtable>,
 }
 
 impl<'a> GcWriter<'a> {
-    pub fn new(seqno: SeqNo, memtable: &'a RwLockWriteGuard<'a, MemTable>) -> Self {
+    pub fn new(seqno: SeqNo, memtable: &'a RwLockWriteGuard<'a, Memtable>) -> Self {
         Self {
             seqno,
             memtable,

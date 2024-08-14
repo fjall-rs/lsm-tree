@@ -10,7 +10,7 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     export::import_tree,
     levels::LevelManifest,
-    memtable::MemTable,
+    memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{block_index::two_level_index::TwoLevelBlockIndex, Segment},
     serde::{Deserializable, Serializable},
@@ -72,7 +72,7 @@ impl AbstractTree for Tree {
     fn keys_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         Box::new(
             self.create_iter(Some(seqno), index)
@@ -83,7 +83,7 @@ impl AbstractTree for Tree {
     fn values_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
         Box::new(
             self.create_iter(Some(seqno), index)
@@ -102,7 +102,7 @@ impl AbstractTree for Tree {
     fn flush_memtable(
         &self,
         segment_id: SegmentId,
-        memtable: &Arc<MemTable>,
+        memtable: &Arc<Memtable>,
     ) -> crate::Result<Arc<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
@@ -162,16 +162,16 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, MemTable> {
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable> {
         self.active_memtable.write().expect("lock is poisoned")
     }
 
-    fn set_active_memtable(&self, memtable: MemTable) {
+    fn set_active_memtable(&self, memtable: Memtable) {
         let mut memtable_lock = self.active_memtable.write().expect("lock is poisoned");
         *memtable_lock = memtable;
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>) {
+    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
         let mut memtable_lock = self.sealed_memtables.write().expect("lock is poisoned");
         memtable_lock.add(id, memtable);
     }
@@ -214,7 +214,7 @@ impl AbstractTree for Tree {
         crate::TreeType::Standard
     }
 
-    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)> {
+    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
         log::trace!("rotate: acquiring active memtable write lock");
         let mut active_memtable = self.lock_active_memtable();
 
@@ -318,7 +318,7 @@ impl AbstractTree for Tree {
     fn iter_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
@@ -327,7 +327,7 @@ impl AbstractTree for Tree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_range(&range, Some(seqno), index))
     }
@@ -336,7 +336,7 @@ impl AbstractTree for Tree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         Box::new(self.create_prefix(prefix, Some(seqno), index))
     }
@@ -363,7 +363,7 @@ impl AbstractTree for Tree {
 
     fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
         &self,
-        lock: &RwLockWriteGuard<'_, MemTable>,
+        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,
@@ -411,7 +411,7 @@ impl Tree {
         Ok(tree)
     }
 
-    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, MemTable> {
+    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, Memtable> {
         self.active_memtable.read().expect("lock is poisoned")
     }
 
@@ -534,7 +534,7 @@ impl Tree {
     /// Used for [`BlobTree`] lookup
     pub(crate) fn get_internal_entry_with_lock<K: AsRef<[u8]>>(
         &self,
-        memtable_lock: &RwLockWriteGuard<'_, MemTable>,
+        memtable_lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         evict_tombstone: bool,
         seqno: Option<SeqNo>,
@@ -659,7 +659,7 @@ impl Tree {
     pub fn create_iter(
         &self,
         seqno: Option<SeqNo>,
-        ephemeral: Option<Arc<MemTable>>,
+        ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
@@ -669,7 +669,7 @@ impl Tree {
         &'a self,
         range: &'a R,
         seqno: Option<SeqNo>,
-        ephemeral: Option<Arc<MemTable>>,
+        ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
@@ -714,7 +714,7 @@ impl Tree {
         &'a self,
         prefix: K,
         seqno: Option<SeqNo>,
-        ephemeral: Option<Arc<MemTable>>,
+        ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let range = prefix_to_range(prefix.as_ref());
         self.create_range(&range, seqno, ephemeral)

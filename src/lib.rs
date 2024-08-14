@@ -18,7 +18,7 @@
 //! LSM-trees are an alternative to B-trees to persist a sorted list of items (e.g. a database table)
 //! on disk and perform fast lookup queries.
 //! Instead of updating a disk-based data structure in-place,
-//! deltas (inserts and deletes) are added into an in-memory write buffer (`MemTable`).
+//! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
 //! Data is then flushed to disk segments, as the write buffer reaches some threshold.
 //!
 //! Amassing many segments on disk will degrade read performance and waste disk space usage, so segments
@@ -187,7 +187,7 @@ pub use {
     block_cache::BlockCache,
     config::{Config, TreeType},
     error::{Error, Result},
-    memtable::MemTable,
+    memtable::Memtable,
     r#abstract::AbstractTree,
     segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,

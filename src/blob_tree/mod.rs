@@ -14,7 +14,7 @@ use crate::{
     serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, MemTable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
+    Config, KvPair, Memtable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
 };
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -204,7 +204,7 @@ impl AbstractTree for BlobTree {
     fn keys_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
         self.index.keys_with_seqno(seqno, index)
     }
@@ -212,7 +212,7 @@ impl AbstractTree for BlobTree {
     fn values_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
         Box::new(
             self.iter_with_seqno(seqno, index)
@@ -231,7 +231,7 @@ impl AbstractTree for BlobTree {
     fn flush_memtable(
         &self,
         segment_id: SegmentId,
-        memtable: &Arc<MemTable>,
+        memtable: &Arc<Memtable>,
     ) -> crate::Result<Arc<crate::Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
@@ -317,15 +317,15 @@ impl AbstractTree for BlobTree {
         self.index.register_segments(segments)
     }
 
-    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, MemTable> {
+    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Memtable> {
         self.index.lock_active_memtable()
     }
 
-    fn set_active_memtable(&self, memtable: MemTable) {
+    fn set_active_memtable(&self, memtable: Memtable) {
         self.index.set_active_memtable(memtable);
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>) {
+    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
         self.index.add_sealed_memtable(id, memtable);
     }
 
@@ -357,7 +357,7 @@ impl AbstractTree for BlobTree {
         crate::TreeType::Blob
     }
 
-    fn rotate_memtable(&self) -> Option<(crate::tree::inner::MemtableId, Arc<crate::MemTable>)> {
+    fn rotate_memtable(&self) -> Option<(crate::tree::inner::MemtableId, Arc<crate::Memtable>)> {
         self.index.rotate_memtable()
     }
 
@@ -407,7 +407,7 @@ impl AbstractTree for BlobTree {
     fn iter_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         self.range_with_seqno::<UserKey, _>(.., seqno, index)
     }
@@ -416,7 +416,7 @@ impl AbstractTree for BlobTree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
@@ -431,7 +431,7 @@ impl AbstractTree for BlobTree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
@@ -470,7 +470,7 @@ impl AbstractTree for BlobTree {
 
     fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
         &self,
-        lock: &RwLockWriteGuard<'_, MemTable>,
+        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,

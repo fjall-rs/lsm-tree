@@ -1,9 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::{InternalValue, MemTable};
+use lsm_tree::{InternalValue, Memtable};
 use nanoid::nanoid;
 
 fn memtable_get_upper_bound(c: &mut Criterion) {
-    let memtable = MemTable::default();
+    let memtable = Memtable::default();
 
     for _ in 0..1_000_000 {
         memtable.insert(InternalValue::from_components(

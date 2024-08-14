@@ -5,7 +5,7 @@
 use crate::{
     key::InternalKey,
     levels::LevelManifest,
-    memtable::MemTable,
+    memtable::Memtable,
     merge::{BoxedIterator, Merger},
     mvcc_stream::{seqno_filter, MvccStream},
     segment::{multi_reader::MultiReader, range::Range as RangeReader},
@@ -43,9 +43,9 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 }
 
 pub struct MemtableLockGuard {
-    pub(crate) active: ArcRwLockReadGuardian<MemTable>,
+    pub(crate) active: ArcRwLockReadGuardian<Memtable>,
     pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
-    pub(crate) ephemeral: Option<Arc<MemTable>>,
+    pub(crate) ephemeral: Option<Arc<Memtable>>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;

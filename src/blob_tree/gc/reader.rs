@@ -2,18 +2,18 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{blob_tree::value::MaybeInlineValue, serde::Deserializable, MemTable};
+use crate::{blob_tree::value::MaybeInlineValue, serde::Deserializable, Memtable};
 use std::{io::Cursor, sync::RwLockWriteGuard};
 use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcReader<'a> {
     tree: &'a crate::Tree,
-    memtable: &'a RwLockWriteGuard<'a, MemTable>,
+    memtable: &'a RwLockWriteGuard<'a, Memtable>,
 }
 
 impl<'a> GcReader<'a> {
-    pub fn new(tree: &'a crate::Tree, memtable: &'a RwLockWriteGuard<'a, MemTable>) -> Self {
+    pub fn new(tree: &'a crate::Tree, memtable: &'a RwLockWriteGuard<'a, Memtable>) -> Self {
         Self { tree, memtable }
     }
 

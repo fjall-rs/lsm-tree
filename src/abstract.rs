@@ -4,7 +4,7 @@
 
 use crate::{
     compaction::CompactionStrategy, config::TreeType, export::export_tree, tree::inner::MemtableId,
-    AnyTree, BlobTree, Config, KvPair, MemTable, Segment, SegmentId, SeqNo, Snapshot, Tree,
+    AnyTree, BlobTree, Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree,
     UserKey, UserValue, ValueType,
 };
 use enum_dispatch::enum_dispatch;
@@ -56,7 +56,7 @@ pub trait AbstractTree {
     fn flush_memtable(
         &self,
         segment_id: SegmentId,
-        memtable: &Arc<MemTable>,
+        memtable: &Arc<Memtable>,
     ) -> crate::Result<Arc<Segment>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
@@ -67,18 +67,18 @@ pub trait AbstractTree {
     fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, MemTable>;
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable>;
 
     /// Sets the active memtable.
     ///
     /// May be used to restore the LSM-tree's in-memory state from a write-ahead log
     /// after tree recovery.
-    fn set_active_memtable(&self, memtable: MemTable);
+    fn set_active_memtable(&self, memtable: Memtable);
 
     /// Adds a sealed memtables.
     ///
     /// May be used to restore the LSM-tree's in-memory state from some journals.
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<MemTable>);
+    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>);
 
     /// Performs compaction on the tree's levels, blocking the caller until it's done.
     ///
@@ -113,7 +113,7 @@ pub trait AbstractTree {
     fn tree_type(&self) -> TreeType;
 
     /// Seals the active memtable, and returns a reference to it.
-    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<MemTable>)>;
+    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
 
     /// Returns the amount of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
@@ -330,7 +330,7 @@ pub trait AbstractTree {
     fn keys_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static>;
 
     /// Returns an iterator over a snapshot instant, returning values only.
@@ -339,14 +339,14 @@ pub trait AbstractTree {
     fn values_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static>;
 
     /// Creates an iterator over a snapshot instant.
     fn iter_with_seqno(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Creates an bounded iterator over a snapshot instant.
@@ -354,7 +354,7 @@ pub trait AbstractTree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Creates a prefix iterator over a snapshot instant.
@@ -362,7 +362,7 @@ pub trait AbstractTree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<MemTable>>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Returns an iterator over a range of items.
@@ -531,7 +531,7 @@ pub trait AbstractTree {
     /// Inserts a key-value pair.
     fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
         &self,
-        lock: &RwLockWriteGuard<'_, MemTable>,
+        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,

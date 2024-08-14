@@ -1,4 +1,4 @@
-use lsm_tree::{InternalValue, MemTable, SeqNo, ValueType};
+use lsm_tree::{InternalValue, Memtable, SeqNo, ValueType};
 use serde::{Deserialize, Serialize};
 use std::io::{Seek, Write};
 use std::sync::Mutex;
@@ -57,18 +57,18 @@ pub struct Wal {
 }
 
 impl Wal {
-    pub fn open<P: AsRef<Path>>(path: P) -> lsm_tree::Result<(Wal, MemTable)> {
+    pub fn open<P: AsRef<Path>>(path: P) -> lsm_tree::Result<(Wal, Memtable)> {
         let path = path.as_ref();
         let wal_path = path.join(".wal.jsonl");
 
         if wal_path.try_exists()? {
-            let memtable = recover_wal(&wal_path)?;
+            let Memtable = recover_wal(&wal_path)?;
             let writer = OpenOptions::new().append(true).open(&wal_path)?;
             let writer = Arc::new(Mutex::new(writer));
 
             let wal = Self { writer };
 
-            Ok((wal, memtable))
+            Ok((wal, Memtable))
         } else {
             let writer = OpenOptions::new()
                 .write(true)
@@ -77,7 +77,7 @@ impl Wal {
             let writer = Arc::new(Mutex::new(writer));
 
             let wal = Self { writer };
-            Ok((wal, MemTable::default()))
+            Ok((wal, Memtable::default()))
         }
     }
 
@@ -106,10 +106,10 @@ impl Wal {
     }
 }
 
-fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<MemTable> {
+fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<Memtable> {
     eprintln!("Recovering WAL");
 
-    let memtable = MemTable::default();
+    let Memtable = Memtable::default();
 
     let wal_path = path.as_ref();
     let file = File::open(wal_path)?;
@@ -128,11 +128,11 @@ fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<MemTable> {
             break;
         };
 
-        memtable.insert(entry.into());
+        Memtable.insert(entry.into());
         cnt += 1;
     }
 
     eprintln!("Recovered {cnt} items from WAL");
 
-    Ok(memtable)
+    Ok(Memtable)
 }
