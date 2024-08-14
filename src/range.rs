@@ -73,6 +73,8 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
+// TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
+// TODO: binary-filter per level and collect instead of sorting and whatever
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
@@ -170,6 +172,7 @@ impl TreeIter {
 
                         level.sort_by_key_range();
 
+                        // TODO: can probably be optimized by using binary search per disjoint level to filter segments
                         for segment in &level.segments {
                             if segment.check_key_range_overlap(&bounds) {
                                 let range = segment.range(bounds.clone());

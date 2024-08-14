@@ -6,7 +6,7 @@ use crate::CompressionType;
 use value_log::Compressor;
 
 #[derive(Copy, Clone, Debug)]
-pub struct MyCompressor(CompressionType);
+pub struct MyCompressor(pub(crate) CompressionType);
 
 impl Default for MyCompressor {
     fn default() -> Self {
