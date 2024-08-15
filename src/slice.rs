@@ -93,7 +93,7 @@ impl From<&[u8]> for Slice {
 
 impl From<Arc<[u8]>> for Slice {
     fn from(value: Arc<[u8]>) -> Self {
-        Self::from(value.to_vec())
+        Self(value)
     }
 }
 
