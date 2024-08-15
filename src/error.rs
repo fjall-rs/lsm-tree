@@ -23,7 +23,7 @@ pub enum Error {
     /// Decompression failed
     Decompress(CompressionType),
 
-    /// Invalid or unparseable data format version
+    /// Invalid or unparsable data format version
     InvalidVersion(Option<Version>),
 
     /// Some required segments could not be required from disk
