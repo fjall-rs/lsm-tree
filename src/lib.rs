@@ -203,4 +203,4 @@ pub use any_tree::AnyTree;
 
 pub use blob_tree::BlobTree;
 
-pub use value_log::BlobCache;
+pub use value_log::{BlobCache, GcReport};

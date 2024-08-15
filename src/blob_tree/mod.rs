@@ -86,7 +86,7 @@ impl BlobTree {
     /// Scans the index tree, collecting statistics about
     /// value log fragmentation
     #[doc(hidden)]
-    pub fn gc_scan_stats(&self, seqno: SeqNo) -> crate::Result<()> {
+    pub fn gc_scan_stats(&self, seqno: SeqNo) -> crate::Result<crate::GcReport> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
@@ -94,27 +94,27 @@ impl BlobTree {
         let _memtable_lock = self.index.read_lock_active_memtable();
         let snapshot = self.index.snapshot(seqno);
 
-        self.blobs.scan_for_stats(snapshot.iter().filter_map(|kv| {
-            let Ok((_, v)) = kv else {
-                return Some(Err(IoError::new(
-                    IoErrorKind::Other,
-                    "Failed to load KV pair from index tree",
-                )));
-            };
+        self.blobs
+            .scan_for_stats(snapshot.iter().filter_map(|kv| {
+                let Ok((_, v)) = kv else {
+                    return Some(Err(IoError::new(
+                        IoErrorKind::Other,
+                        "Failed to load KV pair from index tree",
+                    )));
+                };
 
-            let mut cursor = Cursor::new(v);
-            let value = match MaybeInlineValue::deserialize(&mut cursor) {
-                Ok(v) => v,
-                Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
-            };
+                let mut cursor = Cursor::new(v);
+                let value = match MaybeInlineValue::deserialize(&mut cursor) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                };
 
-            match value {
-                Indirect { handle, size } => Some(Ok((handle, size))),
-                Inline(_) => None,
-            }
-        }))?;
-
-        Ok(())
+                match value {
+                    Indirect { handle, size } => Some(Ok((handle, size))),
+                    Inline(_) => None,
+                }
+            }))
+            .map_err(Into::into)
     }
 
     pub fn gc_with_space_amp_target(
