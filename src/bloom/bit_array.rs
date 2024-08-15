@@ -45,6 +45,7 @@ impl BitArray {
         self.0.len()
     }
 
+    #[allow(unused)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0

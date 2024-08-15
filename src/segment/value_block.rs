@@ -15,7 +15,7 @@ pub enum CachePolicy {
     Write,
 }
 
-/// Value blocks are the building blocks of a [`crate::segment::Segment`]. Each block is a sorted list of [`Value`]s,
+/// Value blocks are the building blocks of a [`crate::segment::Segment`]. Each block is a sorted list of [`InternalValue`]s,
 /// and stored in compressed form on disk, in sorted order.
 ///
 /// The integrity of a block can be checked using the checksum value that is saved in it.

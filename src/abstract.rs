@@ -48,7 +48,7 @@ pub trait AbstractTree {
     /// Synchronously flushes a memtable to a disk segment.
     ///
     /// This method will not make the segment immediately available,
-    /// use [`register_segments`] for that.
+    /// use [`AbstractTree::register_segments`] for that.
     ///
     /// # Errors
     ///

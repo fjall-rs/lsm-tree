@@ -343,10 +343,12 @@ impl Segment {
         MvccStream::new(iter).next().transpose()
     }
 
+    // NOTE: Clippy false positive
+    #[allow(unused)]
     /// Retrieves an item from the segment.
     ///
     /// # Errors
-    ///get
+    ///
     /// Will return `Err` if an IO error occurs.
     pub(crate) fn get<K: AsRef<[u8]>>(
         &self,
