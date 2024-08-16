@@ -2,10 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use std::hash::Hash;
 use std::sync::Arc;
 
 /// An immutable byte slice that can be cloned without additional heap allocation
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct Slice(Arc<[u8]>);
 
 impl Slice {
@@ -13,25 +14,6 @@ impl Slice {
     #[must_use]
     pub fn new(bytes: &[u8]) -> Self {
         Self::from(bytes)
-    }
-
-    /// Clones `self` into a new `Vec`.
-    #[must_use]
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
-    /// Returns `true` if the slice contains no elements.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Returns the number of elements in the slice, also referred to
-    /// as its 'length'.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
     }
 }
 
