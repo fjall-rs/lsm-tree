@@ -127,7 +127,10 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 
             if prev.key.user_key < tail.key.user_key {
                 if tail.key.value_type == ValueType::WeakTombstone {
-                    return stack.pop().map(Ok);
+                    if let Some(item) = stack.pop().map(Ok) {
+                        return Some(item);
+                    }
+                    continue;
                 }
                 return Some(Ok(tail));
             }
@@ -196,6 +199,75 @@ mod tests {
 
             assert_eq!(forwards, backwards);
         };
+    }
+
+    #[test_log::test]
+    #[allow(clippy::unwrap_used)]
+    fn mvcc_queue_almost_gone() -> crate::Result<()> {
+        let vec = [
+            InternalValue::from_components("a", "a", 0, ValueType::Value),
+            InternalValue::from_components("b", "", 1, ValueType::WeakTombstone),
+            InternalValue::from_components("b", "b", 0, ValueType::Value),
+            InternalValue::from_components("c", "", 1, ValueType::WeakTombstone),
+            InternalValue::from_components("c", "c", 0, ValueType::Value),
+            InternalValue::from_components("d", "", 1, ValueType::WeakTombstone),
+            InternalValue::from_components("d", "d", 0, ValueType::Value),
+            InternalValue::from_components("e", "", 1, ValueType::WeakTombstone),
+            InternalValue::from_components("e", "e", 0, ValueType::Value),
+        ];
+
+        let iter = Box::new(vec.iter().cloned().map(Ok));
+
+        let mut iter = MvccStream::new(iter);
+
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"a", 0, ValueType::Value),
+            iter.next_back().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        test_reverse!(vec);
+
+        Ok(())
+    }
+
+    #[test_log::test]
+    #[allow(clippy::unwrap_used)]
+    fn mvcc_queue() -> crate::Result<()> {
+        let vec = [
+            InternalValue::from_components("a", "a", 0, ValueType::Value),
+            InternalValue::from_components("b", "b", 0, ValueType::Value),
+            InternalValue::from_components("c", "c", 0, ValueType::Value),
+            InternalValue::from_components("d", "d", 0, ValueType::Value),
+            InternalValue::from_components("e", "", 1, ValueType::WeakTombstone),
+            InternalValue::from_components("e", "e", 0, ValueType::Value),
+        ];
+
+        let iter = Box::new(vec.iter().cloned().map(Ok));
+
+        let mut iter = MvccStream::new(iter);
+
+        assert_eq!(
+            InternalValue::from_components(*b"d", *b"d", 0, ValueType::Value),
+            iter.next_back().unwrap()?,
+        );
+        assert_eq!(
+            InternalValue::from_components(*b"c", *b"c", 0, ValueType::Value),
+            iter.next_back().unwrap()?,
+        );
+        assert_eq!(
+            InternalValue::from_components(*b"b", *b"b", 0, ValueType::Value),
+            iter.next_back().unwrap()?,
+        );
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"a", 0, ValueType::Value),
+            iter.next_back().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        test_reverse!(vec);
+
+        Ok(())
     }
 
     #[test_log::test]
