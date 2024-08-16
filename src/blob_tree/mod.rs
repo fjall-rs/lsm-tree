@@ -121,7 +121,7 @@ impl BlobTree {
         &self,
         space_amp_target: f32,
         seqno: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<u64> {
         let ids = self
             .blobs
             .select_segments_for_space_amp_reduction(space_amp_target);
@@ -136,9 +136,7 @@ impl BlobTree {
         )?;
 
         // NOTE: We still have the memtable lock, can't use gc_drop_stale because recursive locking
-        self.blobs.drop_stale_segments()?;
-
-        Ok(())
+        self.blobs.drop_stale_segments().map_err(Into::into)
     }
 
     /// Rewrites blob files that have reached a stale threshold
@@ -146,7 +144,7 @@ impl BlobTree {
         &self,
         stale_threshold: f32,
         seqno: SeqNo,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<u64> {
         // First, find the segment IDs that are stale
         let ids = self
             .blobs
@@ -162,18 +160,16 @@ impl BlobTree {
         )?;
 
         // NOTE: We still have the memtable lock, can't use gc_drop_stale because recursive locking
-        self.blobs.drop_stale_segments()?;
-
-        Ok(())
+        self.blobs.drop_stale_segments().map_err(Into::into)
     }
 
     /// Drops all stale blob segment files
     #[doc(hidden)]
-    pub fn gc_drop_stale(&self) -> crate::Result<()> {
+    pub fn gc_drop_stale(&self) -> crate::Result<u64> {
         // IMPORTANT: Write lock memtable to avoid read skew
         let _lock = self.index.lock_active_memtable();
-        self.blobs.drop_stale_segments()?;
-        Ok(())
+
+        self.blobs.drop_stale_segments().map_err(Into::into)
     }
 
     #[doc(hidden)]
