@@ -26,7 +26,7 @@ fn tree_range_count() -> lsm_tree::Result<()> {
             .count()
     );
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(2, tree.range("a"..="f").count());
     assert_eq!(
@@ -74,7 +74,7 @@ fn blob_tree_range_count() -> lsm_tree::Result<()> {
             .count()
     );
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(2, tree.range("a"..="f").count());
     assert_eq!(

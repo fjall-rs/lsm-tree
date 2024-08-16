@@ -14,7 +14,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
         let value = nanoid::nanoid!();
         tree.insert(key, value.as_bytes(), 0);
     }
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -36,7 +36,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
         tree.insert(key, "1", 1);
         tree.insert(key, "2", 2);
     }
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -77,7 +77,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
             tree.insert(key, seqno.to_string(), seqno);
         }
     }
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     for key in &keys {
         let item = tree.get_internal_entry(key, true, None)?.unwrap();
@@ -118,7 +118,7 @@ fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
             tree.insert(key, seqno.to_string(), seqno);
         }
     }
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     for key in &keys {
         let item = tree.get(key)?.unwrap();

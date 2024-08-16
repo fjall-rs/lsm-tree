@@ -57,7 +57,8 @@ pub trait AbstractTree {
         &self,
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
-    ) -> crate::Result<Arc<Segment>>;
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<Option<Arc<Segment>>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
     ///

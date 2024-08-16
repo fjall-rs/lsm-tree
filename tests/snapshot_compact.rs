@@ -28,7 +28,7 @@ fn snapshot_after_compaction() -> lsm_tree::Result<()> {
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     tree.major_compact(u64::MAX, 0)?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);

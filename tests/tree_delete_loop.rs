@@ -20,7 +20,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
         tree.insert(format!("c:{x}").as_bytes(), value, batch_seqno);
     }
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, ITEM_COUNT * 3);
     assert_eq!(tree.prefix("a:".as_bytes()).count(), ITEM_COUNT);
@@ -54,7 +54,7 @@ fn tree_delete_by_range() -> lsm_tree::Result<()> {
     tree.insert("e".as_bytes(), value, 0);
     tree.insert("f".as_bytes(), value, 0);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 6);
 

@@ -16,7 +16,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
         assert_eq!(b"b", &*tree.first_key_value()?.unwrap().0);
         assert_eq!(b"b", &*tree.last_key_value()?.unwrap().0);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(b"b", &*tree.first_key_value()?.unwrap().0);
         assert_eq!(b"b", &*tree.last_key_value()?.unwrap().0);
@@ -41,7 +41,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
         assert_eq!(b"a", &*tree.first_key_value()?.unwrap().0);
         assert_eq!(b"c", &*tree.last_key_value()?.unwrap().0);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(b"a", &*tree.first_key_value()?.unwrap().0);
         assert_eq!(b"c", &*tree.last_key_value()?.unwrap().0);

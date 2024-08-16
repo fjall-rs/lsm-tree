@@ -117,7 +117,7 @@ impl KvStore {
 
     pub fn force_flush(&self) -> lsm_tree::Result<()> {
         eprintln!("Flushing memtable");
-        self.tree.flush_active_memtable()?;
+        self.tree.flush_active_memtable(0)?;
         Ok(())
     }
 

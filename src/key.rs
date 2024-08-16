@@ -30,7 +30,7 @@ impl std::fmt::Debug for InternalKey {
             match self.value_type {
                 ValueType::Value => "V",
                 ValueType::Tombstone => "T",
-                ValueType::WeakTombstone => "wT",
+                ValueType::WeakTombstone => "W",
             },
         )
     }

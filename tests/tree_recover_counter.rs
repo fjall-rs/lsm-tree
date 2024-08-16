@@ -15,7 +15,7 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
         );
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(
             1,
@@ -30,7 +30,7 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
         }
 
         tree.insert("b", "b", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(
             2,

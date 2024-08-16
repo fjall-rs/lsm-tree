@@ -18,7 +18,7 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
         tree.insert(key, format!("abc{version_count}").as_bytes(), seqno.next());
     }
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 1);
 
@@ -53,7 +53,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
 
@@ -78,7 +78,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
             tree.insert(key, format!("def{batch}").as_bytes(), batch_seqno);
         }
     }
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -110,7 +110,7 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
         }
     }
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, ITEM_COUNT);
 

@@ -17,7 +17,7 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
     );
 
     tree0.insert("a", "a", 0);
-    tree0.flush_active_memtable()?;
+    tree0.flush_active_memtable(0)?;
 
     assert_eq!(
         1,
@@ -46,7 +46,7 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
     );
 
     tree1.insert("a", "a", 0);
-    tree1.flush_active_memtable()?;
+    tree1.flush_active_memtable(0)?;
 
     assert_eq!(
         1,

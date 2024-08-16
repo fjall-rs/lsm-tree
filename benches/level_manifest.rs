@@ -12,7 +12,7 @@ fn iterate_segments(c: &mut Criterion) {
 
             for x in 0_u64..segment_count {
                 tree.insert("a", "b", x);
-                tree.flush_active_memtable().unwrap();
+                tree.flush_active_memtable(0).unwrap();
             }
 
             let levels = tree.levels.read().unwrap();
@@ -37,7 +37,7 @@ fn find_segment(c: &mut Criterion) {
 
                 for x in 0..segment_count {
                     tree.insert(x.to_be_bytes(), "", x);
-                    tree.flush_active_memtable().unwrap();
+                    tree.flush_active_memtable(0).unwrap();
                 }
 
                 let key = (segment_count / 2).to_be_bytes();
@@ -63,7 +63,7 @@ fn find_segment(c: &mut Criterion) {
 
                 for x in 0..segment_count {
                     tree.insert(x.to_be_bytes(), "", x);
-                    tree.flush_active_memtable().unwrap();
+                    tree.flush_active_memtable(0).unwrap();
                 }
 
                 let key = (segment_count / 2).to_be_bytes();

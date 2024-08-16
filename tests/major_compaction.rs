@@ -14,7 +14,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.insert("b".as_bytes(), "abc", seqno.next());
     tree.insert("c".as_bytes(), "abc", seqno.next());
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(1, tree.segment_count());
 
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
@@ -43,7 +43,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.remove("b".as_bytes(), batch_seqno);
     tree.remove("c".as_bytes(), batch_seqno);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(2, tree.segment_count());
 
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;

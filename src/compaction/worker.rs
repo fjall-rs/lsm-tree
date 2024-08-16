@@ -413,11 +413,11 @@ mod tests {
         let tree = crate::Config::new(folder).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 1);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 2);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());
 

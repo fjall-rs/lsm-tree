@@ -11,13 +11,13 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     tree.insert("b", "b0", 0);
     tree.insert("b", "b1", 1);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     tree.insert("b", "b2", 2);
     tree.insert("b", "b3", 3);
     tree.insert("c", "c4", 4);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     tree.insert("a", "a5", 5);
 

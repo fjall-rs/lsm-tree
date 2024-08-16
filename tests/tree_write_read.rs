@@ -26,7 +26,7 @@ fn tree_write_and_read() -> lsm_tree::Result<()> {
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 2);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let tree = Config::new(folder).open()?;
 

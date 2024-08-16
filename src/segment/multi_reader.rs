@@ -72,7 +72,7 @@ mod tests {
             for id in batch {
                 tree.insert(id, vec![], 0);
             }
-            tree.flush_active_memtable()?;
+            tree.flush_active_memtable(0)?;
         }
 
         let segments = tree

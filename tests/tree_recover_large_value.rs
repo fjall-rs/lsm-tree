@@ -8,7 +8,7 @@ fn tree_recover_large_value() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open()?;
         tree.insert("a", "a".repeat(100_000), 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     {

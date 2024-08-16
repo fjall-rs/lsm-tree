@@ -15,13 +15,13 @@ fn blob_tree_tombstone() -> lsm_tree::Result<()> {
     tree.insert("c", &big_value, 0);
     assert_eq!(3, tree.len()?);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(3, tree.len()?);
 
     tree.remove("b", 1);
     assert_eq!(2, tree.len()?);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(2, tree.len()?);
 
     assert_eq!(&*tree.get("a")?.unwrap(), big_value);

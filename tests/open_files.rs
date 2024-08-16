@@ -15,7 +15,7 @@ fn open_file_limit() -> lsm_tree::Result<()> {
     for _ in 0..2_048 {
         let key = 0u64.to_be_bytes();
         tree.insert(key, key, 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     for _ in 0..5 {

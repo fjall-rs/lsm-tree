@@ -17,7 +17,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(ITEM_COUNT, tree.len()?);
     }

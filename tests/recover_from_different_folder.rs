@@ -20,7 +20,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
         tree.insert("asdsda", "def", 0);
         tree.insert("wewqe", "def", 0);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     {
@@ -43,7 +43,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
         tree.insert("asdsda", "def", 0);
         tree.insert("wewqe", "def", 0);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     for _ in 0..10 {

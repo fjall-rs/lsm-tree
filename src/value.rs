@@ -46,7 +46,9 @@ impl From<u8> for ValueType {
     fn from(value: u8) -> Self {
         match value {
             0 => Self::Value,
-            _ => Self::Tombstone,
+            1 => Self::Tombstone,
+            2 => Self::WeakTombstone,
+            _ => panic!("invalid value type"),
         }
     }
 }

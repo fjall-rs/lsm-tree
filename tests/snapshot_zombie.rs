@@ -57,7 +57,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
             tree.insert(key, "abc".as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(tree.len()?, ITEM_COUNT);
         assert_eq!(tree.iter().rev().count(), ITEM_COUNT);
@@ -73,7 +73,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
             tree.remove(key, seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().rev().count(), 0);

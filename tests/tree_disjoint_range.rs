@@ -30,7 +30,7 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
         for id in batch {
             tree.insert(id, vec![], 0);
         }
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     // NOTE: Forwards

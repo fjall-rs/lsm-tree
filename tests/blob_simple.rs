@@ -17,7 +17,7 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
@@ -31,7 +31,7 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);
@@ -58,7 +58,7 @@ fn blob_tree_simple_compressed() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
@@ -72,7 +72,7 @@ fn blob_tree_simple_compressed() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);
@@ -99,7 +99,7 @@ fn blob_tree_simple_compressed_2() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, big_value);
@@ -113,7 +113,7 @@ fn blob_tree_simple_compressed_2() -> lsm_tree::Result<()> {
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     let value = tree.get("big")?.expect("should exist");
     assert_eq!(&*value, new_big_value);

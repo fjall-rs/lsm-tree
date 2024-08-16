@@ -68,7 +68,7 @@
 //! // Flush to secondary storage, clearing the memtable
 //! // and persisting all in-memory data.
 //! // Note, this flushes synchronously, which may not be desired
-//! tree.flush_active_memtable()?;
+//! tree.flush_active_memtable(0)?;
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // When some disk segments have amassed, use compaction

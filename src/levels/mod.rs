@@ -483,11 +483,11 @@ mod tests {
         let tree = crate::Config::new(folder).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 1);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 2);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());
 
@@ -496,7 +496,7 @@ mod tests {
         assert_eq!(1, tree.segment_count());
 
         tree.insert("a", "a", 3);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         let segment_count_before_major_compact = tree.segment_count();
 
@@ -557,7 +557,7 @@ mod tests {
                 x += 1;
                 tree.insert(key, key, 0);
             }
-            tree.flush_active_memtable().expect("should flush");
+            tree.flush_active_memtable(0).expect("should flush");
         }
 
         assert!(
@@ -582,7 +582,7 @@ mod tests {
         for i in 0..10 {
             tree.insert("a", "", i);
             tree.insert("z", "", i);
-            tree.flush_active_memtable().expect("should flush");
+            tree.flush_active_memtable(0).expect("should flush");
         }
 
         assert!(

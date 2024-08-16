@@ -22,7 +22,7 @@ fn full_scan(c: &mut Criterion) {
                 tree.insert(key, value, 0);
             }
 
-            tree.flush_active_memtable().unwrap();
+            tree.flush_active_memtable(0).unwrap();
 
             b.iter(|| {
                 assert_eq!(tree.len().unwrap(), item_count as usize);
@@ -43,7 +43,7 @@ fn full_scan(c: &mut Criterion) {
                 tree.insert(key, value, 0);
             }
 
-            tree.flush_active_memtable().unwrap();
+            tree.flush_active_memtable(0).unwrap();
             assert_eq!(tree.len().unwrap(), item_count as usize);
 
             b.iter(|| {
@@ -72,7 +72,7 @@ fn scan_vs_query(c: &mut Criterion) {
             tree.insert(key, value, 0);
         }
 
-        tree.flush_active_memtable().unwrap();
+        tree.flush_active_memtable(0).unwrap();
         assert_eq!(tree.len().unwrap(), size);
 
         group.sample_size(10);
@@ -142,7 +142,7 @@ fn scan_vs_prefix(c: &mut Criterion) {
             tree.insert(key, value, 0);
         }
 
-        tree.flush_active_memtable().unwrap();
+        tree.flush_active_memtable(0).unwrap();
         assert_eq!(tree.len().unwrap() as u64, size + 10);
 
         group.sample_size(10);
@@ -194,7 +194,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                     x += 1;
                     tree.insert(key, key, 0);
                 }
-                tree.flush_active_memtable().unwrap();
+                tree.flush_active_memtable(0).unwrap();
             }
 
             group.bench_function(
@@ -234,7 +234,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 }
                 tree.insert("a", vec![], 0);
                 tree.insert(u64::MAX.to_be_bytes(), vec![], 0);
-                tree.flush_active_memtable().unwrap();
+                tree.flush_active_memtable(0).unwrap();
             }
 
             group.bench_function(
@@ -270,12 +270,12 @@ fn disk_point_read(c: &mut Criterion) {
     for seqno in 0..5 {
         tree.insert("a", "b", seqno);
     }
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
 
     for seqno in 5..10 {
         tree.insert("a", "b", seqno);
     }
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
 
     c.bench_function("point read latest (uncached)", |b| {
         let tree = tree.clone();
@@ -306,37 +306,37 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
         .unwrap();
 
     tree.insert("a", "a", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 6)), 0)
         .unwrap();
 
     tree.insert("b", "b", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 5)), 0)
         .unwrap();
 
     tree.insert("c", "c", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 4)), 0)
         .unwrap();
 
     tree.insert("d", "d", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 3)), 0)
         .unwrap();
 
     tree.insert("e", "e", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 2)), 0)
         .unwrap();
 
     tree.insert("f", "f", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 1)), 0)
         .unwrap();
 
     tree.insert("g", "g", 0);
-    tree.flush_active_memtable().unwrap();
+    tree.flush_active_memtable(0).unwrap();
 
     group.bench_function("Tree::first_key_value".to_string(), |b| {
         b.iter(|| {

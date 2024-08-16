@@ -12,7 +12,7 @@ fn blob_gc_1() -> lsm_tree::Result<()> {
     tree.insert("b", "neptune".repeat(10_000), seqno.next());
     tree.insert("c", "neptune".repeat(10_000), seqno.next());
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(1, tree.blobs.segment_count());
 
     tree.gc_scan_stats(seqno.get())?;
@@ -55,7 +55,7 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
     tree.insert("b", "neptune".repeat(10_000), seqno.next());
     tree.insert("c", "neptune".repeat(10_000), seqno.next());
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(1, tree.blobs.segment_count());
 
     tree.gc_scan_stats(seqno.get())?;
@@ -101,7 +101,7 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
     tree.insert("b", "neptune".repeat(10_000), seqno.next());
     tree.insert("c", "neptune".repeat(10_000), seqno.next());
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(1, tree.blobs.segment_count());
 
     tree.gc_scan_stats(seqno.get())?;

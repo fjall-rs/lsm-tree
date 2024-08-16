@@ -11,11 +11,11 @@ fn blob_tree_separation_threshold() -> lsm_tree::Result<()> {
         .open_as_blob_tree()?;
 
     tree.insert("a", "a".repeat(1_023), 0);
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(tree.blobs.segment_count(), 0);
 
     tree.insert("b", "b".repeat(1_024), 0);
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
     assert_eq!(tree.blobs.segment_count(), 1);
 
     assert_eq!(2, tree.len()?);

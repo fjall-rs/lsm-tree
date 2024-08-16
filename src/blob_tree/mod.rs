@@ -8,6 +8,7 @@ pub mod index;
 pub mod value;
 
 use crate::{
+    compaction::stream::CompactionStream,
     export::import_tree,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
@@ -173,12 +174,18 @@ impl BlobTree {
     }
 
     #[doc(hidden)]
-    pub fn flush_active_memtable(&self) -> crate::Result<Option<Arc<crate::Segment>>> {
+    pub fn flush_active_memtable(
+        &self,
+        eviction_seqno: SeqNo,
+    ) -> crate::Result<Option<Arc<crate::Segment>>> {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
 
-        let segment = self.flush_memtable(segment_id, &yanked_memtable)?;
+        let Some(segment) = self.flush_memtable(segment_id, &yanked_memtable, eviction_seqno)?
+        else {
+            return Ok(None);
+        };
         self.register_segments(&[segment.clone()])?;
 
         Ok(Some(segment))
@@ -228,7 +235,8 @@ impl AbstractTree for BlobTree {
         &self,
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
-    ) -> crate::Result<Arc<crate::Segment>> {
+        eviction_seqno: SeqNo,
+    ) -> crate::Result<Option<Arc<crate::Segment>>> {
         use crate::{
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer as SegmentWriter},
@@ -259,7 +267,12 @@ impl AbstractTree for BlobTree {
 
         let mut blob_writer = self.blobs.get_writer()?;
 
-        for item in memtable.iter() {
+        let iter = memtable.iter().map(Ok);
+        let compaction_filter = CompactionStream::new(iter, eviction_seqno);
+
+        for item in compaction_filter {
+            let item = item?;
+
             if item.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer

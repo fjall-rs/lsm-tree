@@ -99,7 +99,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
     assert!(!tree.is_empty()?);
     assert_eq!(tree.approximate_len(), 4);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 1);
     assert!(!tree.is_empty()?);
@@ -111,7 +111,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
     assert!(tree.is_empty()?);
     assert_eq!(tree.approximate_len(), 5);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 0);
     assert!(tree.is_empty()?);
@@ -162,7 +162,7 @@ fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     assert!(!tree.is_empty()?);
     assert_eq!(tree.approximate_len(), 4);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 1);
     assert!(!tree.is_empty()?);
@@ -174,7 +174,7 @@ fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     assert!(tree.is_empty()?);
     assert_eq!(tree.approximate_len(), 5);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     assert_eq!(tree.len()?, 0);
     assert!(tree.is_empty()?);

@@ -42,7 +42,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key: [u8; 8] = (x + ITEM_COUNT as u64).to_be_bytes();
@@ -54,7 +54,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
         assert_eq!(tree.iter().flatten().count(), ITEM_COUNT * 2);
         assert_eq!(tree.iter().rev().flatten().count(), ITEM_COUNT * 2);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     {

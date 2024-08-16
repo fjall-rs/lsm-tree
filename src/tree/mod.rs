@@ -5,7 +5,7 @@
 pub mod inner;
 
 use crate::{
-    compaction::CompactionStrategy,
+    compaction::{stream::CompactionStream, CompactionStrategy},
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
     export::import_tree,
@@ -103,7 +103,8 @@ impl AbstractTree for Tree {
         &self,
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
-    ) -> crate::Result<Arc<Segment>> {
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<Option<Arc<Segment>>> {
         use crate::{
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
@@ -130,8 +131,11 @@ impl AbstractTree for Tree {
             }
         }
 
-        for item in memtable.iter() {
-            segment_writer.write(item)?;
+        let iter = memtable.iter().map(Ok);
+        let compaction_filter = CompactionStream::new(iter, seqno_threshold);
+
+        for item in compaction_filter {
+            segment_writer.write(item?)?;
         }
 
         self.consume_writer(segment_id, segment_writer)
@@ -437,14 +441,16 @@ impl Tree {
         &self,
         segment_id: SegmentId,
         mut writer: crate::segment::writer::Writer,
-    ) -> crate::Result<Arc<Segment>> {
+    ) -> crate::Result<Option<Arc<Segment>>> {
         #[cfg(feature = "bloom")]
         use crate::bloom::BloomFilter;
 
         let segment_folder = writer.opts.folder.clone();
         let segment_file_path = segment_folder.join(segment_id.to_string());
 
-        let trailer = writer.finish()?.expect("memtable should not be empty");
+        let Some(trailer) = writer.finish()? else {
+            return Ok(None);
+        };
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
@@ -491,7 +497,7 @@ impl Tree {
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
-        Ok(created_segment)
+        Ok(Some(created_segment))
     }
 
     /// Synchronously flushes the active memtable to a disk segment.
@@ -505,14 +511,20 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn flush_active_memtable(&self) -> crate::Result<Option<Arc<Segment>>> {
+    pub fn flush_active_memtable(
+        &self,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<Option<Arc<Segment>>> {
         log::debug!("flush: flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
             return Ok(None);
         };
 
-        let segment = self.flush_memtable(segment_id, &yanked_memtable)?;
+        let Some(segment) = self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
+        else {
+            return Ok(None);
+        };
         self.register_segments(&[segment.clone()])?;
 
         Ok(Some(segment))
