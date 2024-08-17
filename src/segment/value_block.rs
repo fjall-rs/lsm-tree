@@ -55,7 +55,12 @@ impl ValueBlock {
                 let block = Self::from_file(
                     &mut *file_guard.file.lock().expect("lock is poisoned"),
                     offset,
-                )?;
+                )
+                .map_err(|e| {
+                    log::error!("Failed to load value block {segment_id:?}/{offset:?}: {e:?}");
+                    e
+                })?;
+                // TODO: ^ inspect_err instead: 1.76
 
                 drop(file_guard);
 
