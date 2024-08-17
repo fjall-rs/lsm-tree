@@ -7,7 +7,7 @@ use crate::{
     levels::LevelManifest,
     memtable::Memtable,
     merge::{BoxedIterator, Merger},
-    mvcc_stream::{seqno_filter, MvccStream},
+    mvcc_stream::MvccStream,
     segment::{multi_reader::MultiReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
@@ -16,6 +16,11 @@ use crate::{
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::Arc};
+
+#[must_use]
+pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
+    item_seqno < seqno
+}
 
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
