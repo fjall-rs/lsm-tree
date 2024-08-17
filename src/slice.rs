@@ -49,21 +49,18 @@ impl PartialOrd<Slice> for &[u8] {
     }
 }
 
+impl FromIterator<u8> for Slice {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = u8>,
+    {
+        Self::from(iter.into_iter().collect::<Vec<u8>>())
+    }
+}
+
 impl AsRef<[u8]> for Slice {
     fn as_ref(&self) -> &[u8] {
         &self.0
-    }
-}
-
-impl From<Slice> for Vec<u8> {
-    fn from(val: Slice) -> Self {
-        val.0.to_vec()
-    }
-}
-
-impl From<Slice> for Arc<[u8]> {
-    fn from(val: Slice) -> Self {
-        val.0.to_vec().into()
     }
 }
 
@@ -79,30 +76,9 @@ impl From<Arc<[u8]>> for Slice {
     }
 }
 
-impl FromIterator<u8> for Slice {
-    fn from_iter<T>(iter: T) -> Self
-    where
-        T: IntoIterator<Item = u8>,
-    {
-        Self::from(iter.into_iter().collect::<Vec<u8>>())
-    }
-}
-
 impl From<Vec<u8>> for Slice {
     fn from(value: Vec<u8>) -> Self {
         Self(value.into())
-    }
-}
-
-impl From<std::borrow::Cow<'_, str>> for Slice {
-    fn from(value: std::borrow::Cow<'_, str>) -> Self {
-        Self::from(value.as_bytes())
-    }
-}
-
-impl From<Box<str>> for Slice {
-    fn from(value: Box<str>) -> Self {
-        Self::from(value.as_bytes())
     }
 }
 
