@@ -149,8 +149,7 @@ mod tests {
           "c", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 1_050);
 
         iter_closed!(iter);
@@ -167,8 +166,7 @@ mod tests {
           "c", "", "T",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, SeqNo::MAX);
 
         assert_eq!(
@@ -201,8 +199,7 @@ mod tests {
           "c", "", "T",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 998);
 
         assert_eq!(
@@ -243,8 +240,7 @@ mod tests {
           "a", "", "T",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 999);
 
         assert_eq!(
@@ -265,8 +261,7 @@ mod tests {
           "a", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 0);
 
         assert_eq!(
@@ -291,8 +286,7 @@ mod tests {
           "a", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 998);
 
         assert_eq!(
@@ -317,8 +311,7 @@ mod tests {
           "a", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 999);
 
         // NOTE: Weak tombstone is consumed because value is GC'ed
@@ -341,8 +334,7 @@ mod tests {
             ValueType::Value,
         ));
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 999);
 
         // NOTE: Weak tombstone is consumed because value is GC'ed
@@ -367,7 +359,7 @@ mod tests {
           "c", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 0);
 
         assert_eq!(
@@ -401,8 +393,7 @@ mod tests {
           "c", "old", "V",
         ];
 
-        let iter = Box::new(vec.iter().cloned().map(Ok));
-
+        let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 0);
 
         assert_eq!(

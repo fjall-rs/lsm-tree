@@ -253,7 +253,7 @@ impl TreeIter {
             }
 
             let merged = Merger::new(iters);
-            let iter = MvccStream::new(Box::new(merged));
+            let iter = MvccStream::new(merged);
 
             Box::new(
                 iter.filter(|x| match x {

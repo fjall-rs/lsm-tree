@@ -159,7 +159,7 @@ fn merge_segments(
         }
 
         let merged = Merger::new(segment_readers);
-        CompactionStream::new(Box::new(merged), opts.eviction_seqno)
+        CompactionStream::new(merged, opts.eviction_seqno)
     };
 
     let last_level = levels.last_level_index();
