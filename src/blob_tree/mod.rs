@@ -118,44 +118,16 @@ impl BlobTree {
             .map_err(Into::into)
     }
 
-    pub fn gc_with_space_amp_target(
+    pub fn apply_gc_strategy(
         &self,
-        space_amp_target: f32,
+        strategy: &impl value_log::GcStrategy<MyCompressor>,
         seqno: SeqNo,
     ) -> crate::Result<u64> {
-        let ids = self
-            .blobs
-            .select_segments_for_space_amp_reduction(space_amp_target);
-
         // IMPORTANT: Write lock memtable to avoid read skew
         let memtable_lock = self.index.lock_active_memtable();
 
-        self.blobs.rollover(
-            &ids,
-            &GcReader::new(&self.index, &memtable_lock),
-            GcWriter::new(seqno, &memtable_lock),
-        )?;
-
-        // NOTE: We still have the memtable lock, can't use gc_drop_stale because recursive locking
-        self.blobs.drop_stale_segments().map_err(Into::into)
-    }
-
-    /// Rewrites blob files that have reached a stale threshold
-    pub fn gc_with_staleness_threshold(
-        &self,
-        stale_threshold: f32,
-        seqno: SeqNo,
-    ) -> crate::Result<u64> {
-        // First, find the segment IDs that are stale
-        let ids = self
-            .blobs
-            .find_segments_with_stale_threshold(stale_threshold);
-
-        // IMPORTANT: Write lock memtable to avoid read skew
-        let memtable_lock = self.index.lock_active_memtable();
-
-        self.blobs.rollover(
-            &ids,
+        self.blobs.apply_gc_strategy(
+            strategy,
             &GcReader::new(&self.index, &memtable_lock),
             GcWriter::new(seqno, &memtable_lock),
         )?;
