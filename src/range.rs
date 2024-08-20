@@ -4,7 +4,7 @@
 
 use crate::{
     key::InternalKey,
-    levels::LevelManifest,
+    level_manifest::LevelManifest,
     memtable::Memtable,
     merge::{BoxedIterator, Merger},
     mvcc_stream::MvccStream,
@@ -78,20 +78,20 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
-// TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
-// TODO: binary-filter per level and collect instead of sorting and whatever
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
 ) -> MultiReader<RangeReader> {
-    let mut readers: Vec<_> = level_manifest
+    // TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
+    // TODO: binary-filter per level and collect instead of sorting and whatever
+    let mut segments: Vec<_> = level_manifest
         .iter()
         .filter(|x| x.check_key_range_overlap(bounds))
         .collect();
 
-    readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+    segments.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
 
-    let readers: VecDeque<_> = readers
+    let readers: VecDeque<_> = segments
         .into_iter()
         .map(|x| x.range(bounds.clone()))
         .collect::<VecDeque<_>>();

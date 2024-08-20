@@ -77,14 +77,14 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
                     return Some(Ok(head));
                 }
 
-                // NOTE: Next item is expired is expired,
-                // so the tail of this user key is entirely expired, so drain it all
                 if peeked.key.seqno < self.gc_seqno_threshold {
                     // NOTE: If next item is an actual value, and current value is weak tombstone,
                     // drop the tombstone
                     let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
                         && head.key.value_type == ValueType::WeakTombstone;
 
+                    // NOTE: Next item is expired,
+                    // so the tail of this user key is entirely expired, so drain it all
                     fail_iter!(self.drain_key_min(&head.key.user_key));
 
                     if drop_weak_tombstone {

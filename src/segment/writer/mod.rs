@@ -309,7 +309,7 @@ impl Writer {
             index_block_ptr,
             tli_ptr,
             bloom_ptr,
-            rf_ptr,
+            range_filter_ptr: rf_ptr,
             range_tombstones_ptr,
             metadata_ptr,
         };

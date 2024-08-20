@@ -417,7 +417,7 @@ mod tests {
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
-        levels::{level::Level, LevelManifest},
+        level_manifest::{level::Level, LevelManifest},
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
@@ -444,7 +444,7 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
-                rf_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,

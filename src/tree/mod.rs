@@ -9,7 +9,7 @@ use crate::{
     config::{Config, PersistedConfig},
     descriptor_table::FileDescriptorTable,
     export::import_tree,
-    levels::LevelManifest,
+    level_manifest::LevelManifest,
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{block_index::two_level_index::TwoLevelBlockIndex, Segment},
@@ -253,7 +253,7 @@ impl AbstractTree for Tree {
         // NOTE: Mind lock order L -> M -> S
         let levels = self.levels.read().expect("lock is poisoned");
 
-        let level_iter = crate::levels::iter::LevelManifestIterator::new(&levels);
+        let level_iter = crate::level_manifest::iter::LevelManifestIterator::new(&levels);
         let segments_item_count = level_iter.map(|x| x.metadata.item_count).sum::<u64>();
         drop(levels);
 

@@ -16,7 +16,7 @@ pub struct FileOffsets {
     pub bloom_ptr: u64,
 
     // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46
-    pub rf_ptr: u64,
+    pub range_filter_ptr: u64,
 
     // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
     pub range_tombstones_ptr: u64,
@@ -37,7 +37,7 @@ impl Serializable for FileOffsets {
         writer.write_u64::<BigEndian>(self.index_block_ptr)?;
         writer.write_u64::<BigEndian>(self.tli_ptr)?;
         writer.write_u64::<BigEndian>(self.bloom_ptr)?;
-        writer.write_u64::<BigEndian>(self.rf_ptr)?;
+        writer.write_u64::<BigEndian>(self.range_filter_ptr)?;
         writer.write_u64::<BigEndian>(self.range_tombstones_ptr)?;
         writer.write_u64::<BigEndian>(self.metadata_ptr)?;
         Ok(())
@@ -57,7 +57,7 @@ impl Deserializable for FileOffsets {
             index_block_ptr,
             tli_ptr,
             bloom_ptr,
-            rf_ptr,
+            range_filter_ptr: rf_ptr,
             range_tombstones_ptr,
             metadata_ptr,
         })

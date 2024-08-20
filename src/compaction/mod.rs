@@ -13,7 +13,7 @@ pub(crate) mod stream;
 pub(crate) mod tiered;
 pub(crate) mod worker;
 
-use crate::{config::Config, levels::LevelManifest, segment::meta::SegmentId};
+use crate::{config::Config, level_manifest::LevelManifest, segment::meta::SegmentId};
 
 pub use fifo::Strategy as Fifo;
 pub use leveled::Strategy as Leveled;

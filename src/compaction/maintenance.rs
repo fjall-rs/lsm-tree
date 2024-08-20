@@ -5,7 +5,7 @@
 use super::{Choice, CompactionStrategy};
 use crate::{
     config::Config,
-    levels::LevelManifest,
+    level_manifest::LevelManifest,
     segment::{meta::SegmentId, Segment},
 };
 use std::{ops::Deref, sync::Arc};
@@ -83,7 +83,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::LevelManifest,
+        level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex, file_offsets::FileOffsets,
             meta::Metadata, Segment,
@@ -106,7 +106,7 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
-                rf_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,

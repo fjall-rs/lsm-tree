@@ -139,7 +139,7 @@ mod key;
 mod key_range;
 
 #[doc(hidden)]
-pub mod levels;
+pub mod level_manifest;
 
 mod memtable;
 

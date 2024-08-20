@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, levels::LevelManifest};
+use crate::{config::Config, level_manifest::LevelManifest};
 
 /// Major compaction
 ///

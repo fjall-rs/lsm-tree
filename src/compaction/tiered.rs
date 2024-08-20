@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{levels::LevelManifest, Config};
+use crate::{level_manifest::LevelManifest, Config};
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
@@ -124,7 +124,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::LevelManifest,
+        level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
@@ -150,7 +150,7 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
-                rf_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,

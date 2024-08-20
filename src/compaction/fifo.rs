@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{config::Config, levels::LevelManifest, time::unix_timestamp};
+use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp};
 use std::ops::Deref;
 
 /// FIFO-style compaction.
@@ -104,7 +104,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::LevelManifest,
+        level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
@@ -131,7 +131,7 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
-                rf_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,

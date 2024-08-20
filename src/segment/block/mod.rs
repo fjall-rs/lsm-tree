@@ -42,6 +42,7 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
     pub fn from_reader<R: Read>(reader: &mut R) -> crate::Result<Self> {
         // Read block header
         let header = BlockHeader::deserialize(reader)?;
+        log::trace!("Got block header: {header:?}");
 
         let mut bytes = vec![0u8; header.data_length as usize];
         reader.read_exact(&mut bytes)?;

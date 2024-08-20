@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    config::Config, file::LEVELS_MANIFEST_FILE, levels::LevelManifest, memtable::Memtable,
+    config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
     segment::meta::SegmentId, stop_signal::StopSignal,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};

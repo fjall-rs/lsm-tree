@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
+use crate::{config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment};
 use std::{collections::HashSet, ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
@@ -235,7 +235,7 @@ mod tests {
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
-        levels::LevelManifest,
+        level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
@@ -275,7 +275,7 @@ mod tests {
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
-                rf_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,

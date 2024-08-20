@@ -6,7 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
-    levels::LevelManifest,
+    level_manifest::LevelManifest,
     merge::{BoxedIterator, Merger},
     segment::{
         block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
