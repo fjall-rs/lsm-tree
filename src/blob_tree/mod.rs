@@ -37,7 +37,7 @@ fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> Range
 
             match item {
                 MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
-                MaybeInlineValue::Indirect { handle, .. } => match vlog.get(&handle) {
+                MaybeInlineValue::Indirect { vhandle, .. } => match vlog.get(&vhandle) {
                     Ok(Some(bytes)) => Ok((key, Slice::from(bytes))),
                     Err(e) => Err(e.into()),
                     _ => panic!("value handle did not match any blob - this is a bug"),
@@ -111,7 +111,7 @@ impl BlobTree {
                 };
 
                 match value {
-                    Indirect { handle, size } => Some(Ok((handle, size))),
+                    Indirect { vhandle, size } => Some(Ok((vhandle, size))),
                     Inline(_) => None,
                 }
             }))
@@ -264,10 +264,10 @@ impl AbstractTree for BlobTree {
             let value_size = value.len() as u32;
 
             if value_size >= self.index.config.blob_file_separation_threshold {
-                let handle = blob_writer.get_next_value_handle();
+                let vhandle = blob_writer.get_next_value_handle();
 
                 let indirection = MaybeInlineValue::Indirect {
-                    handle,
+                    vhandle,
                     size: value_size,
                 };
                 let mut serialized_indirection = vec![];
@@ -498,9 +498,9 @@ impl AbstractTree for BlobTree {
 
         match value {
             Inline(bytes) => Ok(Some(bytes)),
-            Indirect { handle, .. } => {
+            Indirect { vhandle, .. } => {
                 // Resolve indirection using value log
-                Ok(self.blobs.get(&handle)?.map(Slice::from))
+                Ok(self.blobs.get(&vhandle)?.map(Slice::from))
             }
         }
     }
@@ -514,9 +514,9 @@ impl AbstractTree for BlobTree {
 
         match value {
             Inline(bytes) => Ok(Some(bytes)),
-            Indirect { handle, .. } => {
+            Indirect { vhandle, .. } => {
                 // Resolve indirection using value log
-                Ok(self.blobs.get(&handle)?.map(Slice::from))
+                Ok(self.blobs.get(&vhandle)?.map(Slice::from))
             }
         }
     }

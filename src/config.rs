@@ -83,8 +83,8 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 impl Default for PersistedConfig {
     fn default() -> Self {
         Self {
-            data_block_size: 4_096,
-            index_block_size: 4_096,
+            data_block_size: /* 4 KiB */ 4_096,
+            index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
             r#type: TreeType::Standard,
             table_type: TableType::Block,
@@ -191,12 +191,12 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(DEFAULT_FILE_FOLDER),
-            block_cache: Arc::new(BlockCache::with_capacity_bytes(8 * 1_024 * 1_024)),
+            block_cache: Arc::new(BlockCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
             descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
 
-            blob_cache: Arc::new(BlobCache::with_capacity_bytes(8 * 1_024 * 1_024)),
-            blob_file_target_size: 64 * 1_024 * 1_024,
-            blob_file_separation_threshold: 4 * 1_024,
+            blob_cache: Arc::new(BlobCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
+            blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
 
             inner: PersistedConfig::default(),
         }

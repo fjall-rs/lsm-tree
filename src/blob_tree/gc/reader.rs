@@ -46,7 +46,7 @@ impl<'a> value_log::IndexReader for GcReader<'a> {
 
         match item {
             MaybeInlineValue::Inline(_) => Ok(None),
-            MaybeInlineValue::Indirect { handle, .. } => Ok(Some(handle)),
+            MaybeInlineValue::Indirect { vhandle, .. } => Ok(Some(vhandle)),
         }
     }
 }

@@ -30,10 +30,10 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
     fn insert_indirect(
         &mut self,
         key: &[u8],
-        handle: ValueHandle,
+        vhandle: ValueHandle,
         size: u32,
     ) -> std::io::Result<()> {
-        self.buffer.push((key.into(), handle, size));
+        self.buffer.push((key.into(), vhandle, size));
         Ok(())
     }
 
@@ -43,9 +43,9 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
         log::trace!("Finish blob GC index writer");
 
         #[allow(clippy::significant_drop_in_scrutinee)]
-        for (key, handle, size) in self.buffer.drain(..) {
+        for (key, vhandle, size) in self.buffer.drain(..) {
             let mut buf = vec![];
-            MaybeInlineValue::Indirect { handle, size }
+            MaybeInlineValue::Indirect { vhandle, size }
                 .serialize(&mut buf)
                 .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?;
 
