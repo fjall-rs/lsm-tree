@@ -9,13 +9,12 @@ use crate::{
     file::rewrite_atomic,
     segment::{meta::SegmentId, Segment},
     serde::Serializable,
-    DeserializeError, SerializeError,
+    DeserializeError, HashMap, HashSet, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
 use level::Level;
 use std::{
-    collections::{HashMap, HashSet},
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -118,7 +117,10 @@ impl LevelManifest {
         let mut levels = Self {
             path: path.as_ref().to_path_buf(),
             levels,
-            hidden_set: HashSet::with_capacity(10),
+            hidden_set: HashSet::with_capacity_and_hasher(
+                10,
+                xxhash_rust::xxh3::Xxh3Builder::new(),
+            ),
         };
         Self::write_to_disk(path, &levels.levels)?;
 
@@ -201,7 +203,10 @@ impl LevelManifest {
 
         Ok(Self {
             levels,
-            hidden_set: HashSet::with_capacity(10),
+            hidden_set: HashSet::with_capacity_and_hasher(
+                10,
+                xxhash_rust::xxh3::Xxh3Builder::new(),
+            ),
             path: path.as_ref().to_path_buf(),
         })
     }
@@ -325,7 +330,8 @@ impl LevelManifest {
 
     #[must_use]
     pub fn busy_levels(&self) -> HashSet<u8> {
-        let mut output = HashSet::with_capacity(self.len());
+        let mut output =
+            HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
 
         for (idx, level) in self.levels.iter().enumerate() {
             for segment_id in level.ids() {
@@ -365,7 +371,7 @@ impl LevelManifest {
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let mut output = HashMap::new();
+        let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
         for segment in self.iter().cloned() {
             output.insert(segment.metadata.id, segment);

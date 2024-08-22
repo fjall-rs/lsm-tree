@@ -3,8 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment};
-use std::{collections::HashSet, ops::Deref, sync::Arc};
+use crate::{
+    config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment, HashSet,
+};
+use std::{ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
 ///

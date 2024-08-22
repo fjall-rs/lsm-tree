@@ -100,6 +100,9 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 
+pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
+pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
+
 macro_rules! fail_iter {
     ($e:expr) => {
         match $e {

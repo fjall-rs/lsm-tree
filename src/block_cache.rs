@@ -65,7 +65,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 pub struct BlockCache {
-    data: Cache<CacheKey, Item, BlockWeighter>,
+    data: Cache<CacheKey, Item, BlockWeighter, xxhash_rust::xxh3::Xxh3Builder>,
     capacity: u64,
 }
 
@@ -73,8 +73,16 @@ impl BlockCache {
     /// Creates a new block cache with roughly `n` bytes of capacity.
     #[must_use]
     pub fn with_capacity_bytes(bytes: u64) -> Self {
+        use quick_cache::sync::DefaultLifecycle;
+
         Self {
-            data: Cache::with_weighter(1_000_000, bytes, BlockWeighter),
+            data: Cache::with(
+                1_000_000,
+                bytes,
+                BlockWeighter,
+                xxhash_rust::xxh3::Xxh3Builder::new(),
+                DefaultLifecycle::default(),
+            ),
             capacity: bytes,
         }
     }

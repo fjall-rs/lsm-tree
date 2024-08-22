@@ -4,10 +4,9 @@
 
 mod lru;
 
-use crate::segment::id::GlobalSegmentId;
+use crate::{segment::id::GlobalSegmentId, HashMap};
 use lru::LruList;
 use std::{
-    collections::HashMap,
     fs::File,
     io::BufReader,
     path::PathBuf,
@@ -73,7 +72,10 @@ impl FileDescriptorTable {
     pub fn new(limit: usize, concurrency: usize) -> Self {
         Self {
             inner: RwLock::new(FileDescriptorTableInner {
-                table: HashMap::with_capacity(100),
+                table: HashMap::with_capacity_and_hasher(
+                    100,
+                    xxhash_rust::xxh3::Xxh3Builder::new(),
+                ),
                 lru: Mutex::new(LruList::with_capacity(100)),
                 size: AtomicUsize::default(),
             }),

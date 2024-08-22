@@ -14,10 +14,9 @@ use crate::{
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
-    Config,
+    Config, HashSet,
 };
 use std::{
-    collections::HashSet,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
