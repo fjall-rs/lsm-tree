@@ -38,7 +38,7 @@ fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> Range
             match item {
                 MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
                 MaybeInlineValue::Indirect { vhandle, .. } => match vlog.get(&vhandle) {
-                    Ok(Some(bytes)) => Ok((key, Slice::from(bytes))),
+                    Ok(Some(bytes)) => Ok((key, bytes)),
                     Err(e) => Err(e.into()),
                     _ => panic!("value handle did not match any blob - this is a bug"),
                 },
