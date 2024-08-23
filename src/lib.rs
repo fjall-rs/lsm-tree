@@ -163,8 +163,6 @@ mod seqno;
 #[doc(hidden)]
 pub mod serde;
 
-mod slice;
-
 mod snapshot;
 
 #[doc(hidden)]
@@ -195,7 +193,6 @@ pub use {
     segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     serde::{DeserializeError, SerializeError},
-    slice::Slice,
     snapshot::Snapshot,
     tree::Tree,
     value::{SeqNo, UserKey, UserValue, ValueType},
@@ -206,4 +203,6 @@ pub use any_tree::AnyTree;
 
 pub use blob_tree::BlobTree;
 
-pub use value_log::{BlobCache, GcReport, GcStrategy, SpaceAmpStrategy, StaleThresholdStrategy};
+pub use value_log::{
+    BlobCache, GcReport, GcStrategy, Slice, SpaceAmpStrategy, StaleThresholdStrategy,
+};
