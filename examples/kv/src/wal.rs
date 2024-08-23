@@ -30,7 +30,7 @@ impl From<WalEntry> for InternalValue {
             entry.key,
             entry.value,
             entry.seqno,
-            ValueType::from(entry.value_type),
+            ValueType::try_from(entry.value_type).unwrap(),
         )
     }
 }
