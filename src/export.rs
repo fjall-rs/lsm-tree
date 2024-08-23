@@ -18,9 +18,13 @@ pub fn export_tree<P: AsRef<Path>>(
     items: impl Iterator<Item = crate::Result<KvPair>>,
 ) -> crate::Result<()> {
     let path = path.as_ref();
+
+    // NOTE: Nothing we can do
+    #[allow(clippy::expect_used)]
     let folder = path
         .parent()
         .expect("export path should have parent folder");
+
     create_dir_all(folder)?;
 
     let file = File::create(path)?;
@@ -32,9 +36,13 @@ pub fn export_tree<P: AsRef<Path>>(
     for kv in items {
         let (k, v) = kv?;
 
+        // NOTE: We know keys are limited to 16-bit length
+        #[allow(clippy::cast_possible_truncation)]
         file.write_u16::<BigEndian>(k.len() as u16)?;
         file.write_all(&k)?;
 
+        // NOTE: We know values are limited to 32-bit length
+        #[allow(clippy::cast_possible_truncation)]
         file.write_u32::<BigEndian>(v.len() as u32)?;
         file.write_all(&v)?;
 
@@ -53,17 +61,19 @@ pub fn export_tree<P: AsRef<Path>>(
     Ok(())
 }
 
-const TRAILER_SIZE: u64 =
-    (EXPECTED_TRAILER.len() + std::mem::size_of::<u64>() + std::mem::size_of::<u64>()) as u64;
+const TRAILER_SIZE: usize =
+    EXPECTED_TRAILER.len() + std::mem::size_of::<u64>() + std::mem::size_of::<u64>();
 
 pub fn import_tree<P: AsRef<Path>>(path: P, tree: &impl AbstractTree) -> crate::Result<()> {
     let mut file = File::open(path)?;
 
     assert!(
-        file.metadata()?.len() >= TRAILER_SIZE,
+        file.metadata()?.len() >= TRAILER_SIZE as u64,
         "import file is too short"
     );
 
+    // NOTE: Trailer size is trivially small
+    #[allow(clippy::cast_possible_wrap)]
     file.seek(std::io::SeekFrom::End(-(TRAILER_SIZE as i64)))?;
 
     let item_count = file.read_u64::<BigEndian>()?;

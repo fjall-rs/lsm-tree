@@ -153,8 +153,12 @@ impl Writer {
     /// Writes a compressed block to disk.
     ///
     /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`.
-    pub(crate) fn write_block(&mut self) -> crate::Result<()> {
-        debug_assert!(!self.chunk.is_empty());
+    ///
+    /// Should only be called when the block has items in it.
+    pub(crate) fn spill_block(&mut self) -> crate::Result<()> {
+        let Some(last) = self.chunk.last() else {
+            return Ok(());
+        };
 
         // Write to file
         let (header, data) =
@@ -166,9 +170,6 @@ impl Writer {
         self.block_writer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
-
-        // NOTE: Expect is fine, because the chunk is not empty
-        let last = self.chunk.last().expect("Chunk should not be empty");
 
         self.index_writer
             .register_block(last.key.user_key.clone(), self.meta.file_pos)?;
@@ -221,7 +222,7 @@ impl Writer {
         self.chunk.push(item);
 
         if self.chunk_size >= self.opts.data_block_size as usize {
-            self.write_block()?;
+            self.spill_block()?;
             self.chunk_size = 0;
         }
 
@@ -245,9 +246,7 @@ impl Writer {
 
     /// Finishes the segment, making sure all data is written durably
     pub fn finish(&mut self) -> crate::Result<Option<SegmentFileTrailer>> {
-        if !self.chunk.is_empty() {
-            self.write_block()?;
-        }
+        self.spill_block()?;
 
         // No items written! Just delete segment file and return nothing
         if self.meta.item_count == 0 {
@@ -384,6 +383,9 @@ mod tests {
 
         let segment_file_path = folder.join(segment_id.to_string());
 
+        // NOTE: The TLI is bound by the index block count, because we know the index block count is u32
+        // the TLI length fits into u32 as well
+        #[allow(clippy::cast_possible_truncation)]
         {
             let tli = TopLevelIndex::from_file(&segment_file_path, trailer.offsets.tli_ptr)?;
             assert_eq!(tli.len() as u32, trailer.metadata.index_block_count);

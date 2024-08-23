@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod iter;
-mod level;
+pub(crate) mod level;
 
 use crate::{
     file::rewrite_atomic,

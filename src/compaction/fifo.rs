@@ -4,7 +4,6 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp};
-use std::ops::Deref;
 
 /// FIFO-style compaction.
 ///
@@ -43,11 +42,9 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
-        let mut first_level = resolved_view
-            .first()
-            .expect("L0 should always exist")
-            .deref()
-            .clone();
+        // NOTE: First level always exists, trivial
+        #[allow(clippy::expect_used)]
+        let first_level = resolved_view.first().expect("L0 should always exist");
 
         let mut segment_ids_to_delete = vec![];
 
@@ -55,7 +52,7 @@ impl CompactionStrategy for Strategy {
             if ttl_seconds > 0 {
                 let now = unix_timestamp().as_micros();
 
-                for segment in &first_level {
+                for segment in first_level.iter() {
                     let lifetime_us = now - segment.metadata.created_at;
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
@@ -73,9 +70,11 @@ impl CompactionStrategy for Strategy {
 
             // NOTE: Sort the level by oldest to newest (levels are sorted from newest to oldest)
             // so we can just reverse
-            first_level.reverse();
+            let mut first_level = first_level.clone();
+            first_level.sort_by_seqno();
+            first_level.segments.reverse();
 
-            for segment in first_level {
+            for segment in first_level.iter() {
                 if bytes_to_delete == 0 {
                     break;
                 }

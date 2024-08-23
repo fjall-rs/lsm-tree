@@ -14,6 +14,9 @@ pub const BLOBS_FOLDER: &str = "blobs";
 /// Atomically rewrites a file
 pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Result<()> {
     let path = path.as_ref();
+
+    // NOTE: Nothing we can do
+    #[allow(clippy::expect_used)]
     let folder = path.parent().expect("should have a parent");
 
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;

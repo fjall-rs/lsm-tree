@@ -113,7 +113,7 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
     fn pack_items(items: &[T], compression: CompressionType) -> crate::Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(u16::MAX.into());
 
-        // NOTE: Truncation is okay and actually needed
+        // NOTE: There cannot be 4 billion items in a block
         #[allow(clippy::cast_possible_truncation)]
         buf.write_u32::<BigEndian>(items.len() as u32)?;
 

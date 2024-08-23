@@ -78,7 +78,11 @@ impl Deserializable for InternalKey {
         reader.read_exact(&mut key)?;
 
         let seqno = reader.read_u64::<BigEndian>()?;
-        let value_type = reader.read_u8()?.into();
+
+        let value_type = reader.read_u8()?;
+        let value_type = value_type
+            .try_into()
+            .map_err(|()| DeserializeError::InvalidTag(("ValueType", value_type)))?;
 
         Ok(Self::new(key, seqno, value_type))
     }

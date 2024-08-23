@@ -42,13 +42,15 @@ pub enum ValueType {
     WeakTombstone,
 }
 
-impl From<u8> for ValueType {
-    fn from(value: u8) -> Self {
+impl TryFrom<u8> for ValueType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::Value,
-            1 => Self::Tombstone,
-            2 => Self::WeakTombstone,
-            _ => panic!("invalid value type"),
+            0 => Ok(Self::Value),
+            1 => Ok(Self::Tombstone),
+            2 => Ok(Self::WeakTombstone),
+            _ => Err(()),
         }
     }
 }
@@ -166,7 +168,7 @@ impl Serializable for InternalValue {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         self.key.serialize(writer)?;
 
-        // NOTE: Truncation is okay and actually needed
+        // NOTE: We know values are limited to 32-bit length
         #[allow(clippy::cast_possible_truncation)]
         writer.write_u32::<BigEndian>(self.value.len() as u32)?;
         writer.write_all(&self.value)?;

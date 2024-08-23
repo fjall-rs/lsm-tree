@@ -54,10 +54,13 @@ impl CompactionStrategy for Strategy {
         for (curr_level_index, level) in resolved_view
             .iter()
             .enumerate()
-            .map(|(idx, lvl)| (idx as u8, lvl))
             .take(resolved_view.len() - 1)
             .rev()
         {
+            // NOTE: Level count is 255 max
+            #[allow(clippy::cast_possible_truncation)]
+            let curr_level_index = curr_level_index as u8;
+
             let next_level_index = curr_level_index + 1;
 
             if level.is_empty() {
@@ -73,7 +76,7 @@ impl CompactionStrategy for Strategy {
             if curr_level_bytes >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
                 // We want to take N segments, not just the overshoot (like in leveled)
-                let mut overshoot = desired_bytes as usize;
+                let mut overshoot = desired_bytes;
 
                 let mut segments_to_compact = vec![];
 
@@ -82,7 +85,7 @@ impl CompactionStrategy for Strategy {
                         break;
                     }
 
-                    overshoot = overshoot.saturating_sub(segment.metadata.file_size as usize);
+                    overshoot = overshoot.saturating_sub(segment.metadata.file_size);
                     segments_to_compact.push(segment);
                 }
 

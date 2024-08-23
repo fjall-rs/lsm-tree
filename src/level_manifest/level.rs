@@ -59,7 +59,7 @@ impl Level {
         self.sort();
     }
 
-    pub(super) fn sort(&mut self) {
+    pub(crate) fn sort(&mut self) {
         if self.is_disjoint {
             self.sort_by_key_range();
         } else {
@@ -67,7 +67,7 @@ impl Level {
         }
     }
 
-    pub fn sort_by_key_range(&mut self) {
+    pub(crate) fn sort_by_key_range(&mut self) {
         self.segments
             .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
     }
@@ -81,7 +81,7 @@ impl Level {
     /// [key:asd:2] [key:asd:1]
     ///
     /// point read ----------->
-    fn sort_by_seqno(&mut self) {
+    pub(crate) fn sort_by_seqno(&mut self) {
         self.segments
             .sort_by(|a, b| b.metadata.seqnos.1.cmp(&a.metadata.seqnos.1));
     }

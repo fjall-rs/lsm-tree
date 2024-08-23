@@ -21,7 +21,6 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
     #[must_use]
     pub fn new(iter: I) -> Self {
         let iter = iter.double_ended_peekable();
-
         Self { inner: iter }
     }
 

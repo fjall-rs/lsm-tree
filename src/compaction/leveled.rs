@@ -97,16 +97,14 @@ impl CompactionStrategy for Strategy {
         for (curr_level_index, level) in resolved_view
             .iter()
             .enumerate()
-            .map(|(idx, lvl)| {
-                (
-                    u8::try_from(idx).expect("levels should not exceed 255"),
-                    lvl,
-                )
-            })
             .skip(1)
             .take(resolved_view.len() - 2)
             .rev()
         {
+            // NOTE: Level count is 255 max
+            #[allow(clippy::cast_possible_truncation)]
+            let curr_level_index = curr_level_index as u8;
+
             let next_level_index = curr_level_index + 1;
 
             if level.is_empty() {
