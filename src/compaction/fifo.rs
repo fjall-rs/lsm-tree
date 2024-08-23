@@ -68,8 +68,8 @@ impl CompactionStrategy for Strategy {
         if db_size > self.limit {
             let mut bytes_to_delete = db_size - self.limit;
 
-            // NOTE: Sort the level by oldest to newest (levels are sorted from newest to oldest)
-            // so we can just reverse
+            // NOTE: Sort the level by oldest to newest
+            // levels are sorted from newest to oldest, so we can just reverse
             let mut first_level = first_level.clone();
             first_level.sort_by_seqno();
             first_level.segments.reverse();

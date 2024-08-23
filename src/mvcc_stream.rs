@@ -13,9 +13,6 @@ pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>
     inner: DoubleEndedPeekable<I>,
 }
 
-// TODO: MVCC stream *NEEDS* to emit weak tombstone as well
-// TODO: otherwise point reads will not be short circuited
-
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
     /// Initializes a new merge iterator
     #[must_use]

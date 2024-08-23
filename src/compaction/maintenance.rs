@@ -8,7 +8,7 @@ use crate::{
     level_manifest::LevelManifest,
     segment::{meta::SegmentId, Segment},
 };
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 const L0_SEGMENT_CAP: usize = 20;
 
@@ -46,19 +46,20 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
-        let mut first_level = resolved_view
-            .first()
-            .expect("L0 should always exist")
-            .deref()
-            .clone();
+        // NOTE: First level always exists, trivial
+        #[allow(clippy::expect_used)]
+        let first_level = resolved_view.first().expect("L0 should always exist");
 
         if first_level.len() > L0_SEGMENT_CAP {
             // NOTE: +1 because two will merge into one
             // So if we have 18 segments, and merge two, we'll have 17, not 16
             let segments_to_merge = first_level.len() - L0_SEGMENT_CAP + 1;
 
-            // Sort the level by oldest to newest
-            first_level.sort_by(|a, b| a.metadata.seqnos.0.cmp(&b.metadata.seqnos.0));
+            // NOTE: Sort the level by oldest to newest
+            // levels are sorted from newest to oldest, so we can just reverse
+            let mut first_level = first_level.clone();
+            first_level.sort_by_seqno();
+            first_level.segments.reverse();
 
             let segment_ids = choose_least_effort_compaction(&first_level, segments_to_merge);
 
@@ -129,7 +130,7 @@ mod tests {
                 tombstone_count: 0,
                 range_tombstone_count: 0,
                 uncompressed_size: 0,
-                seqnos: (0, 0),
+                seqnos: (0, created_at as u64),
             },
             block_cache,
 

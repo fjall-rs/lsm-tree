@@ -866,9 +866,13 @@ impl Tree {
             let dirent = dirent?;
 
             let file_name = dirent.file_name();
-            let segment_file_name = file_name.to_str().expect("invalid segment folder name");
-            let segment_file_path = dirent.path();
 
+            let segment_file_name = file_name.to_str().ok_or_else(|| {
+                log::error!("invalid segment file name {file_name:?}");
+                crate::Error::Unrecoverable
+            })?;
+
+            let segment_file_path = dirent.path();
             assert!(!segment_file_path.is_dir());
 
             if segment_file_name.starts_with("tmp_") {
@@ -879,9 +883,10 @@ impl Tree {
 
             log::debug!("Recovering segment from {segment_file_path:?}");
 
-            let segment_id = segment_file_name
-                .parse::<SegmentId>()
-                .expect("should be valid segment ID");
+            let segment_id = segment_file_name.parse::<SegmentId>().map_err(|e| {
+                log::error!("invalid segment file name {segment_file_name:?}: {e:?}");
+                crate::Error::Unrecoverable
+            })?;
 
             if segment_ids_to_recover.contains(&segment_id) {
                 let segment = Segment::recover(
