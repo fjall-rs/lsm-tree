@@ -35,9 +35,9 @@ pub struct Strategy {
     /// Same as `target_file_size_base` in `RocksDB`
     pub target_size: u32,
 
-    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
-    /// This is the exponential growth of the from one
+    /// This is the exponential growth of the from one.
     /// level to the next
     ///
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
