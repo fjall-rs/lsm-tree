@@ -506,6 +506,15 @@ pub trait AbstractTree {
         self.get(key).map(|x| x.is_some())
     }
 
+    /// Returns `true` if the snapshot instant contains the specified key.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn contains_key_with_seqno<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
+        self.get_with_seqno(key, seqno).map(|x| x.is_some())
+    }
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.

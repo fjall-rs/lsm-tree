@@ -33,7 +33,7 @@ log = "0.4.22"
 lz4_flex = { version = "0.11.3", optional = true }
 miniz_oxide = { version = "0.7.4", optional = true }
 path-absolutize = "3.1.1"
-quick_cache = { version = "0.6.2", default-features = false, features = [] }
+quick_cache = { version = "0.6.5", default-features = false, features = [] }
 self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
 tempfile = "3.12.0"

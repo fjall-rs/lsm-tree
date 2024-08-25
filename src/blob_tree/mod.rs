@@ -361,6 +361,12 @@ impl AbstractTree for BlobTree {
     }
 
     // NOTE: Override the default implementation to not fetch
+    // data from the value log, so we get much faster key reads
+    fn contains_key_with_seqno<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
+        self.index.contains_key_with_seqno(key, seqno)
+    }
+
+    // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster scans
     fn len(&self) -> crate::Result<usize> {
         self.index.len()
