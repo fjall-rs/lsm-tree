@@ -168,10 +168,13 @@ impl Serializable for InternalValue {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         self.key.serialize(writer)?;
 
-        // NOTE: We know values are limited to 32-bit length
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u32::<BigEndian>(self.value.len() as u32)?;
-        writer.write_all(&self.value)?;
+        // NOTE: Only write value len + value if we are actually a value
+        if !self.is_tombstone() {
+            // NOTE: We know values are limited to 32-bit length
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u32::<BigEndian>(self.value.len() as u32)?;
+            writer.write_all(&self.value)?;
+        }
 
         Ok(())
     }
@@ -181,14 +184,23 @@ impl Deserializable for InternalValue {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         let key = InternalKey::deserialize(reader)?;
 
-        let value_len = reader.read_u32::<BigEndian>()?;
-        let mut value = vec![0; value_len as usize];
-        reader.read_exact(&mut value)?;
+        if key.is_tombstone() {
+            Ok(Self {
+                key,
+                value: vec![].into(),
+            })
+        } else {
+            // NOTE: Only read value if we are actually a value
 
-        Ok(Self {
-            key,
-            value: value.into(),
-        })
+            let value_len = reader.read_u32::<BigEndian>()?;
+            let mut value = vec![0; value_len as usize];
+            reader.read_exact(&mut value)?;
+
+            Ok(Self {
+                key,
+                value: value.into(),
+            })
+        }
     }
 }
 
