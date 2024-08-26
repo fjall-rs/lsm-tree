@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp};
+use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp, HashSet};
 
 /// FIFO-style compaction.
 ///
@@ -46,7 +46,7 @@ impl CompactionStrategy for Strategy {
         #[allow(clippy::expect_used)]
         let first_level = resolved_view.first().expect("L0 should always exist");
 
-        let mut segment_ids_to_delete = vec![];
+        let mut segment_ids_to_delete = HashSet::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
         if let Some(ttl_seconds) = self.ttl_seconds {
             if ttl_seconds > 0 {
@@ -57,7 +57,11 @@ impl CompactionStrategy for Strategy {
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
                     if lifetime_sec > ttl_seconds.into() {
-                        segment_ids_to_delete.push(segment.metadata.id);
+                        log::trace!(
+                            "segment is older than configured TTL: {:?}",
+                            segment.metadata
+                        );
+                        segment_ids_to_delete.insert(segment.metadata.id);
                     }
                 }
             }
@@ -81,14 +85,27 @@ impl CompactionStrategy for Strategy {
 
                 bytes_to_delete = bytes_to_delete.saturating_sub(segment.metadata.file_size);
 
-                segment_ids_to_delete.push(segment.metadata.id);
+                segment_ids_to_delete.insert(segment.metadata.id);
+
+                log::trace!(
+                    "dropping segment to reach configured size limit: {:?}",
+                    segment.metadata
+                );
             }
         }
 
         if segment_ids_to_delete.is_empty() {
-            super::maintenance::Strategy.choose(levels, config)
+            // NOTE: Only try to merge segments if they are not disjoint
+            // to improve read performance
+            // But ideally FIFO is only used for monotonic workloads
+            // so there's nothing we need to do
+            if first_level.is_disjoint {
+                Choice::DoNothing
+            } else {
+                super::maintenance::Strategy.choose(levels, config)
+            }
         } else {
-            Choice::Drop(segment_ids_to_delete)
+            Choice::Drop(segment_ids_to_delete.into_iter().collect())
         }
     }
 }
