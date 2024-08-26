@@ -76,6 +76,9 @@ pub trait AbstractTree {
     /// after tree recovery.
     fn set_active_memtable(&self, memtable: Memtable);
 
+    /// Returns the amount of sealed memtables.
+    fn sealed_memtable_count(&self) -> usize;
+
     /// Adds a sealed memtables.
     ///
     /// May be used to restore the LSM-tree's in-memory state from some journals.
@@ -121,6 +124,9 @@ pub trait AbstractTree {
 
     /// Returns the amount of disk segments in the first level.
     fn first_level_segment_count(&self) -> usize;
+
+    /// Returns `true` if the first level is disjoint.
+    fn is_first_level_disjoint(&self) -> bool;
 
     /// Approximates the amount of items in the tree.
     fn approximate_len(&self) -> u64;

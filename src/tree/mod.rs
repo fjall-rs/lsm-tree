@@ -48,6 +48,23 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn sealed_memtable_count(&self) -> usize {
+        self.sealed_memtables
+            .read()
+            .expect("lock is poisoned")
+            .len()
+    }
+
+    fn is_first_level_disjoint(&self) -> bool {
+        self.levels
+            .read()
+            .expect("lock is poisoned")
+            .levels
+            .first()
+            .expect("first level should exist")
+            .is_disjoint
+    }
+
     fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
         import_tree(path, self)
     }
@@ -234,6 +251,8 @@ impl AbstractTree for Tree {
 
         let tmp_memtable_id = self.get_next_segment_id();
         sealed_memtables.add(tmp_memtable_id, yanked_memtable.clone());
+
+        log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
 
         Some((tmp_memtable_id, yanked_memtable))
     }

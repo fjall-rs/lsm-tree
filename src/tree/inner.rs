@@ -37,6 +37,10 @@ impl SealedMemtables {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<Memtable>)> {
         self.0.iter()
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 /// Hands out a unique (monotonically increasing) tree ID
