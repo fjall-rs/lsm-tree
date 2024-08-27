@@ -4,7 +4,7 @@ use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 fn blob_gc_1() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(&folder).open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -47,7 +47,7 @@ fn blob_gc_1() -> lsm_tree::Result<()> {
 fn blob_gc_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(&folder).open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -96,7 +96,7 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
 fn blob_gc_3() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(&folder).open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 

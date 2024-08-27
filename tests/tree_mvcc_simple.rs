@@ -4,7 +4,7 @@ use lsm_tree::{AbstractTree, Config};
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     tree.insert("a", "a0", 0);
     tree.insert("a", "a1", 1);

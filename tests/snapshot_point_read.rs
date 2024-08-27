@@ -7,7 +7,10 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     let key = "abc";
 
@@ -42,7 +45,10 @@ const BATCHES: usize = 10;
 fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -97,7 +103,10 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     let seqno = SequenceNumberCounter::default();
 

@@ -7,7 +7,7 @@ const ITEM_COUNT: usize = 5;
 fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -50,7 +50,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder).block_size(1_024).open()?;
+        let tree = Config::new(&folder).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -87,7 +87,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).block_size(1_024).open()?;
+        let tree = Config::new(&folder).open()?;
 
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().rev().count(), 0);

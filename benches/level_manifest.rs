@@ -8,7 +8,7 @@ fn iterate_segments(c: &mut Criterion) {
     for segment_count in [0, 1, 5, 10, 100, 500, 1_000, 2_000, 4_000] {
         group.bench_function(&format!("iterate {segment_count} segments"), |b| {
             let folder = tempfile::tempdir_in(".bench").unwrap();
-            let tree = Config::new(folder).block_size(1_024).open().unwrap();
+            let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
 
             for x in 0_u64..segment_count {
                 tree.insert("a", "b", x);
@@ -33,7 +33,7 @@ fn find_segment(c: &mut Criterion) {
             &format!("find segment in {segment_count} segments - binary search"),
             |b| {
                 let folder = tempfile::tempdir_in(".bench").unwrap();
-                let tree = Config::new(folder).block_size(1_024).open().unwrap();
+                let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
 
                 for x in 0..segment_count {
                     tree.insert(x.to_be_bytes(), "", x);
@@ -59,7 +59,7 @@ fn find_segment(c: &mut Criterion) {
             &format!("find segment in {segment_count} segments - linear search"),
             |b| {
                 let folder = tempfile::tempdir().unwrap();
-                let tree = Config::new(folder).block_size(1_024).open().unwrap();
+                let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
 
                 for x in 0..segment_count {
                     tree.insert(x.to_be_bytes(), "", x);

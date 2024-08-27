@@ -7,7 +7,10 @@ const ITEM_COUNT: usize = 10_000;
 fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -38,7 +41,10 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
 fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 

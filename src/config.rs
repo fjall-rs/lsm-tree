@@ -61,6 +61,9 @@ pub struct Config {
     /// What type of compression is used
     pub compression: CompressionType,
 
+    /// What type of compression is used for blobs
+    pub blob_compression: CompressionType,
+
     /// Table type (unused)
     #[allow(unused)]
     pub(crate) table_type: TableType,
@@ -113,6 +116,7 @@ impl Default for Config {
             tree_type: TreeType::Standard,
             table_type: TableType::Block,
             compression: CompressionType::None,
+            blob_compression: CompressionType::None,
             bloom_bits_per_key: 10,
 
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
@@ -162,6 +166,17 @@ impl Config {
         self
     }
 
+    /// Sets the compression method.
+    ///
+    /// Using some compression is recommended.
+    ///
+    /// Default = None
+    #[must_use]
+    pub fn blob_compression(mut self, compression: CompressionType) -> Self {
+        self.blob_compression = compression;
+        self
+    }
+
     /// Sets the amount of levels of the LSM tree (depth of tree).
     ///
     /// Defaults to 7, like `LevelDB` and `RocksDB`.
@@ -179,7 +194,7 @@ impl Config {
         self
     }
 
-    /// Sets the block size.
+    /// Sets the data block size.
     ///
     /// Defaults to 4 KiB (4096 bytes).
     ///
@@ -193,11 +208,33 @@ impl Config {
     ///
     /// Panics if the block size is smaller than 1 KiB or larger than 512 KiB.
     #[must_use]
-    pub fn block_size(mut self, block_size: u32) -> Self {
+    pub fn data_block_size(mut self, block_size: u32) -> Self {
         assert!(block_size >= 1_024);
         assert!(block_size <= 512 * 1_024);
 
         self.data_block_size = block_size;
+
+        self
+    }
+
+    /// Sets the index block size.
+    ///
+    /// Defaults to 4 KiB (4096 bytes).
+    ///
+    /// For point read heavy workloads (get) a sensible default is
+    /// somewhere between 4 - 8 KiB, depending on the average value size.
+    ///
+    /// For scan heavy workloads (range, prefix), use 16 - 64 KiB
+    /// which also increases compression efficiency.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the block size is smaller than 1 KiB or larger than 512 KiB.
+    #[must_use]
+    pub fn index_block_size(mut self, block_size: u32) -> Self {
+        assert!(block_size >= 1_024);
+        assert!(block_size <= 512 * 1_024);
+
         self.index_block_size = block_size;
 
         self

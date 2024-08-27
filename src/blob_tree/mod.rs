@@ -74,7 +74,7 @@ impl BlobTree {
         let vlog_cfg = value_log::Config::<MyCompressor>::default()
             .blob_cache(config.blob_cache.clone())
             .segment_size_bytes(config.blob_file_target_size)
-            .compression(MyCompressor(config.compression));
+            .compression(MyCompressor(config.blob_compression));
 
         let index: IndexTree = config.open()?.into();
 

@@ -7,7 +7,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -44,7 +44,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 fn tree_delete_by_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     let value = "old".as_bytes();
     tree.insert("a".as_bytes(), value, 0);

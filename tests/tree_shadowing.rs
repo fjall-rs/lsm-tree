@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     let key = "1".as_bytes();
     let value = "oldvalue".as_bytes();
@@ -36,7 +36,7 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
 fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(folder).open_as_blob_tree()?;
 
     let key = "1".as_bytes();
     let value = "oldvalue".as_bytes();
@@ -67,7 +67,7 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open().unwrap();
+    let tree = Config::new(folder).open().unwrap();
 
     let key = "1".as_bytes();
     let value = "oldvalue".as_bytes();
@@ -96,10 +96,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder)
-        .block_size(1_024)
-        .open_as_blob_tree()
-        .unwrap();
+    let tree = Config::new(folder).open_as_blob_tree().unwrap();
 
     let key = "1".as_bytes();
     let value = "oldvalue".as_bytes();
@@ -130,7 +127,7 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -168,7 +165,7 @@ fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(folder).open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -206,7 +203,7 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -254,7 +251,7 @@ fn tree_shadowing_prefix_blob() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(folder).open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
 

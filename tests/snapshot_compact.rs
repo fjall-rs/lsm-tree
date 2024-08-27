@@ -6,7 +6,7 @@ const ITEM_COUNT: usize = 100;
 fn snapshot_after_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 

@@ -8,7 +8,6 @@ fn open_file_limit() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir_in(".test")?;
 
     let tree = Config::new(folder)
-        .block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
         .open()?;
 

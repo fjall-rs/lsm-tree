@@ -6,7 +6,10 @@ use test_log::test;
 fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -32,7 +35,10 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
 fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open_as_blob_tree()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -58,7 +64,10 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
 fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
 
     tree.insert("z", "z", 0);
     tree.flush_active_memtable(0)?;
@@ -109,7 +118,10 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
 fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open_as_blob_tree()?;
+    let tree = Config::new(folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open_as_blob_tree()?;
 
     tree.insert("z", "z", 0);
     tree.flush_active_memtable(0)?;
