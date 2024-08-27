@@ -188,7 +188,7 @@ fn merge_segments(
 
     #[cfg(feature = "bloom")]
     {
-        // TODO: 2.0.0 BUG: BloomConstructionPolicy::default is 10 BPK, so setting to 0 or -1
+        // TODO: BUG: BloomConstructionPolicy::default is 10 BPK, so setting to 0 or -1
         // will still write bloom filters
 
         if opts.config.bloom_bits_per_key >= 0 {

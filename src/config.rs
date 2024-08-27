@@ -153,7 +153,6 @@ impl Config {
         self.bloom_bits_per_key = bits;
         self
     }
-    // TODO: 2.0.0 ^^ add to fjall
 
     /// Sets the compression method.
     ///
