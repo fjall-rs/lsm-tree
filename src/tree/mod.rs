@@ -6,13 +6,14 @@ pub mod inner;
 
 use crate::{
     compaction::{stream::CompactionStream, CompactionStrategy},
-    config::{Config, PersistedConfig},
+    config::Config,
     descriptor_table::FileDescriptorTable,
     export::import_tree,
     level_manifest::LevelManifest,
+    manifest::Manifest,
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
-    segment::{block_index::two_level_index::TwoLevelBlockIndex, Segment},
+    segment::{block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment},
     serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     value::InternalValue,
@@ -134,14 +135,14 @@ impl AbstractTree for Tree {
             segment_id,
             folder,
             evict_tombstones: false,
-            data_block_size: self.config.inner.data_block_size,
-            index_block_size: self.config.inner.index_block_size,
+            data_block_size: self.config.data_block_size,
+            index_block_size: self.config.index_block_size,
         })?
-        .use_compression(self.config.inner.compression);
+        .use_compression(self.config.compression);
 
         #[cfg(feature = "bloom")]
         {
-            if self.config.inner.bloom_bits_per_key >= 0 {
+            if self.config.bloom_bits_per_key >= 0 {
                 segment_writer = segment_writer.use_bloom_policy(
                     crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
                 );
@@ -421,11 +422,16 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        use crate::file::LSM_MARKER;
+        use crate::file::MANIFEST_FILE;
 
         log::debug!("Opening LSM-tree at {:?}", config.path);
 
-        let tree = if config.path.join(LSM_MARKER).try_exists()? {
+        // Check for old version
+        if config.path.join("version").try_exists()? {
+            return Err(crate::Error::InvalidVersion(Version::V1));
+        }
+
+        let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
             Self::recover(config)
         } else {
             Self::create_new(config)
@@ -767,22 +773,23 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::file::{CONFIG_FILE, LSM_MARKER};
+        use crate::file::MANIFEST_FILE;
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {:?}", config.path);
 
-        {
-            let bytes = std::fs::read(config.path.join(LSM_MARKER))?;
+        let bytes = std::fs::read(config.path.join(MANIFEST_FILE))?;
+        let mut bytes = Cursor::new(bytes);
+        let manifest = Manifest::deserialize(&mut bytes)?;
 
-            if let Some(version) = Version::parse_file_header(&bytes) {
-                if version != Version::V2 {
-                    return Err(crate::Error::InvalidVersion(Some(version)));
-                }
-            } else {
-                return Err(crate::Error::InvalidVersion(None));
-            }
+        if manifest.version != Version::V2 {
+            return Err(crate::Error::InvalidVersion(manifest.version));
         }
+
+        // IMPORTANT: Restore persisted config
+        config.level_count = manifest.level_count;
+        config.table_type = manifest.table_type;
+        config.tree_type = manifest.tree_type;
 
         let tree_id = get_next_tree_id();
 
@@ -793,10 +800,6 @@ impl Tree {
             &config.descriptor_table,
         )?;
         levels.sort_levels();
-
-        let config_from_disk = std::fs::read(config.path.join(CONFIG_FILE))?;
-        let config_from_disk = PersistedConfig::deserialize(&mut Cursor::new(config_from_disk))?;
-        config.inner = config_from_disk;
 
         let highest_segment_id = levels
             .iter()
@@ -819,7 +822,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, CONFIG_FILE, LSM_MARKER, SEGMENTS_FOLDER};
+        use crate::file::{fsync_directory, MANIFEST_FILE, SEGMENTS_FOLDER};
         use std::fs::{create_dir_all, File};
 
         let path = config.path.clone();
@@ -827,28 +830,29 @@ impl Tree {
 
         create_dir_all(&path)?;
 
-        let marker_path = path.join(LSM_MARKER);
-        assert!(!marker_path.try_exists()?);
+        let manifest_path = path.join(MANIFEST_FILE);
+        assert!(!manifest_path.try_exists()?);
 
         let segment_folder_path = path.join(SEGMENTS_FOLDER);
         create_dir_all(&segment_folder_path)?;
 
-        let mut file = File::create(path.join(CONFIG_FILE))?;
-        config.inner.serialize(&mut file)?;
-        file.sync_all()?;
-
-        let inner = TreeInner::create_new(config)?;
-
         // NOTE: Lastly, fsync version marker, which contains the version
         // -> the LSM is fully initialized
-        let mut file = File::create(marker_path)?;
-        Version::V2.write_file_header(&mut file)?;
+        let mut file = File::create(manifest_path)?;
+        Manifest {
+            version: Version::V2,
+            level_count: config.level_count,
+            tree_type: config.tree_type,
+            table_type: TableType::Block,
+        }
+        .serialize(&mut file)?;
         file.sync_all()?;
 
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&segment_folder_path)?;
         fsync_directory(&path)?;
 
+        let inner = TreeInner::create_new(config)?;
         Ok(Self(Arc::new(inner)))
     }
 
@@ -868,9 +872,9 @@ impl Tree {
         let tree_path = tree_path.as_ref();
         log::debug!("Recovering disk segments from {tree_path:?}");
 
-        let manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
+        let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
-        let segment_ids_to_recover = LevelManifest::recover_ids(&manifest_path)?;
+        let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
 
         let mut segments = vec![];
 
@@ -932,6 +936,6 @@ impl Tree {
 
         log::debug!("Recovered {} segments", segments.len());
 
-        LevelManifest::recover(&manifest_path, segments)
+        LevelManifest::recover(&level_manifest_path, segments)
     }
 }

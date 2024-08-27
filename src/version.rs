@@ -2,7 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::{
+    serde::{Deserializable, Serializable},
+    SerializeError,
+};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::io::Write;
 
 /// Disk format version
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -31,6 +36,7 @@ impl From<Version> for u16 {
 
 impl TryFrom<u16> for Version {
     type Error = ();
+
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(Self::V1),
@@ -48,45 +54,42 @@ impl Version {
     pub(crate) fn len() -> u8 {
         5
     }
+}
 
-    pub(crate) fn parse_file_header(bytes: &[u8]) -> Option<Self> {
-        let first_three = bytes.get(0..3)?;
+impl Deserializable for Version {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::DeserializeError> {
+        let mut header = [0; MAGIC_BYTES.len()];
+        reader.read_exact(&mut header)?;
 
-        if first_three == MAGIC_BYTES {
-            let next_two = bytes.get(3..5)?;
-
-            let mut bytes = [0; 2];
-            bytes.copy_from_slice(next_two);
-            let mut bytes: &[u8] = &bytes;
-
-            let value = bytes.read_u16::<BigEndian>().ok()?;
-            let version = Self::try_from(value).ok()?;
-
-            Some(version)
-        } else {
-            None
+        if header != MAGIC_BYTES {
+            return Err(crate::DeserializeError::InvalidHeader("Manifest"));
         }
-    }
 
-    pub(crate) fn write_file_header<W: std::io::Write>(
-        self,
-        writer: &mut W,
-    ) -> std::io::Result<usize> {
+        let version = reader.read_u16::<BigEndian>()?;
+        Ok(Version::try_from(version).expect("invalid version"))
+    }
+}
+
+impl Serializable for Version {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         writer.write_all(&MAGIC_BYTES)?;
-        writer.write_u16::<BigEndian>(u16::from(self))?;
-        Ok(5)
+        writer.write_u16::<BigEndian>((*self).into())?;
+        Ok(())
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
     #[test_log::test]
     #[allow(clippy::expect_used)]
     pub fn version_serialize() -> crate::Result<()> {
         let mut bytes = vec![];
-        Version::V1.write_file_header(&mut bytes)?;
+        Version::V1.serialize(&mut bytes)?;
         assert_eq!(bytes, &[b'L', b'S', b'M', 0, 1]);
         Ok(())
     }
@@ -95,7 +98,7 @@ mod tests {
     #[allow(clippy::expect_used)]
     pub fn version_serialize_2() -> crate::Result<()> {
         let mut bytes = vec![];
-        Version::V2.write_file_header(&mut bytes)?;
+        Version::V2.serialize(&mut bytes)?;
         assert_eq!(bytes, &[b'L', b'S', b'M', 0, 2]);
         Ok(())
     }
@@ -103,39 +106,35 @@ mod tests {
     #[test_log::test]
     #[allow(clippy::expect_used)]
     pub fn version_deserialize_success() {
-        let version = Version::parse_file_header(&[b'L', b'S', b'M', 0, 1]);
-        assert_eq!(version, Some(Version::V1));
+        let bytes = &[b'L', b'S', b'M', 0, 1];
+        let version = Version::deserialize(&mut &bytes[..]).unwrap();
+        assert_eq!(version, Version::V1);
     }
 
     #[test_log::test]
     #[allow(clippy::expect_used)]
     pub fn version_deserialize_success_2() {
-        let version = Version::parse_file_header(&[b'L', b'S', b'M', 0, 2]);
-        assert_eq!(version, Some(Version::V2));
-    }
-
-    #[test_log::test]
-    #[allow(clippy::expect_used)]
-    pub fn version_deserialize_fail() {
-        let version = Version::parse_file_header(&[b'L', b'S', b'X', 0, 1]);
-        assert!(version.is_none());
+        let bytes = &[b'L', b'S', b'M', 0, 2];
+        let version = Version::deserialize(&mut &bytes[..]).unwrap();
+        assert_eq!(version, Version::V2);
     }
 
     #[test_log::test]
     #[allow(clippy::expect_used)]
     pub fn version_serde_round_trip() {
         let mut buf = vec![];
-        Version::V1.write_file_header(&mut buf).expect("can't fail");
+        Version::V1.serialize(&mut buf).expect("can't fail");
 
-        let version = Version::parse_file_header(&buf);
-        assert_eq!(version, Some(Version::V1));
+        let mut cursor = Cursor::new(buf);
+        let version = Version::deserialize(&mut cursor).unwrap();
+        assert_eq!(version, Version::V1);
     }
 
     #[test_log::test]
     #[allow(clippy::expect_used)]
     pub fn version_len() {
         let mut buf = vec![];
-        let size = Version::V1.write_file_header(&mut buf).expect("can't fail");
-        assert_eq!(Version::len() as usize, size);
+        Version::V1.serialize(&mut buf).expect("can't fail");
+        assert_eq!(Version::len() as usize, buf.len());
     }
 }

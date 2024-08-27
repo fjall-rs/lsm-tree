@@ -180,24 +180,27 @@ fn merge_segments(
             folder: segments_base_folder.clone(),
             evict_tombstones: should_evict_tombstones,
             segment_id: 0, // TODO: this is never used in MultiWriter
-            data_block_size: opts.config.inner.data_block_size,
-            index_block_size: opts.config.inner.index_block_size,
+            data_block_size: opts.config.data_block_size,
+            index_block_size: opts.config.index_block_size,
         },
     )?
-    .use_compression(opts.config.inner.compression);
+    .use_compression(opts.config.compression);
 
     #[cfg(feature = "bloom")]
     {
-        if opts.config.inner.bloom_bits_per_key >= 0 {
+        // TODO: 2.0.0 BUG: BloomConstructionPolicy::default is 10 BPK, so setting to 0 or -1
+        // will still write bloom filters
+
+        if opts.config.bloom_bits_per_key >= 0 {
             // NOTE: Apply some MONKEY to have very high FPR on small levels
             // because it's cheap
             let bloom_policy = match payload.dest_level {
                 0 => BloomConstructionPolicy::FpRate(0.0001),
                 1 => BloomConstructionPolicy::FpRate(0.001),
                 2 => BloomConstructionPolicy::FpRate(0.01),
-                _ => BloomConstructionPolicy::BitsPerKey(
-                    opts.config.inner.bloom_bits_per_key.abs() as u8,
-                ),
+                _ => {
+                    BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.abs() as u8)
+                }
             };
 
             segment_writer = segment_writer.use_bloom_policy(bloom_policy);

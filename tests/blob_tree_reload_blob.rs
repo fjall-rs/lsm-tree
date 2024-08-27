@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, TreeType};
 use std::fs::File;
 use test_log::test;
 
@@ -14,6 +14,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().flatten().count(), 0);
         assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
     {
@@ -22,6 +23,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().flatten().count(), 0);
         assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
     Ok(())

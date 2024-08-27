@@ -78,10 +78,8 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let levels = LevelManifest::create_new(
-            config.inner.level_count,
-            config.path.join(LEVELS_MANIFEST_FILE),
-        )?;
+        let levels =
+            LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
 
         Ok(Self {
             id: get_next_tree_id(),

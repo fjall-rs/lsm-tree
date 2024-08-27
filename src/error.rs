@@ -24,7 +24,7 @@ pub enum Error {
     Decompress(CompressionType),
 
     /// Invalid or unparsable data format version
-    InvalidVersion(Option<Version>),
+    InvalidVersion(Version),
 
     /// Some required segments could not be required from disk
     Unrecoverable,

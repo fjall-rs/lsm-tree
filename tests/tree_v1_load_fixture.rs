@@ -9,7 +9,7 @@ fn tree_load_v1() -> lsm_tree::Result<()> {
 
     matches!(
         result,
-        Err(lsm_tree::Error::InvalidVersion(Some(lsm_tree::Version::V1)))
+        Err(lsm_tree::Error::InvalidVersion(lsm_tree::Version::V1))
     );
 
     Ok(())
@@ -23,7 +23,7 @@ fn tree_load_v1_corrupt() -> lsm_tree::Result<()> {
 
     matches!(
         result,
-        Err(lsm_tree::Error::InvalidVersion(Some(lsm_tree::Version::V1)))
+        Err(lsm_tree::Error::InvalidVersion(lsm_tree::Version::V1))
     );
 
     Ok(())

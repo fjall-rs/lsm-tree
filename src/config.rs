@@ -6,18 +6,13 @@ use crate::{
     descriptor_table::FileDescriptorTable,
     path::absolute_path,
     segment::meta::{CompressionType, TableType},
-    serde::{Deserializable, Serializable},
-    BlobTree, BlockCache, DeserializeError, SerializeError, Tree,
+    BlobTree, BlockCache, Tree,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 use value_log::BlobCache;
-
-pub const CONFIG_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'2'];
 
 /// LSM-tree type
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -50,18 +45,25 @@ impl TryFrom<u8> for TreeType {
     }
 }
 
-/// Tree configuration
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
-pub struct PersistedConfig {
+const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
+
+#[derive(Clone)]
+/// Tree configuration builder
+pub struct Config {
+    /// Folder path
+    #[doc(hidden)]
+    pub path: PathBuf,
+
     /// Tree type (unused)
-    pub r#type: TreeType,
+    #[allow(unused)]
+    pub tree_type: TreeType,
 
     /// What type of compression is used
     pub compression: CompressionType,
 
     /// Table type (unused)
-    table_type: TableType,
+    #[allow(unused)]
+    pub(crate) table_type: TableType,
 
     /// Block size of data blocks
     pub data_block_size: u32,
@@ -76,95 +78,6 @@ pub struct PersistedConfig {
     // NOTE: bloom_bits_per_key is not conditionally compiled,
     // because that would change the file format
     pub bloom_bits_per_key: i8,
-}
-
-const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
-
-impl Default for PersistedConfig {
-    fn default() -> Self {
-        Self {
-            data_block_size: /* 4 KiB */ 4_096,
-            index_block_size: /* 4 KiB */ 4_096,
-            level_count: 7,
-            r#type: TreeType::Standard,
-            table_type: TableType::Block,
-            compression: CompressionType::None,
-            bloom_bits_per_key: 10,
-        }
-    }
-}
-
-impl Serializable for PersistedConfig {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        // Write header
-        writer.write_all(CONFIG_HEADER_MAGIC)?;
-
-        writer.write_u8(self.r#type.into())?;
-        self.compression.serialize(writer)?;
-        writer.write_u8(self.table_type.into())?;
-
-        writer.write_u32::<BigEndian>(self.data_block_size)?;
-        writer.write_u32::<BigEndian>(self.index_block_size)?;
-
-        writer.write_u8(self.level_count)?;
-
-        writer.write_i8(self.bloom_bits_per_key)?;
-
-        Ok(())
-    }
-}
-
-impl Deserializable for PersistedConfig {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        // Check header
-        let mut magic = [0u8; CONFIG_HEADER_MAGIC.len()];
-        reader.read_exact(&mut magic)?;
-
-        if magic != CONFIG_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidHeader("Config"));
-        }
-
-        let tree_type = reader.read_u8()?;
-        let tree_type = TreeType::try_from(tree_type)
-            .map_err(|()| DeserializeError::InvalidTag(("TreeType", tree_type)))?;
-
-        let compression = CompressionType::deserialize(reader)?;
-
-        let table_type = reader.read_u8()?;
-        let table_type = TableType::try_from(table_type)
-            .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
-
-        let data_block_size = reader.read_u32::<BigEndian>()?;
-        let index_block_size = reader.read_u32::<BigEndian>()?;
-
-        let level_count = reader.read_u8()?;
-
-        let bloom_bits_per_key = reader.read_i8()?;
-
-        Ok(Self {
-            r#type: tree_type,
-            compression,
-            table_type,
-            data_block_size,
-            index_block_size,
-            level_count,
-            bloom_bits_per_key,
-        })
-    }
-}
-
-#[derive(Clone)]
-/// Tree configuration builder
-pub struct Config {
-    /// Persistent configuration
-    ///
-    /// Once set, this configuration is permanent
-    #[doc(hidden)]
-    pub inner: PersistedConfig,
-
-    /// Folder path
-    #[doc(hidden)]
-    pub path: PathBuf,
 
     /// Block cache to use
     #[doc(hidden)]
@@ -191,14 +104,20 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(DEFAULT_FILE_FOLDER),
-            block_cache: Arc::new(BlockCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
             descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
+
+            block_cache: Arc::new(BlockCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            data_block_size: /* 4 KiB */ 4_096,
+            index_block_size: /* 4 KiB */ 4_096,
+            level_count: 7,
+            tree_type: TreeType::Standard,
+            table_type: TableType::Block,
+            compression: CompressionType::None,
+            bloom_bits_per_key: 10,
 
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
             blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
-
-            inner: PersistedConfig::default(),
         }
     }
 }
@@ -206,10 +125,7 @@ impl Default for Config {
 impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        let inner = PersistedConfig::default();
-
         Self {
-            inner,
             path: absolute_path(path),
             ..Default::default()
         }
@@ -242,13 +158,15 @@ impl Config {
     /// Default = None
     #[must_use]
     pub fn compression(mut self, compression: CompressionType) -> Self {
-        self.inner.compression = compression;
+        self.compression = compression;
         self
     }
 
     /// Sets the amount of levels of the LSM tree (depth of tree).
     ///
     /// Defaults to 7, like `LevelDB` and `RocksDB`.
+    ///
+    /// Cannot be changed once set.
     ///
     /// # Panics
     ///
@@ -257,7 +175,7 @@ impl Config {
     pub fn level_count(mut self, n: u8) -> Self {
         assert!(n > 0);
 
-        self.inner.level_count = n;
+        self.level_count = n;
         self
     }
 
@@ -279,8 +197,8 @@ impl Config {
         assert!(block_size >= 1_024);
         assert!(block_size <= 512 * 1_024);
 
-        self.inner.data_block_size = block_size;
-        self.inner.index_block_size = block_size;
+        self.data_block_size = block_size;
+        self.index_block_size = block_size;
 
         self
     }
@@ -304,7 +222,7 @@ impl Config {
     ///
     /// Defaults to a block cache with 8 MiB of capacity *per tree*.
     ///
-    /// This function has no effect when not used for opening a blob tree.
+    /// This option has no effect when not used for opening a blob tree.
     #[must_use]
     pub fn blob_cache(mut self, blob_cache: Arc<BlobCache>) -> Self {
         self.blob_cache = blob_cache;
@@ -321,7 +239,7 @@ impl Config {
     ///
     /// Defaults to 64 MiB.
     ///
-    /// This function has no effect when not used for opening a blob tree.
+    /// This option has no effect when not used for opening a blob tree.
     #[must_use]
     pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
         self.blob_file_target_size = bytes;
@@ -335,7 +253,7 @@ impl Config {
     ///
     /// Defaults to 4KiB.
     ///
-    /// This function has no effect when not used for opening a blob tree.
+    /// This option has no effect when not used for opening a blob tree.
     #[must_use]
     pub fn blob_file_separation_threshold(mut self, bytes: u32) -> Self {
         self.blob_file_separation_threshold = bytes;
@@ -364,84 +282,7 @@ impl Config {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn open_as_blob_tree(mut self) -> crate::Result<BlobTree> {
-        self.inner.r#type = TreeType::Blob;
+        self.tree_type = TreeType::Blob;
         BlobTree::open(self)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-    use test_log::test;
-
-    #[test]
-    fn tree_config_raw() -> crate::Result<()> {
-        let config = PersistedConfig {
-            r#type: TreeType::Standard,
-            compression: CompressionType::None,
-            table_type: TableType::Block,
-            data_block_size: 4_096,
-            index_block_size: 4_096,
-            level_count: 7,
-            bloom_bits_per_key: 10,
-        };
-
-        let mut bytes = vec![];
-        config.serialize(&mut bytes)?;
-
-        #[rustfmt::skip]
-        let raw = &[
-            // Magic
-            b'L', b'S', b'M', b'T', b'C', b'F', b'G', b'2',
-
-            // Tree type
-            0,
-
-            // Compression
-            0, 0,
-
-            // Table type
-            0,
-
-            // Data block size
-            0, 0, 0x10, 0x00,
-
-            // Index block size
-            0, 0, 0x10, 0x00,
-
-            // Levels
-            7,
-
-            // Bloom BPK
-            0xA,
-        ];
-
-        assert_eq!(bytes, raw);
-
-        Ok(())
-    }
-
-    #[test]
-    fn tree_config_serde_round_trip() -> crate::Result<()> {
-        let config = PersistedConfig {
-            r#type: TreeType::Standard,
-            compression: CompressionType::None,
-            table_type: TableType::Block,
-            data_block_size: 4_096,
-            index_block_size: 4_096,
-            level_count: 7,
-            bloom_bits_per_key: 10,
-        };
-
-        let mut bytes = vec![];
-        config.serialize(&mut bytes)?;
-
-        let mut cursor = Cursor::new(bytes);
-        let config_copy = PersistedConfig::deserialize(&mut cursor)?;
-
-        assert_eq!(config, config_copy);
-
-        Ok(())
     }
 }

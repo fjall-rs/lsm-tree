@@ -74,7 +74,7 @@ impl BlobTree {
         let vlog_cfg = value_log::Config::<MyCompressor>::default()
             .blob_cache(config.blob_cache.clone())
             .segment_size_bytes(config.blob_file_target_size)
-            .compression(MyCompressor(config.inner.compression));
+            .compression(MyCompressor(config.compression));
 
         let index: IndexTree = config.open()?.into();
 
@@ -231,12 +231,12 @@ impl AbstractTree for BlobTree {
 
         let mut segment_writer = SegmentWriter::new(Options {
             segment_id,
-            data_block_size: self.index.config.inner.data_block_size,
-            index_block_size: self.index.config.inner.index_block_size,
+            data_block_size: self.index.config.data_block_size,
+            index_block_size: self.index.config.index_block_size,
             evict_tombstones: false,
             folder: lsm_segment_folder,
         })?
-        .use_compression(self.index.config.inner.compression);
+        .use_compression(self.index.config.compression);
 
         #[cfg(feature = "bloom")]
         {
