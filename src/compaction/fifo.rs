@@ -105,7 +105,10 @@ impl CompactionStrategy for Strategy {
                 super::maintenance::Strategy.choose(levels, config)
             }
         } else {
-            Choice::Drop(segment_ids_to_delete.into_iter().collect())
+            let mut ids = segment_ids_to_delete.into_iter().collect::<Vec<_>>();
+            ids.sort_unstable();
+
+            Choice::Drop(ids)
         }
     }
 }
