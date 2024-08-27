@@ -80,6 +80,7 @@ pub struct Config {
     /// Bits per key for levels that are not L0, L1, L2
     // NOTE: bloom_bits_per_key is not conditionally compiled,
     // because that would change the file format
+    #[doc(hidden)]
     pub bloom_bits_per_key: i8,
 
     /// Block cache to use

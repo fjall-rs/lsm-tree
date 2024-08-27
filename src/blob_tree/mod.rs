@@ -263,8 +263,20 @@ impl AbstractTree for BlobTree {
             let mut cursor = Cursor::new(item.value);
 
             let value = MaybeInlineValue::deserialize(&mut cursor)?;
-            let MaybeInlineValue::Inline(value) = value else {
-                panic!("values are initially always inlined");
+            let value = match value {
+                MaybeInlineValue::Inline(value) => value,
+                indirection @ MaybeInlineValue::Indirect { .. } => {
+                    // NOTE: This is a previous indirection, just write it to index tree
+                    // without writing the blob again
+
+                    let mut serialized_indirection = vec![];
+                    indirection.serialize(&mut serialized_indirection)?;
+
+                    segment_writer
+                        .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
+
+                    continue;
+                }
             };
 
             // NOTE: Values are 32-bit max
@@ -534,6 +546,8 @@ impl AbstractTree for BlobTree {
             }
         }
     }
+
+    // TODO: 2.0.0 add test case for flush with tombstone in blob tree
 
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove(key, seqno)
