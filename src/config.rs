@@ -146,7 +146,7 @@ impl Config {
     pub fn bloom_bits_per_key(mut self, bits: i8) -> Self {
         assert!(bits >= -1, "invalid bits_per_key value");
 
-        self.inner.bloom_bits_per_key = bits;
+        self.bloom_bits_per_key = bits;
         self
     }
     // TODO: 2.0.0 ^^ add to fjall
