@@ -13,7 +13,7 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usiz
 ///
 /// If a level reaches a threshold, it is merged into a larger segment to the next level.
 ///
-/// STCS suffers from high read and temporary space amplification, but has good write amplification.
+/// STCS suffers from high read and temporary doubled space amplification, but has good write amplification.
 pub struct Strategy {
     base_size: u32,
 

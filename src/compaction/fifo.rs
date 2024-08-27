@@ -5,7 +5,7 @@
 use super::{Choice, CompactionStrategy};
 use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp, HashSet};
 
-/// FIFO-style compaction.
+/// FIFO-style compaction
 ///
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)
 /// when the threshold is reached.
@@ -20,8 +20,8 @@ use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp,
 /// Only use it for specific workloads where:
 ///
 /// 1) You only want to store recent data (unimportant logs, ...)
-/// 2) Your keyspace grows monotonically (time series)
-/// 3) You only insert new data
+/// 2) Your keyspace grows monotonically (e.g. time series)
+/// 3) You only insert new data (no updates)
 pub struct Strategy {
     /// Data set size limit in bytes
     limit: u64,
