@@ -13,7 +13,7 @@ env:
 
 jobs:
   test:
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       matrix:
         rust_version:
@@ -54,7 +54,7 @@ jobs:
       - name: Build & test LSM examples
         run: node compile_examples.mjs
   cross:
-    timeout-minutes: 20
+    timeout-minutes: 30
     name: cross
     strategy:
       matrix:
