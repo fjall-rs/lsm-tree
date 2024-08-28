@@ -39,7 +39,7 @@ pub struct BloomFilter {
 impl Serializable for BloomFilter {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
-        writer.write_all(MAGIC_BYTES)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
         // NOTE: Filter type (unused)
         writer.write_u8(0)?;
