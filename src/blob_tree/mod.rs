@@ -9,7 +9,6 @@ pub mod value;
 
 use crate::{
     compaction::stream::CompactionStream,
-    export::import_tree,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
     serde::{Deserializable, Serializable},
@@ -23,7 +22,6 @@ use index::IndexTree;
 use std::{
     io::Cursor,
     ops::RangeBounds,
-    path::Path,
     sync::{Arc, RwLockWriteGuard},
 };
 use value::MaybeInlineValue;
@@ -173,9 +171,9 @@ impl AbstractTree for BlobTree {
         self.index.is_first_level_disjoint()
     }
 
-    fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
+    /* fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
         import_tree(path, self)
-    }
+    } */
 
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
