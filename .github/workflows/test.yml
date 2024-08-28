@@ -43,8 +43,7 @@ jobs:
             examples/kv -> target
       - name: Install cargo-all-features
         run: cargo install cargo-all-features
-      - name: Install nextest
-        run: cargo install cargo-nextest --version 0.9.75 --locked
+      - uses: taiki-e/install-action@nextest
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
