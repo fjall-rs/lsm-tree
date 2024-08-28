@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use std::{fs::File, io::Write, path::Path};
+use std::{io::Write, path::Path};
 
 pub const MANIFEST_FILE: &str = "manifest";
 pub const SEGMENTS_FOLDER: &str = "segments";
@@ -25,7 +25,7 @@ pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Resul
     // TODO: not sure why it fails on Windows...
     #[cfg(not(target_os = "windows"))]
     {
-        let file = File::open(path)?;
+        let file = std::fs::File::open(path)?;
         file.sync_all()?;
     }
 
@@ -34,7 +34,7 @@ pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Resul
 
 #[cfg(not(target_os = "windows"))]
 pub fn fsync_directory<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
-    let file = File::open(path)?;
+    let file = std::fs::File::open(path)?;
     debug_assert!(file.metadata()?.is_dir());
     file.sync_all()
 }
