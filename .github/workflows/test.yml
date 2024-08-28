@@ -52,6 +52,8 @@ jobs:
         run: cargo build-all-features
       - name: Run tests
         run: cargo nextest run --all-features
+      - name: Run doc tests
+        run: cargo test --doc
       - name: Build & test LSM examples
         run: node compile_examples.mjs
   cross:
