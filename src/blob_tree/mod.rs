@@ -545,8 +545,6 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    // TODO: 2.0.0 add test case for flush with tombstone in blob tree
-
     fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove(key, seqno)
     }
