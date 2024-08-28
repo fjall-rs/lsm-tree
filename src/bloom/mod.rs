@@ -4,13 +4,14 @@
 
 mod bit_array;
 
-use crate::serde::{Deserializable, Serializable};
-use crate::{DeserializeError, SerializeError};
+use crate::{
+    file::MAGIC_BYTES,
+    serde::{Deserializable, Serializable},
+    DeserializeError, SerializeError,
+};
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-
-pub const BLOOM_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'B', b'F', b'2'];
 
 pub type CompositeHash = (u64, u64);
 
@@ -38,7 +39,7 @@ pub struct BloomFilter {
 impl Serializable for BloomFilter {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
-        writer.write_all(BLOOM_HEADER_MAGIC)?;
+        writer.write_all(MAGIC_BYTES)?;
 
         // NOTE: Filter type (unused)
         writer.write_u8(0)?;
@@ -57,10 +58,10 @@ impl Serializable for BloomFilter {
 impl Deserializable for BloomFilter {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         // Check header
-        let mut magic = [0u8; BLOOM_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != BLOOM_HEADER_MAGIC {
+        if magic != MAGIC_BYTES {
             return Err(DeserializeError::InvalidHeader("BloomFilter"));
         }
 

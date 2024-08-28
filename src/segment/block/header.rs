@@ -4,14 +4,13 @@
 
 use super::checksum::Checksum;
 use crate::{
+    file::MAGIC_BYTES,
     segment::meta::CompressionType,
     serde::{Deserializable, Serializable},
     DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-
-pub const BLOCK_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2'];
 
 /// Header of a disk-based block
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,7 +34,7 @@ pub struct Header {
 impl Header {
     #[must_use]
     pub const fn serialized_len() -> usize {
-        BLOCK_HEADER_MAGIC.len()
+        MAGIC_BYTES.len()
             // NOTE: Compression is 2 bytes
             + std::mem::size_of::<u8>()
             + std::mem::size_of::<u8>()
@@ -53,7 +52,7 @@ impl Header {
 impl Serializable for Header {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
-        writer.write_all(BLOCK_HEADER_MAGIC)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
         self.compression.serialize(writer)?;
 
@@ -76,10 +75,10 @@ impl Serializable for Header {
 impl Deserializable for Header {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         // Check header
-        let mut magic = [0u8; BLOCK_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != BLOCK_HEADER_MAGIC {
+        if magic != MAGIC_BYTES {
             return Err(DeserializeError::InvalidHeader("Block"));
         }
 
@@ -126,7 +125,7 @@ mod tests {
         #[rustfmt::skip]
         let bytes = &[
             // Header
-            b'L', b'S', b'M', b'T', b'B', b'L', b'K', b'2',
+            b'L', b'S', b'M', 2,
             
             // Compression
             0, 0,

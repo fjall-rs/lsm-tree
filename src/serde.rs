@@ -37,12 +37,14 @@ pub enum DeserializeError {
 
     Utf8(std::str::Utf8Error),
 
+    InvalidVersion,
+
     /// Invalid enum tag
     InvalidTag((&'static str, u8)),
 
+    /// Invalid block header
     InvalidTrailer,
 
-    /// Invalid block header
     InvalidHeader(&'static str),
 }
 

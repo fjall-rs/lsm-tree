@@ -10,7 +10,6 @@ use crate::{
 use enum_dispatch::enum_dispatch;
 use std::{
     ops::RangeBounds,
-    path::Path,
     sync::{Arc, RwLockWriteGuard},
 };
 

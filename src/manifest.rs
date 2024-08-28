@@ -3,9 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    file::MAGIC_BYTES,
     segment::meta::TableType,
     serde::{Deserializable, Serializable},
-    SerializeError, TreeType, Version,
+    DeserializeError, SerializeError, TreeType, Version,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::Write;
@@ -19,7 +20,7 @@ pub struct Manifest {
 
 impl Serializable for Manifest {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        self.version.serialize(writer)?;
+        writer.write_all(&MAGIC_BYTES)?;
         writer.write_u8(self.tree_type.into())?;
         writer.write_u8(self.table_type.into())?;
         writer.write_u8(self.level_count)?;
@@ -29,16 +30,29 @@ impl Serializable for Manifest {
 
 impl Deserializable for Manifest {
     fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::DeserializeError> {
-        let version = Version::deserialize(reader)?;
+        let mut header = [0; MAGIC_BYTES.len()];
+        reader.read_exact(&mut header)?;
+
+        if header != MAGIC_BYTES {
+            return Err(crate::DeserializeError::InvalidHeader("Manifest"));
+        }
+
+        let version = *header.get(3).expect("header must be size 4");
+        let version = Version::try_from(version).map_err(|()| DeserializeError::InvalidVersion)?;
+
         let tree_type = reader.read_u8()?;
         let table_type = reader.read_u8()?;
         let level_count = reader.read_u8()?;
 
         Ok(Self {
             version,
-            tree_type: tree_type.try_into().expect("invalid tree type"),
-            table_type: table_type.try_into().expect("invalid table type"),
             level_count,
+            tree_type: tree_type
+                .try_into()
+                .map_err(|()| DeserializeError::InvalidTag(("TreeType", tree_type)))?,
+            table_type: table_type
+                .try_into()
+                .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?,
         })
     }
 }

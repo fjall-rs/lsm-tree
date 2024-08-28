@@ -4,6 +4,7 @@
 
 use super::{file_offsets::FileOffsets, meta::Metadata};
 use crate::{
+    file::MAGIC_BYTES,
     serde::{Deserializable, Serializable},
     DeserializeError, SerializeError,
 };
@@ -13,7 +14,6 @@ use std::{
     path::Path,
 };
 
-pub const TRAILER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'T', b'R', b'L', b'2'];
 pub const TRAILER_SIZE: usize = 256;
 
 #[derive(Debug)]
@@ -35,14 +35,14 @@ impl SegmentFileTrailer {
         // Parse pointers
         let offsets = FileOffsets::deserialize(&mut reader)?;
 
-        let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - TRAILER_MAGIC.len();
+        let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - MAGIC_BYTES.len();
         reader.seek_relative(remaining_padding as i64)?;
 
         // Check trailer magic
-        let mut magic = [0u8; TRAILER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != TRAILER_MAGIC {
+        if magic != MAGIC_BYTES {
             return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
                 "SegmentTrailer",
             )));
@@ -65,9 +65,9 @@ impl Serializable for SegmentFileTrailer {
         self.offsets.serialize(&mut v)?;
 
         // Pad with remaining bytes
-        v.resize(TRAILER_SIZE - TRAILER_MAGIC.len(), 0);
+        v.resize(TRAILER_SIZE - MAGIC_BYTES.len(), 0);
 
-        v.write_all(TRAILER_MAGIC)?;
+        v.write_all(&MAGIC_BYTES)?;
 
         assert_eq!(
             v.len(),

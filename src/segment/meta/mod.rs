@@ -7,6 +7,7 @@ mod table_type;
 
 use super::writer::Writer;
 use crate::{
+    file::MAGIC_BYTES,
     key_range::KeyRange,
     serde::{Deserializable, Serializable},
     time::unix_timestamp,
@@ -19,8 +20,6 @@ use std::{
     path::Path,
 };
 pub use {compression::CompressionType, table_type::TableType};
-
-pub const METADATA_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'S', b'M', b'D', b'2'];
 
 pub type SegmentId = u64;
 
@@ -82,7 +81,7 @@ pub struct Metadata {
 impl Serializable for Metadata {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
-        writer.write_all(METADATA_HEADER_MAGIC)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
         writer.write_u64::<BigEndian>(self.id)?;
 
@@ -118,10 +117,10 @@ impl Serializable for Metadata {
 impl Deserializable for Metadata {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
         // Check header
-        let mut magic = [0u8; METADATA_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != METADATA_HEADER_MAGIC {
+        if magic != MAGIC_BYTES {
             return Err(DeserializeError::InvalidHeader("SegmentMetadata"));
         }
 

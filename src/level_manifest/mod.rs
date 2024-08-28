@@ -6,7 +6,7 @@ pub mod iter;
 pub(crate) mod level;
 
 use crate::{
-    file::rewrite_atomic,
+    file::{rewrite_atomic, MAGIC_BYTES},
     segment::{meta::SegmentId, Segment},
     serde::Serializable,
     DeserializeError, HashMap, HashSet, SerializeError,
@@ -19,8 +19,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'2'];
 
 pub type HiddenSet = HashSet<SegmentId>;
 
@@ -133,10 +131,10 @@ impl LevelManifest {
         let mut level_manifest = Cursor::new(std::fs::read(&path)?);
 
         // Check header
-        let mut magic = [0u8; LEVEL_MANIFEST_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         level_manifest.read_exact(&mut magic)?;
 
-        if magic != LEVEL_MANIFEST_HEADER_MAGIC {
+        if magic != MAGIC_BYTES {
             return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
                 "LevelManifest",
             )));
@@ -396,7 +394,7 @@ impl LevelManifest {
 impl Serializable for Vec<Level> {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
         // Write header
-        writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
         // NOTE: "Truncation" is OK, because levels are created from a u8
         #[allow(clippy::cast_possible_truncation)]
@@ -538,7 +536,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'L', b'S', b'M', b'T', b'L', b'V', b'L', b'2',
+            b'L', b'S', b'M', 2,
 
             // Count
             0,
