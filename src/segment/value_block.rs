@@ -26,6 +26,7 @@ impl ValueBlock {
     #[must_use]
     pub fn get_latest(&self, key: &[u8]) -> Option<&InternalValue> {
         let idx = self.items.partition_point(|item| &*item.key.user_key < key);
+
         self.items
             .get(idx)
             .filter(|&item| &*item.key.user_key == key)

@@ -21,7 +21,7 @@ use std::io::Write;
                         "a".repeat(16).as_bytes(),
                         "a".repeat(100).as_bytes(),
                         63,
-                        lsm_tree::ValueType::Tombstone,
+                        lsm_tree::ValueType::Value,
                     )
                 })
                 .collect();
@@ -119,7 +119,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                     x.to_be_bytes(),
                     x.to_string().repeat(50).as_bytes(),
                     63,
-                    lsm_tree::ValueType::Tombstone,
+                    lsm_tree::ValueType::Value,
                 );
 
                 size += value.size();
