@@ -91,6 +91,8 @@
 #![warn(clippy::pedantic, clippy::nursery)]
 #![warn(clippy::expect_used)]
 #![allow(clippy::missing_const_for_fn)]
+#![warn(clippy::multiple_crate_versions)]
+#![allow(clippy::option_if_let_else)]
 
 mod block_cache;
 
