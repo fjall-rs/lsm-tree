@@ -44,7 +44,7 @@ jobs:
       - name: Install cargo-all-features
         run: cargo install cargo-all-features
       - name: Install nextest
-        run: cargo install nextest
+        run: cargo install cargo-nextest --locked
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -52,7 +52,7 @@ jobs:
       - name: Build permutations
         run: cargo build-all-features
       - name: Run tests
-        run: cargo nextest --all-features -- --nocapture
+        run: cargo nextest run --all-features -- --nocapture
         env:
           RUST_LOG: debug
       - name: Build & test LSM examples
