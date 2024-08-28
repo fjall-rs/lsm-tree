@@ -4,8 +4,8 @@ use test_log::test;
 
 #[test]
 fn open_file_limit() -> lsm_tree::Result<()> {
-    std::fs::create_dir_all(".test")?;
-    let folder = tempfile::tempdir_in(".test")?;
+    std::fs::create_dir_all(".test_open_files")?;
+    let folder = tempfile::tempdir_in(".test_open_files")?;
 
     let tree = Config::new(folder)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
