@@ -268,25 +268,18 @@ impl AbstractTree for Tree {
             .first_level_segment_count()
     }
 
+    #[allow(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> u64 {
         // NOTE: Mind lock order L -> M -> S
         let levels = self.levels.read().expect("lock is poisoned");
+        let memtable = self.active_memtable.read().expect("lock is poisoned");
+        let sealed = self.sealed_memtables.read().expect("lock is poisoned");
 
-        let level_iter = crate::level_manifest::iter::LevelManifestIterator::new(&levels);
-        let segments_item_count = level_iter.map(|x| x.metadata.item_count).sum::<u64>();
-        drop(levels);
+        let segments_item_count = levels.iter().map(|x| x.metadata.item_count).sum::<u64>();
+        let memtable_count = memtable.len() as u64;
+        let sealed_count = sealed.iter().map(|(_, mt)| mt.len()).sum::<usize>() as u64;
 
-        let sealed_count = self
-            .sealed_memtables
-            .read()
-            .expect("lock is poisoned")
-            .iter()
-            .map(|(_, mt)| mt.len())
-            .sum::<usize>() as u64;
-
-        self.active_memtable.read().expect("lock is poisoned").len() as u64
-            + sealed_count
-            + segments_item_count
+        memtable_count + sealed_count + segments_item_count
     }
 
     fn disk_space(&self) -> u64 {
