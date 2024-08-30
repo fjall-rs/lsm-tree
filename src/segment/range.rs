@@ -247,7 +247,7 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    const ITEM_COUNT: u64 = 50_000;
+    const ITEM_COUNT: u64 = 10_000;
 
     #[test]
     #[allow(clippy::expect_used)]

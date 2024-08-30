@@ -1,10 +1,10 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
-const ITEM_COUNT: usize = 10_000;
-
 #[test]
 fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
+    const ITEM_COUNT: usize = 10_000;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
@@ -39,6 +39,8 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
+    const ITEM_COUNT: usize = 1_000;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)

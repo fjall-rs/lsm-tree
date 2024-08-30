@@ -453,6 +453,7 @@ mod tests {
                 metadata_ptr: 0,
                 range_tombstones_ptr: 0,
                 tli_ptr: 0,
+                pfx_ptr: 0,
             },
 
             metadata: Metadata {
