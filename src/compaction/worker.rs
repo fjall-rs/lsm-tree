@@ -197,7 +197,6 @@ fn merge_segments(
             let bloom_policy = match payload.dest_level {
                 0 => BloomConstructionPolicy::FpRate(0.0001),
                 1 => BloomConstructionPolicy::FpRate(0.001),
-                2 => BloomConstructionPolicy::FpRate(0.01),
                 _ => {
                     BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.abs() as u8)
                 }
