@@ -145,3 +145,166 @@ impl Level {
         self.segments.get(idx).cloned()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::{
+        block_cache::BlockCache,
+        descriptor_table::FileDescriptorTable,
+        key_range::KeyRange,
+        segment::{
+            block_index::two_level_index::TwoLevelBlockIndex,
+            file_offsets::FileOffsets,
+            meta::{Metadata, SegmentId},
+            Segment,
+        },
+        AbstractTree,
+    };
+    use std::sync::Arc;
+    use test_log::test;
+
+    #[cfg(feature = "bloom")]
+    use crate::bloom::BloomFilter;
+
+    #[allow(clippy::expect_used)]
+    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
+        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+
+        Arc::new(Segment {
+            tree_id: 0,
+            descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
+            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+
+            offsets: FileOffsets {
+                bloom_ptr: 0,
+                range_filter_ptr: 0,
+                index_block_ptr: 0,
+                metadata_ptr: 0,
+                range_tombstones_ptr: 0,
+                tli_ptr: 0,
+                pfx_ptr: 0,
+            },
+
+            metadata: Metadata {
+                data_block_count: 0,
+                index_block_count: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
+                created_at: 0,
+                id,
+                file_size: 0,
+                compression: crate::segment::meta::CompressionType::None,
+                table_type: crate::segment::meta::TableType::Block,
+                item_count: 0,
+                key_count: 0,
+                key_range,
+                tombstone_count: 0,
+                range_tombstone_count: 0,
+                uncompressed_size: 0,
+                seqnos: (0, 0),
+            },
+            block_cache,
+
+            #[cfg(feature = "bloom")]
+            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
+        })
+    }
+
+    #[test]
+    fn level_disjoint() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        let mut x = 0_u64;
+
+        for _ in 0..10 {
+            for _ in 0..10 {
+                let key = x.to_be_bytes();
+                x += 1;
+                tree.insert(key, key, 0);
+            }
+            tree.flush_active_memtable(0).expect("should flush");
+        }
+
+        assert!(
+            tree.levels
+                .read()
+                .expect("lock is poisoned")
+                .levels
+                .first()
+                .expect("should exist")
+                .is_disjoint
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn level_not_disjoint() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        for i in 0..10 {
+            tree.insert("a", "", i);
+            tree.insert("z", "", i);
+            tree.flush_active_memtable(0).expect("should flush");
+        }
+
+        assert!(
+            !tree
+                .levels
+                .read()
+                .expect("lock is poisoned")
+                .levels
+                .first()
+                .expect("should exist")
+                .is_disjoint
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn level_overlaps() {
+        let seg0 = fixture_segment(
+            1,
+            KeyRange::new((b"c".to_vec().into(), b"k".to_vec().into())),
+        );
+        let seg1 = fixture_segment(
+            2,
+            KeyRange::new((b"l".to_vec().into(), b"z".to_vec().into())),
+        );
+
+        let mut level = Level::default();
+        level.insert(seg0);
+        level.insert(seg1);
+
+        assert_eq!(
+            Vec::<SegmentId>::new(),
+            level
+                .overlapping_segments(&KeyRange::new((b"a".to_vec().into(), b"b".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            vec![1],
+            level
+                .overlapping_segments(&KeyRange::new((b"d".to_vec().into(), b"k".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            vec![1, 2],
+            level
+                .overlapping_segments(&KeyRange::new((b"f".to_vec().into(), b"x".to_vec().into())))
+                .map(|x| x.metadata.id)
+                .collect::<Vec<_>>(),
+        );
+    }
+}
