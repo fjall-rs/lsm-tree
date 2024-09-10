@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FileOffsets {
+    pub metadata_ptr: u64,
     pub index_block_ptr: u64,
     pub tli_ptr: u64,
     pub bloom_ptr: u64,
@@ -23,8 +24,6 @@ pub struct FileOffsets {
 
     // TODO: prefix filter for l0, l1?
     pub pfx_ptr: u64,
-
-    pub metadata_ptr: u64,
 }
 
 impl FileOffsets {
@@ -37,26 +36,26 @@ impl FileOffsets {
 
 impl Serializable for FileOffsets {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+        writer.write_u64::<BigEndian>(self.metadata_ptr)?;
         writer.write_u64::<BigEndian>(self.index_block_ptr)?;
         writer.write_u64::<BigEndian>(self.tli_ptr)?;
         writer.write_u64::<BigEndian>(self.bloom_ptr)?;
         writer.write_u64::<BigEndian>(self.range_filter_ptr)?;
         writer.write_u64::<BigEndian>(self.range_tombstones_ptr)?;
         writer.write_u64::<BigEndian>(self.pfx_ptr)?;
-        writer.write_u64::<BigEndian>(self.metadata_ptr)?;
         Ok(())
     }
 }
 
 impl Deserializable for FileOffsets {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+        let metadata_ptr = reader.read_u64::<BigEndian>()?;
         let index_block_ptr = reader.read_u64::<BigEndian>()?;
         let tli_ptr = reader.read_u64::<BigEndian>()?;
         let bloom_ptr = reader.read_u64::<BigEndian>()?;
         let rf_ptr = reader.read_u64::<BigEndian>()?;
         let range_tombstones_ptr = reader.read_u64::<BigEndian>()?;
         let pfx_ptr = reader.read_u64::<BigEndian>()?;
-        let metadata_ptr = reader.read_u64::<BigEndian>()?;
 
         Ok(Self {
             index_block_ptr,
@@ -72,9 +71,8 @@ impl Deserializable for FileOffsets {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::*;
+    use std::io::Cursor;
     use test_log::test;
 
     #[test]
