@@ -243,7 +243,7 @@ mod tests {
             filter.set_with_hash(BloomFilter::get_hash(key));
         }
 
-        filter.serialize(&mut file)?;
+        filter.encode_into(&mut file)?;
         file.sync_all()?;
         drop(file);
 

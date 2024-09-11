@@ -136,7 +136,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
             header.checksum = Checksum::from_bytes(&data);
 
             let mut file = tempfile::tempfile().unwrap();
-            header.serialize(&mut file).unwrap();
+            header.encode_into(&mut file).unwrap();
             file.write_all(&data).unwrap();
 
             let expected_block = ValueBlock {
