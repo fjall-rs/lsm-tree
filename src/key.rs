@@ -6,11 +6,12 @@ use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     SeqNo, UserKey, ValueType,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
 };
+use varint_rs::{VarintReader, VarintWriter};
 
 #[derive(Clone, PartialEq, Eq)]
 #[allow(clippy::module_name_repetitions)]
@@ -59,13 +60,14 @@ impl InternalKey {
 
 impl Encode for InternalKey {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+        writer.write_u64_varint(self.seqno)?;
+
+        writer.write_u8(u8::from(self.value_type))?;
+
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.user_key.len() as u16)?;
+        writer.write_u16_varint(self.user_key.len() as u16)?;
         writer.write_all(&self.user_key)?;
-
-        writer.write_u64::<BigEndian>(self.seqno)?;
-        writer.write_u8(u8::from(self.value_type))?;
 
         Ok(())
     }
@@ -73,16 +75,16 @@ impl Encode for InternalKey {
 
 impl Decode for InternalKey {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let key_len = reader.read_u16::<BigEndian>()?;
-        let mut key = vec![0; key_len.into()];
-        reader.read_exact(&mut key)?;
-
-        let seqno = reader.read_u64::<BigEndian>()?;
+        let seqno = reader.read_u64_varint()?;
 
         let value_type = reader.read_u8()?;
         let value_type = value_type
             .try_into()
             .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
+
+        let key_len = reader.read_u16_varint()?;
+        let mut key = vec![0; key_len.into()];
+        reader.read_exact(&mut key)?;
 
         Ok(Self::new(key, seqno, value_type))
     }

@@ -8,8 +8,8 @@ use crate::{
     value::UserKey,
     Slice,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
+use varint_rs::{VarintReader, VarintWriter};
 
 /// Points to a block on file
 #[derive(Clone, Debug)]
@@ -65,12 +65,11 @@ impl Ord for KeyedBlockHandle {
 
 impl Encode for KeyedBlockHandle {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64::<BigEndian>(self.offset)?;
+        writer.write_u64_varint(self.offset)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.end_key.len() as u16)?;
-
+        writer.write_u16_varint(self.end_key.len() as u16)?;
         writer.write_all(&self.end_key)?;
 
         Ok(())
@@ -82,10 +81,9 @@ impl Decode for KeyedBlockHandle {
     where
         Self: Sized,
     {
-        let offset = reader.read_u64::<BigEndian>()?;
+        let offset = reader.read_u64_varint()?;
 
-        let key_len = reader.read_u16::<BigEndian>()?;
-
+        let key_len = reader.read_u16_varint()?;
         let mut key = vec![0; key_len.into()];
         reader.read_exact(&mut key)?;
 

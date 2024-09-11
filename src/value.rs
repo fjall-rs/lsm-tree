@@ -8,8 +8,8 @@ use crate::{
     segment::block::ItemSize,
     Slice,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
+use varint_rs::{VarintReader, VarintWriter};
 
 /// User defined key
 pub type UserKey = Slice;
@@ -172,7 +172,7 @@ impl Encode for InternalValue {
         if !self.is_tombstone() {
             // NOTE: We know values are limited to 32-bit length
             #[allow(clippy::cast_possible_truncation)]
-            writer.write_u32::<BigEndian>(self.value.len() as u32)?;
+            writer.write_u32_varint(self.value.len() as u32)?;
             writer.write_all(&self.value)?;
         }
 
@@ -192,7 +192,7 @@ impl Decode for InternalValue {
         } else {
             // NOTE: Only read value if we are actually a value
 
-            let value_len = reader.read_u32::<BigEndian>()?;
+            let value_len = reader.read_u32_varint()?;
             let mut value = vec![0; value_len as usize];
             reader.read_exact(&mut value)?;
 
@@ -231,18 +231,18 @@ mod tests {
             InternalValue::from_components(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
 
         #[rustfmt::skip]
-        let  bytes = &[
-            // Key
-            0, 3, 1, 2, 3,
-
+        let bytes = [
             // Seqno
-            0, 0, 0, 0, 0, 0, 0, 1,
+            1,
             
             // Type
             0,
+
+            // User key
+            3, 1, 2, 3,
             
-            // Value
-            0, 0, 0, 3, 3, 2, 1,
+            // User value
+            3, 3, 2, 1,
         ];
 
         // Deserialize the empty Value

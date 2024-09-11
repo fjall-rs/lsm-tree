@@ -3,9 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::coding::{Decode, DecodeError, Encode, EncodeError};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 use value_log::{Slice, UserValue, ValueHandle};
+use varint_rs::{VarintReader, VarintWriter};
 
 /// A value which may or may not be inlined into an index tree
 ///
@@ -23,16 +24,16 @@ pub enum MaybeInlineValue {
 
 impl Encode for ValueHandle {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64::<BigEndian>(self.offset)?;
-        writer.write_u64::<BigEndian>(self.segment_id)?;
+        writer.write_u64_varint(self.offset)?;
+        writer.write_u64_varint(self.segment_id)?;
         Ok(())
     }
 }
 
 impl Decode for ValueHandle {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let offset = reader.read_u64::<BigEndian>()?;
-        let segment_id = reader.read_u64::<BigEndian>()?;
+        let offset = reader.read_u64_varint()?;
+        let segment_id = reader.read_u64_varint()?;
         Ok(Self { segment_id, offset })
     }
 }
@@ -48,14 +49,14 @@ impl Encode for MaybeInlineValue {
 
                 // NOTE: Values can be up to 2^32 bytes
                 #[allow(clippy::cast_possible_truncation)]
-                writer.write_u32::<BigEndian>(bytes.len() as u32)?;
+                writer.write_u32_varint(bytes.len() as u32)?;
 
                 writer.write_all(bytes)?;
             }
             Self::Indirect { vhandle, size } => {
                 writer.write_u8(TAG_INDIRECT)?;
                 vhandle.encode_into(writer)?;
-                writer.write_u32::<BigEndian>(*size)?;
+                writer.write_u32_varint(*size)?;
             }
         }
         Ok(())
@@ -68,14 +69,14 @@ impl Decode for MaybeInlineValue {
 
         match tag {
             TAG_INLINE => {
-                let len = reader.read_u32::<BigEndian>()? as usize;
+                let len = reader.read_u32_varint()? as usize;
                 let mut bytes = vec![0; len];
                 reader.read_exact(&mut bytes)?;
                 Ok(Self::Inline(Slice::from(bytes)))
             }
             TAG_INDIRECT => {
                 let vhandle = ValueHandle::decode_from(reader)?;
-                let size = reader.read_u32::<BigEndian>()?;
+                let size = reader.read_u32_varint()?;
                 Ok(Self::Indirect { vhandle, size })
             }
             x => Err(DecodeError::InvalidTag(("MaybeInlineValue", x))),
