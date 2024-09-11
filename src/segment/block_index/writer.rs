@@ -4,8 +4,8 @@
 
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
+    coding::Encode,
     segment::{block::header::Header as BlockHeader, meta::CompressionType},
-    serde::Serializable,
     value::UserKey,
 };
 use std::{
@@ -60,7 +60,7 @@ impl Writer {
             self.compression,
         )?;
 
-        header.serialize(&mut self.write_buffer)?;
+        header.encode_into(&mut self.write_buffer)?;
         self.write_buffer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
@@ -131,7 +131,7 @@ impl Writer {
         let (header, data) =
             IndexBlock::to_bytes_compressed(&self.tli_pointers, 0, self.compression)?;
 
-        header.serialize(block_file_writer)?;
+        header.encode_into(block_file_writer)?;
         block_file_writer.write_all(&data)?;
 
         let bytes_written = BlockHeader::serialized_len() + data.len();

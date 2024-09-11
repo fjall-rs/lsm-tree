@@ -2,10 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
-};
+use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
@@ -34,8 +31,8 @@ impl FileOffsets {
     }
 }
 
-impl Serializable for FileOffsets {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for FileOffsets {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u64::<BigEndian>(self.metadata_ptr)?;
         writer.write_u64::<BigEndian>(self.index_block_ptr)?;
         writer.write_u64::<BigEndian>(self.tli_ptr)?;
@@ -47,8 +44,8 @@ impl Serializable for FileOffsets {
     }
 }
 
-impl Deserializable for FileOffsets {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for FileOffsets {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let metadata_ptr = reader.read_u64::<BigEndian>()?;
         let index_block_ptr = reader.read_u64::<BigEndian>()?;
         let tli_ptr = reader.read_u64::<BigEndian>()?;
@@ -87,11 +84,10 @@ mod tests {
             tli_ptr: 4,
         };
 
-        let mut buf = vec![];
-        before.serialize(&mut buf)?;
+        let buf = before.encode_into_vec()?;
 
         let mut cursor = Cursor::new(buf);
-        let after = FileOffsets::deserialize(&mut cursor)?;
+        let after = FileOffsets::decode_from(&mut cursor)?;
 
         assert_eq!(after, before);
 
@@ -100,11 +96,8 @@ mod tests {
 
     #[test]
     fn file_offsets_serialized_len() -> crate::Result<()> {
-        let mut buf = vec![];
-        FileOffsets::default().serialize(&mut buf)?;
-
+        let buf = FileOffsets::default().encode_into_vec()?;
         assert_eq!(FileOffsets::serialized_len(), buf.len());
-
         Ok(())
     }
 }

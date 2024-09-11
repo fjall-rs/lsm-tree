@@ -5,6 +5,7 @@
 pub mod inner;
 
 use crate::{
+    coding::{Decode, Encode},
     compaction::{stream::CompactionStream, CompactionStrategy},
     config::Config,
     descriptor_table::FileDescriptorTable,
@@ -13,7 +14,6 @@ use crate::{
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment},
-    serde::{Deserializable, Serializable},
     stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
@@ -495,14 +495,14 @@ impl Tree {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
-                use crate::serde::Deserializable;
+                use crate::coding::Decode;
                 use std::io::Seek;
 
                 assert!(bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = std::fs::File::open(&segment_file_path)?;
                 reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
-                BloomFilter::deserialize(&mut reader)?
+                BloomFilter::decode_from(&mut reader)?
             },
         }
         .into();
@@ -772,7 +772,7 @@ impl Tree {
 
         let bytes = std::fs::read(config.path.join(MANIFEST_FILE))?;
         let mut bytes = Cursor::new(bytes);
-        let manifest = Manifest::deserialize(&mut bytes)?;
+        let manifest = Manifest::decode_from(&mut bytes)?;
 
         if manifest.version != Version::V2 {
             return Err(crate::Error::InvalidVersion(manifest.version));
@@ -837,7 +837,7 @@ impl Tree {
             tree_type: config.tree_type,
             table_type: TableType::Block,
         }
-        .serialize(&mut file)?;
+        .encode_into(&mut file)?;
         file.sync_all()?;
 
         // IMPORTANT: fsync folders on Unix

@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    serde::{DeserializeError, SerializeError},
+    coding::{DecodeError, EncodeError},
     version::Version,
     Checksum, CompressionType,
 };
@@ -15,10 +15,10 @@ pub enum Error {
     Io(std::io::Error),
 
     /// Serialization failed
-    Serialize(SerializeError),
+    Encode(EncodeError),
 
     /// Deserialization failed
-    Deserialize(DeserializeError),
+    Decode(DecodeError),
 
     /// Decompression failed
     Decompress(CompressionType),
@@ -50,15 +50,15 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<SerializeError> for Error {
-    fn from(value: SerializeError) -> Self {
-        Self::Serialize(value)
+impl From<EncodeError> for Error {
+    fn from(value: EncodeError) -> Self {
+        Self::Encode(value)
     }
 }
 
-impl From<DeserializeError> for Error {
-    fn from(value: DeserializeError) -> Self {
-        Self::Deserialize(value)
+impl From<DecodeError> for Error {
+    fn from(value: DecodeError) -> Self {
+        Self::Decode(value)
     }
 }
 

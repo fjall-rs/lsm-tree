@@ -5,9 +5,8 @@
 mod bit_array;
 
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
 };
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -36,8 +35,8 @@ pub struct BloomFilter {
     k: usize,
 }
 
-impl Serializable for BloomFilter {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for BloomFilter {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
@@ -55,14 +54,14 @@ impl Serializable for BloomFilter {
     }
 }
 
-impl Deserializable for BloomFilter {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for BloomFilter {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DeserializeError::InvalidHeader("BloomFilter"));
+            return Err(DecodeError::InvalidHeader("BloomFilter"));
         }
 
         // NOTE: Filter type (unused)
@@ -249,7 +248,7 @@ mod tests {
         drop(file);
 
         let mut file = File::open(&path)?;
-        let filter_copy = BloomFilter::deserialize(&mut file)?;
+        let filter_copy = BloomFilter::decode_from(&mut file)?;
 
         assert_eq!(filter, filter_copy);
 

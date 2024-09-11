@@ -83,7 +83,7 @@ pub fn import_tree<P: AsRef<Path>>(path: P, tree: &impl AbstractTree) -> crate::
     file.read_exact(&mut trailer)?;
 
     if &trailer != EXPECTED_TRAILER {
-        return Err(crate::Error::Deserialize(
+        return Err(crate::Error::Decode(
             crate::DeserializeError::InvalidTrailer,
         ));
     }

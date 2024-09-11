@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     segment::block::ItemSize,
-    serde::{Deserializable, Serializable},
     value::UserKey,
     Slice,
 };
@@ -63,8 +63,8 @@ impl Ord for KeyedBlockHandle {
     }
 }
 
-impl Serializable for KeyedBlockHandle {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), crate::SerializeError> {
+impl Encode for KeyedBlockHandle {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u64::<BigEndian>(self.offset)?;
 
         // NOTE: Truncation is okay and actually needed
@@ -77,8 +77,8 @@ impl Serializable for KeyedBlockHandle {
     }
 }
 
-impl Deserializable for KeyedBlockHandle {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, crate::DeserializeError>
+impl Decode for KeyedBlockHandle {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError>
     where
         Self: Sized,
     {

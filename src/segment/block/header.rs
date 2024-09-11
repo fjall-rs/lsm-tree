@@ -4,10 +4,9 @@
 
 use super::checksum::Checksum;
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
     segment::meta::CompressionType,
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
@@ -49,12 +48,12 @@ impl Header {
     }
 }
 
-impl Serializable for Header {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for Header {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        self.compression.serialize(writer)?;
+        self.compression.encode_into(writer)?;
 
         // Write checksum
         writer.write_u64::<BigEndian>(*self.checksum)?;
@@ -72,17 +71,17 @@ impl Serializable for Header {
     }
 }
 
-impl Deserializable for Header {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for Header {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DeserializeError::InvalidHeader("Block"));
+            return Err(DecodeError::InvalidHeader("Block"));
         }
 
-        let compression = CompressionType::deserialize(reader)?;
+        let compression = CompressionType::decode_from(reader)?;
 
         // Read checksum
         let checksum = reader.read_u64::<BigEndian>()?;
@@ -144,7 +143,7 @@ mod tests {
         ];
 
         // Deserialize the empty Value
-        let deserialized = Header::deserialize(&mut Cursor::new(bytes))?;
+        let deserialized = Header::decode_from(&mut Cursor::new(bytes))?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(header, deserialized);

@@ -2,10 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
-};
+use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
@@ -38,8 +35,8 @@ pub enum CompressionType {
     Miniz(u8),
 }
 
-impl Serializable for CompressionType {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for CompressionType {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         match self {
             Self::None => {
                 writer.write_u8(0)?;
@@ -65,8 +62,8 @@ impl Serializable for CompressionType {
     }
 }
 
-impl Deserializable for CompressionType {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for CompressionType {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let tag = reader.read_u8()?;
 
         match tag {
@@ -90,7 +87,7 @@ impl Deserializable for CompressionType {
                 Ok(Self::Miniz(level))
             }
 
-            tag => Err(DeserializeError::InvalidTag(("CompressionType", tag))),
+            tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
     }
 }
@@ -119,8 +116,7 @@ mod tests {
 
     #[test_log::test]
     fn compression_serialize_none() -> crate::Result<()> {
-        let mut serialized = vec![];
-        CompressionType::None.serialize(&mut serialized)?;
+        let serialized = CompressionType::None.encode_into_vec()?;
         assert_eq!(2, serialized.len());
         Ok(())
     }
@@ -131,8 +127,7 @@ mod tests {
 
         #[test_log::test]
         fn compression_serialize_none() -> crate::Result<()> {
-            let mut serialized = vec![];
-            CompressionType::Lz4.serialize(&mut serialized)?;
+            let serialized = CompressionType::Lz4.encode_into_vec()?;
             assert_eq!(2, serialized.len());
             Ok(())
         }
@@ -145,8 +140,7 @@ mod tests {
         #[test_log::test]
         fn compression_serialize_none() -> crate::Result<()> {
             for lvl in 0..10 {
-                let mut serialized = vec![];
-                CompressionType::Miniz(lvl).serialize(&mut serialized)?;
+                let serialized = CompressionType::Miniz(lvl).encode_into_vec()?;
                 assert_eq!(2, serialized.len());
             }
             Ok(())

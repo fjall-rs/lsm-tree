@@ -259,7 +259,7 @@ fn merge_segments(
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: {
-                    use crate::serde::Deserializable;
+                    use crate::coding::Decode;
                     use std::{
                         fs::File,
                         io::{Seek, SeekFrom},
@@ -269,7 +269,7 @@ fn merge_segments(
 
                     let mut reader = File::open(&segment_file_path)?;
                     reader.seek(SeekFrom::Start(bloom_ptr))?;
-                    BloomFilter::deserialize(&mut reader)?
+                    BloomFilter::decode_from(&mut reader)?
                 },
             }))
         })

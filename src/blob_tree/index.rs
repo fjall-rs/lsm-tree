@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::value::MaybeInlineValue;
-use crate::{serde::Deserializable, AbstractTree, SeqNo, Tree as LsmTree};
+use crate::{coding::Decode, AbstractTree, SeqNo, Tree as LsmTree};
 use std::io::Cursor;
 
 #[allow(clippy::module_name_repetitions)]
@@ -29,7 +29,7 @@ impl IndexTree {
         };
 
         let mut cursor = Cursor::new(item);
-        let item = MaybeInlineValue::deserialize(&mut cursor)?;
+        let item = MaybeInlineValue::decode_from(&mut cursor)?;
 
         Ok(Some(item))
     }
@@ -40,7 +40,7 @@ impl IndexTree {
         };
 
         let mut cursor = Cursor::new(item);
-        let item = MaybeInlineValue::deserialize(&mut cursor)?;
+        let item = MaybeInlineValue::decode_from(&mut cursor)?;
 
         Ok(Some(item))
     }

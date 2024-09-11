@@ -4,9 +4,8 @@
 
 use super::{file_offsets::FileOffsets, meta::Metadata};
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
 };
 use std::{
     fs::File,
@@ -33,7 +32,7 @@ impl SegmentFileTrailer {
         reader.seek(std::io::SeekFrom::End(-(TRAILER_SIZE as i64)))?;
 
         // Parse pointers
-        let offsets = FileOffsets::deserialize(&mut reader)?;
+        let offsets = FileOffsets::decode_from(&mut reader)?;
 
         let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - MAGIC_BYTES.len();
         reader.seek_relative(remaining_padding as i64)?;
@@ -43,7 +42,7 @@ impl SegmentFileTrailer {
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
                 "SegmentTrailer",
             )));
         }
@@ -52,17 +51,17 @@ impl SegmentFileTrailer {
 
         // Jump to metadata and parse
         reader.seek(std::io::SeekFrom::Start(offsets.metadata_ptr))?;
-        let metadata = Metadata::deserialize(&mut reader)?;
+        let metadata = Metadata::decode_from(&mut reader)?;
 
         Ok(Self { metadata, offsets })
     }
 }
 
-impl Serializable for SegmentFileTrailer {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for SegmentFileTrailer {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         let mut v = Vec::with_capacity(TRAILER_SIZE);
 
-        self.offsets.serialize(&mut v)?;
+        self.offsets.encode_into(&mut v)?;
 
         // Pad with remaining bytes
         v.resize(TRAILER_SIZE - MAGIC_BYTES.len(), 0);

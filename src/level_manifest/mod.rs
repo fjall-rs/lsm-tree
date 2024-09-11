@@ -6,10 +6,10 @@ pub mod iter;
 pub(crate) mod level;
 
 use crate::{
+    coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
     segment::{meta::SegmentId, Segment},
-    serde::Serializable,
-    DeserializeError, HashMap, HashSet, SerializeError,
+    HashMap, HashSet,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
@@ -135,7 +135,7 @@ impl LevelManifest {
         level_manifest.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
                 "LevelManifest",
             )));
         }
@@ -214,8 +214,7 @@ impl LevelManifest {
 
         log::trace!("Writing level manifest to {path:?}",);
 
-        let mut serialized = vec![];
-        levels.serialize(&mut serialized)?;
+        let serialized = levels.encode_into_vec()?;
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -391,8 +390,8 @@ impl LevelManifest {
     }
 }
 
-impl Serializable for Vec<Level> {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for Vec<Level> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
@@ -417,7 +416,7 @@ impl Serializable for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use crate::{level_manifest::LevelManifest, serde::Serializable, AbstractTree};
+    use crate::{coding::Encode, level_manifest::LevelManifest, AbstractTree};
     use std::collections::HashSet;
     use test_log::test;
 
@@ -471,8 +470,7 @@ mod tests {
             path: "a".into(),
         };
 
-        let mut bytes = vec![];
-        levels.levels.serialize(&mut bytes)?;
+        let bytes = levels.levels.encode_into_vec()?;
 
         #[rustfmt::skip]
         let raw = &[

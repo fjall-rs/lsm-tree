@@ -8,10 +8,10 @@ pub mod index;
 pub mod value;
 
 use crate::{
+    coding::{Decode, Encode},
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
-    serde::{Deserializable, Serializable},
     tree::inner::MemtableId,
     value::InternalValue,
     Config, KvPair, Memtable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
@@ -31,7 +31,7 @@ fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> Range
     match item {
         Ok((key, value)) => {
             let mut cursor = Cursor::new(value);
-            let item = MaybeInlineValue::deserialize(&mut cursor)?;
+            let item = MaybeInlineValue::decode_from(&mut cursor)?;
 
             match item {
                 MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
@@ -103,7 +103,7 @@ impl BlobTree {
                 };
 
                 let mut cursor = Cursor::new(v);
-                let value = match MaybeInlineValue::deserialize(&mut cursor) {
+                let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
                     Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
                 };
@@ -260,7 +260,7 @@ impl AbstractTree for BlobTree {
 
             let mut cursor = Cursor::new(item.value);
 
-            let value = MaybeInlineValue::deserialize(&mut cursor)?;
+            let value = MaybeInlineValue::decode_from(&mut cursor)?;
             let value = match value {
                 MaybeInlineValue::Inline(value) => value,
                 indirection @ MaybeInlineValue::Indirect { .. } => {
@@ -268,7 +268,7 @@ impl AbstractTree for BlobTree {
                     // without writing the blob again
 
                     let mut serialized_indirection = vec![];
-                    indirection.serialize(&mut serialized_indirection)?;
+                    indirection.encode_into(&mut serialized_indirection)?;
 
                     segment_writer
                         .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
@@ -289,7 +289,7 @@ impl AbstractTree for BlobTree {
                     size: value_size,
                 };
                 let mut serialized_indirection = vec![];
-                indirection.serialize(&mut serialized_indirection)?;
+                indirection.encode_into(&mut serialized_indirection)?;
 
                 segment_writer
                     .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
@@ -297,10 +297,7 @@ impl AbstractTree for BlobTree {
                 blob_writer.write(&item.key.user_key, value)?;
             } else {
                 let direct = MaybeInlineValue::Inline(value);
-
-                let mut serialized_direct = vec![];
-                direct.serialize(&mut serialized_direct)?;
-
+                let serialized_direct = direct.encode_into_vec()?;
                 segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
             }
         }
@@ -488,8 +485,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let mut value = vec![];
-        item.serialize(&mut value).expect("should serialize");
+        let value = item.encode_into_vec().expect("should serialize");
 
         let value = InternalValue::from_components(key.as_ref(), value, seqno, r#type);
         lock.insert(value)
@@ -503,8 +499,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let mut value = vec![];
-        item.serialize(&mut value).expect("should serialize");
+        let value = item.encode_into_vec().expect("should serialize");
 
         self.index.insert(key, value, seqno)
     }

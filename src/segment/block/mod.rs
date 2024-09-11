@@ -6,7 +6,7 @@ pub mod checksum;
 pub mod header;
 
 use super::meta::CompressionType;
-use crate::serde::{Deserializable, Serializable};
+use crate::coding::{Decode, Encode};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checksum::Checksum;
 use header::Header as BlockHeader;
@@ -33,15 +33,15 @@ impl<T: ItemSize> ItemSize for [T] {
 ///
 /// The integrity of a block can be checked using the checksum value that is saved in its header.
 #[derive(Clone, Debug)]
-pub struct Block<T: Clone + Serializable + Deserializable + ItemSize> {
+pub struct Block<T: Clone + Encode + Decode + ItemSize> {
     pub header: BlockHeader,
     pub items: Box<[T]>,
 }
 
-impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
+impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
     pub fn from_reader<R: Read>(reader: &mut R) -> crate::Result<Self> {
         // Read block header
-        let header = BlockHeader::deserialize(reader)?;
+        let header = BlockHeader::decode_from(reader)?;
         log::trace!("Got block header: {header:?}");
 
         let mut bytes = vec![0u8; header.data_length as usize];
@@ -68,7 +68,7 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
         // Deserialize each value
         let mut items = Vec::with_capacity(item_count);
         for _ in 0..item_count {
-            items.push(T::deserialize(&mut bytes)?);
+            items.push(T::decode_from(&mut bytes)?);
         }
 
         Ok(Self {
@@ -119,7 +119,7 @@ impl<T: Clone + Serializable + Deserializable + ItemSize> Block<T> {
 
         // Serialize each value
         for value in items {
-            value.serialize(&mut buf)?;
+            value.encode_into(&mut buf)?;
         }
 
         Ok(match compression {
@@ -158,7 +158,7 @@ mod tests {
 
         let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
-        header.serialize(&mut serialized)?;
+        header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;
 
         assert_eq!(serialized.len(), BlockHeader::serialized_len() + data.len());
@@ -198,7 +198,7 @@ mod tests {
 
         let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
-        header.serialize(&mut serialized)?;
+        header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;
 
         // Deserialize from bytes

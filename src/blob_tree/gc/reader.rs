@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{blob_tree::value::MaybeInlineValue, serde::Deserializable, Memtable};
+use crate::{blob_tree::value::MaybeInlineValue, coding::Decode, Memtable};
 use std::{io::Cursor, sync::RwLockWriteGuard};
 use value_log::ValueHandle;
 
@@ -27,7 +27,7 @@ impl<'a> GcReader<'a> {
         };
 
         let mut cursor = Cursor::new(item);
-        let item = MaybeInlineValue::deserialize(&mut cursor)?;
+        let item = MaybeInlineValue::decode_from(&mut cursor)?;
 
         Ok(Some(item))
     }

@@ -3,9 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     key::InternalKey,
     segment::block::ItemSize,
-    serde::{Deserializable, DeserializeError, Serializable, SerializeError},
     Slice,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -164,9 +164,9 @@ impl std::fmt::Debug for InternalValue {
     }
 }
 
-impl Serializable for InternalValue {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
-        self.key.serialize(writer)?;
+impl Encode for InternalValue {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+        self.key.encode_into(writer)?;
 
         // NOTE: Only write value len + value if we are actually a value
         if !self.is_tombstone() {
@@ -180,9 +180,9 @@ impl Serializable for InternalValue {
     }
 }
 
-impl Deserializable for InternalValue {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
-        let key = InternalKey::deserialize(reader)?;
+impl Decode for InternalValue {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+        let key = InternalKey::decode_from(reader)?;
 
         if key.is_tombstone() {
             Ok(Self {
@@ -246,7 +246,7 @@ mod tests {
         ];
 
         // Deserialize the empty Value
-        let deserialized = InternalValue::deserialize(&mut Cursor::new(bytes))?;
+        let deserialized = InternalValue::decode_from(&mut Cursor::new(bytes))?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);
@@ -261,10 +261,10 @@ mod tests {
 
         // Serialize the empty Value
         let mut serialized = Vec::new();
-        value.serialize(&mut serialized)?;
+        value.encode_into(&mut serialized)?;
 
         // Deserialize the empty Value
-        let deserialized = InternalValue::deserialize(&mut &serialized[..])?;
+        let deserialized = InternalValue::decode_from(&mut &serialized[..])?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);
@@ -284,10 +284,10 @@ mod tests {
 
         // Serialize the empty Value
         let mut serialized = Vec::new();
-        value.serialize(&mut serialized)?;
+        value.encode_into(&mut serialized)?;
 
         // Deserialize the empty Value
-        let deserialized = InternalValue::deserialize(&mut &serialized[..])?;
+        let deserialized = InternalValue::decode_from(&mut &serialized[..])?;
 
         // Check if deserialized Value is equivalent to the original empty Value
         assert_eq!(value, deserialized);

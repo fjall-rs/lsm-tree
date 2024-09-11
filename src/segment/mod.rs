@@ -189,7 +189,7 @@ impl Segment {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
-                use crate::serde::Deserializable;
+                use crate::coding::Decode;
                 use std::{
                     fs::File,
                     io::{Seek, SeekFrom},
@@ -199,7 +199,7 @@ impl Segment {
 
                 let mut reader = File::open(file_path)?;
                 reader.seek(SeekFrom::Start(bloom_ptr))?;
-                BloomFilter::deserialize(&mut reader)?
+                BloomFilter::decode_from(&mut reader)?
             },
         })
     }

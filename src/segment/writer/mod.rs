@@ -13,9 +13,9 @@ use super::{
     value_block::ValueBlock,
 };
 use crate::{
+    coding::Encode,
     file::fsync_directory,
     segment::block::ItemSize,
-    serde::Serializable,
     value::{InternalValue, UserKey},
     SegmentId,
 };
@@ -166,7 +166,7 @@ impl Writer {
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
-        header.serialize(&mut self.block_writer)?;
+        header.encode_into(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
@@ -280,7 +280,7 @@ impl Writer {
                 filter.set_with_hash(hash);
             }
 
-            filter.serialize(&mut self.block_writer)?;
+            filter.encode_into(&mut self.block_writer)?;
 
             bloom_ptr
         };
@@ -305,7 +305,7 @@ impl Writer {
         let metadata_ptr = self.block_writer.stream_position()?;
 
         let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
-        metadata.serialize(&mut self.block_writer)?;
+        metadata.encode_into(&mut self.block_writer)?;
 
         // Bundle all the file offsets
         let offsets = FileOffsets {
@@ -320,7 +320,7 @@ impl Writer {
 
         // Write trailer
         let trailer = SegmentFileTrailer { metadata, offsets };
-        trailer.serialize(&mut self.block_writer)?;
+        trailer.encode_into(&mut self.block_writer)?;
 
         // Finally, flush & fsync the blocks file
         self.block_writer.flush()?;

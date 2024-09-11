@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    serde::{Deserializable, DeserializeError, Serializable, SerializeError},
+    coding::{Decode, DecodeError, Encode, EncodeError},
     SeqNo, UserKey, ValueType,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -57,8 +57,8 @@ impl InternalKey {
     }
 }
 
-impl Serializable for InternalKey {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for InternalKey {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
         writer.write_u16::<BigEndian>(self.user_key.len() as u16)?;
@@ -71,8 +71,8 @@ impl Serializable for InternalKey {
     }
 }
 
-impl Deserializable for InternalKey {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for InternalKey {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let key_len = reader.read_u16::<BigEndian>()?;
         let mut key = vec![0; key_len.into()];
         reader.read_exact(&mut key)?;
@@ -82,7 +82,7 @@ impl Deserializable for InternalKey {
         let value_type = reader.read_u8()?;
         let value_type = value_type
             .try_into()
-            .map_err(|()| DeserializeError::InvalidTag(("ValueType", value_type)))?;
+            .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
 
         Ok(Self::new(key, seqno, value_type))
     }

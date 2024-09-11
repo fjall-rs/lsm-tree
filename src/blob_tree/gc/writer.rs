@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::value::MaybeInlineValue, serde::Serializable, value::InternalValue, Memtable, SeqNo,
+    blob_tree::value::MaybeInlineValue, coding::Encode, value::InternalValue, Memtable, SeqNo,
     UserKey,
 };
 use std::sync::RwLockWriteGuard;
@@ -44,9 +44,8 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
 
         #[allow(clippy::significant_drop_in_scrutinee)]
         for (key, vhandle, size) in self.buffer.drain(..) {
-            let mut buf = vec![];
-            MaybeInlineValue::Indirect { vhandle, size }
-                .serialize(&mut buf)
+            let buf = MaybeInlineValue::Indirect { vhandle, size }
+                .encode_into_vec()
                 .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?;
 
             self.memtable.insert(InternalValue::from_components(

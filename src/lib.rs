@@ -125,6 +125,8 @@ mod block_cache;
 #[cfg(feature = "bloom")]
 pub mod bloom;
 
+#[doc(hidden)]
+pub mod coding;
 pub mod compaction;
 mod config;
 
@@ -160,10 +162,6 @@ pub mod range;
 pub mod segment;
 
 mod seqno;
-
-#[doc(hidden)]
-pub mod serde;
-
 mod snapshot;
 
 #[doc(hidden)]
@@ -187,13 +185,13 @@ pub use {
 
 pub use {
     block_cache::BlockCache,
+    coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
     r#abstract::AbstractTree,
     segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
-    serde::{DeserializeError, SerializeError},
     snapshot::Snapshot,
     tree::Tree,
     value::{SeqNo, UserKey, UserValue, ValueType},

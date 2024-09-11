@@ -2,13 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError, Slice, UserValue,
-};
+use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
-use value_log::ValueHandle;
+use value_log::{Slice, UserValue, ValueHandle};
 
 /// A value which may or may not be inlined into an index tree
 ///
@@ -24,16 +21,16 @@ pub enum MaybeInlineValue {
     Indirect { vhandle: ValueHandle, size: u32 },
 }
 
-impl Serializable for ValueHandle {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for ValueHandle {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u64::<BigEndian>(self.offset)?;
         writer.write_u64::<BigEndian>(self.segment_id)?;
         Ok(())
     }
 }
 
-impl Deserializable for ValueHandle {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for ValueHandle {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let offset = reader.read_u64::<BigEndian>()?;
         let segment_id = reader.read_u64::<BigEndian>()?;
         Ok(Self { segment_id, offset })
@@ -43,8 +40,8 @@ impl Deserializable for ValueHandle {
 const TAG_INLINE: u8 = 0;
 const TAG_INDIRECT: u8 = 1;
 
-impl Serializable for MaybeInlineValue {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for MaybeInlineValue {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         match self {
             Self::Inline(bytes) => {
                 writer.write_u8(TAG_INLINE)?;
@@ -57,7 +54,7 @@ impl Serializable for MaybeInlineValue {
             }
             Self::Indirect { vhandle, size } => {
                 writer.write_u8(TAG_INDIRECT)?;
-                vhandle.serialize(writer)?;
+                vhandle.encode_into(writer)?;
                 writer.write_u32::<BigEndian>(*size)?;
             }
         }
@@ -65,8 +62,8 @@ impl Serializable for MaybeInlineValue {
     }
 }
 
-impl Deserializable for MaybeInlineValue {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for MaybeInlineValue {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let tag = reader.read_u8()?;
 
         match tag {
@@ -77,11 +74,11 @@ impl Deserializable for MaybeInlineValue {
                 Ok(Self::Inline(Slice::from(bytes)))
             }
             TAG_INDIRECT => {
-                let vhandle = ValueHandle::deserialize(reader)?;
+                let vhandle = ValueHandle::decode_from(reader)?;
                 let size = reader.read_u32::<BigEndian>()?;
                 Ok(Self::Indirect { vhandle, size })
             }
-            x => Err(DeserializeError::InvalidTag(("MaybeInlineValue", x))),
+            x => Err(DecodeError::InvalidTag(("MaybeInlineValue", x))),
         }
     }
 }

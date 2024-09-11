@@ -7,12 +7,11 @@ mod table_type;
 
 use super::writer::Writer;
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
     key_range::KeyRange,
-    serde::{Deserializable, Serializable},
     time::unix_timestamp,
     value::SeqNo,
-    DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
@@ -78,8 +77,8 @@ pub struct Metadata {
     pub key_range: KeyRange,
 }
 
-impl Serializable for Metadata {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for Metadata {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
@@ -101,27 +100,27 @@ impl Serializable for Metadata {
         writer.write_u32::<BigEndian>(self.data_block_count)?;
         writer.write_u32::<BigEndian>(self.index_block_count)?;
 
-        self.compression.serialize(writer)?;
+        self.compression.encode_into(writer)?;
 
         writer.write_u8(self.table_type.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
         writer.write_u64::<BigEndian>(self.seqnos.1)?;
 
-        self.key_range.serialize(writer)?;
+        self.key_range.encode_into(writer)?;
 
         Ok(())
     }
 }
 
-impl Deserializable for Metadata {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for Metadata {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DeserializeError::InvalidHeader("SegmentMetadata"));
+            return Err(DecodeError::InvalidHeader("SegmentMetadata"));
         }
 
         let id = reader.read_u64::<BigEndian>()?;
@@ -142,16 +141,16 @@ impl Deserializable for Metadata {
         let data_block_count = reader.read_u32::<BigEndian>()?;
         let index_block_count = reader.read_u32::<BigEndian>()?;
 
-        let compression = CompressionType::deserialize(reader)?;
+        let compression = CompressionType::decode_from(reader)?;
 
         let table_type = reader.read_u8()?;
         let table_type = TableType::try_from(table_type)
-            .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
+            .map_err(|()| DecodeError::InvalidTag(("TableType", table_type)))?;
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;
 
-        let key_range = KeyRange::deserialize(reader)?;
+        let key_range = KeyRange::decode_from(reader)?;
 
         Ok(Self {
             id,
@@ -240,7 +239,7 @@ impl Metadata {
     pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         let file_content = std::fs::read(path)?;
         let mut cursor = Cursor::new(file_content);
-        let meta = Self::deserialize(&mut cursor)?;
+        let meta = Self::decode_from(&mut cursor)?;
         Ok(meta)
     }
 }
@@ -272,11 +271,9 @@ mod tests {
             seqnos: (0, 5),
         };
 
-        let mut bytes = vec![];
-        metadata.serialize(&mut bytes)?;
-
+        let bytes = metadata.encode_into_vec()?;
         let mut cursor = Cursor::new(bytes);
-        let metadata_copy = Metadata::deserialize(&mut cursor)?;
+        let metadata_copy = Metadata::decode_from(&mut cursor)?;
 
         assert_eq!(metadata, metadata_copy);
 
