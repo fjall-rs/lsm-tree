@@ -14,17 +14,19 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usiz
 /// If a level reaches a threshold, it is merged into a larger segment to the next level.
 ///
 /// STCS suffers from high read and temporary doubled space amplification, but has good write amplification.
+#[derive(Clone)]
 pub struct Strategy {
-    base_size: u32,
+    /// Base size
+    pub base_size: u32,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate).
     ///
     /// This is the exponential growth of the from one
     /// level to the next
     ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    /// A level target size is: base_size * level_ratio.pow(#level + 1)
     #[allow(clippy::doc_markdown)]
-    level_ratio: u8,
+    pub level_ratio: u8,
 }
 
 impl Strategy {

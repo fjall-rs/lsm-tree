@@ -22,12 +22,13 @@ use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp,
 /// 1) You only want to store recent data (unimportant logs, ...)
 /// 2) Your keyspace grows monotonically (e.g. time series)
 /// 3) You only insert new data (no updates)
+#[derive(Clone)]
 pub struct Strategy {
     /// Data set size limit in bytes
-    limit: u64,
+    pub limit: u64,
 
     /// TTL in seconds, will be disabled if 0 or None
-    ttl_seconds: Option<u64>,
+    pub ttl_seconds: Option<u64>,
 }
 
 impl Strategy {

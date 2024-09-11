@@ -19,6 +19,7 @@ use std::{ops::Deref, sync::Arc};
 /// LCS is the recommended compaction strategy to use.
 ///
 /// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
+#[derive(Clone)]
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
     /// they are merged into L1
