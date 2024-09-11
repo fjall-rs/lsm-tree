@@ -38,6 +38,7 @@ self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
 tempfile = "3.12.0"
 value-log = { git = "https://github.com/fjall-rs/value-log" }
+varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [dev-dependencies]
