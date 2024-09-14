@@ -177,6 +177,7 @@ impl AbstractTree for Tree {
         })?;
 
         for segment in segments {
+            log::trace!("releasing sealed memtable {}", segment.metadata.id);
             sealed_memtables.remove(segment.metadata.id);
         }
 
@@ -239,12 +240,12 @@ impl AbstractTree for Tree {
         log::trace!("rotate: acquiring active memtable write lock");
         let mut active_memtable = self.lock_active_memtable();
 
+        log::trace!("rotate: acquiring sealed memtables write lock");
+        let mut sealed_memtables = self.lock_sealed_memtables();
+
         if active_memtable.is_empty() {
             return None;
         }
-
-        log::trace!("rotate: acquiring sealed memtables write lock");
-        let mut sealed_memtables = self.lock_sealed_memtables();
 
         let yanked_memtable = std::mem::take(&mut *active_memtable);
         let yanked_memtable = Arc::new(yanked_memtable);

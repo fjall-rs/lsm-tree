@@ -36,7 +36,7 @@ where
 #[derive(Default)]
 pub struct Memtable {
     #[doc(hidden)]
-    items: SkipMap<InternalKey, UserValue>,
+    pub items: SkipMap<InternalKey, UserValue>,
 
     /// Approximate active memtable size
     ///
@@ -45,6 +45,13 @@ pub struct Memtable {
 }
 
 impl Memtable {
+    /// Clears the memtable.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.approximate_size
+            .store(0, std::sync::atomic::Ordering::Release);
+    }
+
     /// Creates an iterator over all items.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
         self.items.iter().map(|entry| InternalValue {
