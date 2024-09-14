@@ -1,24 +1,23 @@
-use lsm_tree::Config;
-use test_log::test;
+use lsm_tree::{AbstractTree, Config};
 
-#[test]
+#[test_log::test]
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 
-    let tree = Config::new(folder).block_size(1_024).open()?;
+    let tree = Config::new(folder).open()?;
 
     tree.insert("a", "a0", 0);
     tree.insert("a", "a1", 1);
     tree.insert("b", "b0", 0);
     tree.insert("b", "b1", 1);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     tree.insert("b", "b2", 2);
     tree.insert("b", "b3", 3);
     tree.insert("c", "c4", 4);
 
-    tree.flush_active_memtable()?;
+    tree.flush_active_memtable(0)?;
 
     tree.insert("a", "a5", 5);
 

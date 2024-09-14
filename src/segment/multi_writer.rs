@@ -1,9 +1,16 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{
     trailer::SegmentFileTrailer,
     writer::{Options, Writer},
 };
-use crate::Value;
+use crate::{value::InternalValue, CompressionType};
 use std::sync::{atomic::AtomicU64, Arc};
+
+#[cfg(feature = "bloom")]
+use super::writer::BloomConstructionPolicy;
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
 ///
@@ -17,12 +24,17 @@ pub struct MultiWriter {
     pub target_size: u64,
 
     pub opts: Options,
-    created_items: Vec<SegmentFileTrailer>,
+    results: Vec<SegmentFileTrailer>,
 
     segment_id_generator: Arc<AtomicU64>,
     current_segment_id: u64,
 
     pub writer: Writer,
+
+    pub compression: CompressionType,
+
+    #[cfg(feature = "bloom")]
+    bloom_policy: BloomConstructionPolicy,
 }
 
 impl MultiWriter {
@@ -39,20 +51,38 @@ impl MultiWriter {
             segment_id: current_segment_id,
             folder: opts.folder.clone(),
             evict_tombstones: opts.evict_tombstones,
-            block_size: opts.block_size,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: opts.bloom_fp_rate,
+            data_block_size: opts.data_block_size,
+            index_block_size: opts.index_block_size,
         })?;
 
         Ok(Self {
             target_size,
-            created_items: Vec::with_capacity(10),
+            results: Vec::with_capacity(10),
             opts,
             segment_id_generator,
             current_segment_id,
             writer,
+
+            compression: CompressionType::None,
+
+            #[cfg(feature = "bloom")]
+            bloom_policy: BloomConstructionPolicy::default(),
         })
+    }
+
+    #[must_use]
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
+        self.writer = self.writer.use_compression(compression);
+        self
+    }
+
+    #[must_use]
+    #[cfg(feature = "bloom")]
+    pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+        self.bloom_policy = bloom_policy;
+        self.writer = self.writer.use_bloom_policy(bloom_policy);
+        self
     }
 
     fn get_next_segment_id(&mut self) -> u64 {
@@ -69,21 +99,27 @@ impl MultiWriter {
 
         let new_segment_id = self.get_next_segment_id();
 
-        let new_writer = Writer::new(Options {
+        // NOTE: Feature-dependent
+        #[allow(unused_mut)]
+        let mut new_writer = Writer::new(Options {
             segment_id: new_segment_id,
             folder: self.opts.folder.clone(),
             evict_tombstones: self.opts.evict_tombstones,
-            block_size: self.opts.block_size,
+            data_block_size: self.opts.data_block_size,
+            index_block_size: self.opts.index_block_size,
+        })?
+        .use_compression(self.compression);
 
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: self.opts.bloom_fp_rate,
-        })?;
+        #[cfg(feature = "bloom")]
+        {
+            new_writer = new_writer.use_bloom_policy(self.bloom_policy);
+        }
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
-        if old_writer.item_count > 0 {
+        if old_writer.meta.item_count > 0 {
             // NOTE: if-check checks for item count
-            self.created_items
+            self.results
                 .push(old_writer.finish()?.expect("writer should emit result"));
         }
 
@@ -91,10 +127,10 @@ impl MultiWriter {
     }
 
     /// Writes an item
-    pub fn write(&mut self, item: Value) -> crate::Result<()> {
+    pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         self.writer.write(item)?;
 
-        if self.writer.file_pos >= self.target_size {
+        if self.writer.meta.file_pos >= self.target_size {
             self.rotate()?;
         }
 
@@ -106,9 +142,9 @@ impl MultiWriter {
     /// Returns the metadata of created segments
     pub fn finish(mut self) -> crate::Result<Vec<SegmentFileTrailer>> {
         if let Some(last_writer_result) = self.writer.finish()? {
-            self.created_items.push(last_writer_result);
+            self.results.push(last_writer_result);
         }
 
-        Ok(self.created_items)
+        Ok(self.results)
     }
 }

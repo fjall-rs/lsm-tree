@@ -1,42 +1,12 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
-    value::{SeqNo, UserValue},
-    KvPair, Tree, Value,
+    value::{SeqNo, UserKey, UserValue},
+    AbstractTree, AnyTree, KvPair,
 };
-use std::{
-    ops::RangeBounds,
-    sync::{
-        atomic::{self, AtomicU32},
-        Arc,
-    },
-};
-
-// TODO: merge this and seqno generator into new AtomicCounter
-// and create newtypes
-
-#[derive(Clone, Debug, Default)]
-pub struct Counter(Arc<AtomicU32>);
-
-impl std::ops::Deref for Counter {
-    type Target = Arc<AtomicU32>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Counter {
-    pub fn increment(&self) -> u32 {
-        self.fetch_add(1, atomic::Ordering::Release)
-    }
-
-    pub fn decrement(&self) -> u32 {
-        self.fetch_sub(1, atomic::Ordering::Release)
-    }
-
-    pub fn has_open_snapshots(&self) -> bool {
-        self.load(atomic::Ordering::Acquire) > 0
-    }
-}
+use std::ops::RangeBounds;
 
 /// A snapshot captures a read-only point-in-time view of the tree at the time the snapshot was created
 ///
@@ -46,21 +16,17 @@ impl Counter {
 /// Snapshots do not persist across restarts.
 #[derive(Clone)]
 pub struct Snapshot {
-    tree: Tree,
-    seqno: SeqNo,
+    tree: AnyTree,
+
+    #[doc(hidden)]
+    pub seqno: SeqNo,
 }
 
 impl Snapshot {
     /// Creates a snapshot
-    pub(crate) fn new(tree: Tree, seqno: SeqNo) -> Self {
-        tree.open_snapshots.increment();
+    pub(crate) fn new(tree: AnyTree, seqno: SeqNo) -> Self {
         log::trace!("Opening snapshot with seqno: {seqno}");
         Self { tree, seqno }
-    }
-
-    #[doc(hidden)]
-    pub fn get_internal_entry<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Value>> {
-        self.tree.get_internal_entry(key, true, Some(self.seqno))
     }
 
     /// Retrieves an item from the snapshot.
@@ -69,7 +35,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     /// let snapshot = tree.snapshot(0);
@@ -86,10 +52,9 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key)?.map(|x| x.value))
+        self.tree.get_with_seqno(key, self.seqno)
     }
 
-    #[allow(clippy::iter_not_returning_iterator)]
     /// Returns an iterator that scans through the entire snapshot.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
@@ -98,7 +63,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     ///
@@ -112,13 +77,63 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     #[must_use]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.create_iter(Some(self.seqno), None)
+        self.tree.iter_with_seqno(self.seqno, None)
+    }
+
+    /// Returns an iterator that scans through the entire snapshot, returning keys only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// let snapshot = tree.snapshot(2);
+    ///
+    /// tree.insert("g", "abc", 2);
+    ///
+    /// assert_eq!(2, snapshot.keys().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    #[must_use]
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static {
+        self.tree.keys_with_seqno(self.seqno, None)
+    }
+
+    /// Returns an iterator that scans through the entire snapshot, returning values only.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    ///
+    /// tree.insert("a", "abc", 0);
+    /// tree.insert("f", "abc", 1);
+    /// let snapshot = tree.snapshot(2);
+    ///
+    /// tree.insert("g", "abc", 2);
+    ///
+    /// assert_eq!(2, snapshot.values().count());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    #[must_use]
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static {
+        self.tree.values_with_seqno(self.seqno, None)
     }
 
     /// Returns an iterator over a range of items in the snapshot.
@@ -129,7 +144,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     ///
@@ -143,15 +158,11 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.create_range(&range, Some(self.seqno), None)
+        self.tree.range_with_seqno(range, self.seqno, None)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -162,7 +173,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     ///
@@ -176,15 +187,11 @@ impl Snapshot {
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
     pub fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.create_prefix(prefix, Some(self.seqno), None)
+        self.tree.prefix_with_seqno(prefix, self.seqno, None)
     }
 
     /// Returns the first key-value pair in the snapshot.
@@ -194,7 +201,7 @@ impl Snapshot {
     ///
     /// ```
     /// # use lsm_tree::Error as TreeError;
-    /// use lsm_tree::{Tree, Config};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// # let folder = tempfile::tempdir()?;
     /// let tree = Config::new(folder).open()?;
@@ -214,11 +221,8 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn first_key_value(&self) -> crate::Result<Option<KvPair>> {
-        self.tree
-            .create_iter(Some(self.seqno), None)
-            .next()
-            .transpose()
+    pub fn first_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+        self.iter().next().transpose()
     }
 
     /// Returns the las key-value pair in the snapshot.
@@ -228,7 +232,7 @@ impl Snapshot {
     ///
     /// ```
     /// # use lsm_tree::Error as TreeError;
-    /// use lsm_tree::{Tree, Config};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// # let folder = tempfile::tempdir()?;
     /// let tree = Config::new(folder).open()?;
@@ -248,11 +252,8 @@ impl Snapshot {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn last_key_value(&self) -> crate::Result<Option<KvPair>> {
-        self.tree
-            .create_iter(Some(self.seqno), None)
-            .next_back()
-            .transpose()
+    pub fn last_key_value(&self) -> crate::Result<Option<(UserKey, UserValue)>> {
+        self.iter().next_back().transpose()
     }
 
     /// Returns `true` if the snapshot contains the specified key.
@@ -261,7 +262,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     /// let snapshot = tree.snapshot(0);
@@ -278,7 +279,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<bool> {
-        self.get(key).map(|x| x.is_some())
+        self.tree.contains_key_with_seqno(key, self.seqno)
     }
 
     /// Returns `true` if the snapshot is empty.
@@ -289,7 +290,7 @@ impl Snapshot {
     ///
     /// ```
     /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{Config, Tree};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
     /// let snapshot = tree.snapshot(0);
@@ -322,7 +323,7 @@ impl Snapshot {
     ///
     /// ```
     /// # use lsm_tree::Error as TreeError;
-    /// use lsm_tree::{Tree, Config};
+    /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// # let folder = tempfile::tempdir()?;
     /// let tree = Config::new(folder).open()?;
@@ -343,19 +344,11 @@ impl Snapshot {
     pub fn len(&self) -> crate::Result<usize> {
         let mut count = 0;
 
-        // TODO: shouldn't thrash block cache
         for item in self.iter() {
             let _ = item?;
             count += 1;
         }
 
         Ok(count)
-    }
-}
-
-impl Drop for Snapshot {
-    fn drop(&mut self) {
-        log::trace!("Closing snapshot");
-        self.tree.open_snapshots.decrement();
     }
 }

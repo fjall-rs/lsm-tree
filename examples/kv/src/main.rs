@@ -1,6 +1,6 @@
 mod wal;
 
-use lsm_tree::{Config, SequenceNumberCounter, Tree, Value};
+use lsm_tree::{AbstractTree, Config, InternalValue, SequenceNumberCounter, Tree};
 use nanoid::nanoid;
 use std::{
     path::Path,
@@ -30,7 +30,12 @@ impl KvStore {
             start.elapsed().as_secs_f32()
         );
 
-        let seqno = SequenceNumberCounter::new(memtable.get_lsn().unwrap_or_default());
+        let seqno = SequenceNumberCounter::new(
+            memtable
+                .get_highest_seqno()
+                .map(|x| x + 1)
+                .unwrap_or_default(),
+        );
 
         tree.set_active_memtable(memtable);
 
@@ -47,7 +52,11 @@ impl KvStore {
                 loop {
                     eprintln!("Maybe compact");
                     let strategy = lsm_tree::compaction::Levelled::default();
-                    tree.compact(Arc::new(strategy))?;
+
+                    // NOTE: This is not tracking lowest safe seqno, so old versions will
+                    // not be GC'ed
+                    tree.compact(Arc::new(strategy), 0)?;
+
                     std::thread::sleep(Duration::from_secs(1));
                 }
                 Ok::<_, lsm_tree::Error>(())
@@ -81,12 +90,12 @@ impl KvStore {
         let value = value.as_ref().as_bytes();
         let seqno = self.seqno.next();
 
-        self.wal.write(Value {
-            key: key.into(),
-            value: value.into(),
+        self.wal.write(InternalValue::from_components(
+            key,
+            value,
             seqno,
-            value_type: lsm_tree::ValueType::Value,
-        })?;
+            lsm_tree::ValueType::Value,
+        ))?;
 
         let (_, memtable_size) = self.tree.insert(key, value, seqno);
         self.maintenance(memtable_size)?;
@@ -98,12 +107,7 @@ impl KvStore {
         let key = key.as_ref().as_bytes();
         let seqno = self.seqno.next();
 
-        self.wal.write(Value {
-            key: key.into(),
-            value: [].into(),
-            seqno,
-            value_type: lsm_tree::ValueType::Tombstone,
-        })?;
+        self.wal.write(InternalValue::new_tombstone(key, seqno))?;
 
         let (_, memtable_size) = self.tree.remove(key, seqno);
         self.maintenance(memtable_size)?;
@@ -113,7 +117,7 @@ impl KvStore {
 
     pub fn force_flush(&self) -> lsm_tree::Result<()> {
         eprintln!("Flushing memtable");
-        self.tree.flush_active_memtable()?;
+        self.tree.flush_active_memtable(0)?;
         Ok(())
     }
 

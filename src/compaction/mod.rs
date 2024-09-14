@@ -1,21 +1,26 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 //! Contains compaction strategies
 
 pub(crate) mod fifo;
-pub(crate) mod levelled;
+pub(crate) mod leveled;
 pub(crate) mod maintenance;
 pub(crate) mod major;
 pub(crate) mod pulldown;
+pub(crate) mod stream;
 pub(crate) mod tiered;
 pub(crate) mod worker;
 
-use crate::{config::Config, levels::LevelManifest, segment::meta::SegmentId};
-
 pub use fifo::Strategy as Fifo;
-pub use levelled::Strategy as Levelled;
+pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
-/// Alias for `Levelled`
-pub type Leveled = Levelled;
+use crate::{config::Config, level_manifest::LevelManifest, segment::meta::SegmentId};
+
+/// Alias for `Leveled`
+pub type Levelled = Leveled;
 
 #[doc(hidden)]
 pub use pulldown::Strategy as PullDown;

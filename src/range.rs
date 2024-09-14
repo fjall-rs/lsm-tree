@@ -1,15 +1,26 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
-    levels::LevelManifest,
-    memtable::MemTable,
-    merge::{seqno_filter, BoxedIterator, MergeIterator},
+    key::InternalKey,
+    level_manifest::LevelManifest,
+    memtable::Memtable,
+    merge::{BoxedIterator, Merger},
+    mvcc_stream::MvccStream,
     segment::{multi_reader::MultiReader, range::Range as RangeReader},
     tree::inner::SealedMemtables,
-    value::{ParsedInternalKey, SeqNo, UserKey, ValueType},
+    value::{SeqNo, UserKey},
     KvPair,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
 use std::{collections::VecDeque, ops::Bound, sync::Arc};
+
+#[must_use]
+pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
+    item_seqno < seqno
+}
 
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
@@ -21,13 +32,14 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
     }
 
     let mut end = prefix.to_vec();
+    let len = end.len();
 
-    for i in (0..end.len()).rev() {
-        let byte = end.get_mut(i).expect("should be in bounds");
+    for (idx, byte) in end.iter_mut().rev().enumerate() {
+        let idx = len - 1 - idx;
 
         if *byte < 255 {
             *byte += 1;
-            end.truncate(i + 1);
+            end.truncate(idx + 1);
             return (Included(prefix.into()), Excluded(end.into()));
         }
     }
@@ -36,9 +48,9 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 }
 
 pub struct MemtableLockGuard {
-    pub(crate) active: ArcRwLockReadGuardian<MemTable>,
+    pub(crate) active: ArcRwLockReadGuardian<Memtable>,
     pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
-    pub(crate) ephemeral: Option<Arc<MemTable>>,
+    pub(crate) ephemeral: Option<Arc<Memtable>>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
@@ -70,14 +82,16 @@ fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
 ) -> MultiReader<RangeReader> {
-    let mut readers: Vec<_> = level_manifest
+    // TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
+    // TODO: binary-filter per level and collect instead of sorting and whatever
+    let mut segments: Vec<_> = level_manifest
         .iter()
         .filter(|x| x.check_key_range_overlap(bounds))
         .collect();
 
-    readers.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+    segments.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
 
-    let readers: VecDeque<_> = readers
+    let readers: VecDeque<_> = segments
         .into_iter()
         .map(|x| x.range(bounds.clone()))
         .collect::<VecDeque<_>>();
@@ -97,12 +111,12 @@ impl TreeIter {
         Self::new(guard, |lock| {
             let lo = match &bounds.0 {
                 // NOTE: See memtable.rs for range explanation
-                Bound::Included(key) => Bound::Included(ParsedInternalKey::new(
+                Bound::Included(key) => Bound::Included(InternalKey::new(
                     key.clone(),
                     SeqNo::MAX,
                     crate::value::ValueType::Tombstone,
                 )),
-                Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
+                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.clone(),
                     0,
                     crate::value::ValueType::Tombstone,
@@ -125,12 +139,12 @@ impl TreeIter {
                 // abcdef -> 6
                 // abcdef -> 5
                 //
-                Bound::Included(key) => Bound::Included(ParsedInternalKey::new(
+                Bound::Included(key) => Bound::Included(InternalKey::new(
                     key.clone(),
                     0,
                     crate::value::ValueType::Value,
                 )),
-                Bound::Excluded(key) => Bound::Excluded(ParsedInternalKey::new(
+                Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.clone(),
                     SeqNo::MAX,
                     crate::value::ValueType::Value,
@@ -148,7 +162,7 @@ impl TreeIter {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(reader.filter(move |item| match item {
-                        Ok(item) => seqno_filter(item.seqno, seqno),
+                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                         Err(_) => true,
                     })));
                 } else {
@@ -163,6 +177,7 @@ impl TreeIter {
 
                         level.sort_by_key_range();
 
+                        // TODO: can probably be optimized by using binary search per disjoint level to filter segments
                         for segment in &level.segments {
                             if segment.check_key_range_overlap(&bounds) {
                                 let range = segment.range(bounds.clone());
@@ -175,7 +190,7 @@ impl TreeIter {
 
                             if let Some(seqno) = seqno {
                                 iters.push(Box::new(multi_reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.seqno, seqno),
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 })));
                             } else {
@@ -188,9 +203,8 @@ impl TreeIter {
                                 let reader = segment.range(bounds.clone());
 
                                 if let Some(seqno) = seqno {
-                                    #[allow(clippy::option_if_let_else)]
                                     iters.push(Box::new(reader.filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.seqno, seqno),
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
                                         Err(_) => true,
                                     })));
                                 } else {
@@ -210,7 +224,7 @@ impl TreeIter {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -224,7 +238,7 @@ impl TreeIter {
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.seqno, seqno))
+                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
                             .map(Ok),
                     ));
                 } else {
@@ -238,18 +252,86 @@ impl TreeIter {
                 iters.push(iter);
             }
 
-            let iter = MergeIterator::new(iters).evict_old_versions(true);
+            let merged = Merger::new(iters);
+            let iter = MvccStream::new(merged);
 
             Box::new(
                 iter.filter(|x| match x {
-                    Ok(value) => value.value_type != ValueType::Tombstone,
+                    Ok(value) => !value.key.is_tombstone(),
                     Err(_) => true,
                 })
                 .map(|item| match item {
-                    Ok(kv) => Ok((kv.key, kv.value)),
+                    Ok(kv) => Ok((kv.key.user_key, kv.value)),
                     Err(e) => Err(e),
                 }),
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Slice;
+    use std::ops::Bound::{Excluded, Included, Unbounded};
+    use test_log::test;
+
+    fn test_prefix(prefix: &[u8], upper_bound: Bound<&[u8]>) {
+        let range = prefix_to_range(prefix);
+        assert_eq!(
+            range,
+            (
+                match prefix {
+                    _ if prefix.is_empty() => Unbounded,
+                    _ => Included(Slice::from(prefix)),
+                },
+                // TODO: Bound::map 1.77
+                match upper_bound {
+                    Unbounded => Unbounded,
+                    Included(x) => Included(Slice::from(x)),
+                    Excluded(x) => Excluded(Slice::from(x)),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn prefix_to_range_basic() {
+        test_prefix(b"abc", Excluded(b"abd"));
+    }
+
+    #[test]
+    fn prefix_to_range_empty() {
+        test_prefix(b"", Unbounded);
+    }
+
+    #[test]
+    fn prefix_to_range_single_char() {
+        test_prefix(b"a", Excluded(b"b"));
+    }
+
+    #[test]
+    fn prefix_to_range_1() {
+        test_prefix(&[0, 250], Excluded(&[0, 251]));
+    }
+
+    #[test]
+    fn prefix_to_range_2() {
+        test_prefix(&[0, 250, 50], Excluded(&[0, 250, 51]));
+    }
+
+    #[test]
+    fn prefix_to_range_3() {
+        test_prefix(&[255, 255, 255], Unbounded);
+    }
+
+    #[test]
+    fn prefix_to_range_char_max() {
+        test_prefix(&[0, 255], Excluded(&[1]));
+    }
+
+    #[test]
+    fn prefix_to_range_char_max_2() {
+        test_prefix(&[0, 2, 255], Excluded(&[0, 3]));
     }
 }

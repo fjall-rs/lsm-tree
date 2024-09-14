@@ -1,7 +1,11 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{file_offsets::FileOffsets, meta::Metadata};
 use crate::{
-    serde::{Deserializable, Serializable},
-    DeserializeError, SerializeError,
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    file::MAGIC_BYTES,
 };
 use std::{
     fs::File,
@@ -9,7 +13,6 @@ use std::{
     path::Path,
 };
 
-pub const TRAILER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'T', b'R', b'L', b'1'];
 pub const TRAILER_SIZE: usize = 256;
 
 #[derive(Debug)]
@@ -29,17 +32,17 @@ impl SegmentFileTrailer {
         reader.seek(std::io::SeekFrom::End(-(TRAILER_SIZE as i64)))?;
 
         // Parse pointers
-        let offsets = FileOffsets::deserialize(&mut reader)?;
+        let offsets = FileOffsets::decode_from(&mut reader)?;
 
-        let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - TRAILER_MAGIC.len();
+        let remaining_padding = TRAILER_SIZE - FileOffsets::serialized_len() - MAGIC_BYTES.len();
         reader.seek_relative(remaining_padding as i64)?;
 
         // Check trailer magic
-        let mut magic = [0u8; TRAILER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != TRAILER_MAGIC {
-            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+        if magic != MAGIC_BYTES {
+            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
                 "SegmentTrailer",
             )));
         }
@@ -48,22 +51,22 @@ impl SegmentFileTrailer {
 
         // Jump to metadata and parse
         reader.seek(std::io::SeekFrom::Start(offsets.metadata_ptr))?;
-        let metadata = Metadata::deserialize(&mut reader)?;
+        let metadata = Metadata::decode_from(&mut reader)?;
 
         Ok(Self { metadata, offsets })
     }
 }
 
-impl Serializable for SegmentFileTrailer {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for SegmentFileTrailer {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         let mut v = Vec::with_capacity(TRAILER_SIZE);
 
-        self.offsets.serialize(&mut v)?;
+        self.offsets.encode_into(&mut v)?;
 
         // Pad with remaining bytes
-        v.resize(TRAILER_SIZE - TRAILER_MAGIC.len(), 0);
+        v.resize(TRAILER_SIZE - MAGIC_BYTES.len(), 0);
 
-        v.write_all(TRAILER_MAGIC)?;
+        v.write_all(&MAGIC_BYTES)?;
 
         assert_eq!(
             v.len(),

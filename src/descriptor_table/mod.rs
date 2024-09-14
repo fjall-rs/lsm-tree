@@ -1,9 +1,12 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 mod lru;
 
-use crate::segment::id::GlobalSegmentId;
+use crate::{segment::id::GlobalSegmentId, HashMap};
 use lru::LruList;
 use std::{
-    collections::HashMap,
     fs::File,
     io::BufReader,
     path::PathBuf,
@@ -50,6 +53,7 @@ pub struct FileDescriptorTableInner {
     size: AtomicUsize,
 }
 
+#[doc(alias("table cache"))]
 #[allow(clippy::module_name_repetitions)]
 pub struct FileDescriptorTable {
     inner: RwLock<FileDescriptorTableInner>,
@@ -68,7 +72,10 @@ impl FileDescriptorTable {
     pub fn new(limit: usize, concurrency: usize) -> Self {
         Self {
             inner: RwLock::new(FileDescriptorTableInner {
-                table: HashMap::with_capacity(100),
+                table: HashMap::with_capacity_and_hasher(
+                    100,
+                    xxhash_rust::xxh3::Xxh3Builder::new(),
+                ),
                 lru: Mutex::new(LruList::with_capacity(100)),
                 size: AtomicUsize::default(),
             }),
@@ -165,6 +172,7 @@ impl FileDescriptorTable {
                     if shard.is_used.compare_exchange(
                         false,
                         true,
+                        // TODO: could probably be not SeqCst
                         std::sync::atomic::Ordering::SeqCst,
                         std::sync::atomic::Ordering::SeqCst,
                     ) == Ok(false)

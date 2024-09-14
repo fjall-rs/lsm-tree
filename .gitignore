@@ -18,3 +18,4 @@ Cargo.lock
 /old_*
 .test*
 .block_index_test
+.bench

@@ -1,13 +1,17 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 mod compression;
 mod table_type;
 
 use super::writer::Writer;
 use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    file::MAGIC_BYTES,
     key_range::KeyRange,
-    serde::{Deserializable, Serializable},
     time::unix_timestamp,
     value::SeqNo,
-    DeserializeError, SerializeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
@@ -15,8 +19,6 @@ use std::{
     path::Path,
 };
 pub use {compression::CompressionType, table_type::TableType};
-
-pub const METADATA_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'S', b'M', b'D', b'1'];
 
 pub type SegmentId = u64;
 
@@ -50,11 +52,17 @@ pub struct Metadata {
     /// true size in bytes (if no compression were used)
     pub uncompressed_size: u64,
 
-    /// Block size (uncompressed)
-    pub block_size: u32,
+    /// Data block size (uncompressed)
+    pub data_block_size: u32,
 
-    /// Number of written blocks
-    pub block_count: u32,
+    /// Index block size (uncompressed)
+    pub index_block_size: u32,
+
+    /// Number of written data blocks
+    pub data_block_count: u32,
+
+    /// Number of written index blocks
+    pub index_block_count: u32,
 
     /// What type of compression is used
     pub compression: CompressionType,
@@ -69,10 +77,10 @@ pub struct Metadata {
     pub key_range: KeyRange,
 }
 
-impl Serializable for Metadata {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for Metadata {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
-        writer.write_all(METADATA_HEADER_MAGIC)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
         writer.write_u64::<BigEndian>(self.id)?;
 
@@ -86,29 +94,33 @@ impl Serializable for Metadata {
         writer.write_u64::<BigEndian>(self.file_size)?;
         writer.write_u64::<BigEndian>(self.uncompressed_size)?;
 
-        writer.write_u32::<BigEndian>(self.block_size)?;
-        writer.write_u32::<BigEndian>(self.block_count)?;
+        writer.write_u32::<BigEndian>(self.data_block_size)?;
+        writer.write_u32::<BigEndian>(self.index_block_size)?;
 
-        writer.write_u8(self.compression.into())?;
+        writer.write_u32::<BigEndian>(self.data_block_count)?;
+        writer.write_u32::<BigEndian>(self.index_block_count)?;
+
+        self.compression.encode_into(writer)?;
+
         writer.write_u8(self.table_type.into())?;
 
         writer.write_u64::<BigEndian>(self.seqnos.0)?;
         writer.write_u64::<BigEndian>(self.seqnos.1)?;
 
-        self.key_range.serialize(writer)?;
+        self.key_range.encode_into(writer)?;
 
         Ok(())
     }
 }
 
-impl Deserializable for Metadata {
-    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, DeserializeError> {
+impl Decode for Metadata {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // Check header
-        let mut magic = [0u8; METADATA_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
-        if magic != METADATA_HEADER_MAGIC {
-            return Err(DeserializeError::InvalidHeader("SegmentMetadata"));
+        if magic != MAGIC_BYTES {
+            return Err(DecodeError::InvalidHeader("SegmentMetadata"));
         }
 
         let id = reader.read_u64::<BigEndian>()?;
@@ -123,21 +135,22 @@ impl Deserializable for Metadata {
         let file_size = reader.read_u64::<BigEndian>()?;
         let uncompressed_size = reader.read_u64::<BigEndian>()?;
 
-        let block_size = reader.read_u32::<BigEndian>()?;
-        let block_count = reader.read_u32::<BigEndian>()?;
+        let data_block_size = reader.read_u32::<BigEndian>()?;
+        let index_block_size = reader.read_u32::<BigEndian>()?;
 
-        let compression = reader.read_u8()?;
-        let compression = CompressionType::try_from(compression)
-            .map_err(|()| DeserializeError::InvalidTag(("CompressionType", compression)))?;
+        let data_block_count = reader.read_u32::<BigEndian>()?;
+        let index_block_count = reader.read_u32::<BigEndian>()?;
+
+        let compression = CompressionType::decode_from(reader)?;
 
         let table_type = reader.read_u8()?;
         let table_type = TableType::try_from(table_type)
-            .map_err(|()| DeserializeError::InvalidTag(("TableType", table_type)))?;
+            .map_err(|()| DecodeError::InvalidTag(("TableType", table_type)))?;
 
         let seqno_min = reader.read_u64::<BigEndian>()?;
         let seqno_max = reader.read_u64::<BigEndian>()?;
 
-        let key_range = KeyRange::deserialize(reader)?;
+        let key_range = KeyRange::decode_from(reader)?;
 
         Ok(Self {
             id,
@@ -151,8 +164,11 @@ impl Deserializable for Metadata {
             file_size,
             uncompressed_size,
 
-            block_size,
-            block_count,
+            data_block_size,
+            index_block_size,
+
+            data_block_count,
+            index_block_count,
 
             compression,
             table_type,
@@ -165,38 +181,57 @@ impl Deserializable for Metadata {
 }
 
 impl Metadata {
-    /// Consumes a writer and its metadata to create the segment metadata
+    /// Consumes a writer and its metadata to create the segment metadata.
+    ///
+    /// The writer should not be empty.
     pub fn from_writer(id: SegmentId, writer: &Writer) -> crate::Result<Self> {
         Ok(Self {
             id,
-            block_count: writer.block_count as u32,
-            block_size: writer.opts.block_size,
 
             // NOTE: Using seconds is not granular enough
             // But because millis already returns u128, might as well use micros :)
             created_at: unix_timestamp().as_micros(),
 
-            file_size: writer.file_pos,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
-            item_count: writer.item_count as u64,
-            key_count: writer.key_count as u64,
 
+            // NOTE: Truncation is OK - even with the smallest block size (1 KiB), 4 billion blocks would be 4 TB
+            #[allow(clippy::cast_possible_truncation)]
+            data_block_count: writer.meta.data_block_count as u32,
+
+            // NOTE: Truncation is OK as well
+            #[allow(clippy::cast_possible_truncation)]
+            index_block_count: writer.meta.index_block_count as u32,
+
+            data_block_size: writer.opts.data_block_size,
+            index_block_size: writer.opts.index_block_size,
+
+            file_size: writer.meta.file_pos,
+            uncompressed_size: writer.meta.uncompressed_size,
+            item_count: writer.meta.item_count as u64,
+            key_count: writer.meta.key_count as u64,
+
+            // NOTE: from_writer should not be called when the writer wrote nothing
+            #[allow(clippy::expect_used)]
             key_range: KeyRange::new((
                 writer
+                    .meta
                     .first_key
                     .clone()
                     .expect("should have written at least 1 item"),
                 writer
+                    .meta
                     .last_key
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
 
-            seqnos: (writer.lowest_seqno, writer.highest_seqno),
-            tombstone_count: writer.tombstone_count as u64,
-            range_tombstone_count: 0, // TODO:
-            uncompressed_size: writer.uncompressed_size,
+            seqnos: (writer.meta.lowest_seqno, writer.meta.highest_seqno),
+
+            tombstone_count: writer.meta.tombstone_count as u64,
+
+            // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
+            range_tombstone_count: 0,
         })
     }
 
@@ -204,7 +239,7 @@ impl Metadata {
     pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
         let file_content = std::fs::read(path)?;
         let mut cursor = Cursor::new(file_content);
-        let meta = Self::deserialize(&mut cursor)?;
+        let meta = Self::decode_from(&mut cursor)?;
         Ok(meta)
     }
 }
@@ -218,12 +253,14 @@ mod tests {
     #[test]
     fn segment_metadata_serde_round_trip() -> crate::Result<()> {
         let metadata = Metadata {
-            block_count: 0,
-            block_size: 0,
+            data_block_count: 0,
+            index_block_count: 0,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             created_at: 5,
             id: 632_632,
             file_size: 1,
-            compression: CompressionType::Lz4,
+            compression: CompressionType::None,
             table_type: TableType::Block,
             item_count: 0,
             key_count: 0,
@@ -234,11 +271,9 @@ mod tests {
             seqnos: (0, 5),
         };
 
-        let mut bytes = vec![];
-        metadata.serialize(&mut bytes)?;
-
+        let bytes = metadata.encode_into_vec()?;
         let mut cursor = Cursor::new(bytes);
-        let metadata_copy = Metadata::deserialize(&mut cursor)?;
+        let metadata_copy = Metadata::decode_from(&mut cursor)?;
 
         assert_eq!(metadata, metadata_copy);
 

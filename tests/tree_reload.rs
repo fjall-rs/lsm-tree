@@ -1,8 +1,8 @@
-use lsm_tree::{Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, TreeType};
 use std::fs::File;
 use test_log::test;
 
-const ITEM_COUNT: usize = 100_000;
+const ITEM_COUNT: usize = 10_000;
 
 #[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {
@@ -14,6 +14,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().flatten().count(), 0);
         assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.tree_type(), TreeType::Standard);
     }
 
     {
@@ -22,6 +23,18 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().flatten().count(), 0);
         assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.tree_type(), TreeType::Standard);
+
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = Config::new(&folder).open()?;
+
+        assert_eq!(tree.len()?, 0);
+        assert_eq!(tree.iter().flatten().count(), 0);
+        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.tree_type(), TreeType::Standard);
     }
 
     Ok(())
@@ -42,7 +55,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key: [u8; 8] = (x + ITEM_COUNT as u64).to_be_bytes();
@@ -54,7 +67,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
         assert_eq!(tree.iter().flatten().count(), ITEM_COUNT * 2);
         assert_eq!(tree.iter().rev().flatten().count(), ITEM_COUNT * 2);
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     {

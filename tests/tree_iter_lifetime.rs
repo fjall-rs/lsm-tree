@@ -1,4 +1,4 @@
-use lsm_tree::KvPair;
+use lsm_tree::{AbstractTree, KvPair};
 use std::path::Path;
 
 fn iterrr(
@@ -15,7 +15,7 @@ fn iterrr(
 }
 
 #[test_log::test]
-fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
+fn tree_iter_lifetime() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir().unwrap();
     assert_eq!(100, iterrr(folder.path())?.count());
     Ok(())

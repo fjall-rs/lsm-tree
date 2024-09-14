@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 pub mod block;
 pub mod block_index;
 pub mod file_offsets;
@@ -12,15 +16,19 @@ pub mod value_block;
 pub mod value_block_consumer;
 pub mod writer;
 
-use self::{block_index::BlockIndex, file_offsets::FileOffsets, range::Range};
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
+    mvcc_stream::MvccStream,
     segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
     tree::inner::TreeId,
-    value::{SeqNo, UserKey},
-    Value,
+    value::{InternalValue, SeqNo, UserKey},
+    ValueType,
 };
+use block::checksum::Checksum;
+use block_index::two_level_index::TwoLevelBlockIndex;
+use file_offsets::FileOffsets;
+use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
@@ -33,8 +41,8 @@ use crate::bloom::{BloomFilter, CompositeHash};
 ///
 /// Deleted entries are represented by tombstones.
 ///
-/// Segments can be merged together to remove duplicate items, reducing disk space and improving read performance.
-#[doc(alias = "sstable")]
+/// Segments can be merged together to improve read performance and reduce disk space by removing outdated item versions.
+#[doc(alias("sstable", "sst", "sorted string table"))]
 pub struct Segment {
     pub(crate) tree_id: TreeId,
 
@@ -42,13 +50,14 @@ pub struct Segment {
     pub descriptor_table: Arc<FileDescriptorTable>,
 
     /// Segment metadata object
+    #[doc(hidden)]
     pub metadata: meta::Metadata,
 
-    pub offsets: FileOffsets,
+    pub(crate) offsets: FileOffsets,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
-    pub block_index: Arc<BlockIndex>,
+    pub block_index: Arc<TwoLevelBlockIndex>,
 
     /// Block cache
     ///
@@ -73,7 +82,7 @@ impl Segment {
         use block_index::IndexBlock;
         use value_block::ValueBlock;
 
-        let mut count = 0;
+        let mut data_block_count = 0;
         let mut broken_count = 0;
 
         let guard = self
@@ -85,56 +94,61 @@ impl Segment {
 
         // NOTE: TODO: because of 1.74.0
         #[allow(clippy::explicit_iter_loop)]
-        for handle in self.block_index.top_level_index.data.iter() {
-            let block = match IndexBlock::from_file_compressed(&mut *file, handle.offset) {
+        for handle in self.block_index.top_level_index.iter() {
+            let block = match IndexBlock::from_file(&mut *file, handle.offset) {
                 Ok(v) => v,
                 Err(e) => {
                     log::error!(
                         "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
                     );
                     broken_count += 1;
-                    count += 1;
                     continue;
                 }
             };
 
             for handle in &*block.items {
-                let value_block = match ValueBlock::from_file_compressed(&mut *file, handle.offset)
-                {
+                let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
                     Ok(v) => v,
                     Err(e) => {
                         log::error!(
                             "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
                         );
                         broken_count += 1;
-                        count += 1;
+                        data_block_count += 1;
                         continue;
                     }
                 };
 
-                let expected_crc = value_block.header.crc;
-                let actual_crc = ValueBlock::create_crc(&value_block.items)?;
+                let (_, data) = ValueBlock::to_bytes_compressed(
+                    &value_block.items,
+                    value_block.header.previous_block_offset,
+                    value_block.header.compression,
+                )?;
+                let actual_checksum = Checksum::from_bytes(&data);
 
-                if expected_crc != actual_crc {
-                    log::error!("{handle:?} is corrupt, invalid CRC value");
+                if value_block.header.checksum != actual_checksum {
+                    log::error!("{handle:?} is corrupted, invalid checksum value");
                     broken_count += 1;
                 }
 
-                count += 1;
+                data_block_count += 1;
 
-                if broken_count % 10_000 == 0 {
-                    log::info!("Checked {count} data blocks");
+                if data_block_count % 1_000 == 0 {
+                    log::debug!("Checked {data_block_count} data blocks");
                 }
             }
         }
 
-        assert_eq!(count, self.metadata.block_count);
+        assert_eq!(
+            data_block_count, self.metadata.data_block_count,
+            "not all data blocks were visited"
+        );
 
         Ok(broken_count)
     }
 
     /// Tries to recover a segment from a file.
-    pub fn recover<P: AsRef<Path>>(
+    pub(crate) fn recover<P: AsRef<Path>>(
         file_path: P,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
@@ -151,12 +165,12 @@ impl Segment {
             "Creating block index, with tli_ptr={}",
             trailer.offsets.tli_ptr
         );
-        let block_index = BlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             file_path,
             trailer.offsets.tli_ptr,
             (tree_id, trailer.metadata.id).into(),
             descriptor_table.clone(),
-            Arc::clone(&block_cache),
+            block_cache.clone(),
         )?;
 
         #[cfg(feature = "bloom")]
@@ -175,7 +189,7 @@ impl Segment {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
-                use crate::serde::Deserializable;
+                use crate::coding::Decode;
                 use std::{
                     fs::File,
                     io::{Seek, SeekFrom},
@@ -185,7 +199,7 @@ impl Segment {
 
                 let mut reader = File::open(file_path)?;
                 reader.seek(SeekFrom::Start(bloom_ptr))?;
-                BloomFilter::deserialize(&mut reader)?
+                BloomFilter::decode_from(&mut reader)?
             },
         })
     }
@@ -203,7 +217,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
         hash: CompositeHash,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -215,11 +229,7 @@ impl Segment {
         }
 
         {
-            /* let start = std::time::Instant::now(); */
-            let probe = self.bloom_filter.contains_hash(hash);
-            /*    eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
-
-            if !probe {
+            if !self.bloom_filter.contains_hash(hash) {
                 return Ok(None);
             }
         }
@@ -231,7 +241,7 @@ impl Segment {
         &self,
         key: K,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         use value_block::{CachePolicy, ValueBlock};
 
         let key = key.as_ref();
@@ -260,7 +270,15 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-            return Ok(block.get_latest(key.as_ref()).cloned());
+            let Some(latest) = block.get_latest(key.as_ref()).cloned() else {
+                return Ok(None);
+            };
+
+            if latest.key.value_type == ValueType::WeakTombstone {
+                // NOTE: Continue in slow path
+            } else {
+                return Ok(Some(latest));
+            }
         }
 
         let mut reader = Reader::new(
@@ -279,6 +297,32 @@ impl Segment {
         ));
         reader.lo_initialized = true;
 
+        let iter = reader.filter_map(move |entry| {
+            let entry = fail_iter!(entry);
+
+            // NOTE: We are past the searched key, so we can immediately return None
+            if &*entry.key.user_key > key {
+                None
+            } else {
+                // Check for seqno if needed
+                if let Some(seqno) = seqno {
+                    if entry.key.seqno < seqno {
+                        Some(Ok(InternalValue {
+                            key: entry.key.clone(),
+                            value: entry.value,
+                        }))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(Ok(InternalValue {
+                        key: entry.key.clone(),
+                        value: entry.value,
+                    }))
+                }
+            }
+        });
+
         // NOTE: For finding a specific seqno,
         // we need to use a reader
         // because nothing really prevents the version
@@ -294,36 +338,23 @@ impl Segment {
         // Based on get_lower_bound_block, "a" is in Block A
         // However, we are searching for A with seqno 2, which
         // unfortunately is in the next block
-        for item in reader {
-            let item = item?;
-
-            // Just stop iterating once we go past our desired key
-            if &*item.key != key {
-                return Ok(None);
-            }
-
-            if let Some(seqno) = seqno {
-                if item.seqno < seqno {
-                    return Ok(Some(item));
-                }
-            } else {
-                return Ok(Some(item));
-            }
-        }
-
-        Ok(None)
+        //
+        // Also because of weak tombstones, we may have to look further than the first item we encounter
+        MvccStream::new(iter).next().transpose()
     }
 
+    // NOTE: Clippy false positive
+    #[allow(unused)]
     /// Retrieves an item from the segment.
     ///
     /// # Errors
-    ///get
+    ///
     /// Will return `Err` if an IO error occurs.
-    pub fn get<K: AsRef<[u8]>>(
+    pub(crate) fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<Value>> {
+    ) -> crate::Result<Option<InternalValue>> {
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -340,11 +371,7 @@ impl Segment {
         {
             debug_assert!(false, "Use Segment::get_with_hash instead");
 
-            /*   let start = std::time::Instant::now(); */
-            let probe = self.bloom_filter.contains(key);
-            /* eprintln!("probe in {}ns", start.elapsed().as_nanos()); */
-
-            if !probe {
+            if !self.bloom_filter.contains(key) {
                 return Ok(None);
             }
         }
@@ -352,6 +379,7 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
+    // TODO: move segment tests into module, then make pub(crate)
     /// Creates an iterator over the `Segment`.
     ///
     /// # Errors
@@ -359,13 +387,14 @@ impl Segment {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
+    #[doc(hidden)]
     pub fn iter(&self) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
             (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
         )
     }
@@ -376,20 +405,20 @@ impl Segment {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
+    pub(crate) fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
         Range::new(
             self.offsets.index_block_ptr,
-            Arc::clone(&self.descriptor_table),
+            self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
-            Arc::clone(&self.block_cache),
-            Arc::clone(&self.block_index),
+            self.block_cache.clone(),
+            self.block_index.clone(),
             range,
         )
     }
 
     /// Returns the highest sequence number in the segment.
     #[must_use]
-    pub fn get_lsn(&self) -> SeqNo {
+    pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1
     }
 

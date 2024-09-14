@@ -1,8 +1,12 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
-    serde::{DeserializeError, SerializeError},
+    coding::{DecodeError, EncodeError},
     version::Version,
+    Checksum, CompressionType,
 };
-use lz4_flex::block::DecompressError;
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
@@ -11,16 +15,25 @@ pub enum Error {
     Io(std::io::Error),
 
     /// Serialization failed
-    Serialize(SerializeError),
+    Encode(EncodeError),
 
     /// Deserialization failed
-    Deserialize(DeserializeError),
+    Decode(DecodeError),
 
     /// Decompression failed
-    Decompress(DecompressError),
+    Decompress(CompressionType),
 
-    /// Invalid or unparseable data format version
-    InvalidVersion(Option<Version>),
+    /// Invalid or unparsable data format version
+    InvalidVersion(Version),
+
+    /// Some required segments could not be required from disk
+    Unrecoverable,
+
+    /// Invalid checksum value (got, expected)
+    InvalidChecksum((Checksum, Checksum)),
+
+    /// Value log errors
+    ValueLog(value_log::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -37,21 +50,21 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<SerializeError> for Error {
-    fn from(value: SerializeError) -> Self {
-        Self::Serialize(value)
+impl From<EncodeError> for Error {
+    fn from(value: EncodeError) -> Self {
+        Self::Encode(value)
     }
 }
 
-impl From<DeserializeError> for Error {
-    fn from(value: DeserializeError) -> Self {
-        Self::Deserialize(value)
+impl From<DecodeError> for Error {
+    fn from(value: DecodeError) -> Self {
+        Self::Decode(value)
     }
 }
 
-impl From<DecompressError> for Error {
-    fn from(value: DecompressError) -> Self {
-        Self::Decompress(value)
+impl From<value_log::Error> for Error {
+    fn from(value: value_log::Error) -> Self {
+        Self::ValueLog(value)
     }
 }
 

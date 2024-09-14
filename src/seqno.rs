@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::SeqNo;
 use std::sync::{
     atomic::{
@@ -12,7 +16,7 @@ use std::sync::{
 /// # Examples
 ///
 /// ```
-/// # use lsm_tree::{Config, SequenceNumberCounter};
+/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
 /// let tree = Config::new(path).open()?;

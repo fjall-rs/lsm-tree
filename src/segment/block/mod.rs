@@ -1,34 +1,65 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
+pub mod checksum;
 pub mod header;
 
-use crate::serde::{Deserializable, Serializable};
+use super::meta::CompressionType;
+use crate::coding::{Decode, Encode};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use checksum::Checksum;
 use header::Header as BlockHeader;
-use lz4_flex::{compress_prepend_size, decompress_size_prepended};
 use std::io::{Cursor, Read};
+
+// TODO: better name
+pub trait ItemSize {
+    fn size(&self) -> usize;
+}
+
+impl<T: ItemSize> ItemSize for [T] {
+    fn size(&self) -> usize {
+        self.iter().map(ItemSize::size).sum()
+    }
+}
 
 /// A disk-based block
 ///
-/// A block is split into its header and a compressed blob of data.
+/// A block is split into its header and a blob of data.
+/// The data blob may be compressed.
 ///
 /// \[ header \]
 /// \[  data  \]
 ///
-/// The integrity of a block can be checked using the CRC value that is saved in it.
+/// The integrity of a block can be checked using the checksum value that is saved in its header.
 #[derive(Clone, Debug)]
-pub struct Block<T: Clone + Serializable + Deserializable> {
+pub struct Block<T: Clone + Encode + Decode + ItemSize> {
     pub header: BlockHeader,
     pub items: Box<[T]>,
 }
 
-impl<T: Clone + Serializable + Deserializable> Block<T> {
-    pub fn from_reader_compressed<R: Read>(reader: &mut R) -> crate::Result<Self> {
+impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
+    pub fn from_reader<R: Read>(reader: &mut R) -> crate::Result<Self> {
         // Read block header
-        let header = BlockHeader::deserialize(reader)?;
+        let header = BlockHeader::decode_from(reader)?;
+        log::trace!("Got block header: {header:?}");
 
         let mut bytes = vec![0u8; header.data_length as usize];
         reader.read_exact(&mut bytes)?;
 
-        let bytes = decompress_size_prepended(&bytes)?;
+        let bytes = match header.compression {
+            super::meta::CompressionType::None => bytes,
+
+            #[cfg(feature = "lz4")]
+            super::meta::CompressionType::Lz4 => lz4_flex::decompress_size_prepended(&bytes)
+                .map_err(|_| crate::Error::Decompress(header.compression))?,
+
+            #[cfg(feature = "miniz")]
+            super::meta::CompressionType::Miniz(_) => {
+                miniz_oxide::inflate::decompress_to_vec(&bytes)
+                    .map_err(|_| crate::Error::Decompress(header.compression))?
+            }
+        };
         let mut bytes = Cursor::new(bytes);
 
         // Read number of items
@@ -37,7 +68,7 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         // Deserialize each value
         let mut items = Vec::with_capacity(item_count);
         for _ in 0..item_count {
-            items.push(T::deserialize(&mut bytes)?);
+            items.push(T::decode_from(&mut bytes)?);
         }
 
         Ok(Self {
@@ -46,127 +77,143 @@ impl<T: Clone + Serializable + Deserializable> Block<T> {
         })
     }
 
-    pub fn from_file_compressed<R: std::io::Read + std::io::Seek>(
+    pub fn from_file<R: std::io::Read + std::io::Seek>(
         reader: &mut R,
         offset: u64,
     ) -> crate::Result<Self> {
         reader.seek(std::io::SeekFrom::Start(offset))?;
-        Self::from_reader_compressed(reader)
-    }
-
-    /// Calculates the CRC from a list of values
-    pub fn create_crc(items: &[T]) -> crate::Result<u32> {
-        let mut hasher = crc32fast::Hasher::new();
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        hasher.update(&(items.len() as u32).to_be_bytes());
-
-        for value in items {
-            let mut serialized_value = Vec::new();
-            value.serialize(&mut serialized_value)?;
-
-            hasher.update(&serialized_value);
-        }
-
-        Ok(hasher.finalize())
-    }
-
-    #[allow(unused)]
-    pub(crate) fn check_crc(&self, expected_crc: u32) -> crate::Result<bool> {
-        let crc = Self::create_crc(&self.items)?;
-        Ok(crc == expected_crc)
+        Self::from_reader(reader)
     }
 
     pub fn to_bytes_compressed(
         items: &[T],
         previous_block_offset: u64,
+        compression: CompressionType,
     ) -> crate::Result<(BlockHeader, Vec<u8>)> {
-        let packed = Self::pack_items(items)?;
+        let packed = Self::pack_items(items, compression)?;
+        let checksum = Checksum::from_bytes(&packed);
 
         let header = BlockHeader {
-            crc: Self::create_crc(items)?,
-            compression: super::meta::CompressionType::Lz4,
+            checksum,
+            compression,
             previous_block_offset,
+
+            // NOTE: Truncation is OK because block size is max 512 KiB
+            #[allow(clippy::cast_possible_truncation)]
             data_length: packed.len() as u32,
+
+            // NOTE: Truncation is OK because a block cannot possible contain 4 billion items
+            #[allow(clippy::cast_possible_truncation)]
+            uncompressed_length: items.size() as u32,
         };
 
         Ok((header, packed))
     }
 
-    fn pack_items(items: &[T]) -> crate::Result<Vec<u8>> {
+    fn pack_items(items: &[T], compression: CompressionType) -> crate::Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(u16::MAX.into());
 
-        // NOTE: Truncation is okay and actually needed
+        // NOTE: There cannot be 4 billion items in a block
         #[allow(clippy::cast_possible_truncation)]
         buf.write_u32::<BigEndian>(items.len() as u32)?;
 
         // Serialize each value
         for value in items {
-            value.serialize(&mut buf)?;
+            value.encode_into(&mut buf)?;
         }
 
-        Ok(compress_prepend_size(&buf))
+        Ok(match compression {
+            CompressionType::None => buf,
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => lz4_flex::compress_prepend_size(&buf),
+
+            #[cfg(feature = "miniz")]
+            CompressionType::Miniz(level) => miniz_oxide::deflate::compress_to_vec(&buf, level),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{segment::value_block::ValueBlock, value::ValueType, Value};
+    use crate::{
+        segment::value_block::ValueBlock,
+        value::{InternalValue, ValueType},
+    };
     use std::io::Write;
     use test_log::test;
 
     #[test]
     fn disk_block_deserialization_success() -> crate::Result<()> {
-        let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+        let item1 =
+            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
+        let item2 =
+            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1.clone(), item2.clone()];
-        let crc = Block::create_crc(&items)?;
 
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
-        header.serialize(&mut serialized)?;
+        header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;
 
         assert_eq!(serialized.len(), BlockHeader::serialized_len() + data.len());
 
         // Deserialize from bytes
         let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
+        let block = ValueBlock::from_reader(&mut cursor)?;
 
         assert_eq!(2, block.items.len());
         assert_eq!(block.items.first().cloned(), Some(item1));
         assert_eq!(block.items.get(1).cloned(), Some(item2));
-        assert_eq!(crc, block.header.crc);
+
+        let checksum = {
+            let (_, data) = ValueBlock::to_bytes_compressed(
+                &block.items,
+                block.header.previous_block_offset,
+                block.header.compression,
+            )?;
+            Checksum::from_bytes(&data)
+        };
+        assert_eq!(block.header.checksum, checksum);
 
         Ok(())
     }
 
     #[test]
-    fn disk_block_deserialization_failure_crc() -> crate::Result<()> {
-        let item1 = Value::new(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 = Value::new(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+    fn disk_block_deserialization_failure_checksum() -> crate::Result<()> {
+        let item1 =
+            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
+        let item2 =
+            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
 
         let items = vec![item1, item2];
 
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0)?;
+        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
 
-        header.serialize(&mut serialized)?;
+        header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;
 
         // Deserialize from bytes
         let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader_compressed(&mut cursor)?;
+        let block = ValueBlock::from_reader(&mut cursor)?;
 
-        assert!(!block.check_crc(54321)?);
+        let checksum = {
+            let (_, data) = ValueBlock::to_bytes_compressed(
+                &block.items,
+                block.header.previous_block_offset,
+                block.header.compression,
+            )?;
+            Checksum::from_bytes(&data)
+        };
+        assert_eq!(block.header.checksum, checksum);
 
         Ok(())
     }

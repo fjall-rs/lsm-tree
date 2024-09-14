@@ -1,4 +1,4 @@
-use lsm_tree::{Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 5;
@@ -7,7 +7,7 @@ const ITEM_COUNT: usize = 5;
 fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).block_size(1_024).open()?;
+    let tree = Config::new(&folder).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -50,14 +50,14 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder).block_size(1_024).open()?;
+        let tree = Config::new(&folder).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
             tree.insert(key, "abc".as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(tree.len()?, ITEM_COUNT);
         assert_eq!(tree.iter().rev().count(), ITEM_COUNT);
@@ -73,7 +73,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
             tree.remove(key, seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().rev().count(), 0);
@@ -87,7 +87,7 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).block_size(1_024).open()?;
+        let tree = Config::new(&folder).open()?;
 
         assert_eq!(tree.len()?, 0);
         assert_eq!(tree.iter().rev().count(), 0);

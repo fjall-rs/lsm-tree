@@ -1,23 +1,24 @@
-pub mod iter;
-mod level;
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
 
-use self::level::Level;
+pub mod iter;
+pub(crate) mod level;
+
 use crate::{
-    file::rewrite_atomic,
+    coding::{DecodeError, Encode, EncodeError},
+    file::{rewrite_atomic, MAGIC_BYTES},
     segment::{meta::SegmentId, Segment},
-    serde::Serializable,
-    DeserializeError, SerializeError,
+    HashMap, HashSet,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use iter::LevelManifestIterator;
+use level::Level;
 use std::{
-    collections::{HashMap, HashSet},
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-pub const LEVEL_MANIFEST_HEADER_MAGIC: &[u8] = &[b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1'];
 
 pub type HiddenSet = HashSet<SegmentId>;
 
@@ -43,7 +44,7 @@ impl std::fmt::Display for LevelManifest {
             write!(f, "{idx}: ")?;
 
             if level.segments.is_empty() {
-                write!(f, "{{empty}}")?;
+                write!(f, "<empty>")?;
             } else if level.segments.len() >= 24 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
@@ -114,7 +115,10 @@ impl LevelManifest {
         let mut levels = Self {
             path: path.as_ref().to_path_buf(),
             levels,
-            hidden_set: HashSet::with_capacity(10),
+            hidden_set: HashSet::with_capacity_and_hasher(
+                10,
+                xxhash_rust::xxh3::Xxh3Builder::new(),
+            ),
         };
         Self::write_to_disk(path, &levels.levels)?;
 
@@ -127,11 +131,11 @@ impl LevelManifest {
         let mut level_manifest = Cursor::new(std::fs::read(&path)?);
 
         // Check header
-        let mut magic = [0u8; LEVEL_MANIFEST_HEADER_MAGIC.len()];
+        let mut magic = [0u8; MAGIC_BYTES.len()];
         level_manifest.read_exact(&mut magic)?;
 
-        if magic != LEVEL_MANIFEST_HEADER_MAGIC {
-            return Err(crate::Error::Deserialize(DeserializeError::InvalidHeader(
+        if magic != MAGIC_BYTES {
+            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
                 "LevelManifest",
             )));
         }
@@ -195,14 +199,14 @@ impl LevelManifest {
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
-        #[allow(unused_mut)]
-        let levels = Self {
+        Ok(Self {
             levels,
-            hidden_set: HashSet::with_capacity(10),
+            hidden_set: HashSet::with_capacity_and_hasher(
+                10,
+                xxhash_rust::xxh3::Xxh3Builder::new(),
+            ),
             path: path.as_ref().to_path_buf(),
-        };
-
-        Ok(levels)
+        })
     }
 
     pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
@@ -210,8 +214,7 @@ impl LevelManifest {
 
         log::trace!("Writing level manifest to {path:?}",);
 
-        let mut serialized = vec![];
-        levels.serialize(&mut serialized)?;
+        let serialized = levels.encode_into_vec()?;
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -226,17 +229,17 @@ impl LevelManifest {
     }
 
     /// Modifies the level manifest atomically.
-    pub(crate) fn atomic_swap<F: Fn(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+    pub(crate) fn atomic_swap<F: FnOnce(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
         // NOTE: Create a copy of the levels we can operate on
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let mut level_working_copy = self.levels.clone();
+        let mut working_copy = self.levels.clone();
 
-        f(&mut level_working_copy);
+        f(&mut working_copy);
 
-        Self::write_to_disk(&self.path, &level_working_copy)?;
-        self.levels = level_working_copy;
+        Self::write_to_disk(&self.path, &working_copy)?;
+        self.levels = working_copy;
 
         log::trace!("Swapped level manifest to:\n{self}");
 
@@ -324,7 +327,8 @@ impl LevelManifest {
 
     #[must_use]
     pub fn busy_levels(&self) -> HashSet<u8> {
-        let mut output = HashSet::with_capacity(self.len());
+        let mut output =
+            HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
 
         for (idx, level) in self.levels.iter().enumerate() {
             for segment_id in level.ids() {
@@ -359,14 +363,14 @@ impl LevelManifest {
         output
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Arc<Segment>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<Segment>> + '_ {
         LevelManifestIterator::new(self)
     }
 
     pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
-        let mut output = HashMap::new();
+        let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
-        for segment in self.iter() {
+        for segment in self.iter().cloned() {
             output.insert(segment.metadata.id, segment);
         }
 
@@ -386,14 +390,18 @@ impl LevelManifest {
     }
 }
 
-impl Serializable for Vec<Level> {
-    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), SerializeError> {
+impl Encode for Vec<Level> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
-        writer.write_all(LEVEL_MANIFEST_HEADER_MAGIC)?;
+        writer.write_all(&MAGIC_BYTES)?;
 
+        // NOTE: "Truncation" is OK, because levels are created from a u8
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u8(self.len() as u8)?;
 
         for level in self {
+            // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
+            #[allow(clippy::cast_possible_truncation)]
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
@@ -408,63 +416,9 @@ impl Serializable for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use crate::{
-        block_cache::BlockCache,
-        descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
-        levels::{level::Level, LevelManifest},
-        segment::{
-            block_index::BlockIndex,
-            file_offsets::FileOffsets,
-            meta::{Metadata, SegmentId},
-            Segment,
-        },
-        serde::Serializable,
-    };
-    use std::{collections::HashSet, sync::Arc};
-
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
-
-    #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-
-        Arc::new(Segment {
-            tree_id: 0,
-            descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
-
-            offsets: FileOffsets {
-                bloom_ptr: 0,
-                index_block_ptr: 0,
-                metadata_ptr: 0,
-                range_tombstone_ptr: 0,
-                tli_ptr: 0,
-            },
-
-            metadata: Metadata {
-                block_count: 0,
-                block_size: 0,
-                created_at: 0,
-                id,
-                file_size: 0,
-                compression: crate::segment::meta::CompressionType::Lz4,
-                table_type: crate::segment::meta::TableType::Block,
-                item_count: 0,
-                key_count: 0,
-                key_range,
-                tombstone_count: 0,
-                range_tombstone_count: 0,
-                uncompressed_size: 0,
-                seqnos: (0, 0),
-            },
-            block_cache,
-
-            #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
-        })
-    }
+    use crate::{coding::Encode, level_manifest::LevelManifest, AbstractTree};
+    use std::collections::HashSet;
+    use test_log::test;
 
     #[test]
     fn level_manifest_atomicity() -> crate::Result<()> {
@@ -473,20 +427,20 @@ mod tests {
         let tree = crate::Config::new(folder).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 1);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 2);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.major_compact(u64::MAX)?;
+        tree.major_compact(u64::MAX, 3)?;
 
         assert_eq!(1, tree.segment_count());
 
         tree.insert("a", "a", 3);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         let segment_count_before_major_compact = tree.segment_count();
 
@@ -494,7 +448,7 @@ mod tests {
         // to force an I/O error
         tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
 
-        assert!(tree.major_compact(u64::MAX).is_err());
+        assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
             .levels
@@ -516,13 +470,12 @@ mod tests {
             path: "a".into(),
         };
 
-        let mut bytes = vec![];
-        levels.levels.serialize(&mut bytes)?;
+        let bytes = levels.levels.encode_into_vec()?;
 
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'F', b'J', b'L', b'L', b'L', b'V', b'L', b'1',
+            b'L', b'S', b'M', 2,
 
             // Count
             0,
@@ -531,101 +484,5 @@ mod tests {
         assert_eq!(bytes, raw);
 
         Ok(())
-    }
-
-    #[test]
-    fn level_disjoint() -> crate::Result<()> {
-        let folder = tempfile::tempdir()?;
-
-        let tree = crate::Config::new(&folder).open()?;
-
-        let mut x = 0_u64;
-
-        for _ in 0..10 {
-            for _ in 0..10 {
-                let key = x.to_be_bytes();
-                x += 1;
-                tree.insert(key, key, 0);
-            }
-            tree.flush_active_memtable().expect("should flush");
-        }
-
-        assert!(
-            tree.levels
-                .read()
-                .expect("lock is poisoned")
-                .levels
-                .first()
-                .expect("should exist")
-                .is_disjoint
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn level_not_disjoint() -> crate::Result<()> {
-        let folder = tempfile::tempdir()?;
-
-        let tree = crate::Config::new(&folder).open()?;
-
-        for i in 0..10 {
-            tree.insert("a", "", i);
-            tree.insert("z", "", i);
-            tree.flush_active_memtable().expect("should flush");
-        }
-
-        assert!(
-            !tree
-                .levels
-                .read()
-                .expect("lock is poisoned")
-                .levels
-                .first()
-                .expect("should exist")
-                .is_disjoint
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn level_overlaps() {
-        let seg0 = fixture_segment(
-            1,
-            KeyRange::new((b"c".to_vec().into(), b"k".to_vec().into())),
-        );
-        let seg1 = fixture_segment(
-            2,
-            KeyRange::new((b"l".to_vec().into(), b"z".to_vec().into())),
-        );
-
-        let mut level = Level::default();
-        level.insert(seg0);
-        level.insert(seg1);
-
-        assert_eq!(
-            Vec::<SegmentId>::new(),
-            level
-                .overlapping_segments(&KeyRange::new((b"a".to_vec().into(), b"b".to_vec().into())))
-                .map(|x| x.metadata.id)
-                .collect::<Vec<_>>(),
-        );
-
-        assert_eq!(
-            vec![1],
-            level
-                .overlapping_segments(&KeyRange::new((b"d".to_vec().into(), b"k".to_vec().into())))
-                .map(|x| x.metadata.id)
-                .collect::<Vec<_>>(),
-        );
-
-        assert_eq!(
-            vec![1, 2],
-            level
-                .overlapping_segments(&KeyRange::new((b"f".to_vec().into(), b"x".to_vec().into())))
-                .map(|x| x.metadata.id)
-                .collect::<Vec<_>>(),
-        );
     }
 }

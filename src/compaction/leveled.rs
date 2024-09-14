@@ -1,6 +1,12 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, key_range::KeyRange, levels::LevelManifest, segment::Segment};
-use std::{collections::HashSet, ops::Deref, sync::Arc};
+use crate::{
+    config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment, HashSet,
+};
+use std::{ops::Deref, sync::Arc};
 
 /// Levelled compaction strategy (LCS)
 ///
@@ -8,9 +14,12 @@ use std::{collections::HashSet, ops::Deref, sync::Arc};
 ///
 /// Each level Ln for n >= 1 can have up to ratio^n segments.
 ///
-/// LCS suffers from high write amplification, but decent read & space amplification.
+/// LCS suffers from comparatively high write amplification, but has decent read & space amplification.
 ///
-/// More info here: <https://opensource.docs.scylladb.com/stable/cql/compaction.html#leveled-compaction-strategy-lcs>
+/// LCS is the recommended compaction strategy to use.
+///
+/// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
+#[derive(Clone)]
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
     /// they are merged into L1
@@ -26,6 +35,15 @@ pub struct Strategy {
     ///
     /// Same as `target_file_size_base` in `RocksDB`
     pub target_size: u32,
+
+    /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
+    ///
+    /// This is the exponential growth of the from one.
+    /// level to the next
+    ///
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    #[allow(clippy::doc_markdown)]
+    pub level_ratio: u8,
 }
 
 impl Default for Strategy {
@@ -33,6 +51,7 @@ impl Default for Strategy {
         Self {
             l0_threshold: 4,
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 8,
         }
     }
 }
@@ -63,35 +82,30 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
 }
 
 impl CompactionStrategy for Strategy {
-    fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
+    #[allow(clippy::too_many_lines)]
+    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
         // If there are any levels that already have a compactor working on it
         // we can't touch those, because that could cause a race condition
-        // violating the levelled compaction invariance of having a single sorted
+        // violating the leveled compaction invariance of having a single sorted
         // run per level
         //
         // TODO: However, this can probably improved by checking two compaction
         // workers just don't cross key ranges
-        // If so, we should sort the level(s), because if multiple compaction workers
-        // wrote to the same level at the same time, we couldn't guarantee that the levels
-        // are sorted in ascending keyspace order (current they are because we write the
-        // segments from left to right, so lower key bound + creation date match up)
         let busy_levels = levels.busy_levels();
 
         for (curr_level_index, level) in resolved_view
             .iter()
             .enumerate()
-            .map(|(idx, lvl)| {
-                (
-                    u8::try_from(idx).expect("levels should not exceed 255"),
-                    lvl,
-                )
-            })
             .skip(1)
             .take(resolved_view.len() - 2)
             .rev()
         {
+            // NOTE: Level count is 255 max
+            #[allow(clippy::cast_possible_truncation)]
+            let curr_level_index = curr_level_index as u8;
+
             let next_level_index = curr_level_index + 1;
 
             if level.is_empty() {
@@ -105,7 +119,7 @@ impl CompactionStrategy for Strategy {
             let curr_level_bytes = level.size();
 
             let desired_bytes =
-                desired_level_size_in_bytes(curr_level_index, config.level_ratio, self.target_size);
+                desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.target_size);
 
             let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64);
 
@@ -113,9 +127,9 @@ impl CompactionStrategy for Strategy {
                 let mut segments_to_compact = vec![];
 
                 let mut level = level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
-                for segment in level.iter().take(config.level_ratio.into()).cloned() {
+                for segment in level.iter().take(self.level_ratio.into()).cloned() {
                     if overshoot == 0 {
                         break;
                     }
@@ -178,7 +192,7 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&1)
             {
                 let mut level = first_level.clone();
-                level.sort_by_key_range();
+                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
@@ -222,9 +236,9 @@ mod tests {
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
-        levels::LevelManifest,
+        level_manifest::LevelManifest,
         segment::{
-            block_index::BlockIndex,
+            block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             Segment,
@@ -258,23 +272,27 @@ mod tests {
         Arc::new(Segment {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
+                pfx_ptr: 0,
             },
 
             metadata: Metadata {
-                block_count: 0,
-                block_size: 0,
+                data_block_count: 0,
+                index_block_count: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at: unix_timestamp().as_nanos(),
                 id,
                 file_size: size,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 1_000_000,
                 key_count: 0,
@@ -314,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_empty_levels() -> crate::Result<()> {
+    fn leveled_empty_levels() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy::default();
 
@@ -335,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_default_l0() -> crate::Result<()> {
+    fn leveled_default_l0() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
@@ -370,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_more_than_min_no_overlap() -> crate::Result<()> {
+    fn leveled_more_than_min_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
@@ -398,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn levelled_more_than_min_with_overlap() -> crate::Result<()> {
+    fn leveled_more_than_min_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
@@ -432,13 +450,14 @@ mod tests {
     }
 
     #[test]
-    fn levelled_deeper_level_with_overlap() -> crate::Result<()> {
+    fn leveled_deeper_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -461,13 +480,14 @@ mod tests {
     }
 
     #[test]
-    fn levelled_deeper_level_no_overlap() -> crate::Result<()> {
+    fn leveled_deeper_level_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -490,13 +510,14 @@ mod tests {
     }
 
     #[test]
-    fn levelled_last_level_with_overlap() -> crate::Result<()> {
+    fn leveled_last_level_with_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -523,9 +544,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -552,9 +574,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
@@ -581,9 +604,10 @@ mod tests {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
+            level_ratio: 2,
             ..Default::default()
         };
-        let config = Config::default().level_ratio(2);
+        let config = Config::default();
 
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![

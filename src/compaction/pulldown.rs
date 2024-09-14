@@ -1,5 +1,9 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{Choice, CompactionStrategy, Input};
-use crate::{levels::LevelManifest, Config};
+use crate::{level_manifest::LevelManifest, Config};
 
 /// Pulls down and merges a level into the destination level.
 ///

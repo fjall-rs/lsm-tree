@@ -1,7 +1,12 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
+const BIT_MASK: u8 = 0b1000_0000_u8;
+
 /// Gets a bit from the byte
 fn get_bit(byte: u8, idx: usize) -> bool {
-    let bit_mask = 0b1000_0000_u8;
-    let bit_mask = bit_mask >> idx;
+    let bit_mask = BIT_MASK >> idx;
 
     let masked = byte & bit_mask;
     masked > 0
@@ -9,8 +14,7 @@ fn get_bit(byte: u8, idx: usize) -> bool {
 
 /// Sets a bit in the byte
 fn set_bit(byte: u8, idx: usize, value: bool) -> u8 {
-    let bit_mask = 0b1000_0000_u8;
-    let bit_mask = bit_mask >> idx;
+    let bit_mask = BIT_MASK >> idx;
 
     if value {
         byte | bit_mask
@@ -41,6 +45,7 @@ impl BitArray {
         self.0.len()
     }
 
+    #[allow(unused)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0

@@ -1,10 +1,14 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{Choice, CompactionStrategy};
 use crate::{
     config::Config,
-    levels::LevelManifest,
+    level_manifest::LevelManifest,
     segment::{meta::SegmentId, Segment},
 };
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 const L0_SEGMENT_CAP: usize = 20;
 
@@ -15,8 +19,6 @@ const L0_SEGMENT_CAP: usize = 20;
 /// It cleans up L0 if it grows too large.
 #[derive(Default)]
 pub struct Strategy;
-
-// TODO: add test case
 
 /// Choose a run of segments that has the least file size sum.
 ///
@@ -44,19 +46,20 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
-        let mut first_level = resolved_view
-            .first()
-            .expect("L0 should always exist")
-            .deref()
-            .clone();
+        // NOTE: First level always exists, trivial
+        #[allow(clippy::expect_used)]
+        let first_level = resolved_view.first().expect("L0 should always exist");
 
         if first_level.len() > L0_SEGMENT_CAP {
             // NOTE: +1 because two will merge into one
             // So if we have 18 segments, and merge two, we'll have 17, not 16
             let segments_to_merge = first_level.len() - L0_SEGMENT_CAP + 1;
 
-            // Sort the level by oldest to newest
-            first_level.sort_by(|a, b| a.metadata.seqnos.0.cmp(&b.metadata.seqnos.0));
+            // NOTE: Sort the level by oldest to newest
+            // levels are sorted from newest to oldest, so we can just reverse
+            let mut first_level = first_level.clone();
+            first_level.sort_by_seqno();
+            first_level.segments.reverse();
 
             let segment_ids = choose_least_effort_compaction(&first_level, segments_to_merge);
 
@@ -81,8 +84,11 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
         key_range::KeyRange,
-        levels::LevelManifest,
-        segment::{block_index::BlockIndex, file_offsets::FileOffsets, meta::Metadata, Segment},
+        level_manifest::LevelManifest,
+        segment::{
+            block_index::two_level_index::TwoLevelBlockIndex, file_offsets::FileOffsets,
+            meta::Metadata, Segment,
+        },
     };
     use std::sync::Arc;
     use test_log::test;
@@ -97,23 +103,27 @@ mod tests {
         Arc::new(Segment {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(BlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
+                range_filter_ptr: 0,
                 index_block_ptr: 0,
                 metadata_ptr: 0,
-                range_tombstone_ptr: 0,
+                range_tombstones_ptr: 0,
                 tli_ptr: 0,
+                pfx_ptr: 0,
             },
 
             metadata: Metadata {
-                block_count: 0,
-                block_size: 0,
+                data_block_count: 0,
+                index_block_count: 0,
+                data_block_size: 4_096,
+                index_block_size: 4_096,
                 created_at,
                 id,
                 file_size: 1,
-                compression: crate::segment::meta::CompressionType::Lz4,
+                compression: crate::segment::meta::CompressionType::None,
                 table_type: crate::segment::meta::TableType::Block,
                 item_count: 0,
                 key_count: 0,
@@ -121,7 +131,7 @@ mod tests {
                 tombstone_count: 0,
                 range_tombstone_count: 0,
                 uncompressed_size: 0,
-                seqnos: (0, 0),
+                seqnos: (0, created_at as u64),
             },
             block_cache,
 

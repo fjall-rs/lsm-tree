@@ -1,6 +1,4 @@
-use lsm_tree::Config;
-use std::sync::Arc;
-use test_log::test;
+use lsm_tree::{AbstractTree, Config, Slice};
 
 macro_rules! iter_closed {
     ($iter:expr) => {
@@ -12,7 +10,7 @@ macro_rules! iter_closed {
     };
 }
 
-#[test]
+#[test_log::test]
 fn tree_disjoint_iter() -> lsm_tree::Result<()> {
     let tempdir = tempfile::tempdir()?;
     let tree = crate::Config::new(&tempdir).open()?;
@@ -26,43 +24,43 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
         for id in batch {
             tree.insert(id, vec![], 0);
         }
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
     }
 
     // NOTE: Forwards
 
     let mut iter = tree.iter();
 
-    assert_eq!(Arc::from(*b"a"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"d"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"d"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
     let mut iter = tree.iter().rev();
 
-    assert_eq!(Arc::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"d"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"a"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"d"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
     let mut iter = tree.iter();
 
-    assert_eq!(Arc::from(*b"a"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"f"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"e"), iter.next_back().unwrap()?.0);
-    assert_eq!(Arc::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Arc::from(*b"d"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"d"), iter.next_back().unwrap()?.0);
     iter_closed!(iter);
 
     Ok(())

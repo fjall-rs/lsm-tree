@@ -1,13 +1,23 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
+mod meta;
+
 use super::{
-    block::header::Header as BlockHeader, block_index::writer::Writer as IndexWriter,
-    file_offsets::FileOffsets, meta::Metadata, trailer::SegmentFileTrailer,
+    block::header::Header as BlockHeader,
+    block_index::writer::Writer as IndexWriter,
+    file_offsets::FileOffsets,
+    meta::{CompressionType, Metadata},
+    trailer::SegmentFileTrailer,
     value_block::ValueBlock,
 };
 use crate::{
+    coding::Encode,
     file::fsync_directory,
-    serde::Serializable,
-    value::{SeqNo, UserKey},
-    SegmentId, Value,
+    segment::block::ItemSize,
+    value::{InternalValue, UserKey},
+    SegmentId,
 };
 use std::{
     fs::File,
@@ -18,37 +28,35 @@ use std::{
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
 
-/// Serializes and compresses values into blocks and writes them to disk
-///
-/// Also takes care of creating the block index
+/// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
-    pub opts: Options,
+    pub(crate) opts: Options,
 
+    /// Compression to use
+    compression: CompressionType,
+
+    /// Segment file
     segment_file_path: PathBuf,
 
+    /// Writer of data blocks
     block_writer: BufWriter<File>,
+
+    /// Writer of index blocks
     index_writer: IndexWriter,
-    chunk: Vec<Value>,
 
-    pub block_count: usize,
-    pub item_count: usize,
-    pub file_pos: u64,
+    /// Buffer of KVs
+    chunk: Vec<InternalValue>,
+    chunk_size: usize,
 
+    pub(crate) meta: meta::Metadata,
+
+    /// Stores the previous block position (used for creating back links)
     prev_pos: (u64, u64),
 
-    /// Only takes user data into account
-    pub uncompressed_size: u64,
-
-    pub first_key: Option<UserKey>,
-    pub last_key: Option<UserKey>,
-    pub tombstone_count: usize,
-    pub chunk_size: usize,
-
-    pub lowest_seqno: SeqNo,
-    pub highest_seqno: SeqNo,
-
-    pub key_count: usize,
     current_key: Option<UserKey>,
+
+    #[cfg(feature = "bloom")]
+    bloom_policy: BloomConstructionPolicy,
 
     /// Hashes for bloom filter
     ///
@@ -57,15 +65,37 @@ pub struct Writer {
     bloom_hash_buffer: Vec<(u64, u64)>,
 }
 
+#[derive(Copy, Clone, Debug)]
+#[cfg(feature = "bloom")]
+pub enum BloomConstructionPolicy {
+    BitsPerKey(u8),
+    FpRate(f32),
+}
+
+#[cfg(feature = "bloom")]
+impl Default for BloomConstructionPolicy {
+    fn default() -> Self {
+        Self::BitsPerKey(10)
+    }
+}
+
+#[cfg(feature = "bloom")]
+impl BloomConstructionPolicy {
+    #[must_use]
+    pub fn build(&self, n: usize) -> BloomFilter {
+        match self {
+            Self::BitsPerKey(bpk) => BloomFilter::with_bpk(n, *bpk),
+            Self::FpRate(fpr) => BloomFilter::with_fp_rate(n, *fpr),
+        }
+    }
+}
+
 pub struct Options {
     pub folder: PathBuf,
     pub evict_tombstones: bool,
-    pub block_size: u32,
-
+    pub data_block_size: u32,
+    pub index_block_size: u32,
     pub segment_id: SegmentId,
-
-    #[cfg(feature = "bloom")]
-    pub bloom_fp_rate: f32,
 }
 
 impl Writer {
@@ -76,12 +106,15 @@ impl Writer {
         let block_writer = File::create(&segment_file_path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
-        let index_writer = IndexWriter::new(opts.segment_id, &opts.folder, opts.block_size)?;
+        let index_writer = IndexWriter::new(opts.index_block_size)?;
 
         let chunk = Vec::with_capacity(10_000);
 
         Ok(Self {
             opts,
+            meta: meta::Metadata::default(),
+
+            compression: CompressionType::None,
 
             segment_file_path,
 
@@ -89,62 +122,62 @@ impl Writer {
             index_writer,
             chunk,
 
-            block_count: 0,
-            item_count: 0,
-            file_pos: 0,
-
             prev_pos: (0, 0),
 
-            uncompressed_size: 0,
-
-            first_key: None,
-            last_key: None,
             chunk_size: 0,
-            tombstone_count: 0,
-
-            lowest_seqno: SeqNo::MAX,
-            highest_seqno: 0,
 
             current_key: None,
-            key_count: 0,
+
+            #[cfg(feature = "bloom")]
+            bloom_policy: BloomConstructionPolicy::default(),
 
             #[cfg(feature = "bloom")]
             bloom_hash_buffer: Vec::with_capacity(10_000),
         })
     }
 
+    #[must_use]
+    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
+        self.index_writer = self.index_writer.use_compression(compression);
+        self
+    }
+
+    #[must_use]
+    #[cfg(feature = "bloom")]
+    pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+        self.bloom_policy = bloom_policy;
+        self
+    }
+
     /// Writes a compressed block to disk.
     ///
     /// This is triggered when a `Writer::write` causes the buffer to grow to the configured `block_size`.
-    pub(crate) fn write_block(&mut self) -> crate::Result<()> {
-        debug_assert!(!self.chunk.is_empty());
-
-        let uncompressed_chunk_size = self
-            .chunk
-            .iter()
-            .map(|item| item.size() as u64)
-            .sum::<u64>();
-
-        self.uncompressed_size += uncompressed_chunk_size;
+    ///
+    /// Should only be called when the block has items in it.
+    pub(crate) fn spill_block(&mut self) -> crate::Result<()> {
+        let Some(last) = self.chunk.last() else {
+            return Ok(());
+        };
 
         // Write to file
-        let (header, data) = ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0)?;
+        let (header, data) =
+            ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.compression)?;
 
-        header.serialize(&mut self.block_writer)?;
+        self.meta.uncompressed_size += u64::from(header.uncompressed_length);
+
+        header.encode_into(&mut self.block_writer)?;
         self.block_writer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
-        // NOTE: Expect is fine, because the chunk is not empty
-        let last = self.chunk.last().expect("Chunk should not be empty");
-
         self.index_writer
-            .register_block(last.key.clone(), self.file_pos)?;
+            .register_block(last.key.user_key.clone(), self.meta.file_pos)?;
 
         // Adjust metadata
-        self.file_pos += bytes_written;
-        self.item_count += self.chunk.len();
-        self.block_count += 1;
+        self.meta.file_pos += bytes_written;
+        self.meta.item_count += self.chunk.len();
+        self.meta.data_block_count += 1;
 
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
@@ -161,49 +194,49 @@ impl Writer {
     /// It's important that the incoming stream of items is correctly
     /// sorted as described by the [`UserKey`], otherwise the block layout will
     /// be non-sense.
-    pub fn write(&mut self, item: Value) -> crate::Result<()> {
+    pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.is_tombstone() {
             if self.opts.evict_tombstones {
                 return Ok(());
             }
 
-            self.tombstone_count += 1;
+            self.meta.tombstone_count += 1;
         }
 
-        if Some(&item.key) != self.current_key.as_ref() {
-            self.key_count += 1;
-            self.current_key = Some(item.key.clone());
+        if Some(&item.key.user_key) != self.current_key.as_ref() {
+            self.meta.key_count += 1;
+            self.current_key = Some(item.key.user_key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
             #[cfg(feature = "bloom")]
             self.bloom_hash_buffer
-                .push(BloomFilter::get_hash(&item.key));
+                .push(BloomFilter::get_hash(&item.key.user_key));
         }
 
         let item_key = item.key.clone();
-        let seqno = item.seqno;
+        let seqno = item.key.seqno;
 
         self.chunk_size += item.size();
         self.chunk.push(item);
 
-        if self.chunk_size >= self.opts.block_size as usize {
-            self.write_block()?;
+        if self.chunk_size >= self.opts.data_block_size as usize {
+            self.spill_block()?;
             self.chunk_size = 0;
         }
 
-        if self.first_key.is_none() {
-            self.first_key = Some(item_key.clone());
+        if self.meta.first_key.is_none() {
+            self.meta.first_key = Some(item_key.user_key.clone());
         }
-        self.last_key = Some(item_key);
+        self.meta.last_key = Some(item_key.user_key);
 
-        if self.lowest_seqno > seqno {
-            self.lowest_seqno = seqno;
+        if self.meta.lowest_seqno > seqno {
+            self.meta.lowest_seqno = seqno;
         }
 
-        if self.highest_seqno < seqno {
-            self.highest_seqno = seqno;
+        if self.meta.highest_seqno < seqno {
+            self.meta.highest_seqno = seqno;
         }
 
         Ok(())
@@ -213,19 +246,11 @@ impl Writer {
 
     /// Finishes the segment, making sure all data is written durably
     pub fn finish(&mut self) -> crate::Result<Option<SegmentFileTrailer>> {
-        if !self.chunk.is_empty() {
-            self.write_block()?;
-        }
+        self.spill_block()?;
 
-        // No items written! Just delete segment folder and return nothing
-        if self.item_count == 0 {
+        // No items written! Just delete segment file and return nothing
+        if self.meta.item_count == 0 {
             std::fs::remove_file(&self.segment_file_path)?;
-
-            if let Err(e) = std::fs::remove_file(&self.index_writer.index_block_tmp_file_path) {
-                debug_assert!(false, "should not happen");
-                log::warn!("Failed to delete tmp file: {e:?}");
-            };
-
             return Ok(None);
         }
 
@@ -236,23 +261,26 @@ impl Writer {
         let tli_ptr = self.index_writer.finish(&mut self.block_writer)?;
         log::trace!("tli_ptr={tli_ptr}");
 
+        self.meta.index_block_count = self.index_writer.block_count;
+
         // Write bloom filter
         #[cfg(feature = "bloom")]
         let bloom_ptr = {
             let bloom_ptr = self.block_writer.stream_position()?;
 
             let n = self.bloom_hash_buffer.len();
-            log::trace!("Writing bloom filter with {n} hashes");
+            log::trace!(
+                "Writing bloom filter with {n} hashes: {:?}",
+                self.bloom_policy
+            );
 
-            let mut filter = BloomFilter::with_fp_rate(n, self.opts.bloom_fp_rate);
+            let mut filter = self.bloom_policy.build(n);
 
             for hash in std::mem::take(&mut self.bloom_hash_buffer) {
                 filter.set_with_hash(hash);
             }
 
-            // NOTE: BloomFilter::write_to_file fsyncs internally
-            // filter.write_to_file(self.opts.folder.join(BLOOM_FILTER_FILE))?;
-            filter.serialize(&mut self.block_writer)?;
+            filter.encode_into(&mut self.block_writer)?;
 
             bloom_ptr
         };
@@ -261,28 +289,38 @@ impl Writer {
         let bloom_ptr = 0;
         log::trace!("bloom_ptr={bloom_ptr}");
 
-        // TODO: Write range tombstones
-        let range_tombstone_ptr = 0;
-        log::trace!("range_tombstone_ptr={range_tombstone_ptr}");
+        // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
+        let rf_ptr = 0;
+        log::trace!("rf_ptr={rf_ptr}");
+
+        // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2 - Write range tombstones
+        let range_tombstones_ptr = 0;
+        log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
+
+        // TODO:
+        let pfx_ptr = 0;
+        log::trace!("pfx_ptr={pfx_ptr}");
 
         // Write metadata
         let metadata_ptr = self.block_writer.stream_position()?;
 
         let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
-        metadata.serialize(&mut self.block_writer)?;
+        metadata.encode_into(&mut self.block_writer)?;
 
         // Bundle all the file offsets
         let offsets = FileOffsets {
             index_block_ptr,
             tli_ptr,
             bloom_ptr,
-            range_tombstone_ptr,
+            range_filter_ptr: rf_ptr,
+            range_tombstones_ptr,
+            pfx_ptr,
             metadata_ptr,
         };
 
         // Write trailer
         let trailer = SegmentFileTrailer { metadata, offsets };
-        trailer.serialize(&mut self.block_writer)?;
+        trailer.encode_into(&mut self.block_writer)?;
 
         // Finally, flush & fsync the blocks file
         self.block_writer.flush()?;
@@ -293,9 +331,9 @@ impl Writer {
 
         log::debug!(
             "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
-            self.item_count,
-            self.block_count,
-            self.file_pos / 1_024 / 1_024
+            self.meta.item_count,
+            self.meta.data_block_count,
+            self.meta.file_pos / 1_024 / 1_024
         );
 
         Ok(Some(trailer))
@@ -306,10 +344,11 @@ impl Writer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::block_cache::BlockCache;
     use crate::descriptor_table::FileDescriptorTable;
+    use crate::segment::block_index::top_level::TopLevelIndex;
     use crate::segment::reader::Reader;
-    use crate::value::ValueType;
-    use crate::{block_cache::BlockCache, Value};
+    use crate::value::{InternalValue, ValueType};
     use std::sync::Arc;
     use test_log::test;
 
@@ -324,16 +363,13 @@ mod tests {
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
-
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             segment_id,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
-            Value::new(
+            InternalValue::from_components(
                 i.to_be_bytes(),
                 nanoid::nanoid!().as_bytes(),
                 0,
@@ -352,6 +388,14 @@ mod tests {
 
         let segment_file_path = folder.join(segment_id.to_string());
 
+        // NOTE: The TLI is bound by the index block count, because we know the index block count is u32
+        // the TLI length fits into u32 as well
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            let tli = TopLevelIndex::from_file(&segment_file_path, trailer.offsets.tli_ptr)?;
+            assert_eq!(tli.len() as u32, trailer.metadata.index_block_count);
+        }
+
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(segment_file_path, (0, segment_id).into());
 
@@ -361,7 +405,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            Arc::clone(&block_cache),
+            block_cache,
             0,
             None,
         );
@@ -383,17 +427,14 @@ mod tests {
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
             evict_tombstones: false,
-            block_size: 4096,
-
+            data_block_size: 4_096,
+            index_block_size: 4_096,
             segment_id,
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate: 0.01,
         })?;
 
         for key in 0u64..ITEM_COUNT {
             for seqno in (0..VERSION_COUNT).rev() {
-                let value = Value::new(
+                let value = InternalValue::from_components(
                     key.to_be_bytes(),
                     nanoid::nanoid!().as_bytes(),
                     seqno,
@@ -420,7 +461,7 @@ mod tests {
             trailer.offsets.index_block_ptr,
             table,
             (0, segment_id).into(),
-            Arc::clone(&block_cache),
+            block_cache,
             0,
             None,
         );

@@ -1,6 +1,10 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
-    config::Config, file::LEVELS_MANIFEST_FILE, levels::LevelManifest, memtable::MemTable,
-    segment::meta::SegmentId, snapshot::Counter as SnapshotCounter, stop_signal::StopSignal,
+    config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
+    segment::meta::SegmentId, stop_signal::StopSignal,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -19,10 +23,10 @@ pub type MemtableId = u64;
 /// Memtable IDs are monotonically increasing, so we don't really
 /// need a search tree; also there are only a handful of them at most.
 #[derive(Default)]
-pub struct SealedMemtables(Vec<(MemtableId, Arc<MemTable>)>);
+pub struct SealedMemtables(Vec<(MemtableId, Arc<Memtable>)>);
 
 impl SealedMemtables {
-    pub fn add(&mut self, id: MemtableId, memtable: Arc<MemTable>) {
+    pub fn add(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
         self.0.push((id, memtable));
     }
 
@@ -30,8 +34,12 @@ impl SealedMemtables {
         self.0.retain(|(id, _)| *id != id_to_remove);
     }
 
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<MemTable>)> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<Memtable>)> {
         self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -51,7 +59,7 @@ pub struct TreeInner {
     pub segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<RwLock<MemTable>>,
+    pub(crate) active_memtable: Arc<RwLock<Memtable>>,
 
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
@@ -63,9 +71,6 @@ pub struct TreeInner {
     /// Tree configuration
     pub config: Config,
 
-    /// Keeps track of open snapshots
-    pub(crate) open_snapshots: SnapshotCounter,
-
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
@@ -73,10 +78,8 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let levels = LevelManifest::create_new(
-            config.inner.level_count,
-            config.path.join(LEVELS_MANIFEST_FILE),
-        )?;
+        let levels =
+            LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -85,7 +88,6 @@ impl TreeInner {
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
-            open_snapshots: SnapshotCounter::default(),
             stop_signal: StopSignal::default(),
         })
     }

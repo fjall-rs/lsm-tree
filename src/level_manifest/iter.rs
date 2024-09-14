@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::LevelManifest;
 use crate::Segment;
 use std::sync::Arc;
@@ -21,7 +25,7 @@ impl<'a> LevelManifestIterator<'a> {
 }
 
 impl<'a> Iterator for LevelManifestIterator<'a> {
-    type Item = Arc<Segment>;
+    type Item = &'a Arc<Segment>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -30,8 +34,7 @@ impl<'a> Iterator for LevelManifestIterator<'a> {
                 .levels
                 .get(self.current_level)?
                 .segments
-                .get(self.current_idx)
-                .cloned();
+                .get(self.current_idx);
 
             if let Some(segment) = segment {
                 self.current_idx += 1;

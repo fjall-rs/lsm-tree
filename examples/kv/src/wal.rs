@@ -1,4 +1,4 @@
-use lsm_tree::{MemTable, SeqNo, Value, ValueType};
+use lsm_tree::{InternalValue, Memtable, SeqNo, ValueType};
 use serde::{Deserialize, Serialize};
 use std::io::{Seek, Write};
 use std::sync::Mutex;
@@ -24,28 +24,28 @@ pub struct WalEntry {
     value_type: u8,
 }
 
-impl From<WalEntry> for Value {
+impl From<WalEntry> for InternalValue {
     fn from(entry: WalEntry) -> Self {
-        Self {
-            key: entry.key.into(),
-            value: entry.value.into(),
-            seqno: entry.seqno,
-            value_type: ValueType::from(entry.value_type),
-        }
+        Self::from_components(
+            entry.key,
+            entry.value,
+            entry.seqno,
+            ValueType::try_from(entry.value_type).unwrap(),
+        )
     }
 }
 
-impl From<Value> for WalEntry {
-    fn from(entry: Value) -> Self {
+impl From<InternalValue> for WalEntry {
+    fn from(entry: InternalValue) -> Self {
         Self {
-            key: std::str::from_utf8(&entry.key)
+            key: std::str::from_utf8(&entry.key.user_key)
                 .expect("should be valid utf-8")
                 .into(),
             value: std::str::from_utf8(&entry.value)
                 .expect("should be valid utf-8")
                 .into(),
-            seqno: entry.seqno,
-            value_type: entry.value_type.into(),
+            seqno: entry.key.seqno,
+            value_type: entry.key.value_type.into(),
         }
     }
 }
@@ -57,18 +57,18 @@ pub struct Wal {
 }
 
 impl Wal {
-    pub fn open<P: AsRef<Path>>(path: P) -> lsm_tree::Result<(Wal, MemTable)> {
+    pub fn open<P: AsRef<Path>>(path: P) -> lsm_tree::Result<(Wal, Memtable)> {
         let path = path.as_ref();
         let wal_path = path.join(".wal.jsonl");
 
         if wal_path.try_exists()? {
-            let memtable = recover_wal(&wal_path)?;
+            let Memtable = recover_wal(&wal_path)?;
             let writer = OpenOptions::new().append(true).open(&wal_path)?;
             let writer = Arc::new(Mutex::new(writer));
 
             let wal = Self { writer };
 
-            Ok((wal, memtable))
+            Ok((wal, Memtable))
         } else {
             let writer = OpenOptions::new()
                 .write(true)
@@ -77,11 +77,11 @@ impl Wal {
             let writer = Arc::new(Mutex::new(writer));
 
             let wal = Self { writer };
-            Ok((wal, MemTable::default()))
+            Ok((wal, Memtable::default()))
         }
     }
 
-    pub fn write(&mut self, value: Value) -> lsm_tree::Result<()> {
+    pub fn write(&mut self, value: InternalValue) -> lsm_tree::Result<()> {
         let mut writer = self.writer.lock().expect("lock is poisoned");
 
         let wal_entry: WalEntry = value.into();
@@ -106,10 +106,10 @@ impl Wal {
     }
 }
 
-fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<MemTable> {
+fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<Memtable> {
     eprintln!("Recovering WAL");
 
-    let memtable = MemTable::default();
+    let Memtable = Memtable::default();
 
     let wal_path = path.as_ref();
     let file = File::open(wal_path)?;
@@ -128,11 +128,11 @@ fn recover_wal<P: AsRef<Path>>(path: P) -> lsm_tree::Result<MemTable> {
             break;
         };
 
-        memtable.insert(entry.into());
+        Memtable.insert(entry.into());
         cnt += 1;
     }
 
     eprintln!("Recovered {cnt} items from WAL");
 
-    Ok(memtable)
+    Ok(Memtable)
 }

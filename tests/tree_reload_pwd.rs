@@ -1,5 +1,5 @@
 use fs_extra::dir::CopyOptions;
-use lsm_tree::{Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
@@ -19,7 +19,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(ITEM_COUNT, tree.len()?);
     }

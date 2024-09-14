@@ -1,23 +1,31 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
-    compaction::Choice,
+    compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
-    levels::LevelManifest,
-    merge::{BoxedIterator, MergeIterator},
-    segment::{block_index::BlockIndex, id::GlobalSegmentId, multi_writer::MultiWriter, Segment},
-    snapshot::Counter as SnapshotCounter,
+    level_manifest::LevelManifest,
+    merge::{BoxedIterator, Merger},
+    segment::{
+        block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
+        multi_writer::MultiWriter, Segment,
+    },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
-    Config,
+    Config, HashSet,
 };
 use std::{
-    collections::HashSet,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
 
 #[cfg(feature = "bloom")]
 use crate::bloom::BloomFilter;
+
+#[cfg(feature = "bloom")]
+use crate::segment::writer::BloomConstructionPolicy;
 
 /// Compaction options
 pub struct Options {
@@ -34,9 +42,6 @@ pub struct Options {
     /// Sealed memtables (required for temporarily locking).
     pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Snapshot counter (required for checking if there are open snapshots).
-    pub open_snapshots: SnapshotCounter,
-
     /// Compaction strategy.
     ///
     /// The one inside `config` is NOT used.
@@ -44,6 +49,9 @@ pub struct Options {
 
     /// Stop signal
     pub stop_signal: StopSignal,
+
+    /// Evicts items that are older than this seqno
+    pub eviction_seqno: u64,
 }
 
 impl Options {
@@ -54,9 +62,9 @@ impl Options {
             config: tree.config.clone(),
             sealed_memtables: tree.sealed_memtables.clone(),
             levels: tree.levels.clone(),
-            open_snapshots: tree.open_snapshots.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
+            eviction_seqno: 0,
         }
     }
 }
@@ -79,10 +87,10 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
             let segment_map = original_levels.get_all_segments();
 
             original_levels.atomic_swap(|recipe| {
-                for segment_id in &payload.segment_ids {
-                    if let Some(segment) = segment_map.get(segment_id).cloned() {
+                for segment_id in payload.segment_ids {
+                    if let Some(segment) = segment_map.get(&segment_id).cloned() {
                         for level in recipe.iter_mut() {
-                            level.remove(*segment_id);
+                            level.remove(segment_id);
                         }
 
                         recipe
@@ -138,14 +146,6 @@ fn merge_segments(
                 .collect()
         };
 
-        // NOTE: When there are open snapshots
-        // we don't want to GC old versions of items
-        // otherwise snapshots will lose data
-        //
-        // Also, keep versions around for a bit (don't evict when compacting into L0 & L1)
-        let no_snapshots_open = !opts.open_snapshots.has_open_snapshots();
-        let is_deep_level = payload.dest_level >= 2;
-
         let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());
 
         for segment in to_merge {
@@ -157,7 +157,8 @@ fn merge_segments(
             segment_readers.push(iter);
         }
 
-        MergeIterator::new(segment_readers).evict_old_versions(no_snapshots_open && is_deep_level)
+        let merged = Merger::new(segment_readers);
+        CompactionStream::new(merged, opts.eviction_seqno)
     };
 
     let last_level = levels.last_level_index();
@@ -172,35 +173,38 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    // TODO: MONKEY
-    #[cfg(feature = "bloom")]
-    let bloom_fp_rate = match payload.dest_level {
-        0 => 0.0001,
-        1 => 0.001,
-        2 => 0.01,
-        _ => {
-            if is_last_level {
-                0.5
-            } else {
-                0.1
-            }
-        }
-    };
-
     let mut segment_writer = MultiWriter::new(
         opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
-            segment_id: 0, // TODO: this is never used in MultiWriter
-
-            block_size: opts.config.inner.block_size,
-            evict_tombstones: should_evict_tombstones,
             folder: segments_base_folder.clone(),
-
-            #[cfg(feature = "bloom")]
-            bloom_fp_rate,
+            evict_tombstones: should_evict_tombstones,
+            segment_id: 0, // TODO: this is never used in MultiWriter
+            data_block_size: opts.config.data_block_size,
+            index_block_size: opts.config.index_block_size,
         },
-    )?;
+    )?
+    .use_compression(opts.config.compression);
+
+    #[cfg(feature = "bloom")]
+    {
+        // TODO: BUG: BloomConstructionPolicy::default is 10 BPK, so setting to 0 or -1
+        // will still write bloom filters
+
+        if opts.config.bloom_bits_per_key >= 0 {
+            // NOTE: Apply some MONKEY to have very high FPR on small levels
+            // because it's cheap
+            let bloom_policy = match payload.dest_level {
+                0 => BloomConstructionPolicy::FpRate(0.0001),
+                1 => BloomConstructionPolicy::FpRate(0.001),
+                _ => {
+                    BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.abs() as u8)
+                }
+            };
+
+            segment_writer = segment_writer.use_bloom_policy(bloom_policy);
+        }
+    }
 
     for (idx, item) in merge_iter.enumerate() {
         segment_writer.write(item?)?;
@@ -230,6 +234,17 @@ fn merge_segments(
             #[cfg(feature = "bloom")]
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
+            // NOTE: Need to allow because of false positive in Clippy
+            // because of "bloom" feature
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+                &segment_file_path,
+                tli_ptr,
+                (opts.tree_id, segment_id).into(),
+                opts.config.descriptor_table.clone(),
+                opts.config.block_cache.clone(),
+            )?);
+
             Ok(Arc::new(Segment {
                 tree_id: opts.tree_id,
 
@@ -239,20 +254,12 @@ fn merge_segments(
                 metadata: trailer.metadata,
                 offsets: trailer.offsets,
 
-                // TODO: if L0, L1, preload block index (non-partitioned)
                 #[allow(clippy::needless_borrows_for_generic_args)]
-                block_index: BlockIndex::from_file(
-                    &segment_file_path,
-                    tli_ptr,
-                    (opts.tree_id, segment_id).into(),
-                    opts.config.descriptor_table.clone(),
-                    opts.config.block_cache.clone(),
-                )?
-                .into(),
+                block_index,
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: {
-                    use crate::serde::Deserializable;
+                    use crate::coding::Decode;
                     use std::{
                         fs::File,
                         io::{Seek, SeekFrom},
@@ -262,7 +269,7 @@ fn merge_segments(
 
                     let mut reader = File::open(&segment_file_path)?;
                     reader.seek(SeekFrom::Start(bloom_ptr))?;
-                    BloomFilter::deserialize(&mut reader)?
+                    BloomFilter::decode_from(&mut reader)?
                 },
             }))
         })
@@ -396,6 +403,7 @@ fn drop_segments(
 
 #[cfg(test)]
 mod tests {
+    use crate::AbstractTree;
     use std::sync::Arc;
     use test_log::test;
 
@@ -406,15 +414,15 @@ mod tests {
         let tree = crate::Config::new(folder).open()?;
 
         tree.insert("a", "a", 0);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 1);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
         tree.insert("a", "a", 2);
-        tree.flush_active_memtable()?;
+        tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());
 
-        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)))?;
+        tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
         assert_eq!(0, tree.segment_count());
 

@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 //! A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs).
 //!
 //! ##### NOTE
@@ -14,7 +18,7 @@
 //! LSM-trees are an alternative to B-trees to persist a sorted list of items (e.g. a database table)
 //! on disk and perform fast lookup queries.
 //! Instead of updating a disk-based data structure in-place,
-//! deltas (inserts and deletes) are added into an in-memory write buffer (`MemTable`).
+//! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
 //! Data is then flushed to disk segments, as the write buffer reaches some threshold.
 //!
 //! Amassing many segments on disk will degrade read performance and waste disk space usage, so segments
@@ -31,7 +35,7 @@
 //! # Example usage
 //!
 //! ```
-//! use lsm_tree::{Tree, Config};
+//! use lsm_tree::{AbstractTree, Config, Tree};
 //! #
 //! # let folder = tempfile::tempdir()?;
 //!
@@ -64,18 +68,20 @@
 //! // Flush to secondary storage, clearing the memtable
 //! // and persisting all in-memory data.
 //! // Note, this flushes synchronously, which may not be desired
-//! tree.flush_active_memtable()?;
+//! tree.flush_active_memtable(0)?;
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // When some disk segments have amassed, use compaction
 //! // to reduce the amount of disk segments
 //!
 //! // Choose compaction strategy based on workload
-//! use lsm_tree::compaction::Levelled;
+//! use lsm_tree::compaction::Leveled;
 //! # use std::sync::Arc;
 //!
-//! let strategy = Levelled::default();
-//! tree.compact(Arc::new(strategy))?;
+//! let strategy = Leveled::default();
+//!
+//! let version_gc_threshold = 0;
+//! tree.compact(Arc::new(strategy), version_gc_threshold)?;
 //!
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //! #
@@ -94,12 +100,33 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 
+pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
+pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
+
+macro_rules! fail_iter {
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        }
+    };
+}
+
+mod any_tree;
+
+mod r#abstract;
+
+#[doc(hidden)]
+pub mod blob_tree;
+
 mod block_cache;
 
 #[doc(hidden)]
 #[cfg(feature = "bloom")]
 pub mod bloom;
 
+#[doc(hidden)]
+pub mod coding;
 pub mod compaction;
 mod config;
 
@@ -108,23 +135,24 @@ pub mod descriptor_table;
 
 mod either;
 mod error;
+// mod export;
 
 #[doc(hidden)]
 pub mod file;
 
-#[doc(hidden)]
-pub mod flush;
-
+mod key;
 mod key_range;
 
 #[doc(hidden)]
-pub mod levels;
+pub mod level_manifest;
 
+mod manifest;
 mod memtable;
 
 #[doc(hidden)]
 pub mod merge;
 
+mod mvcc_stream;
 mod path;
 
 #[doc(hidden)]
@@ -134,10 +162,6 @@ pub mod range;
 pub mod segment;
 
 mod seqno;
-
-#[doc(hidden)]
-pub mod serde;
-
 mod snapshot;
 
 #[doc(hidden)]
@@ -154,19 +178,30 @@ pub type KvPair = (UserKey, UserValue);
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::{id::GlobalSegmentId, meta::SegmentId},
+    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
+    value::InternalValue,
 };
 
 pub use {
     block_cache::BlockCache,
-    config::Config,
+    coding::{DecodeError, EncodeError},
+    config::{Config, TreeType},
     error::{Error, Result},
-    memtable::MemTable,
-    segment::Segment,
+    memtable::Memtable,
+    r#abstract::AbstractTree,
+    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
-    serde::{DeserializeError, SerializeError},
     snapshot::Snapshot,
     tree::Tree,
-    value::{SeqNo, UserKey, UserValue, Value, ValueType},
+    value::{SeqNo, UserKey, UserValue, ValueType},
+    version::Version,
+};
+
+pub use any_tree::AnyTree;
+
+pub use blob_tree::BlobTree;
+
+pub use value_log::{
+    BlobCache, GcReport, GcStrategy, Slice, SpaceAmpStrategy, StaleThresholdStrategy,
 };
