@@ -128,7 +128,7 @@ pub trait AbstractTree {
     fn is_first_level_disjoint(&self) -> bool;
 
     /// Approximates the amount of items in the tree.
-    fn approximate_len(&self) -> u64;
+    fn approximate_len(&self) -> usize;
 
     /// Returns the disk space usage.
     fn disk_space(&self) -> u64;

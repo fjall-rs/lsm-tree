@@ -270,7 +270,7 @@ impl AbstractTree for Tree {
     }
 
     #[allow(clippy::significant_drop_tightening)]
-    fn approximate_len(&self) -> u64 {
+    fn approximate_len(&self) -> usize {
         // NOTE: Mind lock order L -> M -> S
         let levels = self.levels.read().expect("lock is poisoned");
         let memtable = self.active_memtable.read().expect("lock is poisoned");
@@ -280,7 +280,9 @@ impl AbstractTree for Tree {
         let memtable_count = memtable.len() as u64;
         let sealed_count = sealed.iter().map(|(_, mt)| mt.len()).sum::<usize>() as u64;
 
-        memtable_count + sealed_count + segments_item_count
+        (memtable_count + sealed_count + segments_item_count)
+            .try_into()
+            .expect("should not be too large")
     }
 
     fn disk_space(&self) -> u64 {

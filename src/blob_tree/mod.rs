@@ -365,7 +365,7 @@ impl AbstractTree for BlobTree {
         self.index.first_level_segment_count()
     }
 
-    fn approximate_len(&self) -> u64 {
+    fn approximate_len(&self) -> usize {
         self.index.approximate_len()
     }
 
