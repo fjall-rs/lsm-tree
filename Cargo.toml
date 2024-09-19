@@ -37,7 +37,7 @@ quick_cache = { version = "0.6.5", default-features = false, features = [] }
 self_cell = "1.0.4"
 smallvec = { version = "1.13.2" }
 tempfile = "3.12.0"
-value-log = "1.0.0-pre.2"
+value-log = "1.0.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
