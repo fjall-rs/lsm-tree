@@ -12,6 +12,7 @@ use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
+/// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
 
 /// A standard bloom filter
@@ -83,15 +84,10 @@ impl Decode for BloomFilter {
 }
 
 impl BloomFilter {
-    /// Size of bloom filter in bytes
+    /// Size of bloom filter in bytes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
@@ -175,7 +171,7 @@ impl BloomFilter {
 
             // NOTE: should be in bounds because of modulo
             #[allow(clippy::expect_used)]
-            if !self.inner.get(idx as usize) {
+            if !self.has_bit(idx as usize) {
                 return false;
             }
 
@@ -194,7 +190,7 @@ impl BloomFilter {
         self.contains_hash(Self::get_hash(key))
     }
 
-    /// Adds the key to the filter
+    /// Adds the key to the filter.
     pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
@@ -206,12 +202,17 @@ impl BloomFilter {
         }
     }
 
-    /// Sets the bit at the given index to `true`
+    /// Returns `true` if the bit at `idx` is `1`.
+    fn has_bit(&self, idx: usize) -> bool {
+        self.inner.get(idx as usize)
+    }
+
+    /// Sets the bit at the given index to `true`.
     fn enable_bit(&mut self, idx: usize) {
         self.inner.set(idx, true);
     }
 
-    /// Gets the hash of a key
+    /// Gets the hash of a key.
     #[must_use]
     pub fn get_hash(key: &[u8]) -> CompositeHash {
         let h0 = xxhash_rust::xxh3::xxh3_128(key);
