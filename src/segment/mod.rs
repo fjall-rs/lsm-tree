@@ -26,7 +26,7 @@ use crate::{
     ValueType,
 };
 use block::checksum::Checksum;
-use block_index::two_level_index::TwoLevelBlockIndex;
+use block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl};
 use file_offsets::FileOffsets;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
@@ -57,7 +57,7 @@ pub struct Segment {
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
-    pub block_index: Arc<TwoLevelBlockIndex>,
+    pub block_index: Arc<BlockIndexImpl>,
 
     /// Block cache
     ///
@@ -92,7 +92,8 @@ impl Segment {
 
         let mut file = guard.file.lock().expect("lock is poisoned");
 
-        // NOTE: TODO: because of 1.74.0
+        todo!();
+        /* // NOTE: TODO: because of 1.74.0
         #[allow(clippy::explicit_iter_loop)]
         for handle in self.block_index.top_level_index.iter() {
             let block = match IndexBlock::from_file(&mut *file, handle.offset) {
@@ -137,7 +138,7 @@ impl Segment {
                     log::debug!("Checked {data_block_count} data blocks");
                 }
             }
-        }
+        } */
 
         assert_eq!(
             data_block_count, self.metadata.data_block_count,
@@ -146,6 +147,8 @@ impl Segment {
 
         Ok(broken_count)
     }
+
+    // TODO: need to give recovery a flag to choose which block index to load
 
     /// Tries to recover a segment from a file.
     pub(crate) fn recover<P: AsRef<Path>>(
@@ -167,11 +170,13 @@ impl Segment {
         );
         let block_index = TwoLevelBlockIndex::from_file(
             file_path,
-            trailer.offsets.tli_ptr,
+            &trailer.metadata,
+            &trailer.offsets,
             (tree_id, trailer.metadata.id).into(),
             descriptor_table.clone(),
             block_cache.clone(),
         )?;
+        let block_index = BlockIndexImpl::TwoLevel(block_index);
 
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
@@ -218,6 +223,10 @@ impl Segment {
         seqno: Option<SeqNo>,
         hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
+        if !self.bloom_filter.contains_hash(hash) {
+            return Ok(None);
+        }
+
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -228,12 +237,6 @@ impl Segment {
             return Ok(None);
         }
 
-        {
-            if !self.bloom_filter.contains_hash(hash) {
-                return Ok(None);
-            }
-        }
-
         self.point_read(key, seqno)
     }
 
@@ -242,13 +245,14 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
 
         let key = key.as_ref();
 
         let Some(first_block_handle) = self
             .block_index
-            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+            .get_lowest_block_containing_key(key, CachePolicy::Write)?
         else {
             return Ok(None);
         };
@@ -257,7 +261,7 @@ impl Segment {
             &self.descriptor_table,
             &self.block_cache,
             (self.tree_id, self.metadata.id).into(),
-            first_block_handle.offset,
+            first_block_handle,
             CachePolicy::Write,
         )?
         else {
@@ -286,7 +290,7 @@ impl Segment {
             self.descriptor_table.clone(),
             (self.tree_id, self.metadata.id).into(),
             self.block_cache.clone(),
-            first_block_handle.offset,
+            first_block_handle,
             None,
         );
         reader.lo_block_size = block.header.data_length.into();
@@ -355,17 +359,17 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        let key = key.as_ref();
+
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
             }
         }
 
-        if !self.metadata.key_range.contains_key(&key) {
+        if !self.metadata.key_range.contains_key(key) {
             return Ok(None);
         }
-
-        let key = key.as_ref();
 
         #[cfg(feature = "bloom")]
         {

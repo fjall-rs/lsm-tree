@@ -229,21 +229,23 @@ fn merge_segments(
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
-            let tli_ptr = trailer.offsets.tli_ptr;
-
             #[cfg(feature = "bloom")]
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
             // NOTE: Need to allow because of false positive in Clippy
             // because of "bloom" feature
             #[allow(clippy::needless_borrows_for_generic_args)]
-            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+            let block_index = TwoLevelBlockIndex::from_file(
                 &segment_file_path,
-                tli_ptr,
+                &trailer.metadata,
+                &trailer.offsets,
                 (opts.tree_id, segment_id).into(),
                 opts.config.descriptor_table.clone(),
                 opts.config.block_cache.clone(),
-            )?);
+            )?;
+            let block_index = Arc::new(crate::segment::block_index::BlockIndexImpl::TwoLevel(
+                block_index,
+            ));
 
             Ok(Arc::new(Segment {
                 tree_id: opts.tree_id,

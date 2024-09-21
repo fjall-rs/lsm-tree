@@ -13,7 +13,13 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
-    segment::{block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment},
+    segment::{
+        block_index::{
+            full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
+        },
+        meta::TableType,
+        Segment,
+    },
     stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
@@ -474,13 +480,10 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
-            &segment_file_path,
-            trailer.offsets.tli_ptr,
-            (self.id, segment_id).into(),
-            self.config.descriptor_table.clone(),
-            self.config.block_cache.clone(),
-        )?);
+        // TODO: full block index
+        let block_index =
+            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
+        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
@@ -672,6 +675,7 @@ impl Tree {
             }
             return Ok(Some(entry));
         };
+
         drop(memtable_lock);
 
         // Now look in sealed memtables

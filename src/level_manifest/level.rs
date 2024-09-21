@@ -17,6 +17,8 @@ pub struct Level {
     /// is only recomputed when the level is changed
     /// to avoid unnecessary CPU work
     pub is_disjoint: bool,
+
+    pub key_range: KeyRange,
 }
 
 impl std::fmt::Display for Level {
@@ -41,22 +43,32 @@ impl Default for Level {
     fn default() -> Self {
         Self {
             is_disjoint: true,
-            segments: Vec::with_capacity(10),
+            segments: Vec::new(),
+            key_range: KeyRange::empty(),
         }
     }
 }
 
 impl Level {
-    pub fn insert(&mut self, segment: Arc<Segment>) {
-        self.segments.push(segment);
+    // TODO: unit test
+    fn set_key_range(&mut self) {
+        todo!()
+    }
+
+    fn update_metadata(&mut self) {
         self.set_disjoint_flag();
         self.sort();
+        // self.set_key_range();
+    }
+
+    pub fn insert(&mut self, segment: Arc<Segment>) {
+        self.segments.push(segment);
+        self.update_metadata();
     }
 
     pub fn remove(&mut self, segment_id: SegmentId) {
         self.segments.retain(|x| segment_id != x.metadata.id);
-        self.set_disjoint_flag();
-        self.sort();
+        self.update_metadata();
     }
 
     pub(crate) fn sort(&mut self) {
@@ -182,7 +194,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             Segment,
@@ -199,10 +211,13 @@ mod tests {
     fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
+
         Arc::new(Segment {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index,
 
             offsets: FileOffsets {
                 bloom_ptr: 0,
@@ -244,6 +259,7 @@ mod tests {
     fn level_disjoint_cull() {
         let level = Level {
             is_disjoint: true,
+            key_range: KeyRange::empty(),
             segments: vec![
                 fixture_segment(0, KeyRange::new((Slice::from("a"), Slice::from("c")))),
                 fixture_segment(1, KeyRange::new((Slice::from("d"), Slice::from("g")))),
