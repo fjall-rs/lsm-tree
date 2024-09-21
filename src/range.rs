@@ -173,18 +173,11 @@ impl TreeIter {
             } else {
                 for level in &level_manifest.levels {
                     if level.is_disjoint {
-                        let mut level = level.clone();
-
                         let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
 
-                        level.sort_by_key_range();
-
-                        // TODO: can probably be optimized by using binary search per disjoint level to filter segments
-                        for segment in &level.segments {
-                            if segment.check_key_range_overlap(&bounds) {
-                                let range = segment.range(bounds.clone());
-                                readers.push_back(Box::new(range));
-                            }
+                        for segment in level.disjoint_overlapping_segments(&bounds) {
+                            let range = segment.range(bounds.clone());
+                            readers.push_back(Box::new(range));
                         }
 
                         if !readers.is_empty() {
