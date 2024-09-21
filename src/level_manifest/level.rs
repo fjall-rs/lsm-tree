@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment};
-use std::sync::Arc;
+use std::{ops::Bound, sync::Arc};
 
 /// Level of an LSM-tree
 #[derive(Clone, Debug)]
