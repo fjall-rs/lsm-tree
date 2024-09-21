@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment};
-use std::sync::Arc;
+use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment, UserKey};
+use std::{ops::Bound, sync::Arc};
 
 /// Level of an LSM-tree
 #[derive(Clone, Debug)]
