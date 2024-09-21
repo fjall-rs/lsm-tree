@@ -65,7 +65,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 pub struct BlockCache {
-    data: Cache<CacheKey, Item, BlockWeighter, xxhash_rust::xxh3::Xxh3Builder>,
+    data: Cache<CacheKey, Item, BlockWeighter>,
     capacity: u64,
 }
 
@@ -75,14 +75,17 @@ impl BlockCache {
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
+        #[allow(clippy::default_trait_access)]
+        let quick_cache = Cache::with(
+            1_000_000,
+            bytes,
+            BlockWeighter,
+            Default::default(),
+            DefaultLifecycle::default(),
+        );
+
         Self {
-            data: Cache::with(
-                1_000_000,
-                bytes,
-                BlockWeighter,
-                xxhash_rust::xxh3::Xxh3Builder::new(),
-                DefaultLifecycle::default(),
-            ),
+            data: quick_cache,
             capacity: bytes,
         }
     }
