@@ -29,6 +29,10 @@ impl KeyRange {
         Self(range)
     }
 
+    pub fn empty() -> Self {
+        Self((Slice::new(b""), Slice::new(b"")))
+    }
+
     /// Returns `true` if the list of key ranges is disjoint
     pub fn is_disjoint(ranges: &[&Self]) -> bool {
         for (idx, a) in ranges.iter().enumerate() {
