@@ -128,6 +128,33 @@ impl Level {
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
     }
 
+    /// Returns an iterator over segments in the level that have a key range
+    /// overlapping the input key range.
+    ///
+    /// IMPORTANT: This shall only be used if the level is guaranteed to be disjoint!!!
+    ///
+    /// # Panics
+    ///
+    /// Panics if the level is not disjoint.
+    pub fn disjoint_overlapping_segments<'a>(
+        &'a self,
+        key_range: &'a (Bound<UserKey>, Bound<UserKey>),
+    ) -> impl Iterator<Item = &'a Arc<Segment>> {
+        assert!(self.is_disjoint);
+
+        let start = self.segments.partition_point(|segment| match &key_range.0 {
+            Bound::Included(start_key) => &segment.metadata.key_range.1 < start_key,
+            Bound::Excluded(start_key) => &segment.metadata.key_range.1 <= start_key,
+            Bound::Unbounded => false,
+        });
+
+        self.segments
+            .get(start..)
+            .expect("should be in bounds")
+            .iter()
+            .take_while(move |segment| segment.check_key_range_overlap(key_range))
+    }
+
     /// Returns the segment that possibly contains the key.
     ///
     /// This only works for disjoint levels.
@@ -160,7 +187,7 @@ mod tests {
             meta::{Metadata, SegmentId},
             Segment,
         },
-        AbstractTree,
+        AbstractTree, Slice,
     };
     use std::sync::Arc;
     use test_log::test;
@@ -210,6 +237,89 @@ mod tests {
             #[cfg(feature = "bloom")]
             bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
         })
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn level_disjoint_cull() {
+        let level = Level {
+            is_disjoint: true,
+            segments: vec![
+                fixture_segment(0, KeyRange::new((Slice::from("a"), Slice::from("c")))),
+                fixture_segment(1, KeyRange::new((Slice::from("d"), Slice::from("g")))),
+                fixture_segment(2, KeyRange::new((Slice::from("h"), Slice::from("k")))),
+            ],
+        };
+
+        {
+            let range = (Bound::Unbounded, Bound::Included(Slice::from("0")));
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (Bound::Included(Slice::from("l")), Bound::Unbounded);
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (
+                Bound::Included(Slice::from("d")),
+                Bound::Included(Slice::from("g")),
+            );
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (
+                Bound::Excluded(Slice::from("d")),
+                Bound::Included(Slice::from("g")),
+            );
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (
+                Bound::Included(Slice::from("d")),
+                Bound::Excluded(Slice::from("h")),
+            );
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (
+                Bound::Included(Slice::from("d")),
+                Bound::Included(Slice::from("h")),
+            );
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert_eq!(iter.next().unwrap().metadata.id, 2);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (Bound::Included(Slice::from("d")), Bound::Unbounded);
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert_eq!(iter.next().unwrap().metadata.id, 2);
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let range = (Bound::Unbounded, Bound::Unbounded);
+            let mut iter = level.disjoint_overlapping_segments(&range);
+            assert_eq!(iter.next().unwrap().metadata.id, 0);
+            assert_eq!(iter.next().unwrap().metadata.id, 1);
+            assert_eq!(iter.next().unwrap().metadata.id, 2);
+            assert!(iter.next().is_none());
+        }
     }
 
     #[test]

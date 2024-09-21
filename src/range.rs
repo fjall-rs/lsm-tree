@@ -82,12 +82,14 @@ fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
 ) -> MultiReader<RangeReader> {
-    // TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
-    // TODO: binary-filter per level and collect instead of sorting and whatever
-    let mut segments: Vec<_> = level_manifest
-        .iter()
-        .filter(|x| x.check_key_range_overlap(bounds))
-        .collect();
+    debug_assert!(level_manifest.is_disjoint());
+
+    let mut segments = vec![];
+
+    for level in &level_manifest.levels {
+        // NOTE: We know the tree is disjoint, so all levels are disjoint internally
+        segments.extend(level.disjoint_overlapping_segments(bounds));
+    }
 
     segments.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
 
