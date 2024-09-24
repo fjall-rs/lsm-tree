@@ -65,7 +65,11 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 pub struct BlockCache {
-    data: Cache<CacheKey, Item, BlockWeighter>,
+    // NOTE: rustc_hash performed best: https://fjall-rs.github.io/post/fjall-2-1
+    /// Concurrent cache implementation
+    data: Cache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
+
+    /// Capacity in bytes
     capacity: u64,
 }
 
