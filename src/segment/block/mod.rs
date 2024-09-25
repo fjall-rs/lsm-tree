@@ -59,6 +59,12 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
                 miniz_oxide::inflate::decompress_to_vec(&bytes)
                     .map_err(|_| crate::Error::Decompress(header.compression))?
             }
+            #[cfg(feature = "zstd")]
+            super::meta::CompressionType::Zstd(_) => {
+                // TODO: assuming 4GB output size max
+                zstd::bulk::decompress(&bytes, u32::MAX as usize)
+                    .map_err(|_| crate::Error::Decompress(header.compression))?
+            }
         };
         let mut bytes = Cursor::new(bytes);
 
@@ -130,6 +136,9 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
 
             #[cfg(feature = "miniz")]
             CompressionType::Miniz(level) => miniz_oxide::deflate::compress_to_vec(&buf, level),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => zstd::bulk::compress(&buf, level)?,
         })
     }
 }
