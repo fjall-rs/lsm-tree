@@ -73,7 +73,11 @@ pub struct Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}", self.metadata.id)
+        write!(
+            f,
+            "Segment:{}({})",
+            self.metadata.id, self.metadata.key_range
+        )
     }
 }
 
