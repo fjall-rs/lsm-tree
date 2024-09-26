@@ -2,6 +2,39 @@ use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
+fn snapshot_404() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(&folder)
+        .data_block_size(1_024)
+        .index_block_size(1_024)
+        .open()?;
+
+    tree.insert("a", "a", 0);
+    tree.insert("a2", "a2", 0);
+    tree.insert("c", "c", 0);
+
+    tree.flush_active_memtable(0)?;
+
+    assert!(tree.get("a")?.is_some());
+    assert!(tree.get("a2")?.is_some());
+    assert!(tree.get("b")?.is_none());
+    assert!(tree.get("c")?.is_some());
+
+    assert!(tree.get_with_seqno("a", 0)?.is_none());
+    assert!(tree.get_with_seqno("a2", 0)?.is_none());
+    assert!(tree.get_with_seqno("b", 0)?.is_none());
+    assert!(tree.get_with_seqno("c", 0)?.is_none());
+
+    assert!(tree.get_with_seqno("a", 1)?.is_some());
+    assert!(tree.get_with_seqno("a2", 1)?.is_some());
+    assert!(tree.get_with_seqno("b", 1)?.is_none());
+    assert!(tree.get_with_seqno("c", 1)?.is_some());
+
+    Ok(())
+}
+
+#[test]
 fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
     let version_count = 600;
 
