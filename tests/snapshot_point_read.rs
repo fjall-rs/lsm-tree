@@ -16,20 +16,20 @@ fn snapshot_404() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert!(tree.get("a")?.is_some());
-    assert!(tree.get("a2")?.is_some());
+    assert_eq!(b"a", &*tree.get("a")?.unwrap());
+    assert_eq!(b"a2", &*tree.get("a2")?.unwrap());
     assert!(tree.get("b")?.is_none());
-    assert!(tree.get("c")?.is_some());
+    assert_eq!(b"c", &*tree.get("c")?.unwrap());
 
     assert!(tree.get_with_seqno("a", 0)?.is_none());
     assert!(tree.get_with_seqno("a2", 0)?.is_none());
     assert!(tree.get_with_seqno("b", 0)?.is_none());
     assert!(tree.get_with_seqno("c", 0)?.is_none());
 
-    assert!(tree.get_with_seqno("a", 1)?.is_some());
-    assert!(tree.get_with_seqno("a2", 1)?.is_some());
+    assert_eq!(b"a", &*tree.get_with_seqno("a", 1)?.unwrap());
+    assert_eq!(b"a2", &*tree.get_with_seqno("a2", 1)?.unwrap());
     assert!(tree.get_with_seqno("b", 1)?.is_none());
-    assert!(tree.get_with_seqno("c", 1)?.is_some());
+    assert_eq!(b"c", &*tree.get_with_seqno("c", 1)?.unwrap());
 
     Ok(())
 }
