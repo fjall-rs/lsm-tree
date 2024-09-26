@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment, HashSet,
 };
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 /// Levelled compaction strategy (LCS)
 ///
@@ -57,24 +57,7 @@ impl Default for Strategy {
 }
 
 fn aggregate_key_range(segments: &[Arc<Segment>]) -> KeyRange {
-    let (mut min, mut max) = segments
-        .first()
-        .expect("segment should always exist")
-        .metadata
-        .key_range
-        .deref()
-        .clone();
-
-    for other in segments.iter().skip(1) {
-        if other.metadata.key_range.0 < min {
-            min = other.metadata.key_range.0.clone();
-        }
-        if other.metadata.key_range.1 > max {
-            max = other.metadata.key_range.1.clone();
-        }
-    }
-
-    KeyRange::new((min, max))
+    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
 }
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> usize {

@@ -40,6 +40,18 @@ impl KeyRange {
         Self(range)
     }
 
+    pub fn empty() -> Self {
+        Self((Slice::new(b""), Slice::new(b"")))
+    }
+
+    fn min(&self) -> &UserKey {
+        &self.0 .0
+    }
+
+    fn max(&self) -> &UserKey {
+        &self.0 .1
+    }
+
     /// Returns `true` if the list of key ranges is disjoint
     pub fn is_disjoint(ranges: &[&Self]) -> bool {
         for (idx, a) in ranges.iter().enumerate() {
@@ -102,6 +114,24 @@ impl KeyRange {
         };
 
         lo_included && hi_included
+    }
+
+    pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
+        let mut key_range = iter.next().cloned().expect("should not be empty");
+
+        for other in iter {
+            let min = other.min();
+            if min < key_range.min() {
+                key_range.0 .0 = min.clone();
+            }
+
+            let max = other.min();
+            if other.max() > key_range.max() {
+                key_range.0 .1 = max.clone();
+            }
+        }
+
+        key_range
     }
 }
 
