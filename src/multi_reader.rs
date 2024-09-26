@@ -5,7 +5,7 @@
 use crate::InternalValue;
 use std::collections::VecDeque;
 
-/// Reads through a disjoint, sorted set of segment readers
+/// Reads through a disjoint, sorted set of readers
 pub struct MultiReader<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     readers: VecDeque<I>,
 }
