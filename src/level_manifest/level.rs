@@ -67,18 +67,22 @@ impl Level {
         }
     }
 
+    /// Sorts the level by key range ascending.
+    ///
+    /// segment 1   segment 2   segment 3
+    /// [key:a]     [key:c]     [key:z]
     pub(crate) fn sort_by_key_range(&mut self) {
         self.segments
             .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
     }
 
-    /// Sorts the level from newest to oldest
+    /// Sorts the level from newest to oldest.
     ///
     /// This will make segments with highest seqno get checked first,
     /// so if there are two versions of an item, the fresher one is seen first:
     ///
-    /// segment a   segment b
-    /// [key:asd:2] [key:asd:1]
+    /// segment 1     segment 2
+    /// [key:asd:2]   [key:asd:1]
     ///
     /// point read ----------->
     pub(crate) fn sort_by_seqno(&mut self) {
@@ -128,31 +132,57 @@ impl Level {
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
     }
 
-    /// Returns an iterator over segments in the level that have a key range
-    /// overlapping the input key range.
-    ///
-    /// IMPORTANT: This shall only be used if the level is guaranteed to be disjoint!!!
-    ///
-    /// # Panics
-    ///
-    /// Panics if the level is not disjoint.
-    pub fn disjoint_overlapping_segments<'a>(
+    pub fn disjoint_range_indexes<'a>(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
-    ) -> impl Iterator<Item = &'a Arc<Segment>> {
+    ) -> Option<(usize, usize)> {
         assert!(self.is_disjoint);
 
-        let start = self.segments.partition_point(|segment| match &key_range.0 {
-            Bound::Included(start_key) => &segment.metadata.key_range.1 < start_key,
-            Bound::Excluded(start_key) => &segment.metadata.key_range.1 <= start_key,
-            Bound::Unbounded => false,
-        });
+        let lo = match &key_range.0 {
+            Bound::Unbounded => 0,
+            Bound::Included(start_key) => self
+                .segments
+                .partition_point(|segment| &segment.metadata.key_range.1 < start_key),
+            Bound::Excluded(start_key) => self
+                .segments
+                .partition_point(|segment| &segment.metadata.key_range.1 <= start_key),
+        };
 
-        self.segments
-            .get(start..)
-            .expect("should be in bounds")
-            .iter()
-            .take_while(move |segment| segment.check_key_range_overlap(key_range))
+        if lo >= self.segments.len() {
+            return None;
+        }
+
+        let hi = match &key_range.1 {
+            Bound::Unbounded => self.segments.len() - 1,
+            Bound::Included(end_key) => {
+                let idx = self
+                    .segments
+                    .partition_point(|segment| &segment.metadata.key_range.0 <= end_key);
+
+                if idx == 0 {
+                    return None;
+                }
+
+                idx.saturating_sub(1) // To avoid underflow
+            }
+            Bound::Excluded(end_key) => {
+                let idx = self
+                    .segments
+                    .partition_point(|segment| &segment.metadata.key_range.0 < end_key);
+
+                if idx == 0 {
+                    return None;
+                }
+
+                idx.saturating_sub(1) // To avoid underflow
+            }
+        };
+
+        if lo > hi {
+            return None;
+        }
+
+        Some((lo, hi))
     }
 
     /// Returns the segment that possibly contains the key.
@@ -253,14 +283,14 @@ mod tests {
 
         {
             let range = (Bound::Unbounded, Bound::Included(Slice::from("0")));
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(None, indexes);
         }
 
         {
             let range = (Bound::Included(Slice::from("l")), Bound::Unbounded);
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(None, indexes);
         }
 
         {
@@ -268,9 +298,8 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Included(Slice::from("g")),
             );
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((1, 1)), indexes);
         }
 
         {
@@ -278,9 +307,8 @@ mod tests {
                 Bound::Excluded(Slice::from("d")),
                 Bound::Included(Slice::from("g")),
             );
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((1, 1)), indexes);
         }
 
         {
@@ -288,9 +316,8 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Excluded(Slice::from("h")),
             );
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((1, 1)), indexes);
         }
 
         {
@@ -298,27 +325,38 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Included(Slice::from("h")),
             );
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert_eq!(iter.next().unwrap().metadata.id, 2);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((1, 2)), indexes);
         }
 
         {
             let range = (Bound::Included(Slice::from("d")), Bound::Unbounded);
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert_eq!(iter.next().unwrap().metadata.id, 2);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((1, 2)), indexes);
+        }
+
+        {
+            let range = (
+                Bound::Included(Slice::from("a")),
+                Bound::Included(Slice::from("d")),
+            );
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((0, 1)), indexes);
+        }
+
+        {
+            let range = (
+                Bound::Included(Slice::from("a")),
+                Bound::Excluded(Slice::from("d")),
+            );
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((0, 0)), indexes);
         }
 
         {
             let range = (Bound::Unbounded, Bound::Unbounded);
-            let mut iter = level.disjoint_overlapping_segments(&range);
-            assert_eq!(iter.next().unwrap().metadata.id, 0);
-            assert_eq!(iter.next().unwrap().metadata.id, 1);
-            assert_eq!(iter.next().unwrap().metadata.id, 2);
-            assert!(iter.next().is_none());
+            let indexes = level.disjoint_range_indexes(&range);
+            assert_eq!(Some((0, 2)), indexes);
         }
     }
 
