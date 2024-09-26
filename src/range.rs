@@ -3,7 +3,16 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    key::InternalKey, level_manifest::LevelManifest, memtable::Memtable, merge::{BoxedIterator, Merger}, multi_reader::MultiReader, mvcc_stream::MvccStream, segment::level_reader::LevelReader, tree::inner::SealedMemtables, value::{SeqNo, UserKey}, KvPair
+    key::InternalKey,
+    level_manifest::LevelManifest,
+    memtable::Memtable,
+    merge::{BoxedIterator, Merger},
+    multi_reader::MultiReader,
+    mvcc_stream::MvccStream,
+    segment::level_reader::LevelReader,
+    tree::inner::SealedMemtables,
+    value::{SeqNo, UserKey},
+    KvPair,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
