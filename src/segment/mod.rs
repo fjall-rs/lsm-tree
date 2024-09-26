@@ -393,14 +393,7 @@ impl Segment {
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
     pub fn iter(&self) -> Range {
-        Range::new(
-            self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
-            self.block_cache.clone(),
-            self.block_index.clone(),
-            (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
-        )
+        self.range((std::ops::Bound::Unbounded, std::ops::Bound::Unbounded))
     }
 
     /// Creates a ranged iterator over the `Segment`.
