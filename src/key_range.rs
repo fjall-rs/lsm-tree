@@ -117,21 +117,23 @@ impl KeyRange {
     }
 
     pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
-        let mut key_range = iter.next().cloned().expect("should not be empty");
+        let first = iter.next().expect("should not be empty");
+        let mut min = first.min();
+        let mut max = first.max();
 
         for other in iter {
-            let min = other.min();
-            if min < key_range.min() {
-                key_range.0 .0 = min.clone();
+            let x = other.min();
+            if x < min {
+                min = x;
             }
 
-            let max = other.min();
-            if other.max() > key_range.max() {
-                key_range.0 .1 = max.clone();
+            let x = other.max();
+            if x > max {
+                max = x;
             }
         }
 
-        key_range
+        Self((min.clone(), max.clone()))
     }
 }
 
