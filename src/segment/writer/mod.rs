@@ -179,6 +179,15 @@ impl Writer {
         self.meta.item_count += self.chunk.len();
         self.meta.data_block_count += 1;
 
+        self.meta.last_key = Some(
+            self.chunk
+                .last()
+                .expect("chunk should not be empty")
+                .key
+                .user_key
+                .clone(),
+        );
+
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
 
@@ -215,8 +224,11 @@ impl Writer {
                 .push(BloomFilter::get_hash(&item.key.user_key));
         }
 
-        let item_key = item.key.clone();
         let seqno = item.key.seqno;
+
+        if self.meta.first_key.is_none() {
+            self.meta.first_key = Some(item.key.clone().user_key);
+        }
 
         self.chunk_size += item.size();
         self.chunk.push(item);
@@ -225,11 +237,6 @@ impl Writer {
             self.spill_block()?;
             self.chunk_size = 0;
         }
-
-        if self.meta.first_key.is_none() {
-            self.meta.first_key = Some(item_key.user_key.clone());
-        }
-        self.meta.last_key = Some(item_key.user_key);
 
         if self.meta.lowest_seqno > seqno {
             self.meta.lowest_seqno = seqno;
