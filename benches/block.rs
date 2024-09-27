@@ -156,5 +156,5 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, value_block_find, load_value_block_from_disk,);
+criterion_group!(benches, value_block_find, load_value_block_from_disk);
 criterion_main!(benches);

@@ -92,15 +92,12 @@ impl Writer {
         Ok(())
     }
 
-    pub fn register_block(&mut self, start_key: UserKey, offset: u64) -> crate::Result<()> {
+    pub fn register_block(&mut self, end_key: UserKey, offset: u64) -> crate::Result<()> {
         // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
         #[allow(clippy::cast_possible_truncation)]
-        let block_handle_size = (start_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
+        let block_handle_size = (end_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
-        let block_handle = KeyedBlockHandle {
-            end_key: start_key,
-            offset,
-        };
+        let block_handle = KeyedBlockHandle { end_key, offset };
 
         self.block_handles.push(block_handle);
 

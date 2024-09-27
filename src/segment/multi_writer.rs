@@ -117,10 +117,8 @@ impl MultiWriter {
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
-        if old_writer.meta.item_count > 0 {
-            // NOTE: if-check checks for item count
-            self.results
-                .push(old_writer.finish()?.expect("writer should emit result"));
+        if let Some(result) = old_writer.finish()? {
+            self.results.push(result);
         }
 
         Ok(())

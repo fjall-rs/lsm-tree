@@ -16,6 +16,17 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange((UserKey, UserKey));
 
+impl std::fmt::Display for KeyRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}<=>{}]",
+            String::from_utf8_lossy(&self.0 .0),
+            String::from_utf8_lossy(&self.0 .1)
+        )
+    }
+}
+
 impl std::ops::Deref for KeyRange {
     type Target = (UserKey, UserKey);
 
@@ -31,6 +42,14 @@ impl KeyRange {
 
     pub fn empty() -> Self {
         Self((Slice::new(b""), Slice::new(b"")))
+    }
+
+    fn min(&self) -> &UserKey {
+        &self.0 .0
+    }
+
+    fn max(&self) -> &UserKey {
+        &self.0 .1
     }
 
     /// Returns `true` if the list of key ranges is disjoint
@@ -95,6 +114,26 @@ impl KeyRange {
         };
 
         lo_included && hi_included
+    }
+
+    pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
+        let first = iter.next().expect("should not be empty");
+        let mut min = first.min();
+        let mut max = first.max();
+
+        for other in iter {
+            let x = other.min();
+            if x < min {
+                min = x;
+            }
+
+            let x = other.max();
+            if x > max {
+                max = x;
+            }
+        }
+
+        Self((min.clone(), max.clone()))
     }
 }
 

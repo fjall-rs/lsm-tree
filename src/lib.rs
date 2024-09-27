@@ -152,6 +152,7 @@ mod memtable;
 #[doc(hidden)]
 pub mod merge;
 
+mod multi_reader;
 mod mvcc_stream;
 mod path;
 

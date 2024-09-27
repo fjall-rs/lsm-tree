@@ -6,8 +6,8 @@ pub mod block;
 pub mod block_index;
 pub mod file_offsets;
 pub mod id;
+pub mod level_reader;
 pub mod meta;
-pub mod multi_reader;
 pub mod multi_writer;
 pub mod range;
 pub mod reader;
@@ -73,7 +73,11 @@ pub struct Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}", self.metadata.id)
+        write!(
+            f,
+            "Segment:{}({})",
+            self.metadata.id, self.metadata.key_range
+        )
     }
 }
 
@@ -301,32 +305,6 @@ impl Segment {
         ));
         reader.lo_initialized = true;
 
-        let iter = reader.filter_map(move |entry| {
-            let entry = fail_iter!(entry);
-
-            // NOTE: We are past the searched key, so we can immediately return None
-            if &*entry.key.user_key > key {
-                None
-            } else {
-                // Check for seqno if needed
-                if let Some(seqno) = seqno {
-                    if entry.key.seqno < seqno {
-                        Some(Ok(InternalValue {
-                            key: entry.key.clone(),
-                            value: entry.value,
-                        }))
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(Ok(InternalValue {
-                        key: entry.key.clone(),
-                        value: entry.value,
-                    }))
-                }
-            }
-        });
-
         // NOTE: For finding a specific seqno,
         // we need to use a reader
         // because nothing really prevents the version
@@ -344,7 +322,30 @@ impl Segment {
         // unfortunately is in the next block
         //
         // Also because of weak tombstones, we may have to look further than the first item we encounter
-        MvccStream::new(iter).next().transpose()
+        let reader = reader.filter(|x| {
+            match x {
+                Ok(entry) => {
+                    // Check for seqno if needed
+                    if let Some(seqno) = seqno {
+                        entry.key.seqno < seqno
+                    } else {
+                        true
+                    }
+                }
+                Err(_) => true,
+            }
+        });
+
+        let Some(entry) = MvccStream::new(reader).next().transpose()? else {
+            return Ok(None);
+        };
+
+        // NOTE: We are past the searched key, so don't return anything
+        if &*entry.key.user_key > key {
+            return Ok(None);
+        }
+
+        Ok(Some(entry))
     }
 
     // NOTE: Clippy false positive
@@ -384,6 +385,7 @@ impl Segment {
     }
 
     // TODO: move segment tests into module, then make pub(crate)
+
     /// Creates an iterator over the `Segment`.
     ///
     /// # Errors
@@ -393,14 +395,7 @@ impl Segment {
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
     pub fn iter(&self) -> Range {
-        Range::new(
-            self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
-            self.block_cache.clone(),
-            self.block_index.clone(),
-            (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded),
-        )
+        self.range((std::ops::Bound::Unbounded, std::ops::Bound::Unbounded))
     }
 
     /// Creates a ranged iterator over the `Segment`.
