@@ -14,9 +14,7 @@ use crate::{
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{
-        block_index::{
-            full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
-        },
+        block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
         Segment,
     },
@@ -480,7 +478,6 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        // TODO: full block index
         let block_index =
             FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));

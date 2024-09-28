@@ -17,8 +17,7 @@ pub struct Level {
     /// is only recomputed when the level is changed
     /// to avoid unnecessary CPU work
     pub is_disjoint: bool,
-
-    pub key_range: KeyRange,
+    // pub key_range: KeyRange,
 }
 
 impl std::fmt::Display for Level {
@@ -44,7 +43,7 @@ impl Default for Level {
         Self {
             is_disjoint: true,
             segments: Vec::new(),
-            key_range: KeyRange::empty(),
+            // key_range: KeyRange::empty(),
         }
     }
 }
@@ -289,7 +288,7 @@ mod tests {
     fn level_disjoint_cull() {
         let level = Level {
             is_disjoint: true,
-            key_range: KeyRange::empty(),
+            // key_range: KeyRange::empty(),
             segments: vec![
                 fixture_segment(0, KeyRange::new((Slice::from("a"), Slice::from("c")))),
                 fixture_segment(1, KeyRange::new((Slice::from("d"), Slice::from("g")))),
