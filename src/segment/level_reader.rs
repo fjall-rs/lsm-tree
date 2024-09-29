@@ -83,12 +83,9 @@ impl Iterator for LevelReader {
 
 impl DoubleEndedIterator for LevelReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        //let start = Instant::now();
-
         loop {
             if let Some(hi_reader) = &mut self.hi_reader {
                 if let Some(item) = hi_reader.next_back() {
-                    // eprintln!("1 next_back in {:?}", start.elapsed());
                     return Some(item);
                 }
 
@@ -103,10 +100,8 @@ impl DoubleEndedIterator for LevelReader {
                 // NOTE: We reached the lo marker, so consume from it instead
                 //
                 // If it returns nothing, it is empty, so we are done
-                //eprintln!("2 next_back in {:?}", start.elapsed());
                 return lo_reader.next_back();
             } else {
-                //eprintln!("3 next_back in {:?}", start.elapsed());
                 return None;
             }
         }
