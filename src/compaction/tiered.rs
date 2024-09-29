@@ -43,8 +43,8 @@ impl Strategy {
 impl Default for Strategy {
     fn default() -> Self {
         Self {
-            base_size: 8 * 1_024 * 1_024,
-            level_ratio: 8,
+            base_size: 16 * 1_024 * 1_024,
+            level_ratio: 4,
         }
     }
 }
