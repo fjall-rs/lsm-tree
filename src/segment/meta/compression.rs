@@ -33,6 +33,17 @@ pub enum CompressionType {
     /// - 10 may save even more space than 9, but the speed trade off may not be worth it
     #[cfg(feature = "miniz")]
     Miniz(u8),
+
+    /// zstd Compression
+    ///
+    /// Compression level (-128-22) can be adjusted.
+    ///
+    /// - -128~ -1 is fast compression level
+    /// - A level of `0` uses zstd's default (currently `3`).
+    /// - 1~19 normal compression level, higher is slower (1 is fastest, 3 is default, 12 is as fast as gzip level 6)
+    /// - 20~22 ultra compression level, increase memory on both compression and decompression
+    #[cfg(feature = "zstd")]
+    Zstd(i32),
 }
 
 impl Encode for CompressionType {
@@ -55,6 +66,17 @@ impl Encode for CompressionType {
 
                 writer.write_u8(2)?;
                 writer.write_u8(*level)?;
+            }
+
+            #[cfg(feature = "zstd")]
+            Self::Zstd(level) => {
+                assert!(
+                    *level >= -128 && *level <= 22,
+                    "invalid zstd compression level"
+                );
+                writer.write_u8(3)?;
+                // TODO: this is dependent on endianness
+                writer.write_u8(*level as u8)?;
             }
         };
 
@@ -87,6 +109,19 @@ impl Decode for CompressionType {
                 Ok(Self::Miniz(level))
             }
 
+            #[cfg(feature = "zstd")]
+            3 => {
+                // TODO: this is dependent on endianness
+                let level = reader.read_u8()? as i8 as i32;
+
+                assert!(
+                    level >= -128 && level <= 22,
+                    "invalid zstd compression level"
+                );
+
+                Ok(Self::Zstd(level))
+            }
+
             tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
     }
@@ -94,19 +129,18 @@ impl Decode for CompressionType {
 
 impl std::fmt::Display for CompressionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::None => "no compression",
+        match self {
+            Self::None => write!(f, "no compression"),
 
-                #[cfg(feature = "lz4")]
-                Self::Lz4 => "lz4",
+            #[cfg(feature = "lz4")]
+            Self::Lz4 => write!(f, "lz4"),
 
-                #[cfg(feature = "miniz")]
-                Self::Miniz(_) => "miniz",
-            }
-        )
+            #[cfg(feature = "miniz")]
+            Self::Miniz(_) => write!(f, "miniz"),
+
+            #[cfg(feature = "zstd")]
+            Self::Zstd(level) => write!(f, "zstd({})", level),
+        }
     }
 }
 
@@ -118,6 +152,7 @@ mod tests {
     fn compression_serialize_none() -> crate::Result<()> {
         let serialized = CompressionType::None.encode_into_vec()?;
         assert_eq!(2, serialized.len());
+        assert_eq!(vec![0u8, 0u8], serialized);
         Ok(())
     }
 
@@ -126,9 +161,10 @@ mod tests {
         use super::*;
 
         #[test_log::test]
-        fn compression_serialize_none() -> crate::Result<()> {
+        fn compression_serialize_lz4() -> crate::Result<()> {
             let serialized = CompressionType::Lz4.encode_into_vec()?;
             assert_eq!(2, serialized.len());
+            assert_eq!(vec![1u8, 0u8], serialized);
             Ok(())
         }
     }
@@ -138,10 +174,26 @@ mod tests {
         use super::*;
 
         #[test_log::test]
-        fn compression_serialize_none() -> crate::Result<()> {
+        fn compression_serialize_miniz() -> crate::Result<()> {
             for lvl in 0..10 {
                 let serialized = CompressionType::Miniz(lvl).encode_into_vec()?;
                 assert_eq!(2, serialized.len());
+                assert_eq!(vec![2u8, lvl], serialized);
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "zstd")]
+    mod zstd {
+        use super::*;
+
+        #[test_log::test]
+        fn compression_serialize_zstd() -> crate::Result<()> {
+            for lvl in -128..22 {
+                let serialized = CompressionType::Zstd(lvl).encode_into_vec()?;
+                assert_eq!(2, serialized.len());
+                assert_eq!(vec![3u8, lvl as u8], serialized);
             }
             Ok(())
         }

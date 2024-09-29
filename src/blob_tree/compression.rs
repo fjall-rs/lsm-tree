@@ -24,6 +24,9 @@ impl Compressor for MyCompressor {
 
             #[cfg(feature = "miniz")]
             CompressionType::Miniz(lvl) => miniz_oxide::deflate::compress_to_vec(bytes, lvl),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => zstd::bulk::compress(bytes, level)?,
         })
     }
 
@@ -39,6 +42,14 @@ impl Compressor for MyCompressor {
             #[cfg(feature = "miniz")]
             CompressionType::Miniz(_) => miniz_oxide::inflate::decompress_to_vec(bytes)
                 .map_err(|_| value_log::Error::Decompress),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => zstd::bulk::decompress(
+                bytes,
+                // TODO: assuming 4GB output size max
+                u32::MAX as usize,
+            )
+            .map_err(|_| value_log::Error::Decompress),
         }
     }
 }

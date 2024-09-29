@@ -181,7 +181,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(folder)
-                .block_size(1_024)
+                .data_block_size(1_024)
                 .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
                 .open()
                 .unwrap();
@@ -219,7 +219,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(folder)
-                .block_size(1_024)
+                .data_block_size(1_024)
                 .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
                 .open()
                 .unwrap();
@@ -262,7 +262,7 @@ fn disk_point_read(c: &mut Criterion) {
     let folder = tempdir().unwrap();
 
     let tree = Config::new(folder)
-        .block_size(1_024)
+        .data_block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
         .open()
         .unwrap();
@@ -300,7 +300,7 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
     let folder = tempfile::tempdir().unwrap();
 
     let tree = Config::new(folder)
-        .block_size(1_024)
+        .data_block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
         .open()
         .unwrap();

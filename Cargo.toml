@@ -20,8 +20,9 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
+zstd = ["dep:zstd"]
 bloom = []
-all = ["bloom", "lz4", "miniz"]
+all = ["bloom", "lz4", "miniz", "zstd"]
 
 [dependencies]
 byteorder = "1.5.0"
@@ -40,6 +41,7 @@ tempfile = "3.12.0"
 value-log = "1.0.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+zstd = { version = "0.13.2", optional = true, features = ["experimental"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
@@ -72,13 +74,13 @@ required-features = ["bloom"]
 name = "block"
 harness = false
 path = "benches/block.rs"
-required-features = ["lz4", "miniz"]
+required-features = ["lz4", "miniz", "zstd"]
 
 [[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
-required-features = ["lz4", "miniz"]
+required-features = ["lz4", "miniz", "zstd"]
 
 [[bench]]
 name = "level_manifest"
