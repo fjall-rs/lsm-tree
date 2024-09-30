@@ -237,14 +237,21 @@ mod tests {
 
         let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
 
-        for key in [
+        let keys = &[
             b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
             b"item8", b"item9",
-        ] {
-            filter.set_with_hash(BloomFilter::get_hash(key));
+        ];
+
+        for key in keys {
+            filter.set_with_hash(BloomFilter::get_hash(*key));
         }
-        assert!(filter.contains(b"item3"));
+
+        for key in keys {
+            assert!(filter.contains(&**key));
+        }
         assert!(!filter.contains(b"asdasads"));
+        assert!(!filter.contains(b"item10"));
+        assert!(!filter.contains(b"cxycxycxy"));
 
         filter.encode_into(&mut file)?;
         file.sync_all()?;
@@ -255,8 +262,12 @@ mod tests {
 
         assert_eq!(filter, filter_copy);
 
-        assert!(filter_copy.contains(b"item3"));
+        for key in keys {
+            assert!(filter.contains(&**key));
+        }
         assert!(!filter_copy.contains(b"asdasads"));
+        assert!(!filter_copy.contains(b"item10"));
+        assert!(!filter_copy.contains(b"cxycxycxy"));
 
         Ok(())
     }
