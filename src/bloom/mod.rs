@@ -243,6 +243,8 @@ mod tests {
         ] {
             filter.set_with_hash(BloomFilter::get_hash(key));
         }
+        assert!(filter.contains(b"item3"));
+        assert!(!filter.contains(b"asdasads"));
 
         filter.encode_into(&mut file)?;
         file.sync_all()?;
@@ -252,6 +254,9 @@ mod tests {
         let filter_copy = BloomFilter::decode_from(&mut file)?;
 
         assert_eq!(filter, filter_copy);
+
+        assert!(filter_copy.contains(b"item3"));
+        assert!(!filter_copy.contains(b"asdasads"));
 
         Ok(())
     }
