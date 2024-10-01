@@ -121,6 +121,8 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
+                debug_assert!(!segments_to_compact.is_empty());
+
                 let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
                     break;
                 };
