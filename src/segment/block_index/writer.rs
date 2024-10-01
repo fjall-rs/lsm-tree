@@ -36,7 +36,7 @@ impl Writer {
         Ok(Self {
             file_pos: 0,
             prev_pos: (0, 0),
-            write_buffer: Vec::with_capacity(block_size as usize),
+            write_buffer: Vec::with_capacity(u16::MAX.into()),
             buffer_size: 0,
             block_size,
             compression: CompressionType::None,
@@ -63,17 +63,22 @@ impl Writer {
         header.encode_into(&mut self.write_buffer)?;
         self.write_buffer.write_all(&data)?;
 
-        let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
+        // NOTE: Expect is fine, the block size definitely fits into u64
+        #[allow(clippy::expect_used)]
+        let bytes_written: u64 = (BlockHeader::serialized_len() + data.len())
+            .try_into()
+            .expect("block size should fit into u64");
 
         // NOTE: Expect is fine, because the chunk is not empty
+        //
+        // Also, we are allowed to remove the last item
+        // to get ownership of it, because the chunk is cleared after
+        // this anyway
         #[allow(clippy::expect_used)]
-        let last = self
-            .block_handles
-            .last()
-            .expect("Chunk should not be empty");
+        let last = self.block_handles.pop().expect("Chunk should not be empty");
 
         let index_block_handle = KeyedBlockHandle {
-            end_key: last.end_key.clone(),
+            end_key: last.end_key,
             offset: self.file_pos,
         };
 
@@ -81,11 +86,11 @@ impl Writer {
 
         self.buffer_size = 0;
         self.file_pos += bytes_written;
+        self.block_count += 1;
 
+        // Back link stuff
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
-
-        self.block_count += 1;
 
         self.block_handles.clear();
 
