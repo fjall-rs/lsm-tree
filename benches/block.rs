@@ -1,11 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
+    coding::Encode,
     segment::{
         block::{header::Header as BlockHeader, ItemSize},
         meta::CompressionType,
         value_block::ValueBlock,
     },
-    serde::Serializable,
     Checksum, InternalValue,
 };
 use std::io::Write;
@@ -105,7 +105,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     for comp_type in [
         CompressionType::None,
         CompressionType::Lz4,
-        CompressionType::Miniz(6),
+        CompressionType::Miniz(3),
     ] {
         for block_size in [1, 4, 8, 16, 32, 64, 128] {
             let block_size = block_size * 1_024;
