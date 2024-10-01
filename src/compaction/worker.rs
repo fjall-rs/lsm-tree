@@ -207,6 +207,7 @@ fn merge_segments(
     for (idx, item) in merge_iter.enumerate() {
         let item = item?;
 
+        // IMPORTANT: We can only drop tombstones when writing into last level
         if is_last_level && item.is_tombstone() {
             continue;
         }
