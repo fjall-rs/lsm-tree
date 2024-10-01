@@ -180,9 +180,12 @@ impl Writer {
         self.meta.data_block_count += 1;
 
         self.meta.last_key = Some(
-            // NOTE: We are allowed to remove the last item
+            // NOTE: Expect is fine, because the chunk is not empty
+            //
+            // Also, we are allowed to remove the last item
             // to get ownership of it, because the chunk is cleared after
             // this anyway
+            #[allow(clippy::expect_used)]
             self.chunk
                 .pop()
                 .expect("chunk should not be empty")
