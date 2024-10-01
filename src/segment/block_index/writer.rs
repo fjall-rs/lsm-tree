@@ -40,8 +40,8 @@ impl Writer {
             buffer_size: 0,
             block_size,
             compression: CompressionType::None,
-            block_handles: Vec::with_capacity(1_000),
-            tli_pointers: Vec::with_capacity(1_000),
+            block_handles: Vec::new(),
+            tli_pointers: Vec::new(),
             block_count: 0,
         })
     }

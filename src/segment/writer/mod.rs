@@ -108,7 +108,7 @@ impl Writer {
 
         let index_writer = IndexWriter::new(opts.index_block_size)?;
 
-        let chunk = Vec::with_capacity(10_000);
+        let chunk = Vec::new();
 
         Ok(Self {
             opts,
