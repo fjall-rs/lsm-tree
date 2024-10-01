@@ -48,6 +48,16 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    #[cfg(feature = "bloom")]
+    fn bloom_filter_size(&self) -> usize {
+        self.levels
+            .read()
+            .expect("lock is poisoned")
+            .iter()
+            .map(|x| x.bloom_filter.len())
+            .sum()
+    }
+
     fn sealed_memtable_count(&self) -> usize {
         self.sealed_memtables
             .read()

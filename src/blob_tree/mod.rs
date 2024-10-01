@@ -163,6 +163,11 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    #[cfg(feature = "bloom")]
+    fn bloom_filter_size(&self) -> usize {
+        self.index.bloom_filter_size()
+    }
+
     fn sealed_memtable_count(&self) -> usize {
         self.index.sealed_memtable_count()
     }
