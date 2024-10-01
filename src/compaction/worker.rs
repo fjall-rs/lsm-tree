@@ -80,6 +80,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     let choice = opts.strategy.choose(&original_levels, &opts.config);
 
     log::debug!("compactor: choice: {choice:?}");
+    eprintln!("{original_levels}");
 
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),

@@ -160,7 +160,15 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
-                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                // NOTE: We purposefully not trivially move segments
+                // if we go from L1 to L2
+                // https://github.com/fjall-rs/lsm-tree/issues/63
+                let goes_into_cold_storage = next_level_index == 2;
+
+                if next_level_overlapping_segment_ids.is_empty()
+                    && level.is_disjoint
+                    && !goes_into_cold_storage
+                {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);
