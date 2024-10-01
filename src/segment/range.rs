@@ -259,7 +259,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 1_000, // NOTE: Block size 1 to for each item to be its own block
             index_block_size: 4_096,
         })?;
@@ -358,7 +357,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
         })?;
@@ -558,7 +556,6 @@ mod tests {
             let mut writer = Writer::new(Options {
                 segment_id: 0,
                 folder: folder.clone(),
-                evict_tombstones: false,
                 data_block_size,
                 index_block_size: 4_096,
             })?;
@@ -661,7 +658,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 250,
             index_block_size: 4_096,
         })?;

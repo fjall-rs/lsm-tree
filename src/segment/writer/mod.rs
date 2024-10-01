@@ -92,7 +92,6 @@ impl BloomConstructionPolicy {
 
 pub struct Options {
     pub folder: PathBuf,
-    pub evict_tombstones: bool,
     pub data_block_size: u32,
     pub index_block_size: u32,
     pub segment_id: SegmentId,
@@ -160,13 +159,14 @@ impl Writer {
             return Ok(());
         };
 
-        // Write to file
         let (header, data) =
             ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.compression)?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
         header.encode_into(&mut self.block_writer)?;
+
+        // Write to file
         self.block_writer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
@@ -193,6 +193,7 @@ impl Writer {
                 .user_key,
         );
 
+        // Back link stuff
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
 
@@ -210,10 +211,6 @@ impl Writer {
     /// be non-sense.
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.is_tombstone() {
-            if self.opts.evict_tombstones {
-                return Ok(());
-            }
-
             self.meta.tombstone_count += 1;
         }
 
@@ -374,7 +371,6 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
@@ -438,7 +434,6 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,

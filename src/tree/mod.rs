@@ -133,7 +133,6 @@ impl AbstractTree for Tree {
         let mut segment_writer = Writer::new(Options {
             segment_id,
             folder,
-            evict_tombstones: false,
             data_block_size: self.config.data_block_size,
             index_block_size: self.config.index_block_size,
         })?

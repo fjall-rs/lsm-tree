@@ -231,7 +231,6 @@ impl AbstractTree for BlobTree {
             segment_id,
             data_block_size: self.index.config.data_block_size,
             index_block_size: self.index.config.index_block_size,
-            evict_tombstones: false,
             folder: lsm_segment_folder,
         })?
         .use_compression(self.index.config.compression);
