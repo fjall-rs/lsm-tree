@@ -61,6 +61,8 @@ impl Encode for SegmentFileTrailer {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         let mut v = Vec::with_capacity(TRAILER_SIZE);
 
+        // TODO: 3.0.0, magic header, too?
+
         self.offsets.encode_into(&mut v)?;
 
         // Pad with remaining bytes
