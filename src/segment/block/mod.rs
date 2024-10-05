@@ -5,7 +5,7 @@
 pub mod checksum;
 pub mod header;
 
-use super::meta::CompressionType;
+use super::{meta::CompressionType, value_block::BlockOffset};
 use crate::coding::{Decode, Encode};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checksum::Checksum;
@@ -80,15 +80,15 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
 
     pub fn from_file<R: std::io::Read + std::io::Seek>(
         reader: &mut R,
-        offset: u64,
+        offset: BlockOffset,
     ) -> crate::Result<Self> {
-        reader.seek(std::io::SeekFrom::Start(offset))?;
+        reader.seek(std::io::SeekFrom::Start(*offset))?;
         Self::from_reader(reader)
     }
 
     pub fn to_bytes_compressed(
         items: &[T],
-        previous_block_offset: u64,
+        previous_block_offset: BlockOffset,
         compression: CompressionType,
     ) -> crate::Result<(BlockHeader, Vec<u8>)> {
         let packed = Self::pack_items(items, compression)?;
@@ -157,7 +157,8 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
+        let (header, data) =
+            ValueBlock::to_bytes_compressed(&items, BlockOffset(0), CompressionType::None)?;
 
         header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;
@@ -197,7 +198,8 @@ mod tests {
         // Serialize to bytes
         let mut serialized = Vec::new();
 
-        let (header, data) = ValueBlock::to_bytes_compressed(&items, 0, CompressionType::None)?;
+        let (header, data) =
+            ValueBlock::to_bytes_compressed(&items, BlockOffset(0), CompressionType::None)?;
 
         header.encode_into(&mut serialized)?;
         serialized.write_all(&data)?;

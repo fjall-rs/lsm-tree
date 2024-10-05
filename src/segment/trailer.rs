@@ -50,7 +50,7 @@ impl SegmentFileTrailer {
         log::trace!("Trailer offsets: {offsets:#?}");
 
         // Jump to metadata and parse
-        reader.seek(std::io::SeekFrom::Start(offsets.metadata_ptr))?;
+        reader.seek(std::io::SeekFrom::Start(*offsets.metadata_ptr))?;
         let metadata = Metadata::decode_from(&mut reader)?;
 
         Ok(Self { metadata, offsets })
