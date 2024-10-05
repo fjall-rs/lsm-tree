@@ -643,22 +643,25 @@ impl Tree {
                             }
                             return Ok(Some(item));
                         }
+                    } else {
+                        // NOTE: Don't go to fallback, go to next level instead
+                        continue;
                     }
                 }
-            } else {
-                // NOTE: Fallback to linear search
-                for segment in &level.segments {
-                    #[cfg(not(feature = "bloom"))]
-                    let maybe_item = segment.get(&key, seqno)?;
-                    #[cfg(feature = "bloom")]
-                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+            }
 
-                    if let Some(item) = maybe_item {
-                        if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                        return Ok(Some(item));
+            // NOTE: Fallback to linear search
+            for segment in &level.segments {
+                #[cfg(not(feature = "bloom"))]
+                let maybe_item = segment.get(&key, seqno)?;
+                #[cfg(feature = "bloom")]
+                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+
+                if let Some(item) = maybe_item {
+                    if evict_tombstone {
+                        return Ok(ignore_tombstone_value(item));
                     }
+                    return Ok(Some(item));
                 }
             }
         }
