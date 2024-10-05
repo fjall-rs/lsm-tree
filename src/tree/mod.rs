@@ -617,7 +617,7 @@ impl Tree {
     fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool,
+        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
@@ -673,7 +673,7 @@ impl Tree {
     pub fn get_internal_entry<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool,
+        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
