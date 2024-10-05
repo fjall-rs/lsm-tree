@@ -132,32 +132,54 @@ impl Level {
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
     }
 
-    pub fn disjoint_range_indexes<'a>(
+    pub fn as_disjoint(&self) -> Option<DisjointLevel<'_>> {
+        if self.is_disjoint {
+            Some(DisjointLevel(self))
+        } else {
+            None
+        }
+    }
+}
+
+#[allow(clippy::module_name_repetitions)]
+pub struct DisjointLevel<'a>(&'a Level);
+
+impl<'a> DisjointLevel<'a> {
+    /// Returns the segment that possibly contains the key.
+    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
+        let level = &self.0;
+
+        let idx = level
+            .segments
+            .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
+
+        level.segments.get(idx).cloned()
+    }
+
+    pub fn range_indexes(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
     ) -> Option<(usize, usize)> {
-        assert!(self.is_disjoint);
+        let level = &self.0;
 
         let lo = match &key_range.0 {
             Bound::Unbounded => 0,
-            Bound::Included(start_key) => self
-                .segments
-                .partition_point(|segment| &segment.metadata.key_range.1 < start_key),
-            Bound::Excluded(start_key) => self
-                .segments
-                .partition_point(|segment| &segment.metadata.key_range.1 <= start_key),
+            Bound::Included(start_key) => {
+                level.partition_point(|segment| &segment.metadata.key_range.1 < start_key)
+            }
+            Bound::Excluded(start_key) => {
+                level.partition_point(|segment| &segment.metadata.key_range.1 <= start_key)
+            }
         };
 
-        if lo >= self.segments.len() {
+        if lo >= level.len() {
             return None;
         }
 
         let hi = match &key_range.1 {
-            Bound::Unbounded => self.segments.len() - 1,
+            Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
-                let idx = self
-                    .segments
-                    .partition_point(|segment| &segment.metadata.key_range.0 <= end_key);
+                let idx = level.partition_point(|segment| &segment.metadata.key_range.0 <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -166,9 +188,7 @@ impl Level {
                 idx.saturating_sub(1) // To avoid underflow
             }
             Bound::Excluded(end_key) => {
-                let idx = self
-                    .segments
-                    .partition_point(|segment| &segment.metadata.key_range.0 < end_key);
+                let idx = level.partition_point(|segment| &segment.metadata.key_range.0 < end_key);
 
                 if idx == 0 {
                     return None;
@@ -184,23 +204,6 @@ impl Level {
 
         Some((lo, hi))
     }
-
-    /// Returns the segment that possibly contains the key.
-    ///
-    /// This only works for disjoint levels.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the level is not disjoint.
-    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
-        assert!(self.is_disjoint, "level is not disjoint");
-
-        let idx = self
-            .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
-
-        self.segments.get(idx).cloned()
-    }
 }
 
 #[cfg(test)]
@@ -215,6 +218,7 @@ mod tests {
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
+            value_block::BlockOffset,
             Segment,
         },
         AbstractTree, Slice,
@@ -235,13 +239,13 @@ mod tests {
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
-                bloom_ptr: 0,
-                range_filter_ptr: 0,
-                index_block_ptr: 0,
-                metadata_ptr: 0,
-                range_tombstones_ptr: 0,
-                tli_ptr: 0,
-                pfx_ptr: 0,
+                bloom_ptr: BlockOffset(0),
+                range_filter_ptr: BlockOffset(0),
+                index_block_ptr: BlockOffset(0),
+                metadata_ptr: BlockOffset(0),
+                range_tombstones_ptr: BlockOffset(0),
+                tli_ptr: BlockOffset(0),
+                pfx_ptr: BlockOffset(0),
             },
 
             metadata: Metadata {
@@ -280,16 +284,17 @@ mod tests {
                 fixture_segment(2, KeyRange::new((Slice::from("h"), Slice::from("k")))),
             ],
         };
+        let level = level.as_disjoint().unwrap();
 
         {
             let range = (Bound::Unbounded, Bound::Included(Slice::from("0")));
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(None, indexes);
         }
 
         {
             let range = (Bound::Included(Slice::from("l")), Bound::Unbounded);
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(None, indexes);
         }
 
@@ -298,7 +303,7 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Included(Slice::from("g")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((1, 1)), indexes);
         }
 
@@ -307,7 +312,7 @@ mod tests {
                 Bound::Excluded(Slice::from("d")),
                 Bound::Included(Slice::from("g")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((1, 1)), indexes);
         }
 
@@ -316,7 +321,7 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Excluded(Slice::from("h")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((1, 1)), indexes);
         }
 
@@ -325,13 +330,13 @@ mod tests {
                 Bound::Included(Slice::from("d")),
                 Bound::Included(Slice::from("h")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((1, 2)), indexes);
         }
 
         {
             let range = (Bound::Included(Slice::from("d")), Bound::Unbounded);
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((1, 2)), indexes);
         }
 
@@ -340,7 +345,7 @@ mod tests {
                 Bound::Included(Slice::from("a")),
                 Bound::Included(Slice::from("d")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((0, 1)), indexes);
         }
 
@@ -349,13 +354,13 @@ mod tests {
                 Bound::Included(Slice::from("a")),
                 Bound::Excluded(Slice::from("d")),
             );
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((0, 0)), indexes);
         }
 
         {
             let range = (Bound::Unbounded, Bound::Unbounded);
-            let indexes = level.disjoint_range_indexes(&range);
+            let indexes = level.range_indexes(&range);
             assert_eq!(Some((0, 2)), indexes);
         }
     }

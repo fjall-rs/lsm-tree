@@ -15,7 +15,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::block::ItemSize,
+    segment::{block::ItemSize, value_block::BlockOffset},
     value::{InternalValue, UserKey},
     SegmentId,
 };
@@ -51,7 +51,7 @@ pub struct Writer {
     pub(crate) meta: meta::Metadata,
 
     /// Stores the previous block position (used for creating back links)
-    prev_pos: (u64, u64),
+    prev_pos: (BlockOffset, BlockOffset),
 
     current_key: Option<UserKey>,
 
@@ -121,7 +121,7 @@ impl Writer {
             index_writer,
             chunk,
 
-            prev_pos: (0, 0),
+            prev_pos: (BlockOffset(0), BlockOffset(0)),
 
             chunk_size: 0,
 
@@ -172,7 +172,7 @@ impl Writer {
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
         self.index_writer
-            .register_block(last.key.user_key.clone(), self.meta.file_pos)?;
+            .register_block(last.key.user_key.clone(), BlockOffset(self.meta.file_pos))?;
 
         // Adjust metadata
         self.meta.file_pos += bytes_written;
@@ -263,7 +263,7 @@ impl Writer {
             return Ok(None);
         }
 
-        let index_block_ptr = self.block_writer.stream_position()?;
+        let index_block_ptr = BlockOffset(self.block_writer.stream_position()?);
         log::trace!("index_block_ptr={index_block_ptr}");
 
         // Append index blocks to file
@@ -291,27 +291,27 @@ impl Writer {
 
             filter.encode_into(&mut self.block_writer)?;
 
-            bloom_ptr
+            BlockOffset(bloom_ptr)
         };
 
         #[cfg(not(feature = "bloom"))]
-        let bloom_ptr = 0;
+        let bloom_ptr = BlockOffset(0);
         log::trace!("bloom_ptr={bloom_ptr}");
 
         // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
-        let rf_ptr = 0;
+        let rf_ptr = BlockOffset(0);
         log::trace!("rf_ptr={rf_ptr}");
 
         // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2 - Write range tombstones
-        let range_tombstones_ptr = 0;
+        let range_tombstones_ptr = BlockOffset(0);
         log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
 
         // TODO:
-        let pfx_ptr = 0;
+        let pfx_ptr = BlockOffset(0);
         log::trace!("pfx_ptr={pfx_ptr}");
 
         // Write metadata
-        let metadata_ptr = self.block_writer.stream_position()?;
+        let metadata_ptr = BlockOffset(self.block_writer.stream_position()?);
 
         let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
         metadata.encode_into(&mut self.block_writer)?;
@@ -414,7 +414,7 @@ mod tests {
             table,
             (0, segment_id).into(),
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 
@@ -469,7 +469,7 @@ mod tests {
             table,
             (0, segment_id).into(),
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 

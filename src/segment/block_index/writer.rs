@@ -5,7 +5,9 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     coding::Encode,
-    segment::{block::header::Header as BlockHeader, meta::CompressionType},
+    segment::{
+        block::header::Header as BlockHeader, meta::CompressionType, value_block::BlockOffset,
+    },
     value::UserKey,
 };
 use std::{
@@ -16,7 +18,7 @@ use std::{
 pub struct Writer {
     file_pos: u64,
 
-    prev_pos: (u64, u64),
+    prev_pos: (BlockOffset, BlockOffset),
 
     write_buffer: Vec<u8>,
 
@@ -35,7 +37,7 @@ impl Writer {
     pub fn new(block_size: u32) -> crate::Result<Self> {
         Ok(Self {
             file_pos: 0,
-            prev_pos: (0, 0),
+            prev_pos: (BlockOffset(0), BlockOffset(0)),
             write_buffer: Vec::with_capacity(u16::MAX.into()),
             buffer_size: 0,
             block_size,
@@ -79,7 +81,7 @@ impl Writer {
 
         let index_block_handle = KeyedBlockHandle {
             end_key: last.end_key,
-            offset: self.file_pos,
+            offset: BlockOffset(self.file_pos),
         };
 
         self.tli_pointers.push(index_block_handle);
@@ -97,7 +99,7 @@ impl Writer {
         Ok(())
     }
 
-    pub fn register_block(&mut self, end_key: UserKey, offset: u64) -> crate::Result<()> {
+    pub fn register_block(&mut self, end_key: UserKey, offset: BlockOffset) -> crate::Result<()> {
         // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
         #[allow(clippy::cast_possible_truncation)]
         let block_handle_size = (end_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
@@ -118,7 +120,7 @@ impl Writer {
     fn write_top_level_index(
         &mut self,
         block_file_writer: &mut BufWriter<File>,
-        file_offset: u64,
+        file_offset: BlockOffset,
     ) -> crate::Result<u64> {
         block_file_writer.write_all(&self.write_buffer)?;
         let tli_ptr = block_file_writer.stream_position()?;
@@ -131,7 +133,7 @@ impl Writer {
 
         // Write to file
         let (header, data) =
-            IndexBlock::to_bytes_compressed(&self.tli_pointers, 0, self.compression)?;
+            IndexBlock::to_bytes_compressed(&self.tli_pointers, BlockOffset(0), self.compression)?;
 
         header.encode_into(block_file_writer)?;
         block_file_writer.write_all(&data)?;
@@ -151,14 +153,17 @@ impl Writer {
     }
 
     /// Returns the offset in the file to TLI
-    pub fn finish(&mut self, block_file_writer: &mut BufWriter<File>) -> crate::Result<u64> {
+    pub fn finish(
+        &mut self,
+        block_file_writer: &mut BufWriter<File>,
+    ) -> crate::Result<BlockOffset> {
         if self.buffer_size > 0 {
             self.write_block()?;
         }
 
-        let index_block_ptr = block_file_writer.stream_position()?;
+        let index_block_ptr = BlockOffset(block_file_writer.stream_position()?);
         let tli_ptr = self.write_top_level_index(block_file_writer, index_block_ptr)?;
 
-        Ok(tli_ptr)
+        Ok(BlockOffset(tli_ptr))
     }
 }

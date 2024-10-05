@@ -20,7 +20,9 @@ impl LevelReader {
     pub fn new(level: Arc<Level>, range: &(Bound<UserKey>, Bound<UserKey>)) -> Self {
         assert!(!level.is_empty(), "level reader cannot read empty level");
 
-        let Some((lo, hi)) = level.disjoint_range_indexes(range) else {
+        let disjoint_level = level.as_disjoint().expect("level should be disjoint");
+
+        let Some((lo, hi)) = disjoint_level.range_indexes(range) else {
             // NOTE: We will never emit any item
             return Self {
                 segments: level,

@@ -510,10 +510,10 @@ impl Tree {
                 use crate::coding::Decode;
                 use std::io::Seek;
 
-                assert!(bloom_ptr > 0, "can not find bloom filter block");
+                assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = std::fs::File::open(&segment_file_path)?;
-                reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
+                reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
                 BloomFilter::decode_from(&mut reader)?
             },
         }
@@ -629,18 +629,20 @@ impl Tree {
 
         for level in &level_manifest.levels {
             // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
-            if level.is_disjoint && level.len() >= 5 {
-                if let Some(segment) = level.get_segment_containing_key(&key) {
-                    #[cfg(not(feature = "bloom"))]
-                    let maybe_item = segment.get(&key, seqno)?;
-                    #[cfg(feature = "bloom")]
-                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+            if level.len() >= 5 {
+                if let Some(level) = level.as_disjoint() {
+                    if let Some(segment) = level.get_segment_containing_key(&key) {
+                        #[cfg(not(feature = "bloom"))]
+                        let maybe_item = segment.get(&key, seqno)?;
+                        #[cfg(feature = "bloom")]
+                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
-                    if let Some(item) = maybe_item {
-                        if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
+                        if let Some(item) = maybe_item {
+                            if evict_tombstone {
+                                return Ok(ignore_tombstone_value(item));
+                            }
+                            return Ok(Some(item));
                         }
-                        return Ok(Some(item));
                     }
                 }
             } else {
