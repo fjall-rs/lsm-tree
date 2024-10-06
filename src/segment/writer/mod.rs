@@ -172,13 +172,18 @@ impl Writer {
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
 
         self.index_writer
-            .register_block(last.key.user_key.clone(), BlockOffset(self.meta.file_pos))?;
+            .register_block(last.key.user_key.clone(), self.meta.file_pos)?;
 
         // Adjust metadata
         self.meta.file_pos += bytes_written;
         self.meta.item_count += self.chunk.len();
         self.meta.data_block_count += 1;
 
+        // Back link stuff
+        self.prev_pos.0 = self.prev_pos.1;
+        self.prev_pos.1 += bytes_written;
+
+        // Set last key
         self.meta.last_key = Some(
             // NOTE: Expect is fine, because the chunk is not empty
             //
@@ -193,11 +198,9 @@ impl Writer {
                 .user_key,
         );
 
-        // Back link stuff
-        self.prev_pos.0 = self.prev_pos.1;
-        self.prev_pos.1 += bytes_written;
-
+        // IMPORTANT: Clear chunk after everything else
         self.chunk.clear();
+        self.chunk_size = 0;
 
         Ok(())
     }
@@ -237,7 +240,6 @@ impl Writer {
 
         if self.chunk_size >= self.opts.data_block_size as usize {
             self.spill_block()?;
-            self.chunk_size = 0;
         }
 
         if self.meta.lowest_seqno > seqno {
@@ -342,7 +344,7 @@ impl Writer {
             "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
             self.meta.item_count,
             self.meta.data_block_count,
-            self.meta.file_pos / 1_024 / 1_024
+            *self.meta.file_pos / 1_024 / 1_024
         );
 
         Ok(Some(trailer))

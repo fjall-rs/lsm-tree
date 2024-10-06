@@ -16,7 +16,7 @@ use std::{
 };
 
 pub struct Writer {
-    file_pos: u64,
+    file_pos: BlockOffset,
 
     prev_pos: (BlockOffset, BlockOffset),
 
@@ -36,7 +36,7 @@ pub struct Writer {
 impl Writer {
     pub fn new(block_size: u32) -> crate::Result<Self> {
         Ok(Self {
-            file_pos: 0,
+            file_pos: BlockOffset(0),
             prev_pos: (BlockOffset(0), BlockOffset(0)),
             write_buffer: Vec::with_capacity(u16::MAX.into()),
             buffer_size: 0,
@@ -81,12 +81,12 @@ impl Writer {
 
         let index_block_handle = KeyedBlockHandle {
             end_key: last.end_key,
-            offset: BlockOffset(self.file_pos),
+            offset: self.file_pos,
         };
 
         self.tli_pointers.push(index_block_handle);
 
-        self.buffer_size = 0;
+        // Adjust metadata
         self.file_pos += bytes_written;
         self.block_count += 1;
 
@@ -94,7 +94,9 @@ impl Writer {
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
 
+        // IMPORTANT: Clear buffer after everything else
         self.block_handles.clear();
+        self.buffer_size = 0;
 
         Ok(())
     }
