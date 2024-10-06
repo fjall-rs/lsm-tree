@@ -4,6 +4,7 @@
 
 use crate::either::Either::{self, Left, Right};
 use crate::segment::id::GlobalSegmentId;
+use crate::segment::value_block::BlockOffset;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
@@ -13,16 +14,16 @@ type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
 // (Type (disk or index), Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
-struct CacheKey(GlobalSegmentId, u64);
+struct CacheKey(GlobalSegmentId, BlockOffset);
 
-impl Equivalent<CacheKey> for (GlobalSegmentId, u64) {
+impl Equivalent<CacheKey> for (GlobalSegmentId, BlockOffset) {
     fn equivalent(&self, key: &CacheKey) -> bool {
         self.0 == key.0 && self.1 == key.1
     }
 }
 
-impl From<(GlobalSegmentId, u64)> for CacheKey {
-    fn from((gid, bid): (GlobalSegmentId, u64)) -> Self {
+impl From<(GlobalSegmentId, BlockOffset)> for CacheKey {
+    fn from((gid, bid): (GlobalSegmentId, BlockOffset)) -> Self {
         Self(gid, bid)
     }
 }
@@ -65,7 +66,11 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 pub struct BlockCache {
-    data: Cache<CacheKey, Item, BlockWeighter, xxhash_rust::xxh3::Xxh3Builder>,
+    // NOTE: rustc_hash performed best: https://fjall-rs.github.io/post/fjall-2-1
+    /// Concurrent cache implementation
+    data: Cache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
+
+    /// Capacity in bytes
     capacity: u64,
 }
 
@@ -75,14 +80,17 @@ impl BlockCache {
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
+        #[allow(clippy::default_trait_access)]
+        let quick_cache = Cache::with(
+            1_000_000,
+            bytes,
+            BlockWeighter,
+            Default::default(),
+            DefaultLifecycle::default(),
+        );
+
         Self {
-            data: Cache::with(
-                1_000_000,
-                bytes,
-                BlockWeighter,
-                xxhash_rust::xxh3::Xxh3Builder::new(),
-                DefaultLifecycle::default(),
-            ),
+            data: quick_cache,
             capacity: bytes,
         }
     }
@@ -115,7 +123,7 @@ impl BlockCache {
     pub fn insert_disk_block(
         &self,
         segment_id: GlobalSegmentId,
-        offset: u64,
+        offset: BlockOffset,
         value: Arc<ValueBlock>,
     ) {
         if self.capacity > 0 {
@@ -127,7 +135,7 @@ impl BlockCache {
     pub fn insert_index_block(
         &self,
         segment_id: GlobalSegmentId,
-        offset: u64,
+        offset: BlockOffset,
         value: Arc<IndexBlock>,
     ) {
         if self.capacity > 0 {
@@ -140,7 +148,7 @@ impl BlockCache {
     pub fn get_disk_block(
         &self,
         segment_id: GlobalSegmentId,
-        offset: u64,
+        offset: BlockOffset,
     ) -> Option<Arc<ValueBlock>> {
         let key = (segment_id, offset);
         let item = self.data.get(&key)?;
@@ -152,7 +160,7 @@ impl BlockCache {
     pub fn get_index_block(
         &self,
         segment_id: GlobalSegmentId,
-        offset: u64,
+        offset: BlockOffset,
     ) -> Option<Arc<IndexBlock>> {
         let key = (segment_id, offset);
         let item = self.data.get(&key)?;

@@ -87,7 +87,7 @@ mod tests {
         level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex, file_offsets::FileOffsets,
-            meta::Metadata, Segment,
+            meta::Metadata, value_block::BlockOffset, Segment,
         },
     };
     use std::sync::Arc;
@@ -106,13 +106,13 @@ mod tests {
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
-                bloom_ptr: 0,
-                range_filter_ptr: 0,
-                index_block_ptr: 0,
-                metadata_ptr: 0,
-                range_tombstones_ptr: 0,
-                tli_ptr: 0,
-                pfx_ptr: 0,
+                bloom_ptr: BlockOffset(0),
+                range_filter_ptr: BlockOffset(0),
+                index_block_ptr: BlockOffset(0),
+                metadata_ptr: BlockOffset(0),
+                range_tombstones_ptr: BlockOffset(0),
+                tli_ptr: BlockOffset(0),
+                pfx_ptr: BlockOffset(0),
             },
 
             metadata: Metadata {

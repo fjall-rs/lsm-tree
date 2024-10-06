@@ -50,7 +50,6 @@ impl MultiWriter {
         let writer = Writer::new(Options {
             segment_id: current_segment_id,
             folder: opts.folder.clone(),
-            evict_tombstones: opts.evict_tombstones,
             data_block_size: opts.data_block_size,
             index_block_size: opts.index_block_size,
         })?;
@@ -104,7 +103,6 @@ impl MultiWriter {
         let mut new_writer = Writer::new(Options {
             segment_id: new_segment_id,
             folder: self.opts.folder.clone(),
-            evict_tombstones: self.opts.evict_tombstones,
             data_block_size: self.opts.data_block_size,
             index_block_size: self.opts.index_block_size,
         })?
@@ -117,10 +115,8 @@ impl MultiWriter {
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
-        if old_writer.meta.item_count > 0 {
-            // NOTE: if-check checks for item count
-            self.results
-                .push(old_writer.finish()?.expect("writer should emit result"));
+        if let Some(result) = old_writer.finish()? {
+            self.results.push(result);
         }
 
         Ok(())

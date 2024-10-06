@@ -6,6 +6,35 @@ use super::{block::Block, id::GlobalSegmentId};
 use crate::{descriptor_table::FileDescriptorTable, value::InternalValue, BlockCache};
 use std::sync::Arc;
 
+#[derive(Copy, Clone, Default, Debug, std::hash::Hash, PartialEq, Eq, Ord, PartialOrd)]
+pub struct BlockOffset(pub u64);
+
+impl std::ops::Deref for BlockOffset {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::AddAssign<Self> for BlockOffset {
+    fn add_assign(&mut self, rhs: Self) {
+        *self += *rhs;
+    }
+}
+
+impl std::ops::AddAssign<u64> for BlockOffset {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 += rhs;
+    }
+}
+
+impl std::fmt::Display for BlockOffset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CachePolicy {
     /// Read cached blocks, but do not change cache
@@ -36,7 +65,7 @@ impl ValueBlock {
         descriptor_table: &FileDescriptorTable,
         block_cache: &BlockCache,
         segment_id: GlobalSegmentId,
-        offset: u64,
+        offset: BlockOffset,
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<Arc<Self>>> {
         Ok(
@@ -115,7 +144,7 @@ mod tests {
                 compression: CompressionType::None,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
-                previous_block_offset: 0,
+                previous_block_offset: BlockOffset(0),
                 uncompressed_length: 0,
             },
         };

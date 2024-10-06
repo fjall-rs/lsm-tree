@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{block_handle::KeyedBlockHandle, BlockIndex};
-use crate::segment::{block_index::IndexBlock, value_block::CachePolicy};
+use crate::segment::{
+    block_index::IndexBlock,
+    value_block::{BlockOffset, CachePolicy},
+};
 use std::{fs::File, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their size
@@ -36,7 +39,7 @@ impl TopLevelIndex {
     }
 
     /// Loads a top-level index from disk
-    pub fn from_file<P: AsRef<Path>>(path: P, offset: u64) -> crate::Result<Self> {
+    pub fn from_file<P: AsRef<Path>>(path: P, offset: BlockOffset) -> crate::Result<Self> {
         let path = path.as_ref();
         log::trace!("reading TLI from {path:?}, offset={offset}");
 

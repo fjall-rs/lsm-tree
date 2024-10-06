@@ -6,8 +6,8 @@ pub mod block;
 pub mod block_index;
 pub mod file_offsets;
 pub mod id;
+pub mod level_reader;
 pub mod meta;
-pub mod multi_reader;
 pub mod multi_writer;
 pub mod range;
 pub mod reader;
@@ -73,7 +73,11 @@ pub struct Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}", self.metadata.id)
+        write!(
+            f,
+            "Segment:{}({})",
+            self.metadata.id, self.metadata.key_range
+        )
     }
 }
 
@@ -195,10 +199,10 @@ impl Segment {
                     io::{Seek, SeekFrom},
                 };
 
-                assert!(bloom_ptr > 0, "can not find bloom filter block");
+                assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(bloom_ptr))?;
+                reader.seek(SeekFrom::Start(*bloom_ptr))?;
                 BloomFilter::decode_from(&mut reader)?
             },
         })

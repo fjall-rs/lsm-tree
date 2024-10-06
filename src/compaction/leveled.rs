@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment, HashSet,
 };
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 /// Levelled compaction strategy (LCS)
 ///
@@ -57,24 +57,7 @@ impl Default for Strategy {
 }
 
 fn aggregate_key_range(segments: &[Arc<Segment>]) -> KeyRange {
-    let (mut min, mut max) = segments
-        .first()
-        .expect("segment should always exist")
-        .metadata
-        .key_range
-        .deref()
-        .clone();
-
-    for other in segments.iter().skip(1) {
-        if other.metadata.key_range.0 < min {
-            min = other.metadata.key_range.0.clone();
-        }
-        if other.metadata.key_range.1 > max {
-            max = other.metadata.key_range.1.clone();
-        }
-    }
-
-    KeyRange::new((min, max))
+    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
 }
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> usize {
@@ -137,6 +120,8 @@ impl CompactionStrategy for Strategy {
                     overshoot = overshoot.saturating_sub(segment.metadata.file_size);
                     segments_to_compact.push(segment);
                 }
+
+                debug_assert!(!segments_to_compact.is_empty());
 
                 let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
                     break;
@@ -241,6 +226,7 @@ mod tests {
             block_index::two_level_index::TwoLevelBlockIndex,
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
+            value_block::BlockOffset,
             Segment,
         },
         time::unix_timestamp,
@@ -275,13 +261,13 @@ mod tests {
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
 
             offsets: FileOffsets {
-                bloom_ptr: 0,
-                range_filter_ptr: 0,
-                index_block_ptr: 0,
-                metadata_ptr: 0,
-                range_tombstones_ptr: 0,
-                tli_ptr: 0,
-                pfx_ptr: 0,
+                bloom_ptr: BlockOffset(0),
+                range_filter_ptr: BlockOffset(0),
+                index_block_ptr: BlockOffset(0),
+                metadata_ptr: BlockOffset(0),
+                range_tombstones_ptr: BlockOffset(0),
+                tli_ptr: BlockOffset(0),
+                pfx_ptr: BlockOffset(0),
             },
 
             metadata: Metadata {

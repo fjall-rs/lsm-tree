@@ -6,7 +6,7 @@ use super::checksum::Checksum;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    segment::meta::CompressionType,
+    segment::{meta::CompressionType, value_block::BlockOffset},
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
@@ -21,7 +21,7 @@ pub struct Header {
     pub checksum: Checksum,
 
     /// File offset of previous block - only used for data blocks
-    pub previous_block_offset: u64,
+    pub previous_block_offset: BlockOffset,
 
     /// Compressed size of data segment
     pub data_length: u32,
@@ -59,7 +59,7 @@ impl Encode for Header {
         writer.write_u64::<BigEndian>(*self.checksum)?;
 
         // Write prev offset
-        writer.write_u64::<BigEndian>(self.previous_block_offset)?;
+        writer.write_u64::<BigEndian>(*self.previous_block_offset)?;
 
         // Write data length
         writer.write_u32::<BigEndian>(self.data_length)?;
@@ -98,7 +98,7 @@ impl Decode for Header {
         Ok(Self {
             compression,
             checksum: Checksum::from_raw(checksum),
-            previous_block_offset,
+            previous_block_offset: BlockOffset(previous_block_offset),
             data_length,
             uncompressed_length,
         })
@@ -116,7 +116,7 @@ mod tests {
         let header = Header {
             compression: CompressionType::None,
             checksum: Checksum::from_raw(4),
-            previous_block_offset: 2,
+            previous_block_offset: BlockOffset(2),
             data_length: 15,
             uncompressed_length: 15,
         };

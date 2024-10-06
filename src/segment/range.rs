@@ -5,6 +5,7 @@
 use super::block_index::two_level_index::TwoLevelBlockIndex;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
+use super::value_block::BlockOffset;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -29,7 +30,7 @@ pub struct Range {
 
 impl Range {
     pub fn new(
-        data_block_boundary: u64,
+        data_block_boundary: BlockOffset,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
@@ -41,7 +42,7 @@ impl Range {
             descriptor_table,
             segment_id,
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 
@@ -259,7 +260,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 1_000, // NOTE: Block size 1 to for each item to be its own block
             index_block_size: 4_096,
         })?;
@@ -358,7 +358,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
         })?;
@@ -558,7 +557,6 @@ mod tests {
             let mut writer = Writer::new(Options {
                 segment_id: 0,
                 folder: folder.clone(),
-                evict_tombstones: false,
                 data_block_size,
                 index_block_size: 4_096,
             })?;
@@ -661,7 +659,6 @@ mod tests {
         let mut writer = Writer::new(Options {
             segment_id: 0,
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 250,
             index_block_size: 4_096,
         })?;

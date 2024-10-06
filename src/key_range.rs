@@ -16,6 +16,17 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange((UserKey, UserKey));
 
+impl std::fmt::Display for KeyRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}<=>{}]",
+            String::from_utf8_lossy(&self.0 .0),
+            String::from_utf8_lossy(&self.0 .1)
+        )
+    }
+}
+
 impl std::ops::Deref for KeyRange {
     type Target = (UserKey, UserKey);
 
@@ -27,6 +38,18 @@ impl std::ops::Deref for KeyRange {
 impl KeyRange {
     pub fn new(range: (UserKey, UserKey)) -> Self {
         Self(range)
+    }
+
+    pub fn empty() -> Self {
+        Self((Slice::new(b""), Slice::new(b"")))
+    }
+
+    fn min(&self) -> &UserKey {
+        &self.0 .0
+    }
+
+    fn max(&self) -> &UserKey {
+        &self.0 .1
     }
 
     /// Returns `true` if the list of key ranges is disjoint
@@ -92,6 +115,34 @@ impl KeyRange {
 
         lo_included && hi_included
     }
+
+    /// Aggregates a key range.
+    ///
+    /// # Panics
+    ///
+    /// The iterator must not be empty
+    pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
+        // NOTE: See function documentation
+        #[allow(clippy::expect_used)]
+        let first = iter.next().expect("should not be empty");
+
+        let mut min = first.min();
+        let mut max = first.max();
+
+        for other in iter {
+            let x = other.min();
+            if x < min {
+                min = x;
+            }
+
+            let x = other.max();
+            if x > max {
+                max = x;
+            }
+        }
+
+        Self((min.clone(), max.clone()))
+    }
 }
 
 impl Encode for KeyRange {
@@ -129,6 +180,7 @@ impl Decode for KeyRange {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     fn int_key_range(a: u64, b: u64) -> KeyRange {
         KeyRange::new((a.to_be_bytes().into(), b.to_be_bytes().into()))
@@ -138,8 +190,22 @@ mod tests {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
     }
 
+    #[test]
+    fn key_range_aggregate() {
+        let ranges = [
+            int_key_range(2, 4),
+            int_key_range(0, 4),
+            int_key_range(7, 10),
+        ];
+        let aggregated = KeyRange::aggregate(ranges.iter());
+        let (min, max) = aggregated.0;
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &*min);
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &*max);
+    }
+
     mod is_disjoint {
         use super::*;
+        use test_log::test;
 
         #[test]
         fn key_range_number() {
@@ -169,6 +235,7 @@ mod tests {
 
     mod overflap_key_range {
         use super::*;
+        use test_log::test;
 
         #[test]
         fn key_range_overlap() {
@@ -195,6 +262,7 @@ mod tests {
     mod overlaps_with_bounds {
         use super::*;
         use std::ops::Bound::{Excluded, Included, Unbounded};
+        use test_log::test;
 
         #[test]
         fn inclusive() {
