@@ -79,6 +79,8 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
+// TODO: can probably use smallvec here to skip heap allocations
+// TODO: after all we only have 7 levels max
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
@@ -180,6 +182,8 @@ impl TreeIter {
 
             let range = (lo, hi);
 
+            // TODO: maybe can use smallvec here to reduce heap allocations
+            // TODO: smallvec<3> -> [active memtable, Merge<sealed memtables>, Merge<segments>]
             let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
 
             // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.

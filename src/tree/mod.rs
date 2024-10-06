@@ -631,6 +631,15 @@ impl Tree {
             // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
             if level.len() >= 5 {
                 if let Some(level) = level.as_disjoint() {
+                    // TODO: unit test in disjoint level:
+                    // [a:5, a:4] [a:3, b:5]
+                    // ^
+                    // snapshot read a:3!!!
+                    // ^
+                    // level will probably not be recognized as disjoint because
+                    // it technically isn't
+                    // but multiwriter *could* write a level like that... (right now)
+
                     if let Some(segment) = level.get_segment_containing_key(&key) {
                         #[cfg(not(feature = "bloom"))]
                         let maybe_item = segment.get(&key, seqno)?;
