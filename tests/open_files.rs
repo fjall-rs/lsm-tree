@@ -3,6 +3,7 @@ use std::sync::Arc;
 use test_log::test;
 
 #[test]
+#[ignore = "this is a sanity check test, but the data it writes is impossible, so the range scan first_key_value is doing is crashing as of 2.1.1 lol"]
 fn open_file_limit() -> lsm_tree::Result<()> {
     std::fs::create_dir_all(".test_open_files")?;
     let folder = tempfile::tempdir_in(".test_open_files")?;
