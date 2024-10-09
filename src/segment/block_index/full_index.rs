@@ -1,5 +1,8 @@
 use super::{block_handle::KeyedBlockHandle, BlockIndex};
-use crate::segment::{block_index::IndexBlock, value_block::CachePolicy};
+use crate::segment::{
+    block_index::IndexBlock,
+    value_block::{BlockOffset, CachePolicy},
+};
 use std::{fs::File, io::Seek, path::Path};
 
 /// Index that translates item keys to block handles
@@ -22,7 +25,7 @@ impl FullBlockIndex {
         );
 
         let mut file = File::open(path)?;
-        file.seek(std::io::SeekFrom::Start(offsets.index_block_ptr))?;
+        file.seek(std::io::SeekFrom::Start(*offsets.index_block_ptr))?;
 
         let mut block_handles = Vec::with_capacity(cnt);
 
@@ -43,7 +46,7 @@ impl BlockIndex for FullBlockIndex {
         &self,
         key: &[u8],
         _: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         use super::RawBlockIndex;
 
         self.0
@@ -56,7 +59,7 @@ impl BlockIndex for FullBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         use super::RawBlockIndex;
 
         self.0
@@ -64,7 +67,7 @@ impl BlockIndex for FullBlockIndex {
             .map(|x| x.map(|x| x.offset))
     }
 
-    fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<u64> {
+    fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<BlockOffset> {
         use super::RawBlockIndex;
 
         self.0

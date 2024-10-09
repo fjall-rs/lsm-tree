@@ -50,7 +50,6 @@ impl MultiWriter {
         let writer = Writer::new(Options {
             segment_id: current_segment_id,
             folder: opts.folder.clone(),
-            evict_tombstones: opts.evict_tombstones,
             data_block_size: opts.data_block_size,
             index_block_size: opts.index_block_size,
         })?;
@@ -104,7 +103,6 @@ impl MultiWriter {
         let mut new_writer = Writer::new(Options {
             segment_id: new_segment_id,
             folder: self.opts.folder.clone(),
-            evict_tombstones: self.opts.evict_tombstones,
             data_block_size: self.opts.data_block_size,
             index_block_size: self.opts.index_block_size,
         })?
@@ -128,7 +126,7 @@ impl MultiWriter {
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         self.writer.write(item)?;
 
-        if self.writer.meta.file_pos >= self.target_size {
+        if *self.writer.meta.file_pos >= self.target_size {
             self.rotate()?;
         }
 

@@ -10,7 +10,7 @@ use super::{
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::{file_offsets::FileOffsets, meta::Metadata},
+    segment::{file_offsets::FileOffsets, meta::Metadata, value_block::BlockOffset},
 };
 use std::{path::Path, sync::Arc};
 
@@ -19,12 +19,12 @@ use std::{path::Path, sync::Arc};
 pub struct IndexBlockFetcher(Arc<BlockCache>);
 
 impl IndexBlockFetcher {
-    pub fn insert(&self, segment_id: GlobalSegmentId, offset: u64, value: Arc<IndexBlock>) {
+    pub fn insert(&self, segment_id: GlobalSegmentId, offset: BlockOffset, value: Arc<IndexBlock>) {
         self.0.insert_index_block(segment_id, offset, value);
     }
 
     #[must_use]
-    pub fn get(&self, segment_id: GlobalSegmentId, offset: u64) -> Option<Arc<IndexBlock>> {
+    pub fn get(&self, segment_id: GlobalSegmentId, offset: BlockOffset) -> Option<Arc<IndexBlock>> {
         self.0.get_index_block(segment_id, offset)
     }
 }
@@ -60,11 +60,11 @@ impl BlockIndex for TwoLevelBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         self.get_lowest_data_block_handle_containing_item(key, cache_policy)
     }
 
-    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<u64> {
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset> {
         self.get_last_data_block_handle(cache_policy)
     }
 
@@ -72,7 +72,7 @@ impl BlockIndex for TwoLevelBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         self.get_last_data_block_handle_containing_item(key, cache_policy)
     }
 }
@@ -83,7 +83,7 @@ impl TwoLevelBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         let Some(index_block_handle) = self
             .top_level_index
             .get_lowest_block_containing_key(key, cache_policy)
@@ -110,7 +110,7 @@ impl TwoLevelBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>> {
+    ) -> crate::Result<Option<BlockOffset>> {
         let Some(index_block_handle) = self
             .top_level_index
             .get_last_block_containing_key(key, cache_policy)
@@ -132,7 +132,10 @@ impl TwoLevelBlockIndex {
         })
     }
 
-    pub fn get_last_data_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<u64> {
+    pub fn get_last_data_block_handle(
+        &self,
+        cache_policy: CachePolicy,
+    ) -> crate::Result<BlockOffset> {
         let index_block_handle = self
             .top_level_index
             .get_last_block_handle(cache_policy)
@@ -150,7 +153,7 @@ impl TwoLevelBlockIndex {
     /// Loads an index block from disk
     pub fn load_index_block(
         &self,
-        offset: u64,
+        offset: BlockOffset,
         cache_policy: CachePolicy,
     ) -> crate::Result<Arc<IndexBlock>> {
         log::trace!("loading index block {:?}/{offset:?}", self.segment_id);

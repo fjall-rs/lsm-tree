@@ -19,6 +19,10 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Gets the memory usage of all bloom filters in the tree.
+    #[cfg(feature = "bloom")]
+    fn bloom_filter_size(&self) -> usize;
+
     /*  /// Imports data from a flat file (see [`Tree::export`]),
     /// blocking the caller until it is done.
     ///

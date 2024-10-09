@@ -20,7 +20,9 @@ impl LevelReader {
     pub fn new(level: Arc<Level>, range: &(Bound<UserKey>, Bound<UserKey>)) -> Self {
         assert!(!level.is_empty(), "level reader cannot read empty level");
 
-        let Some((lo, hi)) = level.disjoint_range_indexes(range) else {
+        let disjoint_level = level.as_disjoint().expect("level should be disjoint");
+
+        let Some((lo, hi)) = disjoint_level.range_indexes(range) else {
             // NOTE: We will never emit any item
             return Self {
                 segments: level,
@@ -83,12 +85,9 @@ impl Iterator for LevelReader {
 
 impl DoubleEndedIterator for LevelReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        //let start = Instant::now();
-
         loop {
             if let Some(hi_reader) = &mut self.hi_reader {
                 if let Some(item) = hi_reader.next_back() {
-                    // eprintln!("1 next_back in {:?}", start.elapsed());
                     return Some(item);
                 }
 
@@ -103,10 +102,8 @@ impl DoubleEndedIterator for LevelReader {
                 // NOTE: We reached the lo marker, so consume from it instead
                 //
                 // If it returns nothing, it is empty, so we are done
-                //eprintln!("2 next_back in {:?}", start.elapsed());
                 return lo_reader.next_back();
             } else {
-                //eprintln!("3 next_back in {:?}", start.elapsed());
                 return None;
             }
         }

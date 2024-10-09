@@ -5,7 +5,9 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     coding::Encode,
-    segment::{block::header::Header as BlockHeader, meta::CompressionType},
+    segment::{
+        block::header::Header as BlockHeader, meta::CompressionType, value_block::BlockOffset,
+    },
     value::UserKey,
 };
 use std::{
@@ -14,9 +16,9 @@ use std::{
 };
 
 pub struct Writer {
-    file_pos: u64,
+    file_pos: BlockOffset,
 
-    prev_pos: (u64, u64),
+    prev_pos: (BlockOffset, BlockOffset),
 
     write_buffer: Vec<u8>,
 
@@ -34,14 +36,14 @@ pub struct Writer {
 impl Writer {
     pub fn new(block_size: u32) -> crate::Result<Self> {
         Ok(Self {
-            file_pos: 0,
-            prev_pos: (0, 0),
-            write_buffer: Vec::with_capacity(block_size as usize),
+            file_pos: BlockOffset(0),
+            prev_pos: (BlockOffset(0), BlockOffset(0)),
+            write_buffer: Vec::with_capacity(u16::MAX.into()),
             buffer_size: 0,
             block_size,
             compression: CompressionType::None,
-            block_handles: Vec::with_capacity(1_000),
-            tli_pointers: Vec::with_capacity(1_000),
+            block_handles: Vec::new(),
+            tli_pointers: Vec::new(),
             block_count: 0,
         })
     }
@@ -63,36 +65,43 @@ impl Writer {
         header.encode_into(&mut self.write_buffer)?;
         self.write_buffer.write_all(&data)?;
 
-        let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
+        // NOTE: Expect is fine, the block size definitely fits into u64
+        #[allow(clippy::expect_used)]
+        let bytes_written: u64 = (BlockHeader::serialized_len() + data.len())
+            .try_into()
+            .expect("block size should fit into u64");
 
         // NOTE: Expect is fine, because the chunk is not empty
+        //
+        // Also, we are allowed to remove the last item
+        // to get ownership of it, because the chunk is cleared after
+        // this anyway
         #[allow(clippy::expect_used)]
-        let last = self
-            .block_handles
-            .last()
-            .expect("Chunk should not be empty");
+        let last = self.block_handles.pop().expect("Chunk should not be empty");
 
         let index_block_handle = KeyedBlockHandle {
-            end_key: last.end_key.clone(),
+            end_key: last.end_key,
             offset: self.file_pos,
         };
 
         self.tli_pointers.push(index_block_handle);
 
-        self.buffer_size = 0;
+        // Adjust metadata
         self.file_pos += bytes_written;
+        self.block_count += 1;
 
+        // Back link stuff
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
 
-        self.block_count += 1;
-
+        // IMPORTANT: Clear buffer after everything else
         self.block_handles.clear();
+        self.buffer_size = 0;
 
         Ok(())
     }
 
-    pub fn register_block(&mut self, end_key: UserKey, offset: u64) -> crate::Result<()> {
+    pub fn register_block(&mut self, end_key: UserKey, offset: BlockOffset) -> crate::Result<()> {
         // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
         #[allow(clippy::cast_possible_truncation)]
         let block_handle_size = (end_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
@@ -113,7 +122,7 @@ impl Writer {
     fn write_top_level_index(
         &mut self,
         block_file_writer: &mut BufWriter<File>,
-        file_offset: u64,
+        file_offset: BlockOffset,
     ) -> crate::Result<u64> {
         block_file_writer.write_all(&self.write_buffer)?;
         let tli_ptr = block_file_writer.stream_position()?;
@@ -126,7 +135,7 @@ impl Writer {
 
         // Write to file
         let (header, data) =
-            IndexBlock::to_bytes_compressed(&self.tli_pointers, 0, self.compression)?;
+            IndexBlock::to_bytes_compressed(&self.tli_pointers, BlockOffset(0), self.compression)?;
 
         header.encode_into(block_file_writer)?;
         block_file_writer.write_all(&data)?;
@@ -146,14 +155,17 @@ impl Writer {
     }
 
     /// Returns the offset in the file to TLI
-    pub fn finish(&mut self, block_file_writer: &mut BufWriter<File>) -> crate::Result<u64> {
+    pub fn finish(
+        &mut self,
+        block_file_writer: &mut BufWriter<File>,
+    ) -> crate::Result<BlockOffset> {
         if self.buffer_size > 0 {
             self.write_block()?;
         }
 
-        let index_block_ptr = block_file_writer.stream_position()?;
+        let index_block_ptr = BlockOffset(block_file_writer.stream_position()?);
         let tli_ptr = self.write_top_level_index(block_file_writer, index_block_ptr)?;
 
-        Ok(tli_ptr)
+        Ok(BlockOffset(tli_ptr))
     }
 }

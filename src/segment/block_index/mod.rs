@@ -8,7 +8,10 @@ pub mod top_level;
 pub mod two_level_index;
 pub mod writer;
 
-use super::{block::Block, value_block::CachePolicy};
+use super::{
+    block::Block,
+    value_block::{BlockOffset, CachePolicy},
+};
 use block_handle::KeyedBlockHandle;
 use full_index::FullBlockIndex;
 use two_level_index::TwoLevelBlockIndex;
@@ -64,17 +67,17 @@ pub trait BlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>>;
+    ) -> crate::Result<Option<BlockOffset>>;
 
     /// Gets the last block handle that may contain the given item
     fn get_last_block_containing_key(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<u64>>;
+    ) -> crate::Result<Option<BlockOffset>>;
 
     /// Returns a handle to the last block
-    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<u64>;
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset>;
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -108,10 +111,13 @@ pub enum BlockIndexImpl {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::Slice;
+    use crate::{
+        segment::{block_index::BlockIndex, value_block::BlockOffset},
+        Slice,
+    };
     use test_log::test;
 
-    fn bh<K: Into<Slice>>(end_key: K, offset: u64) -> KeyedBlockHandle {
+    fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: end_key.into(),
             offset,
@@ -121,11 +127,11 @@ mod tests {
     #[test]
     fn block_handle_array_lowest() {
         let index = [
-            bh(*b"c", 0),
-            bh(*b"g", 10),
-            bh(*b"g", 20),
-            bh(*b"l", 30),
-            bh(*b"t", 40),
+            bh(*b"c", BlockOffset(0)),
+            bh(*b"g", BlockOffset(10)),
+            bh(*b"g", BlockOffset(20)),
+            bh(*b"l", BlockOffset(30)),
+            bh(*b"t", BlockOffset(40)),
         ];
 
         {
@@ -135,7 +141,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -145,7 +151,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -155,7 +161,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -165,7 +171,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"g");
-            assert_eq!(handle.offset, 10);
+            assert_eq!(handle.offset, BlockOffset(10));
         }
 
         {
@@ -175,7 +181,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"l");
-            assert_eq!(handle.offset, 30);
+            assert_eq!(handle.offset, BlockOffset(30));
         }
 
         {
@@ -185,7 +191,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"t");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -195,7 +201,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"t");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -210,13 +216,13 @@ mod tests {
     #[test]
     fn block_handle_array_spanning_lowest() {
         let index = [
-            bh(*b"a", 0),
-            bh(*b"a", 10),
-            bh(*b"a", 20),
-            bh(*b"a", 30),
-            bh(*b"b", 40),
-            bh(*b"b", 50),
-            bh(*b"c", 60),
+            bh(*b"a", BlockOffset(0)),
+            bh(*b"a", BlockOffset(10)),
+            bh(*b"a", BlockOffset(20)),
+            bh(*b"a", BlockOffset(30)),
+            bh(*b"b", BlockOffset(40)),
+            bh(*b"b", BlockOffset(50)),
+            bh(*b"c", BlockOffset(60)),
         ];
 
         {
@@ -226,7 +232,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"a");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -236,7 +242,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"a");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -246,7 +252,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"b");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -256,7 +262,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"b");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -266,7 +272,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 60);
+            assert_eq!(handle.offset, BlockOffset(60));
         }
 
         {
@@ -281,13 +287,13 @@ mod tests {
     #[test]
     fn block_handle_array_last_of_key() {
         let index = [
-            bh(*b"a", 0),
-            bh(*b"a", 10),
-            bh(*b"a", 20),
-            bh(*b"a", 30),
-            bh(*b"b", 40),
-            bh(*b"b", 50),
-            bh(*b"c", 60),
+            bh(*b"a", BlockOffset(0)),
+            bh(*b"a", BlockOffset(10)),
+            bh(*b"a", BlockOffset(20)),
+            bh(*b"a", BlockOffset(30)),
+            bh(*b"b", BlockOffset(40)),
+            bh(*b"b", BlockOffset(50)),
+            bh(*b"c", BlockOffset(60)),
         ];
 
         {
@@ -297,7 +303,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"a");
-            assert_eq!(handle.offset, 0);
+            assert_eq!(handle.offset, BlockOffset(0));
         }
 
         {
@@ -307,7 +313,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"b");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -317,7 +323,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"b");
-            assert_eq!(handle.offset, 40);
+            assert_eq!(handle.offset, BlockOffset(40));
         }
 
         {
@@ -327,7 +333,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 60);
+            assert_eq!(handle.offset, BlockOffset(60));
         }
 
         {
@@ -337,7 +343,7 @@ mod tests {
                 .expect("should exist");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 60);
+            assert_eq!(handle.offset, BlockOffset(60));
         }
 
         {
@@ -352,13 +358,13 @@ mod tests {
     #[test]
     fn block_handle_array_last() {
         let index = [
-            bh(*b"a", 0),
-            bh(*b"a", 10),
-            bh(*b"a", 20),
-            bh(*b"a", 30),
-            bh(*b"b", 40),
-            bh(*b"b", 50),
-            bh(*b"c", 60),
+            bh(*b"a", BlockOffset(0)),
+            bh(*b"a", BlockOffset(10)),
+            bh(*b"a", BlockOffset(20)),
+            bh(*b"a", BlockOffset(30)),
+            bh(*b"b", BlockOffset(40)),
+            bh(*b"b", BlockOffset(50)),
+            bh(*b"c", BlockOffset(60)),
         ];
 
         {
@@ -367,7 +373,7 @@ mod tests {
                 .expect("cannot fail");
 
             assert_eq!(&*handle.end_key, *b"c");
-            assert_eq!(handle.offset, 60);
+            assert_eq!(handle.offset, BlockOffset(60));
         }
     }
 }

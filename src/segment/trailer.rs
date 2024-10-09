@@ -50,7 +50,7 @@ impl SegmentFileTrailer {
         log::trace!("Trailer offsets: {offsets:#?}");
 
         // Jump to metadata and parse
-        reader.seek(std::io::SeekFrom::Start(offsets.metadata_ptr))?;
+        reader.seek(std::io::SeekFrom::Start(*offsets.metadata_ptr))?;
         let metadata = Metadata::decode_from(&mut reader)?;
 
         Ok(Self { metadata, offsets })
@@ -60,6 +60,8 @@ impl SegmentFileTrailer {
 impl Encode for SegmentFileTrailer {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         let mut v = Vec::with_capacity(TRAILER_SIZE);
+
+        // TODO: 3.0.0, magic header, too?
 
         self.offsets.encode_into(&mut v)?;
 

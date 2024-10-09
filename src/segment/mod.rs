@@ -204,10 +204,10 @@ impl Segment {
                     io::{Seek, SeekFrom},
                 };
 
-                assert!(bloom_ptr > 0, "can not find bloom filter block");
+                assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(bloom_ptr))?;
+                reader.seek(SeekFrom::Start(*bloom_ptr))?;
                 BloomFilter::decode_from(&mut reader)?
             },
         })
