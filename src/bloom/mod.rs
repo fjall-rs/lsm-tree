@@ -83,6 +83,7 @@ impl Decode for BloomFilter {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl BloomFilter {
     /// Size of bloom filter in bytes.
     #[must_use]
