@@ -55,7 +55,7 @@ impl Default for Strategy {
         Self {
             l0_threshold: 4,
             target_size: 64 * 1_024 * 1_024,
-            level_ratio: 8,
+            level_ratio: 10,
         }
     }
 }
