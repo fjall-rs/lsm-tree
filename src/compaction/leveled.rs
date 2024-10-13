@@ -4,7 +4,11 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    config::Config, key_range::KeyRange, level_manifest::LevelManifest, segment::Segment, HashSet,
+    config::Config,
+    key_range::KeyRange,
+    level_manifest::{level::Level, LevelManifest},
+    segment::Segment,
+    HashSet, SegmentId,
 };
 use std::sync::Arc;
 
@@ -64,6 +68,82 @@ fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> us
     (ratio as usize).pow(u32::from(level_idx)) * (target_size as usize)
 }
 
+fn pick_minimal_overlap(
+    curr_level: &Level,
+    next_level: &Level,
+    overshoot: u64,
+) -> (HashSet<SegmentId>, bool) {
+    let mut choices = vec![];
+
+    for size in 1..=curr_level.len() {
+        let windows = curr_level.windows(size);
+
+        for window in windows {
+            let size_sum = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
+
+            if size_sum >= overshoot {
+                // NOTE: Consider this window
+
+                let mut segment_ids: HashSet<SegmentId> =
+                    window.iter().map(|x| x.metadata.id).collect();
+
+                // Get overlapping segments in next level
+                let key_range = aggregate_key_range(window);
+
+                let next_level_overlapping_segments: Vec<_> = next_level
+                    .overlapping_segments(&key_range)
+                    .cloned()
+                    .collect();
+
+                // Get overlapping segments in same level
+                let key_range = aggregate_key_range(&next_level_overlapping_segments);
+
+                let curr_level_overlapping_segment_ids: Vec<_> = curr_level
+                    .overlapping_segments(&key_range)
+                    .filter(|x| !segment_ids.contains(&x.metadata.id))
+                    .collect();
+
+                // Calculate effort
+                let size_next_level = next_level_overlapping_segments
+                    .iter()
+                    .map(|x| x.metadata.file_size)
+                    .sum::<u64>();
+
+                let size_curr_level = curr_level_overlapping_segment_ids
+                    .iter()
+                    .map(|x| x.metadata.file_size)
+                    .sum::<u64>();
+
+                let effort = size_sum + size_next_level + size_curr_level;
+
+                segment_ids.extend(
+                    next_level_overlapping_segments
+                        .iter()
+                        .map(|x| x.metadata.id),
+                );
+
+                segment_ids.extend(
+                    curr_level_overlapping_segment_ids
+                        .iter()
+                        .map(|x| x.metadata.id),
+                );
+
+                // TODO: need to calculate write_amp and choose minimum write_amp instead
+                choices.push((
+                    effort,
+                    segment_ids,
+                    next_level_overlapping_segments.is_empty(),
+                ));
+            }
+        }
+    }
+
+    let minimum_effort_choice = choices.into_iter().min_by(|a, b| a.0.cmp(&b.0));
+    let (_, set, can_trivial_move) = minimum_effort_choice.expect("should exist");
+
+    (set, can_trivial_move)
+}
+
 impl CompactionStrategy for Strategy {
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
@@ -99,15 +179,20 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            let curr_level_bytes = level.size();
-
             let desired_bytes =
                 desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.target_size);
 
-            let mut overshoot = curr_level_bytes.saturating_sub(desired_bytes as u64);
+            let overshoot = level.size().saturating_sub(desired_bytes as u64);
 
             if overshoot > 0 {
-                let mut segments_to_compact = vec![];
+                let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
+                    break;
+                };
+
+                let (segment_ids, can_trivial_move) =
+                    pick_minimal_overlap(level, next_level, overshoot);
+
+                /* let mut segments_to_compact = vec![];
 
                 let mut level = level.clone();
                 level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
@@ -148,7 +233,7 @@ impl CompactionStrategy for Strategy {
                     .map(|x| x.metadata.id)
                     .collect();
 
-                segment_ids.extend(&next_level_overlapping_segment_ids);
+                segment_ids.extend(&next_level_overlapping_segment_ids); */
 
                 let choice = CompactionInput {
                     segment_ids: {
@@ -160,7 +245,7 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
-                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                if can_trivial_move && level.is_disjoint {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);

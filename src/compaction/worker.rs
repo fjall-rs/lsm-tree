@@ -164,6 +164,8 @@ fn merge_segments(
     let last_level = levels.last_level_index();
 
     levels.hide_segments(&payload.segment_ids);
+
+    println!("--- comp: {levels}");
     drop(levels);
 
     // NOTE: Only evict tombstones when reaching the last level,
