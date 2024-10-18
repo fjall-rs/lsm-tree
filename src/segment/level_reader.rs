@@ -2,47 +2,110 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::InternalValue;
-use std::collections::VecDeque;
+use super::range::Range;
+use crate::{level_manifest::level::Level, InternalValue, UserKey};
+use std::{ops::Bound, sync::Arc};
 
-/// Reads through a disjoint, sorted set of segment readers
-pub struct MultiReader<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
-    readers: VecDeque<I>,
+/// Reads through a disjoint level
+pub struct LevelReader {
+    segments: Arc<Level>,
+    lo: usize,
+    hi: usize,
+    lo_reader: Option<Range>,
+    hi_reader: Option<Range>,
 }
 
-impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MultiReader<I> {
+impl LevelReader {
     #[must_use]
-    pub fn new(readers: VecDeque<I>) -> Self {
-        Self { readers }
-    }
-}
+    pub fn new(level: Arc<Level>, range: &(Bound<UserKey>, Bound<UserKey>)) -> Self {
+        assert!(!level.is_empty(), "level reader cannot read empty level");
 
-impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for MultiReader<I> {
-    type Item = crate::Result<InternalValue>;
+        let disjoint_level = level.as_disjoint().expect("level should be disjoint");
 
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(item) = self.readers.front_mut()?.next() {
-                return Some(item);
-            }
+        let Some((lo, hi)) = disjoint_level.range_indexes(range) else {
+            // NOTE: We will never emit any item
+            return Self {
+                segments: level,
+                lo: 0,
+                hi: 0,
+                lo_reader: None,
+                hi_reader: None,
+            };
+        };
 
-            // NOTE: Current reader has no more items, load next reader if it exists and try again
-            self.readers.pop_front();
+        let lo_segment = level.get(lo).expect("should exist");
+        let lo_reader = lo_segment.range(range.clone());
+
+        let hi_reader = if hi > lo {
+            let hi_segment = level.get(hi).expect("should exist");
+
+            Some(hi_segment.range(range.clone()))
+        } else {
+            None
+        };
+
+        Self {
+            segments: level,
+            lo,
+            hi,
+            lo_reader: Some(lo_reader),
+            hi_reader,
         }
     }
 }
 
-impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIterator
-    for MultiReader<I>
-{
+impl Iterator for LevelReader {
+    type Item = crate::Result<InternalValue>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(lo_reader) = &mut self.lo_reader {
+                if let Some(item) = lo_reader.next() {
+                    return Some(item);
+                }
+
+                // NOTE: Lo reader is empty, get next one
+                self.lo_reader = None;
+                self.lo += 1;
+
+                if self.lo < self.hi {
+                    self.lo_reader = Some(self.segments.get(self.lo).expect("should exist").iter());
+                }
+            } else if let Some(hi_reader) = &mut self.hi_reader {
+                // NOTE: We reached the hi marker, so consume from it instead
+                //
+                // If it returns nothing, it is empty, so we are done
+                return hi_reader.next();
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
+impl DoubleEndedIterator for LevelReader {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(item) = self.readers.back_mut()?.next_back() {
-                return Some(item);
-            }
+            if let Some(hi_reader) = &mut self.hi_reader {
+                if let Some(item) = hi_reader.next_back() {
+                    return Some(item);
+                }
 
-            // NOTE: Current reader has no more items, load next reader if it exists and try again
-            self.readers.pop_back();
+                // NOTE: Hi reader is empty, get orev one
+                self.hi_reader = None;
+                self.hi -= 1;
+
+                if self.lo < self.hi {
+                    self.hi_reader = Some(self.segments.get(self.hi).expect("should exist").iter());
+                }
+            } else if let Some(lo_reader) = &mut self.lo_reader {
+                // NOTE: We reached the lo marker, so consume from it instead
+                //
+                // If it returns nothing, it is empty, so we are done
+                return lo_reader.next_back();
+            } else {
+                return None;
+            }
         }
     }
 }
@@ -52,12 +115,13 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
+    use std::ops::Bound::Unbounded;
     use test_log::test;
 
     // TODO: same test for prefix & ranges
 
     #[test]
-    fn segment_multi_reader_basic() -> crate::Result<()> {
+    fn level_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -83,15 +147,14 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
 
+        let level = Arc::new(Level {
+            segments,
+            is_disjoint: true,
+        });
+
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<_> = VecDeque::new();
-
-            for segment in &segments {
-                readers.push_back(segment.iter());
-            }
-
-            let multi_reader = MultiReader::new(readers);
+            let multi_reader = LevelReader::new(level.clone(), &(Unbounded, Unbounded));
 
             let mut iter = multi_reader.flatten();
 
@@ -111,13 +174,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<_> = VecDeque::new();
-
-            for segment in &segments {
-                readers.push_back(segment.iter());
-            }
-
-            let multi_reader = MultiReader::new(readers);
+            let multi_reader = LevelReader::new(level.clone(), &(Unbounded, Unbounded));
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -137,13 +194,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let mut readers: VecDeque<_> = VecDeque::new();
-
-            for segment in &segments {
-                readers.push_back(segment.iter());
-            }
-
-            let multi_reader = MultiReader::new(readers);
+            let multi_reader = LevelReader::new(level, &(Unbounded, Unbounded));
 
             let mut iter = multi_reader.flatten();
 

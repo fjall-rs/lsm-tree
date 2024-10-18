@@ -7,15 +7,16 @@ use crate::{
     level_manifest::LevelManifest,
     memtable::Memtable,
     merge::{BoxedIterator, Merger},
+    multi_reader::MultiReader,
     mvcc_stream::MvccStream,
-    segment::{multi_reader::MultiReader, range::Range as RangeReader},
+    segment::level_reader::LevelReader,
     tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
     KvPair,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
-use std::{collections::VecDeque, ops::Bound, sync::Arc};
+use std::{ops::Bound, sync::Arc};
 
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
@@ -78,23 +79,50 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
+// TODO: can probably use smallvec here to skip heap allocations
+// TODO: after all we only have 7 levels max
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
-) -> MultiReader<RangeReader> {
-    // TODO: bench... can probably be optimized by not linearly filtering, but using binary search etc.
-    // TODO: binary-filter per level and collect instead of sorting and whatever
-    let mut segments: Vec<_> = level_manifest
+) -> MultiReader<LevelReader> {
+    debug_assert!(level_manifest.is_disjoint());
+
+    let mut levels = level_manifest
+        .levels
         .iter()
-        .filter(|x| x.check_key_range_overlap(bounds))
-        .collect();
+        .filter(|x| !x.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
 
-    segments.sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+    // TODO: save key range per level, makes key range sorting easier
+    // and can remove levels not needed
 
-    let readers: VecDeque<_> = segments
+    // NOTE: We know the levels are disjoint to each other, so we can just sort
+    // them by comparing the first segment
+    //
+    // NOTE: Also, we filter out levels that are empty, so expect is fine
+    #[allow(clippy::expect_used)]
+    levels.sort_by(|a, b| {
+        a.segments
+            .first()
+            .expect("level should not be empty")
+            .metadata
+            .key_range
+            .0
+            .cmp(
+                &b.segments
+                    .first()
+                    .expect("level should not be empty")
+                    .metadata
+                    .key_range
+                    .0,
+            )
+    });
+
+    let readers = levels
         .into_iter()
-        .map(|x| x.range(bounds.clone()))
-        .collect::<VecDeque<_>>();
+        .map(|lvl| LevelReader::new(lvl, bounds))
+        .collect();
 
     MultiReader::new(readers)
 }
@@ -154,6 +182,8 @@ impl TreeIter {
 
             let range = (lo, hi);
 
+            // TODO: maybe can use smallvec here to reduce heap allocations
+            // TODO: smallvec<3> -> [active memtable, Merge<sealed memtables>, Merge<segments>]
             let mut iters: Vec<BoxedIterator<'_>> = Vec::new();
 
             // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
@@ -171,30 +201,16 @@ impl TreeIter {
             } else {
                 for level in &level_manifest.levels {
                     if level.is_disjoint {
-                        let mut level = level.clone();
-
-                        let mut readers: VecDeque<BoxedIterator<'_>> = VecDeque::new();
-
-                        level.sort_by_key_range();
-
-                        // TODO: can probably be optimized by using binary search per disjoint level to filter segments
-                        for segment in &level.segments {
-                            if segment.check_key_range_overlap(&bounds) {
-                                let range = segment.range(bounds.clone());
-                                readers.push_back(Box::new(range));
-                            }
-                        }
-
-                        if !readers.is_empty() {
-                            let multi_reader = MultiReader::new(readers);
+                        if !level.is_empty() {
+                            let reader = LevelReader::new(level.clone(), &bounds);
 
                             if let Some(seqno) = seqno {
-                                iters.push(Box::new(multi_reader.filter(move |item| match item {
+                                iters.push(Box::new(reader.filter(move |item| match item {
                                     Ok(item) => seqno_filter(item.key.seqno, seqno),
                                     Err(_) => true,
                                 })));
                             } else {
-                                iters.push(Box::new(multi_reader));
+                                iters.push(Box::new(reader));
                             }
                         }
                     } else {

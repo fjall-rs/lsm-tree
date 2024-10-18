@@ -2,25 +2,26 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use super::value_block::BlockOffset;
 use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FileOffsets {
-    pub metadata_ptr: u64,
-    pub index_block_ptr: u64,
-    pub tli_ptr: u64,
-    pub bloom_ptr: u64,
+    pub metadata_ptr: BlockOffset,
+    pub index_block_ptr: BlockOffset,
+    pub tli_ptr: BlockOffset,
+    pub bloom_ptr: BlockOffset,
 
     // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46
-    pub range_filter_ptr: u64,
+    pub range_filter_ptr: BlockOffset,
 
     // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
-    pub range_tombstones_ptr: u64,
+    pub range_tombstones_ptr: BlockOffset,
 
     // TODO: prefix filter for l0, l1?
-    pub pfx_ptr: u64,
+    pub pfx_ptr: BlockOffset,
 }
 
 impl FileOffsets {
@@ -33,13 +34,13 @@ impl FileOffsets {
 
 impl Encode for FileOffsets {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64::<BigEndian>(self.metadata_ptr)?;
-        writer.write_u64::<BigEndian>(self.index_block_ptr)?;
-        writer.write_u64::<BigEndian>(self.tli_ptr)?;
-        writer.write_u64::<BigEndian>(self.bloom_ptr)?;
-        writer.write_u64::<BigEndian>(self.range_filter_ptr)?;
-        writer.write_u64::<BigEndian>(self.range_tombstones_ptr)?;
-        writer.write_u64::<BigEndian>(self.pfx_ptr)?;
+        writer.write_u64::<BigEndian>(*self.metadata_ptr)?;
+        writer.write_u64::<BigEndian>(*self.index_block_ptr)?;
+        writer.write_u64::<BigEndian>(*self.tli_ptr)?;
+        writer.write_u64::<BigEndian>(*self.bloom_ptr)?;
+        writer.write_u64::<BigEndian>(*self.range_filter_ptr)?;
+        writer.write_u64::<BigEndian>(*self.range_tombstones_ptr)?;
+        writer.write_u64::<BigEndian>(*self.pfx_ptr)?;
         Ok(())
     }
 }
@@ -55,13 +56,13 @@ impl Decode for FileOffsets {
         let pfx_ptr = reader.read_u64::<BigEndian>()?;
 
         Ok(Self {
-            index_block_ptr,
-            tli_ptr,
-            bloom_ptr,
-            range_filter_ptr: rf_ptr,
-            range_tombstones_ptr,
-            pfx_ptr,
-            metadata_ptr,
+            index_block_ptr: BlockOffset(index_block_ptr),
+            tli_ptr: BlockOffset(tli_ptr),
+            bloom_ptr: BlockOffset(bloom_ptr),
+            range_filter_ptr: BlockOffset(rf_ptr),
+            range_tombstones_ptr: BlockOffset(range_tombstones_ptr),
+            pfx_ptr: BlockOffset(pfx_ptr),
+            metadata_ptr: BlockOffset(metadata_ptr),
         })
     }
 }
@@ -75,13 +76,13 @@ mod tests {
     #[test]
     fn file_offsets_roundtrip() -> crate::Result<()> {
         let before = FileOffsets {
-            bloom_ptr: 15,
-            index_block_ptr: 14,
-            metadata_ptr: 17,
-            pfx_ptr: 18,
-            range_filter_ptr: 13,
-            range_tombstones_ptr: 5,
-            tli_ptr: 4,
+            bloom_ptr: BlockOffset(15),
+            index_block_ptr: BlockOffset(14),
+            metadata_ptr: BlockOffset(17),
+            pfx_ptr: BlockOffset(18),
+            range_filter_ptr: BlockOffset(13),
+            range_tombstones_ptr: BlockOffset(5),
+            tli_ptr: BlockOffset(4),
         };
 
         let buf = before.encode_into_vec()?;

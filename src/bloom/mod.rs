@@ -12,6 +12,7 @@ use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
+/// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
 
 /// A standard bloom filter
@@ -82,16 +83,12 @@ impl Decode for BloomFilter {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl BloomFilter {
-    /// Size of bloom filter in bytes
+    /// Size of bloom filter in bytes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
@@ -175,7 +172,7 @@ impl BloomFilter {
 
             // NOTE: should be in bounds because of modulo
             #[allow(clippy::expect_used)]
-            if !self.inner.get(idx as usize) {
+            if !self.has_bit(idx as usize) {
                 return false;
             }
 
@@ -194,7 +191,7 @@ impl BloomFilter {
         self.contains_hash(Self::get_hash(key))
     }
 
-    /// Adds the key to the filter
+    /// Adds the key to the filter.
     pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
@@ -206,12 +203,17 @@ impl BloomFilter {
         }
     }
 
-    /// Sets the bit at the given index to `true`
+    /// Returns `true` if the bit at `idx` is `1`.
+    fn has_bit(&self, idx: usize) -> bool {
+        self.inner.get(idx as usize)
+    }
+
+    /// Sets the bit at the given index to `true`.
     fn enable_bit(&mut self, idx: usize) {
         self.inner.set(idx, true);
     }
 
-    /// Gets the hash of a key
+    /// Gets the hash of a key.
     #[must_use]
     pub fn get_hash(key: &[u8]) -> CompositeHash {
         let h0 = xxhash_rust::xxh3::xxh3_128(key);
@@ -236,12 +238,21 @@ mod tests {
 
         let mut filter = BloomFilter::with_fp_rate(10, 0.0001);
 
-        for key in [
+        let keys = &[
             b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
             b"item8", b"item9",
-        ] {
-            filter.set_with_hash(BloomFilter::get_hash(key));
+        ];
+
+        for key in keys {
+            filter.set_with_hash(BloomFilter::get_hash(*key));
         }
+
+        for key in keys {
+            assert!(filter.contains(&**key));
+        }
+        assert!(!filter.contains(b"asdasads"));
+        assert!(!filter.contains(b"item10"));
+        assert!(!filter.contains(b"cxycxycxy"));
 
         filter.encode_into(&mut file)?;
         file.sync_all()?;
@@ -251,6 +262,13 @@ mod tests {
         let filter_copy = BloomFilter::decode_from(&mut file)?;
 
         assert_eq!(filter, filter_copy);
+
+        for key in keys {
+            assert!(filter.contains(&**key));
+        }
+        assert!(!filter_copy.contains(b"asdasads"));
+        assert!(!filter_copy.contains(b"item10"));
+        assert!(!filter_copy.contains(b"cxycxycxy"));
 
         Ok(())
     }

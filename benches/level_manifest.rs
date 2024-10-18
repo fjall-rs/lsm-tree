@@ -6,7 +6,7 @@ fn iterate_segments(c: &mut Criterion) {
     group.sample_size(10);
 
     for segment_count in [0, 1, 5, 10, 100, 500, 1_000, 2_000, 4_000] {
-        group.bench_function(&format!("iterate {segment_count} segments"), |b| {
+        group.bench_function(format!("iterate {segment_count} segments"), |b| {
             let folder = tempfile::tempdir_in(".bench").unwrap();
             let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
 
@@ -30,7 +30,7 @@ fn find_segment(c: &mut Criterion) {
 
     for segment_count in [1u64, 5, 10, 100, 500, 1_000, 2_000, 4_000] {
         group.bench_function(
-            &format!("find segment in {segment_count} segments - binary search"),
+            format!("find segment in {segment_count} segments - binary search"),
             |b| {
                 let folder = tempfile::tempdir_in(".bench").unwrap();
                 let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
@@ -49,6 +49,8 @@ fn find_segment(c: &mut Criterion) {
                         .levels
                         .first()
                         .expect("should exist")
+                        .as_disjoint()
+                        .expect("should be disjoint")
                         .get_segment_containing_key(key)
                         .expect("should exist")
                 });
@@ -56,7 +58,7 @@ fn find_segment(c: &mut Criterion) {
         );
 
         group.bench_function(
-            &format!("find segment in {segment_count} segments - linear search"),
+            format!("find segment in {segment_count} segments - linear search"),
             |b| {
                 let folder = tempfile::tempdir().unwrap();
                 let tree = Config::new(folder).data_block_size(1_024).open().unwrap();

@@ -8,6 +8,7 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
+    key_range::KeyRange,
     segment::{meta::SegmentId, Segment},
     HashMap, HashSet,
 };
@@ -22,6 +23,8 @@ use std::{
 
 pub type HiddenSet = HashSet<SegmentId>;
 
+type Levels = Vec<Arc<Level>>;
+
 /// Represents the levels of a log-structured merge tree.
 pub struct LevelManifest {
     /// Path of level manifest file
@@ -29,13 +32,15 @@ pub struct LevelManifest {
 
     /// Actual levels containing segments
     #[doc(hidden)]
-    pub levels: Vec<Level>,
+    pub levels: Levels,
 
     /// Set of segment IDs that are masked
     ///
     /// While consuming segments (because of compaction) they will not appear in the list of segments
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
     hidden_set: HiddenSet,
+
+    is_disjoint: bool,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -107,22 +112,33 @@ impl LevelManifest {
     pub(crate) fn create_new<P: AsRef<Path>>(level_count: u8, path: P) -> crate::Result<Self> {
         assert!(level_count > 0, "level_count should be >= 1");
 
-        let levels = (0..level_count)
-            .map(|_| Level::default())
-            .collect::<Vec<_>>();
+        let levels = (0..level_count).map(|_| Arc::default()).collect::<Vec<_>>();
 
         #[allow(unused_mut)]
-        let mut levels = Self {
+        let mut manifest = Self {
             path: path.as_ref().to_path_buf(),
             levels,
             hidden_set: HashSet::with_capacity_and_hasher(
                 10,
                 xxhash_rust::xxh3::Xxh3Builder::new(),
             ),
+            is_disjoint: true,
         };
-        Self::write_to_disk(path, &levels.levels)?;
+        Self::write_to_disk(path, &manifest.deep_clone())?;
 
-        Ok(levels)
+        Ok(manifest)
+    }
+
+    fn set_disjoint_flag(&mut self) {
+        // TODO: store key range in levels precomputed
+        let key_ranges = self
+            .levels
+            .iter()
+            .filter(|x| !x.is_empty())
+            .map(|x| KeyRange::aggregate(x.iter().map(|s| &s.metadata.key_range)))
+            .collect::<Vec<_>>();
+
+        self.is_disjoint = KeyRange::is_disjoint(&key_ranges.iter().collect::<Vec<_>>());
     }
 
     pub(crate) fn load_level_manifest<P: AsRef<Path>>(
@@ -169,7 +185,7 @@ impl LevelManifest {
     fn resolve_levels(
         level_manifest: Vec<Vec<SegmentId>>,
         segments: &HashMap<SegmentId, Arc<Segment>>,
-    ) -> Vec<Level> {
+    ) -> Levels {
         let mut levels = Vec::with_capacity(level_manifest.len());
 
         for level in level_manifest {
@@ -180,7 +196,7 @@ impl LevelManifest {
                 created_level.insert(segment);
             }
 
-            levels.push(created_level);
+            levels.push(Arc::new(created_level));
         }
 
         levels
@@ -199,14 +215,18 @@ impl LevelManifest {
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
-        Ok(Self {
+        let mut manifest = Self {
             levels,
             hidden_set: HashSet::with_capacity_and_hasher(
                 10,
                 xxhash_rust::xxh3::Xxh3Builder::new(),
             ),
             path: path.as_ref().to_path_buf(),
-        })
+            is_disjoint: false,
+        };
+        manifest.set_disjoint_flag();
+
+        Ok(manifest)
     }
 
     pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
@@ -228,47 +248,55 @@ impl LevelManifest {
         Ok(())
     }
 
+    /// Clones the level to get a mutable copy for atomic swap.
+    fn deep_clone(&self) -> Vec<Level> {
+        self.levels
+            .iter()
+            .map(|x| Level {
+                segments: x.segments.clone(),
+                is_disjoint: x.is_disjoint,
+            })
+            .collect()
+    }
+
     /// Modifies the level manifest atomically.
     pub(crate) fn atomic_swap<F: FnOnce(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
-        // NOTE: Create a copy of the levels we can operate on
+        // NOTE: Copy-on-write...
+        //
+        // Create a copy of the levels we can operate on
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let mut working_copy = self.levels.clone();
+        let mut working_copy = self.deep_clone();
 
         f(&mut working_copy);
 
         Self::write_to_disk(&self.path, &working_copy)?;
-        self.levels = working_copy;
+        self.levels = working_copy.into_iter().map(Arc::new).collect();
+        self.sort_levels();
+        self.set_disjoint_flag();
 
         log::trace!("Swapped level manifest to:\n{self}");
 
         Ok(())
     }
 
-    // NOTE: Used in tests
     #[allow(unused)]
+    #[cfg(test)]
     pub(crate) fn add(&mut self, segment: Arc<Segment>) {
         self.insert_into_level(0, segment);
     }
 
-    /// Sorts all levels from newest to oldest
-    ///
-    /// This will make segments with highest seqno get checked first,
-    /// so if there are two versions of an item, the fresher one is seen first:
-    ///
-    /// segment a   segment b
-    /// [key:asd:2] [key:asd:1]
-    ///
-    /// point read ----------->
     pub(crate) fn sort_levels(&mut self) {
         for level in &mut self.levels {
-            level.sort();
+            Arc::get_mut(level)
+                .expect("could not get mutable Arc - this is a bug")
+                .sort();
         }
     }
 
-    // NOTE: Used in tests
     #[allow(unused)]
+    #[cfg(test)]
     pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Arc<Segment>) {
         let last_level_index = self.depth() - 1;
         let index = level_no.clamp(0, last_level_index);
@@ -278,12 +306,14 @@ impl LevelManifest {
             .get_mut(index as usize)
             .expect("level should exist");
 
+        let level = Arc::get_mut(level).expect("only used in tests");
+
         level.insert(segment);
     }
 
     #[must_use]
     pub fn is_disjoint(&self) -> bool {
-        self.levels.iter().all(|x| x.is_disjoint)
+        self.is_disjoint && self.levels.iter().all(|x| x.is_disjoint)
     }
 
     /// Returns `true` if there are no segments
@@ -304,7 +334,7 @@ impl LevelManifest {
 
     #[must_use]
     pub fn first_level_segment_count(&self) -> usize {
-        self.levels.first().map(Level::len).unwrap_or_default()
+        self.levels.first().map(|lvl| lvl.len()).unwrap_or_default()
     }
 
     /// Returns the amount of levels in the tree
@@ -316,7 +346,7 @@ impl LevelManifest {
     /// Returns the amount of segments, summed over all levels
     #[must_use]
     pub fn len(&self) -> usize {
-        self.levels.iter().map(Level::len).sum()
+        self.levels.iter().map(|lvl| lvl.len()).sum()
     }
 
     /// Returns the (compressed) size of all segments
@@ -351,13 +381,13 @@ impl LevelManifest {
         let mut output = Vec::with_capacity(self.len());
 
         for raw_level in &self.levels {
-            let mut level = raw_level.clone();
+            let mut level = raw_level.iter().cloned().collect::<Vec<_>>();
+            level.retain(|x| !self.hidden_set.contains(&x.metadata.id));
 
-            for id in &self.hidden_set {
-                level.remove(*id);
-            }
-
-            output.push(level);
+            output.push(Level {
+                segments: level,
+                is_disjoint: raw_level.is_disjoint,
+            });
         }
 
         output
@@ -464,13 +494,14 @@ mod tests {
 
     #[test]
     fn level_manifest_raw_empty() -> crate::Result<()> {
-        let levels = LevelManifest {
+        let manifest = LevelManifest {
             hidden_set: HashSet::default(),
             levels: Vec::default(),
             path: "a".into(),
+            is_disjoint: false,
         };
 
-        let bytes = levels.levels.encode_into_vec()?;
+        let bytes = manifest.deep_clone().encode_into_vec()?;
 
         #[rustfmt::skip]
         let raw = &[

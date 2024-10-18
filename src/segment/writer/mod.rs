@@ -15,7 +15,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::block::ItemSize,
+    segment::{block::ItemSize, value_block::BlockOffset},
     value::{InternalValue, UserKey},
     SegmentId,
 };
@@ -51,7 +51,7 @@ pub struct Writer {
     pub(crate) meta: meta::Metadata,
 
     /// Stores the previous block position (used for creating back links)
-    prev_pos: (u64, u64),
+    prev_pos: (BlockOffset, BlockOffset),
 
     current_key: Option<UserKey>,
 
@@ -92,7 +92,6 @@ impl BloomConstructionPolicy {
 
 pub struct Options {
     pub folder: PathBuf,
-    pub evict_tombstones: bool,
     pub data_block_size: u32,
     pub index_block_size: u32,
     pub segment_id: SegmentId,
@@ -108,7 +107,7 @@ impl Writer {
 
         let index_writer = IndexWriter::new(opts.index_block_size)?;
 
-        let chunk = Vec::with_capacity(10_000);
+        let chunk = Vec::new();
 
         Ok(Self {
             opts,
@@ -122,7 +121,7 @@ impl Writer {
             index_writer,
             chunk,
 
-            prev_pos: (0, 0),
+            prev_pos: (BlockOffset(0), BlockOffset(0)),
 
             chunk_size: 0,
 
@@ -160,13 +159,14 @@ impl Writer {
             return Ok(());
         };
 
-        // Write to file
         let (header, data) =
             ValueBlock::to_bytes_compressed(&self.chunk, self.prev_pos.0, self.compression)?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
         header.encode_into(&mut self.block_writer)?;
+
+        // Write to file
         self.block_writer.write_all(&data)?;
 
         let bytes_written = (BlockHeader::serialized_len() + data.len()) as u64;
@@ -179,10 +179,28 @@ impl Writer {
         self.meta.item_count += self.chunk.len();
         self.meta.data_block_count += 1;
 
+        // Back link stuff
         self.prev_pos.0 = self.prev_pos.1;
         self.prev_pos.1 += bytes_written;
 
+        // Set last key
+        self.meta.last_key = Some(
+            // NOTE: Expect is fine, because the chunk is not empty
+            //
+            // Also, we are allowed to remove the last item
+            // to get ownership of it, because the chunk is cleared after
+            // this anyway
+            #[allow(clippy::expect_used)]
+            self.chunk
+                .pop()
+                .expect("chunk should not be empty")
+                .key
+                .user_key,
+        );
+
+        // IMPORTANT: Clear chunk after everything else
         self.chunk.clear();
+        self.chunk_size = 0;
 
         Ok(())
     }
@@ -196,10 +214,6 @@ impl Writer {
     /// be non-sense.
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.is_tombstone() {
-            if self.opts.evict_tombstones {
-                return Ok(());
-            }
-
             self.meta.tombstone_count += 1;
         }
 
@@ -215,21 +229,18 @@ impl Writer {
                 .push(BloomFilter::get_hash(&item.key.user_key));
         }
 
-        let item_key = item.key.clone();
         let seqno = item.key.seqno;
+
+        if self.meta.first_key.is_none() {
+            self.meta.first_key = Some(item.key.clone().user_key);
+        }
 
         self.chunk_size += item.size();
         self.chunk.push(item);
 
         if self.chunk_size >= self.opts.data_block_size as usize {
             self.spill_block()?;
-            self.chunk_size = 0;
         }
-
-        if self.meta.first_key.is_none() {
-            self.meta.first_key = Some(item_key.user_key.clone());
-        }
-        self.meta.last_key = Some(item_key.user_key);
 
         if self.meta.lowest_seqno > seqno {
             self.meta.lowest_seqno = seqno;
@@ -254,7 +265,7 @@ impl Writer {
             return Ok(None);
         }
 
-        let index_block_ptr = self.block_writer.stream_position()?;
+        let index_block_ptr = BlockOffset(self.block_writer.stream_position()?);
         log::trace!("index_block_ptr={index_block_ptr}");
 
         // Append index blocks to file
@@ -282,27 +293,27 @@ impl Writer {
 
             filter.encode_into(&mut self.block_writer)?;
 
-            bloom_ptr
+            BlockOffset(bloom_ptr)
         };
 
         #[cfg(not(feature = "bloom"))]
-        let bloom_ptr = 0;
+        let bloom_ptr = BlockOffset(0);
         log::trace!("bloom_ptr={bloom_ptr}");
 
         // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
-        let rf_ptr = 0;
+        let rf_ptr = BlockOffset(0);
         log::trace!("rf_ptr={rf_ptr}");
 
         // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2 - Write range tombstones
-        let range_tombstones_ptr = 0;
+        let range_tombstones_ptr = BlockOffset(0);
         log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
 
         // TODO:
-        let pfx_ptr = 0;
+        let pfx_ptr = BlockOffset(0);
         log::trace!("pfx_ptr={pfx_ptr}");
 
         // Write metadata
-        let metadata_ptr = self.block_writer.stream_position()?;
+        let metadata_ptr = BlockOffset(self.block_writer.stream_position()?);
 
         let metadata = Metadata::from_writer(self.opts.segment_id, self)?;
         metadata.encode_into(&mut self.block_writer)?;
@@ -333,7 +344,7 @@ impl Writer {
             "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
             self.meta.item_count,
             self.meta.data_block_count,
-            self.meta.file_pos / 1_024 / 1_024
+            *self.meta.file_pos / 1_024 / 1_024
         );
 
         Ok(Some(trailer))
@@ -362,7 +373,6 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
@@ -406,7 +416,7 @@ mod tests {
             table,
             (0, segment_id).into(),
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 
@@ -426,7 +436,6 @@ mod tests {
 
         let mut writer = Writer::new(Options {
             folder: folder.clone(),
-            evict_tombstones: false,
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
@@ -462,7 +471,7 @@ mod tests {
             table,
             (0, segment_id).into(),
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 

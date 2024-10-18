@@ -169,7 +169,6 @@ fn merge_segments(
     // NOTE: Only evict tombstones when reaching the last level,
     // That way we don't resurrect data beneath the tombstone
     let is_last_level = payload.dest_level == last_level;
-    let should_evict_tombstones = is_last_level;
 
     let start = Instant::now();
 
@@ -178,7 +177,6 @@ fn merge_segments(
         payload.target_size,
         crate::segment::writer::Options {
             folder: segments_base_folder.clone(),
-            evict_tombstones: should_evict_tombstones,
             segment_id: 0, // TODO: this is never used in MultiWriter
             data_block_size: opts.config.data_block_size,
             index_block_size: opts.config.index_block_size,
@@ -207,7 +205,14 @@ fn merge_segments(
     }
 
     for (idx, item) in merge_iter.enumerate() {
-        segment_writer.write(item?)?;
+        let item = item?;
+
+        // IMPORTANT: We can only drop tombstones when writing into last level
+        if is_last_level && item.is_tombstone() {
+            continue;
+        }
+
+        segment_writer.write(item)?;
 
         if idx % 100_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
@@ -265,10 +270,10 @@ fn merge_segments(
                         io::{Seek, SeekFrom},
                     };
 
-                    assert!(bloom_ptr > 0, "can not find bloom filter block");
+                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                     let mut reader = File::open(&segment_file_path)?;
-                    reader.seek(SeekFrom::Start(bloom_ptr))?;
+                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
                     BloomFilter::decode_from(&mut reader)?
                 },
             }))

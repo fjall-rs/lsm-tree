@@ -99,12 +99,56 @@ fn value_block_find(c: &mut Criterion) {
     }
 }
 
-fn load_value_block_from_disk(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Load block from disk");
+fn encode_block(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Encode block");
 
     for comp_type in [
         CompressionType::None,
         CompressionType::Lz4,
+        CompressionType::Miniz(3),
+    ] {
+        for block_size in [1, 4, 8, 16, 32, 64, 128] {
+            let block_size = block_size * 1_024;
+
+            let mut size = 0;
+
+            let mut items = vec![];
+
+            for x in 0u64.. {
+                let value = InternalValue::from_components(
+                    x.to_be_bytes(),
+                    x.to_string().repeat(50).as_bytes(),
+                    63,
+                    lsm_tree::ValueType::Value,
+                );
+
+                size += value.size();
+
+                items.push(value);
+
+                if size >= block_size {
+                    break;
+                }
+            }
+
+            group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
+                b.iter(|| {
+                    // Serialize block
+                    let (mut header, data) =
+                        ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
+                });
+            });
+        }
+    }
+}
+
+fn load_value_block_from_disk(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Load block from disk");
+
+    for comp_type in [
+        //CompressionType::None,
+        CompressionType::Lz4,
+        CompressionType::Miniz(3),
         CompressionType::Miniz(6),
         CompressionType::Zstd(-3),
         CompressionType::Zstd(-1),
@@ -138,7 +182,6 @@ fn load_value_block_from_disk(c: &mut Criterion) {
 
             // Serialize block
             let (mut header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
-            header.checksum = Checksum::from_bytes(&data);
 
             let mut file = tempfile::tempfile().unwrap();
             header.encode_into(&mut file).unwrap();
@@ -161,5 +204,10 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, value_block_find, load_value_block_from_disk,);
+criterion_group!(
+    benches,
+    encode_block,
+    value_block_find,
+    load_value_block_from_disk,
+);
 criterion_main!(benches);
