@@ -148,7 +148,13 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     for comp_type in [
         //CompressionType::None,
         CompressionType::Lz4,
-        //CompressionType::Miniz(3),
+        CompressionType::Miniz(3),
+        CompressionType::Miniz(6),
+        CompressionType::Zstd(-3),
+        CompressionType::Zstd(-1),
+        CompressionType::Zstd(1),
+        CompressionType::Zstd(3),
+        CompressionType::Zstd(12),
     ] {
         for block_size in [1, 4, 8, 16, 32, 64, 128] {
             let block_size = block_size * 1_024;
