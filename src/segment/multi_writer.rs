@@ -126,7 +126,7 @@ impl MultiWriter {
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         self.writer.write(item)?;
 
-        if self.writer.meta.file_pos >= self.target_size {
+        if *self.writer.meta.file_pos >= self.target_size {
             self.rotate()?;
         }
 

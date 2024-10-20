@@ -8,6 +8,7 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
+    key_range::KeyRange,
     segment::{meta::SegmentId, Segment},
     HashMap, HashSet,
 };
@@ -38,6 +39,8 @@ pub struct LevelManifest {
     /// While consuming segments (because of compaction) they will not appear in the list of segments
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
     hidden_set: HiddenSet,
+
+    is_disjoint: bool,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -119,10 +122,23 @@ impl LevelManifest {
                 10,
                 xxhash_rust::xxh3::Xxh3Builder::new(),
             ),
+            is_disjoint: true,
         };
         Self::write_to_disk(path, &manifest.deep_clone())?;
 
         Ok(manifest)
+    }
+
+    fn set_disjoint_flag(&mut self) {
+        // TODO: store key range in levels precomputed
+        let key_ranges = self
+            .levels
+            .iter()
+            .filter(|x| !x.is_empty())
+            .map(|x| KeyRange::aggregate(x.iter().map(|s| &s.metadata.key_range)))
+            .collect::<Vec<_>>();
+
+        self.is_disjoint = KeyRange::is_disjoint(&key_ranges.iter().collect::<Vec<_>>());
     }
 
     pub(crate) fn load_level_manifest<P: AsRef<Path>>(
@@ -199,14 +215,18 @@ impl LevelManifest {
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
-        Ok(Self {
+        let mut manifest = Self {
             levels,
             hidden_set: HashSet::with_capacity_and_hasher(
                 10,
                 xxhash_rust::xxh3::Xxh3Builder::new(),
             ),
             path: path.as_ref().to_path_buf(),
-        })
+            is_disjoint: false,
+        };
+        manifest.set_disjoint_flag();
+
+        Ok(manifest)
     }
 
     pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
@@ -254,6 +274,7 @@ impl LevelManifest {
         Self::write_to_disk(&self.path, &working_copy)?;
         self.levels = working_copy.into_iter().map(Arc::new).collect();
         self.sort_levels();
+        self.set_disjoint_flag();
 
         log::trace!("Swapped level manifest to:\n{self}");
 
@@ -292,7 +313,7 @@ impl LevelManifest {
 
     #[must_use]
     pub fn is_disjoint(&self) -> bool {
-        self.levels.iter().all(|x| x.is_disjoint)
+        self.is_disjoint && self.levels.iter().all(|x| x.is_disjoint)
     }
 
     /// Returns `true` if there are no segments
@@ -477,6 +498,7 @@ mod tests {
             hidden_set: HashSet::default(),
             levels: Vec::default(),
             path: "a".into(),
+            is_disjoint: false,
         };
 
         let bytes = manifest.deep_clone().encode_into_vec()?;

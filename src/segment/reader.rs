@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{
-    value_block::{CachePolicy, ValueBlock},
+    value_block::{BlockOffset, CachePolicy, ValueBlock},
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
@@ -17,15 +17,15 @@ pub struct Reader {
     segment_id: GlobalSegmentId,
     block_cache: Arc<BlockCache>,
 
-    data_block_boundary: u64,
+    data_block_boundary: BlockOffset,
 
-    pub lo_block_offset: u64,
+    pub lo_block_offset: BlockOffset,
     pub(crate) lo_block_size: u64,
     pub(crate) lo_block_items: Option<ValueBlockConsumer>,
     pub(crate) lo_initialized: bool,
 
-    pub hi_block_offset: Option<u64>,
-    pub hi_block_backlink: u64,
+    pub hi_block_offset: Option<BlockOffset>,
+    pub hi_block_backlink: BlockOffset,
     pub hi_block_items: Option<ValueBlockConsumer>,
     pub hi_initialized: bool,
 
@@ -38,12 +38,12 @@ pub struct Reader {
 impl Reader {
     #[must_use]
     pub fn new(
-        data_block_boundary: u64,
+        data_block_boundary: BlockOffset,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
-        lo_block_offset: u64,
-        hi_block_offset: Option<u64>,
+        lo_block_offset: BlockOffset,
+        hi_block_offset: Option<BlockOffset>,
     ) -> Self {
         Self {
             data_block_boundary,
@@ -58,7 +58,7 @@ impl Reader {
             lo_initialized: false,
 
             hi_block_offset,
-            hi_block_backlink: 0,
+            hi_block_backlink: BlockOffset(0),
             hi_block_items: None,
             hi_initialized: false,
 
@@ -88,8 +88,8 @@ impl Reader {
 
     fn load_data_block(
         &self,
-        offset: u64,
-    ) -> crate::Result<Option<(u64, u64, ValueBlockConsumer)>> {
+        offset: BlockOffset,
+    ) -> crate::Result<Option<(u64, BlockOffset, ValueBlockConsumer)>> {
         let block = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
@@ -151,8 +151,9 @@ impl Iterator for Reader {
         // Front buffer is empty
 
         // Load next block
-        let next_block_offset =
-            self.lo_block_offset + Header::serialized_len() as u64 + self.lo_block_size;
+        let next_block_offset = BlockOffset(
+            *self.lo_block_offset + Header::serialized_len() as u64 + self.lo_block_size,
+        );
 
         assert_ne!(
             self.lo_block_offset, next_block_offset,
@@ -219,7 +220,7 @@ impl DoubleEndedIterator for Reader {
 
             // Back buffer is empty
 
-            if hi_offset == 0 {
+            if hi_offset == BlockOffset(0) {
                 // We are done
                 return None;
             }

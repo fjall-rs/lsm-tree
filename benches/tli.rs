@@ -1,5 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::segment::{block_index::BlockIndex, value_block::CachePolicy};
+use lsm_tree::segment::{
+    block_index::BlockIndex, value_block::BlockOffset, value_block::CachePolicy,
+};
 
 fn tli_find_item(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{
@@ -15,7 +17,7 @@ fn tli_find_item(c: &mut Criterion) {
             for x in 0..item_count {
                 items.push(KeyedBlockHandle {
                     end_key: x.to_be_bytes().into(),
-                    offset: x,
+                    offset: BlockOffset(x),
                 });
             }
 

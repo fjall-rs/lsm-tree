@@ -5,6 +5,7 @@
 use super::block_index::two_level_index::TwoLevelBlockIndex;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
+use super::value_block::BlockOffset;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -29,7 +30,7 @@ pub struct Range {
 
 impl Range {
     pub fn new(
-        data_block_boundary: u64,
+        data_block_boundary: BlockOffset,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
@@ -41,7 +42,7 @@ impl Range {
             descriptor_table,
             segment_id,
             block_cache,
-            0,
+            BlockOffset(0),
             None,
         );
 
