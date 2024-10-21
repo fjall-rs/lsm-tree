@@ -630,8 +630,8 @@ impl Tree {
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
         for level in &level_manifest.levels {
-            // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
-            if level.len() >= 5 {
+            // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
+            if level.len() >= 4 {
                 if let Some(level) = level.as_disjoint() {
                     // TODO: unit test in disjoint level:
                     // [a:5, a:4] [a:3, b:5]
