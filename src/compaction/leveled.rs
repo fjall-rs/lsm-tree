@@ -495,7 +495,9 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::Move(CompactionInput {
+            // NOTE: We merge because segments are demoted into "cold" levels
+            // see https://github.com/fjall-rs/lsm-tree/issues/63
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1],
                 target_size: 64 * 1_024 * 1_024
