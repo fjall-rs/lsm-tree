@@ -152,6 +152,8 @@ impl AbstractTree for Tree {
         {
             if self.config.bloom_bits_per_key >= 0 {
                 segment_writer = segment_writer.use_bloom_policy(
+                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
+                    // is fixed
                     crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
                 );
             }
@@ -628,8 +630,8 @@ impl Tree {
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
         for level in &level_manifest.levels {
-            // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
-            if level.len() >= 5 {
+            // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
+            if level.len() >= 4 {
                 if let Some(level) = level.as_disjoint() {
                     // TODO: unit test in disjoint level:
                     // [a:5, a:4] [a:3, b:5]
