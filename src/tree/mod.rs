@@ -655,6 +655,9 @@ impl Tree {
                             return Ok(Some(item));
                         }
                     }
+
+                    // NOTE: Go to next level
+                    continue;
                 }
             }
 
