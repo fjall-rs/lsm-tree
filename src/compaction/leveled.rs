@@ -185,7 +185,7 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&1)
             {
                 let mut level = first_level.clone();
-                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
+                level.sort_by_key_range();
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
