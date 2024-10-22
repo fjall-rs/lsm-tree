@@ -91,7 +91,10 @@ impl DoubleEndedIterator for ValueBlockConsumer {
 mod tests {
     use super::*;
     use crate::{
-        segment::block::{checksum::Checksum, header::Header},
+        segment::{
+            block::{checksum::Checksum, header::Header},
+            value_block::BlockOffset,
+        },
         Slice,
     };
     use test_log::test;
@@ -112,7 +115,7 @@ mod tests {
                 compression: crate::segment::meta::CompressionType::None,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
-                previous_block_offset: 0,
+                previous_block_offset: BlockOffset(0),
                 uncompressed_length: 0,
             },
             items: items.into_boxed_slice(),

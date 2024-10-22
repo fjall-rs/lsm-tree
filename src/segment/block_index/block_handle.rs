@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
-    segment::block::ItemSize,
+    segment::{block::ItemSize, value_block::BlockOffset},
     value::UserKey,
     Slice,
 };
@@ -19,12 +19,12 @@ pub struct KeyedBlockHandle {
     pub end_key: UserKey,
 
     /// Position of block in file
-    pub offset: u64,
+    pub offset: BlockOffset,
 }
 
 impl KeyedBlockHandle {
     #[must_use]
-    pub fn new<K: Into<Slice>>(end_key: K, offset: u64) -> Self {
+    pub fn new<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> Self {
         Self {
             end_key: end_key.into(),
             offset,
@@ -34,7 +34,7 @@ impl KeyedBlockHandle {
 
 impl ItemSize for KeyedBlockHandle {
     fn size(&self) -> usize {
-        std::mem::size_of::<u64>() + self.end_key.len()
+        std::mem::size_of::<BlockOffset>() + self.end_key.len()
     }
 }
 
@@ -47,7 +47,7 @@ impl Eq for KeyedBlockHandle {}
 
 impl std::hash::Hash for KeyedBlockHandle {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u64(self.offset);
+        state.write_u64(*self.offset);
     }
 }
 
@@ -65,7 +65,7 @@ impl Ord for KeyedBlockHandle {
 
 impl Encode for KeyedBlockHandle {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64_varint(self.offset)?;
+        writer.write_u64_varint(*self.offset)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
@@ -88,7 +88,7 @@ impl Decode for KeyedBlockHandle {
         reader.read_exact(&mut key)?;
 
         Ok(Self {
-            offset,
+            offset: BlockOffset(offset),
             end_key: Slice::from(key),
         })
     }
@@ -101,8 +101,8 @@ mod tests {
     #[test]
     fn index_block_size() {
         let items = [
-            KeyedBlockHandle::new("abcd", 5),
-            KeyedBlockHandle::new("efghij", 10),
+            KeyedBlockHandle::new("abcd", BlockOffset(5)),
+            KeyedBlockHandle::new("efghij", BlockOffset(10)),
         ];
         assert_eq!(26, items.size());
     }

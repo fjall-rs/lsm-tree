@@ -4,7 +4,7 @@ use lsm_tree::{
     segment::{
         block::{header::Header as BlockHeader, ItemSize},
         meta::CompressionType,
-        value_block::ValueBlock,
+        value_block::{BlockOffset, ValueBlock},
     },
     Checksum, InternalValue,
 };
@@ -73,7 +73,7 @@ fn value_block_find(c: &mut Criterion) {
                 compression: CompressionType::Lz4,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
-                previous_block_offset: 0,
+                previous_block_offset: BlockOffset(0),
                 uncompressed_length: 0,
             },
         };
@@ -99,6 +99,49 @@ fn value_block_find(c: &mut Criterion) {
     }
 }
 
+fn encode_block(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Encode block");
+
+    for comp_type in [
+        CompressionType::None,
+        CompressionType::Lz4,
+        CompressionType::Miniz(3),
+    ] {
+        for block_size in [4, 8, 16, 32, 64, 128] {
+            let block_size = block_size * 1_024;
+
+            let mut size = 0;
+
+            let mut items = vec![];
+
+            for x in 0u64.. {
+                let value = InternalValue::from_components(
+                    x.to_be_bytes(),
+                    x.to_string().repeat(50).as_bytes(),
+                    63,
+                    lsm_tree::ValueType::Value,
+                );
+
+                size += value.size();
+
+                items.push(value);
+
+                if size >= block_size {
+                    break;
+                }
+            }
+
+            group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
+                b.iter(|| {
+                    // Serialize block
+                    let (mut header, data) =
+                        ValueBlock::to_bytes_compressed(&items, BlockOffset(0), comp_type).unwrap();
+                });
+            });
+        }
+    }
+}
+
 fn load_value_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
@@ -107,7 +150,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
         CompressionType::Lz4,
         CompressionType::Miniz(3),
     ] {
-        for block_size in [1, 4, 8, 16, 32, 64, 128] {
+        for block_size in [4, 8, 16, 32, 64, 128] {
             let block_size = block_size * 1_024;
 
             let mut size = 0;
@@ -132,8 +175,8 @@ fn load_value_block_from_disk(c: &mut Criterion) {
             }
 
             // Serialize block
-            let (mut header, data) = ValueBlock::to_bytes_compressed(&items, 0, comp_type).unwrap();
-            header.checksum = Checksum::from_bytes(&data);
+            let (mut header, data) =
+                ValueBlock::to_bytes_compressed(&items, BlockOffset(0), comp_type).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
             header.encode_into(&mut file).unwrap();
@@ -146,7 +189,7 @@ fn load_value_block_from_disk(c: &mut Criterion) {
 
             group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
                 b.iter(|| {
-                    let loaded_block = ValueBlock::from_file(&mut file, 0).unwrap();
+                    let loaded_block = ValueBlock::from_file(&mut file, BlockOffset(0)).unwrap();
 
                     assert_eq!(loaded_block.items.len(), expected_block.items.len());
                     assert_eq!(loaded_block.header.checksum, expected_block.header.checksum);
@@ -156,5 +199,10 @@ fn load_value_block_from_disk(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, value_block_find, load_value_block_from_disk);
+criterion_group!(
+    benches,
+    encode_block,
+    value_block_find,
+    load_value_block_from_disk,
+);
 criterion_main!(benches);

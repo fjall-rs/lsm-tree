@@ -8,7 +8,10 @@ use super::{
     top_level::TopLevelIndex,
     BlockIndex, IndexBlock,
 };
-use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable};
+use crate::{
+    block_cache::BlockCache, descriptor_table::FileDescriptorTable,
+    segment::value_block::BlockOffset,
+};
 use std::{path::Path, sync::Arc};
 
 /// Allows reading index blocks - just a wrapper around a block cache
@@ -16,12 +19,12 @@ use std::{path::Path, sync::Arc};
 pub struct IndexBlockFetcher(Arc<BlockCache>);
 
 impl IndexBlockFetcher {
-    pub fn insert(&self, segment_id: GlobalSegmentId, offset: u64, value: Arc<IndexBlock>) {
+    pub fn insert(&self, segment_id: GlobalSegmentId, offset: BlockOffset, value: Arc<IndexBlock>) {
         self.0.insert_index_block(segment_id, offset, value);
     }
 
     #[must_use]
-    pub fn get(&self, segment_id: GlobalSegmentId, offset: u64) -> Option<Arc<IndexBlock>> {
+    pub fn get(&self, segment_id: GlobalSegmentId, offset: BlockOffset) -> Option<Arc<IndexBlock>> {
         self.0.get_index_block(segment_id, offset)
     }
 }
@@ -185,7 +188,7 @@ impl TwoLevelBlockIndex {
 
     pub fn from_file<P: AsRef<Path>>(
         file_path: P,
-        offset: u64,
+        offset: BlockOffset,
         segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
         block_cache: Arc<BlockCache>,

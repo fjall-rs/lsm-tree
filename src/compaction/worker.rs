@@ -193,6 +193,7 @@ fn merge_segments(
             // NOTE: Apply some MONKEY to have very high FPR on small levels
             // because it's cheap
             let bloom_policy = match payload.dest_level {
+                // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63 is fixed
                 0 => BloomConstructionPolicy::FpRate(0.0001),
                 1 => BloomConstructionPolicy::FpRate(0.001),
                 _ => {
@@ -270,10 +271,10 @@ fn merge_segments(
                         io::{Seek, SeekFrom},
                     };
 
-                    assert!(bloom_ptr > 0, "can not find bloom filter block");
+                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                     let mut reader = File::open(&segment_file_path)?;
-                    reader.seek(SeekFrom::Start(bloom_ptr))?;
+                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
                     BloomFilter::decode_from(&mut reader)?
                 },
             }))

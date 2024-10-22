@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{SeqNo, UserKey};
+use crate::{segment::value_block::BlockOffset, SeqNo, UserKey};
 
 pub struct Metadata {
     /// Written data block count
@@ -21,7 +21,7 @@ pub struct Metadata {
     pub key_count: usize,
 
     /// Current file position of writer
-    pub file_pos: u64,
+    pub file_pos: BlockOffset,
 
     /// Only takes user data into account
     pub uncompressed_size: u64,
@@ -48,7 +48,7 @@ impl Default for Metadata {
             item_count: 0,
             tombstone_count: 0,
             key_count: 0,
-            file_pos: 0,
+            file_pos: BlockOffset(0),
             uncompressed_size: 0,
 
             first_key: None,

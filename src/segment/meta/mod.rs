@@ -206,7 +206,7 @@ impl Metadata {
             data_block_size: writer.opts.data_block_size,
             index_block_size: writer.opts.index_block_size,
 
-            file_size: writer.meta.file_pos,
+            file_size: *writer.meta.file_pos,
             uncompressed_size: writer.meta.uncompressed_size,
             item_count: writer.meta.item_count as u64,
             key_count: writer.meta.key_count as u64,

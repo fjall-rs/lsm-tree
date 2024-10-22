@@ -152,6 +152,8 @@ impl AbstractTree for Tree {
         {
             if self.config.bloom_bits_per_key >= 0 {
                 segment_writer = segment_writer.use_bloom_policy(
+                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
+                    // is fixed
                     crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
                 );
             }
@@ -510,10 +512,10 @@ impl Tree {
                 use crate::coding::Decode;
                 use std::io::Seek;
 
-                assert!(bloom_ptr > 0, "can not find bloom filter block");
+                assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
                 let mut reader = std::fs::File::open(&segment_file_path)?;
-                reader.seek(std::io::SeekFrom::Start(bloom_ptr))?;
+                reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
                 BloomFilter::decode_from(&mut reader)?
             },
         }
@@ -617,7 +619,7 @@ impl Tree {
     fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool,
+        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
@@ -628,35 +630,49 @@ impl Tree {
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
         for level in &level_manifest.levels {
-            // NOTE: Based on benchmarking, binary search is only worth it after ~4 segments
-            if level.is_disjoint && level.len() >= 5 {
-                if let Some(segment) = level.get_segment_containing_key(&key) {
-                    #[cfg(not(feature = "bloom"))]
-                    let maybe_item = segment.get(&key, seqno)?;
-                    #[cfg(feature = "bloom")]
-                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+            // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
+            if level.len() >= 4 {
+                if let Some(level) = level.as_disjoint() {
+                    // TODO: unit test in disjoint level:
+                    // [a:5, a:4] [a:3, b:5]
+                    // ^
+                    // snapshot read a:3!!!
+                    // ^
+                    // level will probably not be recognized as disjoint because
+                    // it technically isn't
+                    // but multiwriter *could* write a level like that... (right now)
 
-                    if let Some(item) = maybe_item {
-                        if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
+                    if let Some(segment) = level.get_segment_containing_key(&key) {
+                        #[cfg(not(feature = "bloom"))]
+                        let maybe_item = segment.get(&key, seqno)?;
+                        #[cfg(feature = "bloom")]
+                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+
+                        if let Some(item) = maybe_item {
+                            if evict_tombstone {
+                                return Ok(ignore_tombstone_value(item));
+                            }
+                            return Ok(Some(item));
                         }
-                        return Ok(Some(item));
+                    } else {
+                        // NOTE: Don't go to fallback, go to next level instead
+                        continue;
                     }
                 }
-            } else {
-                // NOTE: Fallback to linear search
-                for segment in &level.segments {
-                    #[cfg(not(feature = "bloom"))]
-                    let maybe_item = segment.get(&key, seqno)?;
-                    #[cfg(feature = "bloom")]
-                    let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+            }
 
-                    if let Some(item) = maybe_item {
-                        if evict_tombstone {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                        return Ok(Some(item));
+            // NOTE: Fallback to linear search
+            for segment in &level.segments {
+                #[cfg(not(feature = "bloom"))]
+                let maybe_item = segment.get(&key, seqno)?;
+                #[cfg(feature = "bloom")]
+                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+
+                if let Some(item) = maybe_item {
+                    if evict_tombstone {
+                        return Ok(ignore_tombstone_value(item));
                     }
+                    return Ok(Some(item));
                 }
             }
         }
@@ -668,7 +684,7 @@ impl Tree {
     pub fn get_internal_entry<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool,
+        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
