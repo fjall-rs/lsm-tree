@@ -160,6 +160,20 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
+                // TODO: eventually, this should happen lazily
+                // if a segment file lives for very long, it should get rewritten
+                // Rocks, by default, rewrites files that are 1 month or older
+                //
+                // TODO: 3.0.0 configuration?
+                // NOTE: We purposefully not trivially move segments
+                // if we go from L1 to L2
+                // https://github.com/fjall-rs/lsm-tree/issues/63
+                let goes_into_cold_storage = next_level_index == 2;
+
+                if goes_into_cold_storage {
+                    return Choice::Merge(choice);
+                }
+
                 if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
                     return Choice::Move(choice);
                 }
@@ -177,7 +191,7 @@ impl CompactionStrategy for Strategy {
                 && !busy_levels.contains(&1)
             {
                 let mut level = first_level.clone();
-                level.sort_by_key_range(); // TODO: disjoint levels shouldn't need sort
+                level.sort_by_key_range();
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
@@ -485,7 +499,9 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::Move(CompactionInput {
+            // NOTE: We merge because segments are demoted into "cold" levels
+            // see https://github.com/fjall-rs/lsm-tree/issues/63
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
                 segment_ids: vec![1],
                 target_size: 64 * 1_024 * 1_024
