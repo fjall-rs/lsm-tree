@@ -654,10 +654,10 @@ impl Tree {
                             }
                             return Ok(Some(item));
                         }
-                    } else {
-                        // NOTE: Don't go to fallback, go to next level instead
-                        continue;
                     }
+
+                    // NOTE: Go to next level
+                    continue;
                 }
             }
 

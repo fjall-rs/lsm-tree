@@ -153,7 +153,11 @@ impl<'a> DisjointLevel<'a> {
             .segments
             .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
 
-        level.segments.get(idx).cloned()
+        level
+            .segments
+            .get(idx)
+            .filter(|x| x.is_key_in_key_range(key))
+            .cloned()
     }
 
     pub fn range_indexes(
