@@ -400,6 +400,38 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)]
+    fn level_disjoint_containing_key() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        for k in 'c'..'k' {
+            tree.insert([k as u8], "", 0);
+            tree.flush_active_memtable(0).expect("should flush");
+        }
+
+        let first = tree
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .levels
+            .first()
+            .expect("should exist")
+            .clone();
+
+        let dis = first.as_disjoint().unwrap();
+        assert!(dis.get_segment_containing_key("a").is_none());
+        assert!(dis.get_segment_containing_key("b").is_none());
+        for k in 'c'..'k' {
+            assert!(dis.get_segment_containing_key([k as u8]).is_some());
+        }
+        assert!(dis.get_segment_containing_key("l").is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn level_not_disjoint() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
