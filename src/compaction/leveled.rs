@@ -218,30 +218,30 @@ impl CompactionStrategy for Strategy {
                     let mut level = first_level.clone();
                     level.sort_by_key_range();
 
-                let Some(next_level) = &resolved_view.get(1) else {
-                    return Choice::DoNothing;
-                };
+                    let Some(next_level) = &resolved_view.get(1) else {
+                        return Choice::DoNothing;
+                    };
 
-                let mut segment_ids: Vec<u64> =
-                    level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
+                    let mut segment_ids: Vec<u64> =
+                        level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
 
-                // Get overlapping segments in next level
-                let key_range = aggregate_key_range(&level);
+                    // Get overlapping segments in next level
+                    let key_range = aggregate_key_range(&level);
 
-                let next_level_overlapping_segment_ids: Vec<_> = next_level
-                    .overlapping_segments(&key_range)
-                    .map(|x| x.metadata.id)
-                    .collect();
+                    let next_level_overlapping_segment_ids: Vec<_> = next_level
+                        .overlapping_segments(&key_range)
+                        .map(|x| x.metadata.id)
+                        .collect();
 
-                segment_ids.extend(&next_level_overlapping_segment_ids);
+                    segment_ids.extend(&next_level_overlapping_segment_ids);
 
-                let choice = CompactionInput {
-                    segment_ids,
-                    dest_level: 1,
-                    target_size: u64::from(self.target_size),
-                };
+                    let choice = CompactionInput {
+                        segment_ids,
+                        dest_level: 1,
+                        target_size: u64::from(self.target_size),
+                    };
 
-                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                    if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
                         return Choice::Move(choice);
                     }
                     return Choice::Merge(choice);
