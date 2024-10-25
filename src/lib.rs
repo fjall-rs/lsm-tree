@@ -203,6 +203,7 @@ pub use any_tree::AnyTree;
 
 pub use blob_tree::BlobTree;
 
+// TODO: move GC strategies into `gc` module
 pub use value_log::{
     BlobCache, GcReport, GcStrategy, Slice, SpaceAmpStrategy, StaleThresholdStrategy,
 };
