@@ -191,6 +191,9 @@ impl CompactionStrategy for Strategy {
                     // NOTE: Special handling for disjoint workloads
 
                     if first_level.size() < self.target_size.into() {
+                        // TODO: also do this in non-disjoint workloads
+                        // -> intra-L0 compaction
+
                         // NOTE: Force a merge into L0 itself
                         // ...we seem to have *very* small flushes
                         return if first_level.len() >= 32 {
