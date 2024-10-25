@@ -182,12 +182,37 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            if first_level.len() >= self.l0_threshold.into()
-                && !busy_levels.contains(&0)
-                && !busy_levels.contains(&1)
-            {
-                let mut level = first_level.clone();
-                level.sort_by_key_range();
+            if first_level.len() >= self.l0_threshold.into() && !busy_levels.contains(&0) {
+                if levels.is_disjoint() {
+                    // NOTE: Special handling for disjoint workloads
+
+                    if first_level.size() < self.target_size.into() {
+                        // NOTE: Force a merge into L0 itself
+                        // ...we seem to have *very* small flushes
+                        return if first_level.len() >= 32 {
+                            Choice::Merge(CompactionInput {
+                                dest_level: 0,
+                                segment_ids: first_level
+                                    .segments
+                                    .iter()
+                                    .map(|x| x.metadata.id)
+                                    .collect(),
+                                // NOTE: Allow a bit of overshooting
+                                target_size: ((self.target_size as f32) * 1.1) as u64,
+                            })
+                        } else {
+                            Choice::DoNothing
+                        };
+                    }
+
+                    return Choice::Merge(CompactionInput {
+                        dest_level: 1,
+                        segment_ids: first_level.segments.iter().map(|x| x.metadata.id).collect(),
+                        target_size: ((self.target_size as f32) * 1.1) as u64,
+                    });
+                } else if !busy_levels.contains(&1) {
+                    let mut level = first_level.clone();
+                    level.sort_by_key_range();
 
                 let Some(next_level) = &resolved_view.get(1) else {
                     return Choice::DoNothing;
@@ -213,9 +238,10 @@ impl CompactionStrategy for Strategy {
                 };
 
                 if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
-                    return Choice::Move(choice);
+                        return Choice::Move(choice);
+                    }
+                    return Choice::Merge(choice);
                 }
-                return Choice::Merge(choice);
             }
         }
 
