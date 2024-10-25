@@ -160,6 +160,10 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
+                // TODO: eventually, this should happen lazily
+                // if a segment file lives for very long, it should get rewritten
+                // Rocks, by default, rewrites files that are 1 month or older
+                //
                 // TODO: 3.0.0 configuration?
                 // NOTE: We purposefully not trivially move segments
                 // if we go from L1 to L2
