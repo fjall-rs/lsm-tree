@@ -34,6 +34,8 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
 
     // IMPORTANT: We cannot drop any blobs yet
     // because we the watermark is too low
+    //
+    // This would previously fail
     let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
     assert_eq!(2, report.stale_blobs);
 
