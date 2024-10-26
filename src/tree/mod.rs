@@ -722,12 +722,12 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
         range: &'a R,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -764,6 +764,20 @@ impl Tree {
             seqno,
             level_manifest_lock,
         )
+    }
+
+    #[doc(hidden)]
+    pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+        &'a self,
+        range: &'a R,
+        seqno: Option<SeqNo>,
+        ephemeral: Option<Arc<Memtable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+        self.create_internal_range(range, seqno, ephemeral)
+            .map(|item| match item {
+                Ok(kv) => Ok((kv.key.user_key, kv.value)),
+                Err(e) => Err(e),
+            })
     }
 
     #[doc(hidden)]
