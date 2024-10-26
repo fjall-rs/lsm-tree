@@ -14,7 +14,7 @@ use crate::{
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
-    Config, HashSet,
+    Config,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -138,9 +138,6 @@ fn merge_segments(
             payload
                 .segment_ids
                 .iter()
-                // NOTE: Throw away duplicate segment IDs
-                .collect::<HashSet<_>>()
-                .into_iter()
                 .filter_map(|x| segments.get(x))
                 .cloned()
                 .collect()
@@ -163,7 +160,7 @@ fn merge_segments(
 
     let last_level = levels.last_level_index();
 
-    levels.hide_segments(&payload.segment_ids);
+    levels.hide_segments(payload.segment_ids.iter().copied());
 
     drop(levels);
 
@@ -312,7 +309,7 @@ fn merge_segments(
 
     if let Err(e) = swap_result {
         // IMPORTANT: Show the segments again, because compaction failed
-        original_levels.show_segments(&payload.segment_ids);
+        original_levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
     };
 
@@ -348,7 +345,7 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    original_levels.show_segments(&payload.segment_ids);
+    original_levels.show_segments(payload.segment_ids.iter().copied());
 
     drop(original_levels);
 

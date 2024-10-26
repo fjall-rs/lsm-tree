@@ -204,11 +204,7 @@ impl CompactionStrategy for Strategy {
                     pick_minimal_overlap(level, next_level, overshoot);
 
                 let choice = CompactionInput {
-                    segment_ids: {
-                        let mut v = segment_ids.into_iter().collect::<Vec<_>>();
-                        v.sort_unstable();
-                        v
-                    },
+                    segment_ids,
                     dest_level: next_level_index,
                     target_size: u64::from(self.target_size),
                 };
@@ -287,8 +283,8 @@ impl CompactionStrategy for Strategy {
                         return Choice::DoNothing;
                     };
 
-                    let mut segment_ids: Vec<u64> =
-                        level.iter().map(|x| x.metadata.id).collect::<Vec<_>>();
+                    let mut segment_ids: HashSet<u64> =
+                        level.iter().map(|x| x.metadata.id).collect();
 
                     // Get overlapping segments in next level
                     let key_range = aggregate_key_range(&level);
@@ -335,7 +331,7 @@ mod tests {
             Segment,
         },
         time::unix_timestamp,
-        Config,
+        Config, HashSet,
     };
     use std::{path::Path, sync::Arc};
     use test_log::test;
@@ -468,12 +464,12 @@ mod tests {
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2, 3, 4],
+                segment_ids: [1, 2, 3, 4].into_iter().collect::<HashSet<_>>(),
                 target_size: 64 * 1_024 * 1_024
             })
         );
 
-        levels.hide_segments(&[4]);
+        levels.hide_segments(std::iter::once(4));
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
@@ -503,7 +499,7 @@ mod tests {
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2, 3, 4],
+                segment_ids: [1, 2, 3, 4].into_iter().collect::<HashSet<_>>(),
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -531,12 +527,12 @@ mod tests {
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2, 3, 4, 5, 6],
+                segment_ids: [1, 2, 3, 4, 5, 6].into_iter().collect::<HashSet<_>>(),
                 target_size: 64 * 1_024 * 1_024
             })
         );
 
-        levels.hide_segments(&[5]);
+        levels.hide_segments(std::iter::once(5));
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
             Choice::DoNothing
@@ -567,7 +563,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec![3],
+                segment_ids: set![3],
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -599,7 +595,7 @@ mod tests {
             // see https://github.com/fjall-rs/lsm-tree/issues/63
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec![1],
+                segment_ids: set![1],
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -630,7 +626,7 @@ mod tests {
             Choice::Merge(CompactionInput {
                 dest_level: 3,
                 // NOTE: 5 is the only segment that has no overlap with #3
-                segment_ids: vec![5],
+                segment_ids: set![5],
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -661,7 +657,7 @@ mod tests {
             Choice::Move(CompactionInput {
                 dest_level: 3,
                 // NOTE: segment #4 is the left-most segment that has no overlap with L3
-                segment_ids: vec![4],
+                segment_ids: set![4],
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -691,7 +687,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Move(CompactionInput {
                 dest_level: 3,
-                segment_ids: vec![1],
+                segment_ids: set![1],
                 target_size: 64 * 1_024 * 1_024
             })
         );
@@ -721,7 +717,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec![1, 2, 3, 4],
+                segment_ids: [1, 2, 3, 4].into_iter().collect::<HashSet<_>>(),
                 target_size: 64 * 1_024 * 1_024
             })
         );

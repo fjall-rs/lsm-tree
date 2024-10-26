@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment, UserKey};
+use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
 use std::{ops::Bound, sync::Arc};
 
 /// Level of an LSM-tree
@@ -47,7 +47,7 @@ impl Default for Level {
 }
 
 impl Level {
-    pub fn list_ids(&self) -> Vec<SegmentId> {
+    pub fn list_ids(&self) -> HashSet<SegmentId> {
         self.segments.iter().map(|x| x.metadata.id).collect()
     }
 

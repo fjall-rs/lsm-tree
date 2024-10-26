@@ -407,15 +407,15 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn show_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.remove(key);
+            self.hidden_set.remove(&key);
         }
     }
 
-    pub(crate) fn hide_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn hide_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.insert(*key);
+            self.hidden_set.insert(key);
         }
     }
 }

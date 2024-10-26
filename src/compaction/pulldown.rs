@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, Config};
+use crate::{level_manifest::LevelManifest, Config, HashSet};
 
 /// Pulls down and merges a level into the destination level.
 ///
@@ -23,11 +23,7 @@ impl CompactionStrategy for Strategy {
             .get(usize::from(self.1))
             .expect("next level should exist");
 
-        let mut segment_ids = level
-            .segments
-            .iter()
-            .map(|x| x.metadata.id)
-            .collect::<Vec<_>>();
+        let mut segment_ids: HashSet<_> = level.segments.iter().map(|x| x.metadata.id).collect();
 
         segment_ids.extend(next_level.segments.iter().map(|x| x.metadata.id));
 

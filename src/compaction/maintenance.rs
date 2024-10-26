@@ -7,6 +7,7 @@ use crate::{
     config::Config,
     level_manifest::LevelManifest,
     segment::{meta::SegmentId, Segment},
+    HashSet,
 };
 use std::sync::Arc;
 
@@ -24,7 +25,7 @@ pub struct Strategy;
 ///
 /// This minimizes the compaction time (+ write amp) for a set of segments we
 /// want to partially compact.
-pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> Vec<SegmentId> {
+pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> HashSet<SegmentId> {
     let num_segments = segments.len();
 
     // Ensure that n is not greater than the number of segments
@@ -187,7 +188,7 @@ mod tests {
             compactor.choose(&levels, &Config::default()),
             Choice::Merge(crate::compaction::Input {
                 dest_level: 0,
-                segment_ids: vec![0, 1, 2],
+                segment_ids: [0, 1, 2].into_iter().collect::<HashSet<_>>(),
                 target_size: u64::MAX
             })
         );
