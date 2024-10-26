@@ -89,7 +89,7 @@ impl BlobTree {
         &self,
         seqno: SeqNo,
         gc_watermark: SeqNo,
-    ) -> crate::Result<crate::GcReport> {
+    ) -> crate::Result<crate::gc::Report> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
