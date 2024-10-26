@@ -21,7 +21,7 @@ use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
 use std::{
     io::Cursor,
-    ops::RangeBounds,
+    ops::{RangeBounds, RangeFull},
     sync::{Arc, RwLockWriteGuard},
 };
 use value::MaybeInlineValue;
@@ -85,35 +85,76 @@ impl BlobTree {
     /// Scans the index tree, collecting statistics about
     /// value log fragmentation
     #[doc(hidden)]
-    pub fn gc_scan_stats(&self, seqno: SeqNo) -> crate::Result<crate::GcReport> {
+    pub fn gc_scan_stats(
+        &self,
+        seqno: SeqNo,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<crate::GcReport> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
         // IMPORTANT: Lock + snapshot memtable to avoid read skew + preventing tampering with memtable
         let _memtable_lock = self.index.read_lock_active_memtable();
-        let snapshot = self.index.snapshot(seqno);
 
-        self.blobs
-            .scan_for_stats(snapshot.iter().filter_map(|kv| {
-                let Ok((_, v)) = kv else {
+        let iter = self
+            .index
+            .create_internal_range::<&[u8], RangeFull>(&.., Some(seqno), None);
+
+        // Stores the max seqno of every blob file
+        let mut seqno_map = crate::HashMap::<SegmentId, SeqNo>::default();
+
+        let result = self
+            .blobs
+            .scan_for_stats(iter.filter_map(|kv| {
+                let Ok(kv) = kv else {
                     return Some(Err(IoError::new(
                         IoErrorKind::Other,
                         "Failed to load KV pair from index tree",
                     )));
                 };
 
-                let mut cursor = Cursor::new(v);
+                let mut cursor = Cursor::new(kv.value);
                 let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
                     Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
                 };
 
                 match value {
-                    Indirect { vhandle, size } => Some(Ok((vhandle, size))),
+                    Indirect { vhandle, size } => {
+                        seqno_map
+                            .entry(vhandle.segment_id)
+                            .and_modify(|x| *x = (*x).max(kv.key.seqno))
+                            .or_insert(kv.key.seqno);
+
+                        Some(Ok((vhandle, size)))
+                    }
                     Inline(_) => None,
                 }
             }))
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        let mut lock = self
+            .blobs
+            .manifest
+            .segments
+            .write()
+            .expect("lock is poisoned");
+
+        // IMPORTANT: We are overwiting the staleness of blob files
+        // that contain an item that is still contained in the GC watermark
+        // so snapshots cannot accidentally lose data
+        //
+        // TODO: 3.0.0 this should be dealt with in value-log 2.0 (make it MVCC aware)
+        for (blob_file_id, max_seqno) in seqno_map {
+            if gc_watermark <= max_seqno {
+                if let Some(blob_file) = lock.get_mut(&blob_file_id) {
+                    blob_file.gc_stats.set_stale_items(0);
+                    blob_file.gc_stats.set_stale_bytes(0);
+                }
+            }
+        }
+
+        result
     }
 
     pub fn apply_gc_strategy(

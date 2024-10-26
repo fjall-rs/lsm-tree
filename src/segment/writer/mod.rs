@@ -447,6 +447,8 @@ mod tests {
 
         assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        #[cfg(feature = "bloom")]
         assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());
@@ -511,6 +513,8 @@ mod tests {
 
         assert_eq!(ITEM_COUNT * VERSION_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        #[cfg(feature = "bloom")]
         assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());
