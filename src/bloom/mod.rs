@@ -205,7 +205,7 @@ impl BloomFilter {
 
     /// Returns `true` if the bit at `idx` is `1`.
     fn has_bit(&self, idx: usize) -> bool {
-        self.inner.get(idx as usize)
+        self.inner.get(idx)
     }
 
     /// Sets the bit at the given index to `true`.
