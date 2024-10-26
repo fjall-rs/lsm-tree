@@ -187,10 +187,11 @@ impl CompactionStrategy for Strategy {
             };
 
             if first_level.len() >= self.l0_threshold.into() && !busy_levels.contains(&0) {
-                if levels.is_disjoint() {
-                    // NOTE: Special handling for disjoint workloads
+                let first_level_size = first_level.size();
 
-                    if first_level.size() < self.target_size.into() {
+                // NOTE: Special handling for disjoint workloads
+                if levels.is_disjoint() {
+                    if first_level_size < self.target_size.into() {
                         // TODO: also do this in non-disjoint workloads
                         // -> intra-L0 compaction
 
@@ -199,11 +200,7 @@ impl CompactionStrategy for Strategy {
                         return if first_level.len() >= 32 {
                             Choice::Merge(CompactionInput {
                                 dest_level: 0,
-                                segment_ids: first_level
-                                    .segments
-                                    .iter()
-                                    .map(|x| x.metadata.id)
-                                    .collect(),
+                                segment_ids: first_level.list_ids(),
                                 // NOTE: Allow a bit of overshooting
                                 target_size: ((self.target_size as f32) * 1.1) as u64,
                             })
@@ -214,10 +211,25 @@ impl CompactionStrategy for Strategy {
 
                     return Choice::Merge(CompactionInput {
                         dest_level: 1,
-                        segment_ids: first_level.segments.iter().map(|x| x.metadata.id).collect(),
+                        segment_ids: first_level.list_ids(),
                         target_size: ((self.target_size as f32) * 1.1) as u64,
                     });
-                } else if !busy_levels.contains(&1) {
+                }
+
+                /* let l0_threshold_size = (self.l0_threshold as u32) * self.target_size;
+
+                if (first_level_size as f32) < (l0_threshold_size as f32) * 0.66 {
+                    // NOTE: We reached the threshold, but L0 is still very small
+                    // meaning we have very small segments, so do intra-L0 compaction
+                    return Choice::Merge(CompactionInput {
+                        dest_level: 0,
+                        segment_ids: first_level.list_ids(),
+                        // NOTE: Allow a bit of overshooting
+                        target_size: self.target_size.into(),
+                    });
+                } */
+
+                if !busy_levels.contains(&1) {
                     let mut level = first_level.clone();
                     level.sort_by_key_range();
 
