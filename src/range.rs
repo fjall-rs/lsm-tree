@@ -12,7 +12,7 @@ use crate::{
     segment::level_reader::LevelReader,
     tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
-    KvPair,
+    InternalValue,
 };
 use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
@@ -54,7 +54,7 @@ pub struct MemtableLockGuard {
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 }
 
-type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'a>;
+type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
 self_cell!(
     pub struct TreeIter {
@@ -66,7 +66,7 @@ self_cell!(
 );
 
 impl Iterator for TreeIter {
-    type Item = crate::Result<KvPair>;
+    type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next())
@@ -266,16 +266,10 @@ impl TreeIter {
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
 
-            Box::new(
-                iter.filter(|x| match x {
-                    Ok(value) => !value.key.is_tombstone(),
-                    Err(_) => true,
-                })
-                .map(|item| match item {
-                    Ok(kv) => Ok((kv.key.user_key, kv.value)),
-                    Err(e) => Err(e),
-                }),
-            )
+            Box::new(iter.filter(|x| match x {
+                Ok(value) => !value.key.is_tombstone(),
+                Err(_) => true,
+            }))
         })
     }
 }
