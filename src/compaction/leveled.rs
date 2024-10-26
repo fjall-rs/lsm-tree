@@ -566,9 +566,8 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &config),
-            Choice::Move(CompactionInput {
+            Choice::Merge(CompactionInput {
                 dest_level: 2,
-                // NOTE: segment #3 has no overlap with L2
                 segment_ids: vec![3],
                 target_size: 64 * 1_024 * 1_024
             })
