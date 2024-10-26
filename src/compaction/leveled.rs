@@ -275,7 +275,6 @@ impl CompactionStrategy for Strategy {
                     return Choice::Merge(CompactionInput {
                         dest_level: 0,
                         segment_ids: first_level.list_ids(),
-                        // NOTE: Allow a bit of overshooting
                         target_size: self.target_size.into(),
                     });
                 }
