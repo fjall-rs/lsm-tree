@@ -44,9 +44,13 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
         let header = BlockHeader::decode_from(reader)?;
         log::trace!("Got block header: {header:?}");
 
+        // Read the (possibly compressed) data
         let mut bytes = vec![0u8; header.data_length as usize];
         reader.read_exact(&mut bytes)?;
 
+        // TODO: 3.0.0 when header.compressed is reliable
+        // can we preallocate a vector to stream the compression into?
+        // -> saves reallocation costs
         let bytes = match header.compression {
             super::meta::CompressionType::None => bytes,
 
@@ -103,6 +107,9 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
             #[allow(clippy::cast_possible_truncation)]
             data_length: packed.len() as u32,
 
+            // TODO: 3.0.0 pack_items should return the uncompressed, serialized
+            // size directly
+
             // NOTE: Truncation is OK because a block cannot possible contain 4 billion items
             #[allow(clippy::cast_possible_truncation)]
             uncompressed_length: items.size() as u32,
@@ -122,6 +129,8 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
         for value in items {
             value.encode_into(&mut buf)?;
         }
+
+        // TODO: 3.0.0 return buf.len() - 4 as uncompressed size
 
         Ok(match compression {
             CompressionType::None => buf,
