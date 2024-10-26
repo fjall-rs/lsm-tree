@@ -203,6 +203,11 @@ pub use any_tree::AnyTree;
 
 pub use blob_tree::BlobTree;
 
-pub use value_log::{
-    BlobCache, GcReport, GcStrategy, Slice, SpaceAmpStrategy, StaleThresholdStrategy,
-};
+pub use value_log::{BlobCache, Slice};
+
+/// Blob garbage collection utilities
+pub mod gc {
+    pub use value_log::{
+        GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
+    };
+}

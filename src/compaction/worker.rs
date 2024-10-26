@@ -200,9 +200,9 @@ fn merge_segments(
                 // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63 is fixed
                 0 => BloomConstructionPolicy::FpRate(0.0001),
                 1 => BloomConstructionPolicy::FpRate(0.001),
-                _ => {
-                    BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.abs() as u8)
-                }
+                _ => BloomConstructionPolicy::BitsPerKey(
+                    opts.config.bloom_bits_per_key.unsigned_abs(),
+                ),
             };
 
             segment_writer = segment_writer.use_bloom_policy(bloom_policy);

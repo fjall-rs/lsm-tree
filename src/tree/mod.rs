@@ -723,12 +723,12 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
         range: &'a R,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -765,6 +765,20 @@ impl Tree {
             seqno,
             level_manifest_lock,
         )
+    }
+
+    #[doc(hidden)]
+    pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+        &'a self,
+        range: &'a R,
+        seqno: Option<SeqNo>,
+        ephemeral: Option<Arc<Memtable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+        self.create_internal_range(range, seqno, ephemeral)
+            .map(|item| match item {
+                Ok(kv) => Ok((kv.key.user_key, kv.value)),
+                Err(e) => Err(e),
+            })
     }
 
     #[doc(hidden)]
@@ -891,11 +905,21 @@ impl Tree {
         };
 
         let tree_path = tree_path.as_ref();
-        log::debug!("Recovering disk segments from {tree_path:?}");
+
+        log::info!("Recovering LSM-tree at {tree_path:?}");
 
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
         let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
+        let cnt = segment_ids_to_recover.len();
+
+        log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
+
+        let progress_mod = match cnt {
+            _ if cnt <= 20 => 1,
+            _ if cnt <= 100 => 10,
+            _ => 100,
+        };
 
         let mut segments = vec![];
 
@@ -906,7 +930,7 @@ impl Tree {
             fsync_directory(&segment_base_folder)?;
         }
 
-        for dirent in std::fs::read_dir(&segment_base_folder)? {
+        for (idx, dirent) in std::fs::read_dir(&segment_base_folder)?.enumerate() {
             let dirent = dirent?;
 
             let file_name = dirent.file_name();
@@ -944,6 +968,10 @@ impl Tree {
 
                 segments.push(Arc::new(segment));
                 log::debug!("Recovered segment from {segment_file_path:?}");
+
+                if idx % progress_mod == 0 {
+                    log::debug!("Recovered {idx}/{cnt} disk segments");
+                }
             } else {
                 log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
                 std::fs::remove_file(&segment_file_path)?;
@@ -951,11 +979,11 @@ impl Tree {
         }
 
         if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Expected segments: {segment_ids_to_recover:?}");
+            log::error!("Recovered less segments than expected: {segment_ids_to_recover:?}");
             return Err(crate::Error::Unrecoverable);
         }
 
-        log::debug!("Recovered {} segments", segments.len());
+        log::debug!("Successfully recovered {} segments", segments.len());
 
         LevelManifest::recover(&level_manifest_path, segments)
     }

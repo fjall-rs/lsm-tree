@@ -88,6 +88,13 @@ impl BloomConstructionPolicy {
             Self::FpRate(fpr) => BloomFilter::with_fp_rate(n, *fpr),
         }
     }
+
+    pub fn is_active(&self) -> bool {
+        match self {
+            Self::BitsPerKey(bpk) => *bpk > 0,
+            Self::FpRate(_) => true,
+        }
+    }
 }
 
 pub struct Options {
@@ -225,8 +232,10 @@ impl Writer {
             // because there may be multiple versions
             // of the same key
             #[cfg(feature = "bloom")]
-            self.bloom_hash_buffer
-                .push(BloomFilter::get_hash(&item.key.user_key));
+            if self.bloom_policy.is_active() {
+                self.bloom_hash_buffer
+                    .push(BloomFilter::get_hash(&item.key.user_key));
+            }
         }
 
         let seqno = item.key.seqno;
@@ -277,23 +286,27 @@ impl Writer {
         // Write bloom filter
         #[cfg(feature = "bloom")]
         let bloom_ptr = {
-            let bloom_ptr = self.block_writer.stream_position()?;
+            if self.bloom_hash_buffer.is_empty() {
+                BlockOffset(0)
+            } else {
+                let bloom_ptr = self.block_writer.stream_position()?;
 
-            let n = self.bloom_hash_buffer.len();
-            log::trace!(
-                "Writing bloom filter with {n} hashes: {:?}",
-                self.bloom_policy
-            );
+                let n = self.bloom_hash_buffer.len();
+                log::trace!(
+                    "Writing bloom filter with {n} hashes: {:?}",
+                    self.bloom_policy
+                );
 
-            let mut filter = self.bloom_policy.build(n);
+                let mut filter = self.bloom_policy.build(n);
 
-            for hash in std::mem::take(&mut self.bloom_hash_buffer) {
-                filter.set_with_hash(hash);
+                for hash in std::mem::take(&mut self.bloom_hash_buffer) {
+                    filter.set_with_hash(hash);
+                }
+
+                filter.encode_into(&mut self.block_writer)?;
+
+                BlockOffset(bloom_ptr)
             }
-
-            filter.encode_into(&mut self.block_writer)?;
-
-            BlockOffset(bloom_ptr)
         };
 
         #[cfg(not(feature = "bloom"))]
@@ -364,6 +377,45 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[cfg(feature = "bloom")]
+    fn segment_writer_zero_bpk() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 100;
+
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
+
+        let items = (0u64..ITEM_COUNT).map(|i| {
+            InternalValue::from_components(
+                i.to_be_bytes(),
+                nanoid::nanoid!().as_bytes(),
+                0,
+                ValueType::Value,
+            )
+        });
+
+        for item in items {
+            writer.write(item)?;
+        }
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+        assert_eq!(trailer.offsets.bloom_ptr, BlockOffset(0));
+
+        Ok(())
+    }
+
+    #[test]
     fn segment_writer_write_read() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
@@ -395,6 +447,9 @@ mod tests {
 
         assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        #[cfg(feature = "bloom")]
+        assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());
 
@@ -462,6 +517,9 @@ mod tests {
 
         assert_eq!(ITEM_COUNT * VERSION_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        #[cfg(feature = "bloom")]
+        assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());
 
