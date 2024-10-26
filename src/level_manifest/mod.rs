@@ -314,7 +314,6 @@ impl LevelManifest {
     #[must_use]
     pub fn is_disjoint(&self) -> bool {
         self.is_disjoint && self.levels.iter().all(|x| x.is_disjoint)
-        // TODO: not needed? -----------^
     }
 
     /// Returns `true` if there are no segments
