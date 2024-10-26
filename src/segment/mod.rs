@@ -344,6 +344,10 @@ impl Segment {
         Ok(Some(entry))
     }
 
+    pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
+        self.metadata.key_range.contains_key(key)
+    }
+
     // NOTE: Clippy false positive
     #[allow(unused)]
     /// Retrieves an item from the segment.
@@ -362,7 +366,7 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(&key) {
+        if !self.is_key_in_key_range(&key) {
             return Ok(None);
         }
 
