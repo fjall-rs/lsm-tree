@@ -654,10 +654,10 @@ impl Tree {
                             }
                             return Ok(Some(item));
                         }
-                    } else {
-                        // NOTE: Don't go to fallback, go to next level instead
-                        continue;
                     }
+
+                    // NOTE: Go to next level
+                    continue;
                 }
             }
 
@@ -890,11 +890,21 @@ impl Tree {
         };
 
         let tree_path = tree_path.as_ref();
-        log::debug!("Recovering disk segments from {tree_path:?}");
+
+        log::info!("Recovering LSM-tree at {tree_path:?}");
 
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
         let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
+        let cnt = segment_ids_to_recover.len();
+
+        log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
+
+        let progress_mod = match cnt {
+            _ if cnt <= 20 => 1,
+            _ if cnt <= 100 => 10,
+            _ => 100,
+        };
 
         let mut segments = vec![];
 
@@ -905,7 +915,7 @@ impl Tree {
             fsync_directory(&segment_base_folder)?;
         }
 
-        for dirent in std::fs::read_dir(&segment_base_folder)? {
+        for (idx, dirent) in std::fs::read_dir(&segment_base_folder)?.enumerate() {
             let dirent = dirent?;
 
             let file_name = dirent.file_name();
@@ -943,6 +953,10 @@ impl Tree {
 
                 segments.push(Arc::new(segment));
                 log::debug!("Recovered segment from {segment_file_path:?}");
+
+                if idx % progress_mod == 0 {
+                    log::debug!("Recovered {idx}/{cnt} disk segments");
+                }
             } else {
                 log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
                 std::fs::remove_file(&segment_file_path)?;
@@ -950,11 +964,11 @@ impl Tree {
         }
 
         if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Expected segments: {segment_ids_to_recover:?}");
+            log::error!("Recovered less segments than expected: {segment_ids_to_recover:?}");
             return Err(crate::Error::Unrecoverable);
         }
 
-        log::debug!("Recovered {} segments", segments.len());
+        log::debug!("Successfully recovered {} segments", segments.len());
 
         LevelManifest::recover(&level_manifest_path, segments)
     }
