@@ -227,7 +227,7 @@ impl CompactionStrategy for Strategy {
                     return Choice::Merge(choice);
                 }
 
-                if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                if can_trivial_move && level.is_disjoint {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);
@@ -269,9 +269,7 @@ impl CompactionStrategy for Strategy {
                     });
                 }
 
-                /* let l0_threshold_size = (self.l0_threshold as u32) * self.target_size;
-
-                if (first_level_size as f32) < (l0_threshold_size as f32) * 0.66 {
+                if first_level_size < self.target_size.into() {
                     // NOTE: We reached the threshold, but L0 is still very small
                     // meaning we have very small segments, so do intra-L0 compaction
                     return Choice::Merge(CompactionInput {
@@ -280,7 +278,7 @@ impl CompactionStrategy for Strategy {
                         // NOTE: Allow a bit of overshooting
                         target_size: self.target_size.into(),
                     });
-                } */
+                }
 
                 if !busy_levels.contains(&1) {
                     let mut level = first_level.clone();
