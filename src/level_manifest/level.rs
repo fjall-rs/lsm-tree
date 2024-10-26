@@ -47,6 +47,10 @@ impl Default for Level {
 }
 
 impl Level {
+    pub fn list_ids(&self) -> Vec<SegmentId> {
+        self.segments.iter().map(|x| x.metadata.id).collect()
+    }
+
     pub fn insert(&mut self, segment: Arc<Segment>) {
         self.segments.push(segment);
         self.set_disjoint_flag();

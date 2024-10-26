@@ -50,7 +50,7 @@ impl std::fmt::Display for LevelManifest {
 
             if level.segments.is_empty() {
                 write!(f, "<empty>")?;
-            } else if level.segments.len() >= 24 {
+            } else if level.segments.len() >= 10 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
                     let id = segment.metadata.id;
@@ -63,7 +63,7 @@ impl std::fmt::Display for LevelManifest {
                         if is_hidden { ")" } else { "]" },
                     )?;
                 }
-                write!(f, " . . . . . ")?;
+                write!(f, " . . . ")?;
 
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
