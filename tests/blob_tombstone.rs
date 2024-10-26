@@ -28,7 +28,7 @@ fn blob_tree_tombstone() -> lsm_tree::Result<()> {
     assert!(tree.get("b")?.is_none());
     assert_eq!(&*tree.get("c")?.unwrap(), big_value);
 
-    tree.gc_scan_stats(2)?;
+    tree.gc_scan_stats(2, 0)?;
 
     let strategy = value_log::StaleThresholdStrategy::new(0.01);
     tree.apply_gc_strategy(&strategy, 2)?;
