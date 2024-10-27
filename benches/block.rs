@@ -10,13 +10,6 @@ use lsm_tree::{
 };
 use std::io::Write;
 
-#[cfg(not(target_env = "msvc"))]
-use jemallocator::Jemalloc;
-
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
-
 /* fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
 
