@@ -513,8 +513,6 @@ impl Tree {
                     use crate::coding::Decode;
                     use std::io::Seek;
 
-                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
                     let mut reader = std::fs::File::open(&segment_file_path)?;
                     reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
                     Some(BloomFilter::decode_from(&mut reader)?)
