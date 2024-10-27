@@ -3,6 +3,13 @@ use lsm_tree::{AbstractTree, BlockCache, Config};
 use std::sync::Arc;
 use tempfile::tempdir;
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 fn full_scan(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan all");
     group.sample_size(10);
