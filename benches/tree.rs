@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 
 #[cfg(not(target_env = "msvc"))]
-use tikv_jemallocator::Jemalloc;
+use jemallocator::Jemalloc;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
