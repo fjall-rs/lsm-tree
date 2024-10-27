@@ -68,7 +68,7 @@ pub struct Segment {
     /// Bloom filter
     #[cfg(feature = "bloom")]
     #[doc(hidden)]
-    pub bloom_filter: BloomFilter,
+    pub bloom_filter: Option<BloomFilter>,
 }
 
 impl std::fmt::Debug for Segment {
@@ -193,17 +193,19 @@ impl Segment {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
-                use crate::coding::Decode;
-                use std::{
-                    fs::File,
-                    io::{Seek, SeekFrom},
-                };
+                if *bloom_ptr > 0 {
+                    use crate::coding::Decode;
+                    use std::{
+                        fs::File,
+                        io::{Seek, SeekFrom},
+                    };
 
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
+                    let mut reader = File::open(file_path)?;
+                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
+                    Some(BloomFilter::decode_from(&mut reader)?)
+                } else {
+                    None
+                }
             },
         })
     }
@@ -212,7 +214,10 @@ impl Segment {
     #[must_use]
     /// Gets the bloom filter size
     pub fn bloom_filter_size(&self) -> usize {
-        self.bloom_filter.len()
+        self.bloom_filter
+            .as_ref()
+            .map(|x| x.len())
+            .unwrap_or_default()
     }
 
     #[cfg(feature = "bloom")]
@@ -232,8 +237,8 @@ impl Segment {
             return Ok(None);
         }
 
-        {
-            if !self.bloom_filter.contains_hash(hash) {
+        if let Some(bf) = &self.bloom_filter {
+            if !bf.contains_hash(hash) {
                 return Ok(None);
             }
         }
@@ -373,10 +378,10 @@ impl Segment {
         let key = key.as_ref();
 
         #[cfg(feature = "bloom")]
-        {
+        if let Some(bf) = &self.bloom_filter {
             debug_assert!(false, "Use Segment::get_with_hash instead");
 
-            if !self.bloom_filter.contains(key) {
+            if !bf.contains(key) {
                 return Ok(None);
             }
         }

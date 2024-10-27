@@ -54,7 +54,7 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(|x| x.bloom_filter.len())
+            .map(|x| x.bloom_filter_size())
             .sum()
     }
 
@@ -509,14 +509,18 @@ impl Tree {
             // TODO: as Bloom method
             #[cfg(feature = "bloom")]
             bloom_filter: {
-                use crate::coding::Decode;
-                use std::io::Seek;
+                if *bloom_ptr > 0 {
+                    use crate::coding::Decode;
+                    use std::io::Seek;
 
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
+                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
 
-                let mut reader = std::fs::File::open(&segment_file_path)?;
-                reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
+                    let mut reader = std::fs::File::open(&segment_file_path)?;
+                    reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
+                    Some(BloomFilter::decode_from(&mut reader)?)
+                } else {
+                    None
+                }
             },
         }
         .into();

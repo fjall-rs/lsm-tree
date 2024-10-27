@@ -185,7 +185,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
+            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
         })
     }
 

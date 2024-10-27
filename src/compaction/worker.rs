@@ -263,17 +263,19 @@ fn merge_segments(
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: {
-                    use crate::coding::Decode;
-                    use std::{
-                        fs::File,
-                        io::{Seek, SeekFrom},
-                    };
+                    if *bloom_ptr > 0 {
+                        use crate::coding::Decode;
+                        use std::{
+                            fs::File,
+                            io::{Seek, SeekFrom},
+                        };
 
-                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                    let mut reader = File::open(&segment_file_path)?;
-                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                    BloomFilter::decode_from(&mut reader)?
+                        let mut reader = File::open(&segment_file_path)?;
+                        reader.seek(SeekFrom::Start(*bloom_ptr))?;
+                        Some(BloomFilter::decode_from(&mut reader)?)
+                    } else {
+                        None
+                    }
                 },
             }))
         })
