@@ -23,9 +23,7 @@ pub struct Range {
 
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
-    reader: Reader,
-
-    cache_policy: CachePolicy,
+    pub(crate) reader: Reader,
 }
 
 impl Range {
@@ -53,15 +51,13 @@ impl Range {
 
             reader,
             range,
-
-            cache_policy: CachePolicy::Write,
         }
     }
 
     /// Sets the cache policy
     #[must_use]
     pub fn cache_policy(mut self, policy: CachePolicy) -> Self {
-        self.cache_policy = policy;
+        self.reader = self.reader.cache_policy(policy);
         self
     }
 
