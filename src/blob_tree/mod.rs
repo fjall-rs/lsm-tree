@@ -342,7 +342,7 @@ impl AbstractTree for BlobTree {
                 blob_writer.write(&item.key.user_key, value)?;
             } else {
                 let direct = MaybeInlineValue::Inline(value);
-                let serialized_direct = direct.encode_into_vec()?;
+                let serialized_direct = direct.encode_into_vec();
                 segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
             }
         }
@@ -530,7 +530,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let value = item.encode_into_vec().expect("should serialize");
+        let value = item.encode_into_vec();
 
         let value = InternalValue::from_components(key.as_ref(), value, seqno, r#type);
         lock.insert(value)
@@ -544,7 +544,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let value = item.encode_into_vec().expect("should serialize");
+        let value = item.encode_into_vec();
 
         self.index.insert(key, value, seqno)
     }

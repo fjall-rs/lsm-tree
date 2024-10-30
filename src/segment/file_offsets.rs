@@ -85,7 +85,7 @@ mod tests {
             tli_ptr: BlockOffset(4),
         };
 
-        let buf = before.encode_into_vec()?;
+        let buf = before.encode_into_vec();
 
         let mut cursor = Cursor::new(buf);
         let after = FileOffsets::decode_from(&mut cursor)?;
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn file_offsets_serialized_len() -> crate::Result<()> {
-        let buf = FileOffsets::default().encode_into_vec()?;
+        let buf = FileOffsets::default().encode_into_vec();
         assert_eq!(FileOffsets::serialized_len(), buf.len());
         Ok(())
     }

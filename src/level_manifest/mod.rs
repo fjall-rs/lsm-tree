@@ -234,7 +234,7 @@ impl LevelManifest {
 
         log::trace!("Writing level manifest to {path:?}",);
 
-        let serialized = levels.encode_into_vec()?;
+        let serialized = levels.encode_into_vec();
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -501,7 +501,7 @@ mod tests {
             is_disjoint: false,
         };
 
-        let bytes = manifest.deep_clone().encode_into_vec()?;
+        let bytes = manifest.deep_clone().encode_into_vec();
 
         #[rustfmt::skip]
         let raw = &[

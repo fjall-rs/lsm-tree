@@ -79,10 +79,13 @@ pub trait Encode {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError>;
 
     /// Serializes into vector.
-    fn encode_into_vec(&self) -> Result<Vec<u8>, EncodeError> {
+    fn encode_into_vec(&self) -> Vec<u8> {
         let mut v = vec![];
-        self.encode_into(&mut v)?;
-        Ok(v)
+
+        #[allow(clippy::expected_used)]
+        self.encode_into(&mut v).expect("cannot fail");
+
+        v
     }
 }
 
