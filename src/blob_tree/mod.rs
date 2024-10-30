@@ -223,10 +223,6 @@ impl BlobTree {
             return Ok(None);
         };
 
-        // IMPORTANT: Lock active memtable, so there cannot be a GC scan while
-        // we apply blob & segment files
-        let _lock = self.index.lock_active_memtable();
-
         let Some(segment) = self.flush_memtable(segment_id, &yanked_memtable, eviction_seqno)?
         else {
             return Ok(None);
