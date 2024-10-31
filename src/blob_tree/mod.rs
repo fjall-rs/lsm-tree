@@ -42,7 +42,6 @@ fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> Range
                         Ok(Some(bytes)) => Ok((key, bytes)),
                         Err(e) => Err(e.into()),
                         _ => {
-                            // TODO: for non-snapshot ranges with periodic GC, this happened
                             panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(&key))
                         }
                     }
