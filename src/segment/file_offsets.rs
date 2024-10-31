@@ -96,9 +96,8 @@ mod tests {
     }
 
     #[test]
-    fn file_offsets_serialized_len() -> crate::Result<()> {
+    fn file_offsets_serialized_len() {
         let buf = FileOffsets::default().encode_into_vec();
         assert_eq!(FileOffsets::serialized_len(), buf.len());
-        Ok(())
     }
 }

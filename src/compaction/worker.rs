@@ -22,9 +22,6 @@ use std::{
 };
 
 #[cfg(feature = "bloom")]
-use crate::bloom::BloomFilter;
-
-#[cfg(feature = "bloom")]
 use crate::segment::writer::BloomConstructionPolicy;
 
 /// Compaction options
@@ -262,21 +259,7 @@ fn merge_segments(
                 block_index,
 
                 #[cfg(feature = "bloom")]
-                bloom_filter: {
-                    if *bloom_ptr > 0 {
-                        use crate::coding::Decode;
-                        use std::{
-                            fs::File,
-                            io::{Seek, SeekFrom},
-                        };
-
-                        let mut reader = File::open(&segment_file_path)?;
-                        reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                        Some(BloomFilter::decode_from(&mut reader)?)
-                    } else {
-                        None
-                    }
-                },
+                bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
             }))
         })
         .collect::<crate::Result<Vec<_>>>()?;

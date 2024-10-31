@@ -151,6 +151,26 @@ impl Segment {
         Ok(broken_count)
     }
 
+    #[cfg(feature = "bloom")]
+    pub(crate) fn load_bloom<P: AsRef<Path>>(
+        path: P,
+        ptr: value_block::BlockOffset,
+    ) -> crate::Result<Option<BloomFilter>> {
+        Ok(if *ptr > 0 {
+            use crate::coding::Decode;
+            use std::{
+                fs::File,
+                io::{Seek, SeekFrom},
+            };
+
+            let mut reader = File::open(path)?;
+            reader.seek(SeekFrom::Start(*ptr))?;
+            Some(BloomFilter::decode_from(&mut reader)?)
+        } else {
+            None
+        })
+    }
+
     /// Tries to recover a segment from a file.
     pub(crate) fn recover<P: AsRef<Path>>(
         file_path: P,
@@ -190,23 +210,8 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
-            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: {
-                if *bloom_ptr > 0 {
-                    use crate::coding::Decode;
-                    use std::{
-                        fs::File,
-                        io::{Seek, SeekFrom},
-                    };
-
-                    let mut reader = File::open(file_path)?;
-                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                    Some(BloomFilter::decode_from(&mut reader)?)
-                } else {
-                    None
-                }
-            },
+            bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
         })
     }
 
@@ -216,7 +221,7 @@ impl Segment {
     pub fn bloom_filter_size(&self) -> usize {
         self.bloom_filter
             .as_ref()
-            .map(|x| x.len())
+            .map(super::bloom::BloomFilter::len)
             .unwrap_or_default()
     }
 

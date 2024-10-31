@@ -61,9 +61,7 @@ impl Range {
         self
     }
 
-    fn initialize(&mut self) -> crate::Result<()> {
-        // TODO: can we skip searching for lower bound until next is called at least once...?
-        // would make short ranges 1.5-2x faster if only one direction is used
+    fn initialize_lo_bound(&mut self) -> crate::Result<()> {
         let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => {
@@ -77,9 +75,13 @@ impl Range {
                 Some(start)
             }
         };
+        if let Some(key) = start_key.cloned() {
+            self.reader.set_lower_bound(key);
+        }
+        Ok(())
+    }
 
-        // TODO: can we skip searching for upper bound until next_back is called at least once...?
-        // would make short ranges 1.5-2x faster if only one direction is used
+    fn initialize_hi_bound(&mut self) -> crate::Result<()> {
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self
@@ -102,12 +104,20 @@ impl Range {
             }
         };
 
-        if let Some(key) = start_key.cloned() {
-            self.reader.set_lower_bound(key);
-        }
         if let Some(key) = end_key.cloned() {
             self.reader.set_upper_bound(key);
         }
+        Ok(())
+    }
+
+    fn initialize(&mut self) -> crate::Result<()> {
+        // TODO: can we skip searching for lower bound until next is called at least once...?
+        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
+        self.initialize_lo_bound()?;
+
+        // TODO: can we skip searching for upper bound until next_back is called at least once...?
+        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
+        self.initialize_hi_bound()?;
 
         self.is_initialized = true;
 
