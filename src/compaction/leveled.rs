@@ -480,6 +480,46 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation
+    )]
+    fn leveled_intra_l0() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let compactor = Strategy {
+            target_size: 64 * 1_024 * 1_024,
+            ..Default::default()
+        };
+
+        #[rustfmt::skip]
+        let mut levels = build_levels(tempdir.path(), vec![
+            vec![(1, "a", "z", 1), (2, "a", "z", 1), (3, "a", "z", 1), (4, "a", "z", 1)],
+            vec![],
+            vec![],
+            vec![],
+        ])?;
+
+        assert_eq!(
+            compactor.choose(&levels, &Config::default()),
+            Choice::Merge(CompactionInput {
+                dest_level: 0,
+                segment_ids: [1, 2, 3, 4].into_iter().collect::<HashSet<_>>(),
+                target_size: u64::from(compactor.target_size),
+            })
+        );
+
+        levels.hide_segments(std::iter::once(4));
+
+        assert_eq!(
+            compactor.choose(&levels, &Config::default()),
+            Choice::DoNothing
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn leveled_more_than_min_no_overlap() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
