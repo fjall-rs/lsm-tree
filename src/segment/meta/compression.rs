@@ -116,7 +116,7 @@ mod tests {
 
     #[test_log::test]
     fn compression_serialize_none() -> crate::Result<()> {
-        let serialized = CompressionType::None.encode_into_vec()?;
+        let serialized = CompressionType::None.encode_into_vec();
         assert_eq!(2, serialized.len());
         Ok(())
     }
@@ -127,7 +127,7 @@ mod tests {
 
         #[test_log::test]
         fn compression_serialize_none() -> crate::Result<()> {
-            let serialized = CompressionType::Lz4.encode_into_vec()?;
+            let serialized = CompressionType::Lz4.encode_into_vec();
             assert_eq!(2, serialized.len());
             Ok(())
         }
@@ -140,7 +140,7 @@ mod tests {
         #[test_log::test]
         fn compression_serialize_none() -> crate::Result<()> {
             for lvl in 0..10 {
-                let serialized = CompressionType::Miniz(lvl).encode_into_vec()?;
+                let serialized = CompressionType::Miniz(lvl).encode_into_vec();
                 assert_eq!(2, serialized.len());
             }
             Ok(())

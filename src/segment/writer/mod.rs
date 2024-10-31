@@ -138,7 +138,7 @@ impl Writer {
             bloom_policy: BloomConstructionPolicy::default(),
 
             #[cfg(feature = "bloom")]
-            bloom_hash_buffer: Vec::with_capacity(10_000),
+            bloom_hash_buffer: Vec::new(),
         })
     }
 

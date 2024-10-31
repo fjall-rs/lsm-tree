@@ -22,24 +22,30 @@ use index::IndexTree;
 use std::{
     io::Cursor,
     ops::{RangeBounds, RangeFull},
-    sync::{Arc, RwLockWriteGuard},
+    sync::{atomic::AtomicUsize, Arc, RwLockWriteGuard},
 };
 use value::MaybeInlineValue;
 use value_log::ValueLog;
 
 fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {
+    use MaybeInlineValue::{Indirect, Inline};
+
     match item {
         Ok((key, value)) => {
             let mut cursor = Cursor::new(value);
-            let item = MaybeInlineValue::decode_from(&mut cursor)?;
 
-            match item {
-                MaybeInlineValue::Inline(bytes) => Ok((key, bytes)),
-                MaybeInlineValue::Indirect { vhandle, .. } => match vlog.get(&vhandle) {
-                    Ok(Some(bytes)) => Ok((key, bytes)),
-                    Err(e) => Err(e.into()),
-                    _ => panic!("value handle did not match any blob - this is a bug"),
-                },
+            match MaybeInlineValue::decode_from(&mut cursor)? {
+                Inline(bytes) => Ok((key, bytes)),
+                Indirect { vhandle, .. } => {
+                    // Resolve indirection using value log
+                    match vlog.get(&vhandle) {
+                        Ok(Some(bytes)) => Ok((key, bytes)),
+                        Err(e) => Err(e.into()),
+                        _ => {
+                            panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(&key))
+                        }
+                    }
+                }
             }
         }
         Err(e) => Err(e),
@@ -62,6 +68,10 @@ pub struct BlobTree {
     /// Log-structured value-log that stores large values
     #[doc(hidden)]
     pub blobs: ValueLog<MyCompressor>,
+
+    // TODO: maybe replace this with a nonce system
+    #[doc(hidden)]
+    pub pending_segments: Arc<AtomicUsize>,
 }
 
 impl BlobTree {
@@ -79,6 +89,7 @@ impl BlobTree {
         Ok(Self {
             index,
             blobs: ValueLog::open(vlog_path, vlog_cfg)?,
+            pending_segments: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -93,8 +104,26 @@ impl BlobTree {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use MaybeInlineValue::{Indirect, Inline};
 
+        while self
+            .pending_segments
+            .load(std::sync::atomic::Ordering::Acquire)
+            > 0
+        {
+            // IMPORTANT: Busy wait until all segments in-flight are committed
+            // to the tree
+        }
+
         // IMPORTANT: Lock + snapshot memtable to avoid read skew + preventing tampering with memtable
         let _memtable_lock = self.index.read_lock_active_memtable();
+
+        while self
+            .pending_segments
+            .load(std::sync::atomic::Ordering::Acquire)
+            > 0
+        {
+            // IMPORTANT: Busy wait again until all segments in-flight are committed
+            // to the tree
+        }
 
         let iter = self
             .index
@@ -342,20 +371,46 @@ impl AbstractTree for BlobTree {
                 blob_writer.write(&item.key.user_key, value)?;
             } else {
                 let direct = MaybeInlineValue::Inline(value);
-                let serialized_direct = direct.encode_into_vec()?;
+                let serialized_direct = direct.encode_into_vec();
                 segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
             }
         }
 
+        let _memtable_lock = self.lock_active_memtable();
+
         log::trace!("Register blob writer into value log");
         self.blobs.register_writer(blob_writer)?;
 
-        log::trace!("Creating segment");
-        self.index.consume_writer(segment_id, segment_writer)
+        log::trace!("Creating LSM-tree segment {segment_id}");
+        let segment = self.index.consume_writer(segment_id, segment_writer)?;
+
+        // TODO: this can probably solved in a nicer way
+        if segment.is_some() {
+            // IMPORTANT: Increment the pending count
+            // so there cannot be a GC scan now, until the segment is registered
+            self.pending_segments
+                .fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
+
+        Ok(segment)
     }
 
     fn register_segments(&self, segments: &[Arc<crate::Segment>]) -> crate::Result<()> {
-        self.index.register_segments(segments)
+        self.index.register_segments(segments)?;
+
+        let count = self
+            .pending_segments
+            .load(std::sync::atomic::Ordering::Acquire);
+
+        assert!(
+            count >= segments.len(),
+            "pending_segments is less than segments to register - this is a bug"
+        );
+
+        self.pending_segments
+            .fetch_sub(segments.len(), std::sync::atomic::Ordering::Release);
+
+        Ok(())
     }
 
     fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Memtable> {
@@ -530,7 +585,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let value = item.encode_into_vec().expect("should serialize");
+        let value = item.encode_into_vec();
 
         let value = InternalValue::from_components(key.as_ref(), value, seqno, r#type);
         lock.insert(value)
@@ -544,7 +599,7 @@ impl AbstractTree for BlobTree {
         // into inline or indirect values
         let item = MaybeInlineValue::Inline(value.as_ref().into());
 
-        let value = item.encode_into_vec().expect("should serialize");
+        let value = item.encode_into_vec();
 
         self.index.insert(key, value, seqno)
     }
@@ -556,7 +611,9 @@ impl AbstractTree for BlobTree {
     ) -> crate::Result<Option<crate::UserValue>> {
         use value::MaybeInlineValue::{Indirect, Inline};
 
-        let Some(value) = self.index.get_internal_with_seqno(key.as_ref(), seqno)? else {
+        let key = key.as_ref();
+
+        let Some(value) = self.index.get_internal_with_seqno(key, seqno)? else {
             return Ok(None);
         };
 
@@ -564,7 +621,12 @@ impl AbstractTree for BlobTree {
             Inline(bytes) => Ok(Some(bytes)),
             Indirect { vhandle, .. } => {
                 // Resolve indirection using value log
-                Ok(self.blobs.get(&vhandle)?.map(Slice::from))
+                match self.blobs.get(&vhandle)? {
+                    Some(bytes) => Ok(Some(bytes)),
+                    None => {
+                        panic!("value handle ({key:?} => {vhandle:?}) did not match any blob - this is a bug")
+                    }
+                }
             }
         }
     }
@@ -572,7 +634,9 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Slice>> {
         use value::MaybeInlineValue::{Indirect, Inline};
 
-        let Some(value) = self.index.get_internal(key.as_ref())? else {
+        let key = key.as_ref();
+
+        let Some(value) = self.index.get_internal(key)? else {
             return Ok(None);
         };
 
@@ -580,7 +644,12 @@ impl AbstractTree for BlobTree {
             Inline(bytes) => Ok(Some(bytes)),
             Indirect { vhandle, .. } => {
                 // Resolve indirection using value log
-                Ok(self.blobs.get(&vhandle)?.map(Slice::from))
+                match self.blobs.get(&vhandle)? {
+                    Some(bytes) => Ok(Some(bytes)),
+                    None => {
+                        panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(key))
+                    }
+                }
             }
         }
     }

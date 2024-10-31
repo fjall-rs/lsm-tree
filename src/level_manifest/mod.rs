@@ -50,7 +50,7 @@ impl std::fmt::Display for LevelManifest {
 
             if level.segments.is_empty() {
                 write!(f, "<empty>")?;
-            } else if level.segments.len() >= 24 {
+            } else if level.segments.len() >= 10 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
                     let id = segment.metadata.id;
@@ -63,7 +63,7 @@ impl std::fmt::Display for LevelManifest {
                         if is_hidden { ")" } else { "]" },
                     )?;
                 }
-                write!(f, " . . . . . ")?;
+                write!(f, " . . . ")?;
 
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
@@ -234,7 +234,7 @@ impl LevelManifest {
 
         log::trace!("Writing level manifest to {path:?}",);
 
-        let serialized = levels.encode_into_vec()?;
+        let serialized = levels.encode_into_vec();
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -407,15 +407,15 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn show_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.remove(key);
+            self.hidden_set.remove(&key);
         }
     }
 
-    pub(crate) fn hide_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn hide_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.insert(*key);
+            self.hidden_set.insert(key);
         }
     }
 }
@@ -501,7 +501,7 @@ mod tests {
             is_disjoint: false,
         };
 
-        let bytes = manifest.deep_clone().encode_into_vec()?;
+        let bytes = manifest.deep_clone().encode_into_vec();
 
         #[rustfmt::skip]
         let raw = &[

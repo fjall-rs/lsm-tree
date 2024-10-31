@@ -38,15 +38,12 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
     }
 
     fn finish(&mut self) -> std::io::Result<()> {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-
         log::trace!("Finish blob GC index writer");
 
         #[allow(clippy::significant_drop_in_scrutinee)]
         for (key, vhandle, size) in self.buffer.drain(..) {
-            let buf = MaybeInlineValue::Indirect { vhandle, size }
-                .encode_into_vec()
-                .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?;
+            // TODO: encode into slice using Slice::with_size...
+            let buf = MaybeInlineValue::Indirect { vhandle, size }.encode_into_vec();
 
             self.memtable.insert(InternalValue::from_components(
                 key,

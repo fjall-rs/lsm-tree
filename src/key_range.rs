@@ -117,14 +117,10 @@ impl KeyRange {
     }
 
     /// Aggregates a key range.
-    ///
-    /// # Panics
-    ///
-    /// The iterator must not be empty
     pub fn aggregate<'a>(mut iter: impl Iterator<Item = &'a Self>) -> Self {
-        // NOTE: See function documentation
-        #[allow(clippy::expect_used)]
-        let first = iter.next().expect("should not be empty");
+        let Some(first) = iter.next() else {
+            return Self::empty();
+        };
 
         let mut min = first.min();
         let mut max = first.max();

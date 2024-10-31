@@ -106,9 +106,7 @@ impl CompactionStrategy for Strategy {
                 super::maintenance::Strategy.choose(levels, config)
             }
         } else {
-            let mut ids = segment_ids_to_delete.into_iter().collect::<Vec<_>>();
-            ids.sort_unstable();
-
+            let ids = segment_ids_to_delete.into_iter().collect();
             Choice::Drop(ids)
         }
     }
@@ -133,6 +131,7 @@ mod tests {
             Segment,
         },
         time::unix_timestamp,
+        HashSet,
     };
     use std::sync::Arc;
     use test_log::test;
@@ -181,7 +180,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
+            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
         })
     }
 
@@ -197,7 +196,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::Drop(vec![1])
+            Choice::Drop(set![1])
         );
 
         Ok(())
@@ -265,7 +264,7 @@ mod tests {
 
         assert_eq!(
             compactor.choose(&levels, &Config::default()),
-            Choice::Drop(vec![1, 2])
+            Choice::Drop([1, 2].into_iter().collect::<HashSet<_>>())
         );
 
         Ok(())

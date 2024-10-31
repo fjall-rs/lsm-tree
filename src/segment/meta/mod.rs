@@ -271,7 +271,7 @@ mod tests {
             seqnos: (0, 5),
         };
 
-        let bytes = metadata.encode_into_vec()?;
+        let bytes = metadata.encode_into_vec();
         let mut cursor = Cursor::new(bytes);
         let metadata_copy = Metadata::decode_from(&mut cursor)?;
 

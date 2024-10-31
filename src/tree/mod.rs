@@ -54,7 +54,7 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(|x| x.bloom_filter.len())
+            .map(|x| x.bloom_filter_size())
             .sum()
     }
 
@@ -473,9 +473,6 @@ impl Tree {
         segment_id: SegmentId,
         mut writer: crate::segment::writer::Writer,
     ) -> crate::Result<Option<Arc<Segment>>> {
-        #[cfg(feature = "bloom")]
-        use crate::bloom::BloomFilter;
-
         let segment_folder = writer.opts.folder.clone();
         let segment_file_path = segment_folder.join(segment_id.to_string());
 
@@ -506,18 +503,8 @@ impl Tree {
             block_index,
             block_cache: self.config.block_cache.clone(),
 
-            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: {
-                use crate::coding::Decode;
-                use std::io::Seek;
-
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                let mut reader = std::fs::File::open(&segment_file_path)?;
-                reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
-            },
+            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
         }
         .into();
 
@@ -654,10 +641,10 @@ impl Tree {
                             }
                             return Ok(Some(item));
                         }
-                    } else {
-                        // NOTE: Don't go to fallback, go to next level instead
-                        continue;
                     }
+
+                    // NOTE: Go to next level
+                    continue;
                 }
             }
 

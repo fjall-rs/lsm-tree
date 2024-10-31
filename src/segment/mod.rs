@@ -68,7 +68,7 @@ pub struct Segment {
     /// Bloom filter
     #[cfg(feature = "bloom")]
     #[doc(hidden)]
-    pub bloom_filter: BloomFilter,
+    pub bloom_filter: Option<BloomFilter>,
 }
 
 impl std::fmt::Debug for Segment {
@@ -151,6 +151,26 @@ impl Segment {
         Ok(broken_count)
     }
 
+    #[cfg(feature = "bloom")]
+    pub(crate) fn load_bloom<P: AsRef<Path>>(
+        path: P,
+        ptr: value_block::BlockOffset,
+    ) -> crate::Result<Option<BloomFilter>> {
+        Ok(if *ptr > 0 {
+            use crate::coding::Decode;
+            use std::{
+                fs::File,
+                io::{Seek, SeekFrom},
+            };
+
+            let mut reader = File::open(path)?;
+            reader.seek(SeekFrom::Start(*ptr))?;
+            Some(BloomFilter::decode_from(&mut reader)?)
+        } else {
+            None
+        })
+    }
+
     /// Tries to recover a segment from a file.
     pub(crate) fn recover<P: AsRef<Path>>(
         file_path: P,
@@ -190,21 +210,8 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
-            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: {
-                use crate::coding::Decode;
-                use std::{
-                    fs::File,
-                    io::{Seek, SeekFrom},
-                };
-
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
-            },
+            bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
         })
     }
 
@@ -212,7 +219,10 @@ impl Segment {
     #[must_use]
     /// Gets the bloom filter size
     pub fn bloom_filter_size(&self) -> usize {
-        self.bloom_filter.len()
+        self.bloom_filter
+            .as_ref()
+            .map(super::bloom::BloomFilter::len)
+            .unwrap_or_default()
     }
 
     #[cfg(feature = "bloom")]
@@ -232,8 +242,8 @@ impl Segment {
             return Ok(None);
         }
 
-        {
-            if !self.bloom_filter.contains_hash(hash) {
+        if let Some(bf) = &self.bloom_filter {
+            if !bf.contains_hash(hash) {
                 return Ok(None);
             }
         }
@@ -344,6 +354,10 @@ impl Segment {
         Ok(Some(entry))
     }
 
+    pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
+        self.metadata.key_range.contains_key(key)
+    }
+
     // NOTE: Clippy false positive
     #[allow(unused)]
     /// Retrieves an item from the segment.
@@ -362,17 +376,17 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(&key) {
+        if !self.is_key_in_key_range(&key) {
             return Ok(None);
         }
 
         let key = key.as_ref();
 
         #[cfg(feature = "bloom")]
-        {
+        if let Some(bf) = &self.bloom_filter {
             debug_assert!(false, "Use Segment::get_with_hash instead");
 
-            if !self.bloom_filter.contains(key) {
+            if !bf.contains(key) {
                 return Ok(None);
             }
         }
