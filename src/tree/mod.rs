@@ -324,7 +324,10 @@ impl AbstractTree for Tree {
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(super::segment::Segment::get_highest_seqno).max()
+        levels
+            .iter()
+            .map(super::segment::Segment::get_highest_seqno)
+            .max()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
