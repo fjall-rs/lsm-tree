@@ -13,7 +13,9 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
-    segment::{block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment},
+    segment::{
+        block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment, SegmentInner,
+    },
     stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
@@ -131,7 +133,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Arc<Segment>>> {
+    ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
@@ -169,7 +171,7 @@ impl AbstractTree for Tree {
         self.consume_writer(segment_id, segment_writer)
     }
 
-    fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()> {
+    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         // NOTE: Mind lock order L -> M -> S
         log::trace!("flush: acquiring levels manifest write lock");
         let mut original_levels = self.levels.write().expect("lock is poisoned");
@@ -472,7 +474,7 @@ impl Tree {
         &self,
         segment_id: SegmentId,
         mut writer: crate::segment::writer::Writer,
-    ) -> crate::Result<Option<Arc<Segment>>> {
+    ) -> crate::Result<Option<Segment>> {
         let segment_folder = writer.opts.folder.clone();
         let segment_file_path = segment_folder.join(segment_id.to_string());
 
@@ -493,7 +495,7 @@ impl Tree {
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
-        let created_segment: Arc<_> = Segment {
+        let created_segment: Segment = SegmentInner {
             tree_id: self.id,
 
             metadata: trailer.metadata,
@@ -529,10 +531,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn flush_active_memtable(
-        &self,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Arc<Segment>>> {
+    pub fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
         log::debug!("flush: flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
@@ -952,7 +951,7 @@ impl Tree {
 
                 descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
 
-                segments.push(Arc::new(segment));
+                segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");
 
                 if idx % progress_mod == 0 {

@@ -135,7 +135,7 @@ mod tests {
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
-            Segment,
+            Segment, SegmentInner,
         },
         HashSet, SeqNo,
     };
@@ -146,10 +146,10 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
@@ -186,7 +186,8 @@ mod tests {
 
             #[cfg(feature = "bloom")]
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
-        })
+        }
+        .into()
     }
 
     #[test]

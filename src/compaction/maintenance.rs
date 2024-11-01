@@ -9,7 +9,6 @@ use crate::{
     segment::{meta::SegmentId, Segment},
     HashSet,
 };
-use std::sync::Arc;
 
 const L0_SEGMENT_CAP: usize = 20;
 
@@ -25,7 +24,7 @@ pub struct Strategy;
 ///
 /// This minimizes the compaction time (+ write amp) for a set of segments we
 /// want to partially compact.
-pub fn choose_least_effort_compaction(segments: &[Arc<Segment>], n: usize) -> HashSet<SegmentId> {
+pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet<SegmentId> {
     let num_segments = segments.len();
 
     // Ensure that n is not greater than the number of segments
@@ -88,7 +87,7 @@ mod tests {
         level_manifest::LevelManifest,
         segment::{
             block_index::two_level_index::TwoLevelBlockIndex, file_offsets::FileOffsets,
-            meta::Metadata, value_block::BlockOffset, Segment,
+            meta::Metadata, value_block::BlockOffset, Segment, SegmentInner,
         },
     };
     use std::sync::Arc;
@@ -98,10 +97,10 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, created_at: u128) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
@@ -138,7 +137,8 @@ mod tests {
 
             #[cfg(feature = "bloom")]
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
-        })
+        }
+        .into()
     }
 
     #[test]

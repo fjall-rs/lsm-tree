@@ -10,7 +10,7 @@ use std::{ops::Bound, sync::Arc};
 pub struct Level {
     /// List of segments
     #[doc(hidden)]
-    pub segments: Vec<Arc<Segment>>,
+    pub segments: Vec<Segment>,
 
     /// If the level is disjoint
     ///
@@ -30,7 +30,7 @@ impl std::fmt::Display for Level {
 }
 
 impl std::ops::Deref for Level {
-    type Target = Vec<Arc<Segment>>;
+    type Target = Vec<Segment>;
 
     fn deref(&self) -> &Self::Target {
         &self.segments
@@ -51,7 +51,7 @@ impl Level {
         self.segments.iter().map(|x| x.metadata.id).collect()
     }
 
-    pub fn insert(&mut self, segment: Arc<Segment>) {
+    pub fn insert(&mut self, segment: Segment) {
         self.segments.push(segment);
         self.set_disjoint_flag();
         self.sort();
@@ -130,7 +130,7 @@ impl Level {
     pub fn overlapping_segments<'a>(
         &'a self,
         key_range: &'a KeyRange,
-    ) -> impl Iterator<Item = &'a Arc<Segment>> {
+    ) -> impl Iterator<Item = &'a Segment> {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
@@ -150,7 +150,7 @@ pub struct DisjointLevel<'a>(&'a Level);
 
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
-    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
+    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Segment> {
         let level = &self.0;
 
         let idx = level
@@ -227,7 +227,7 @@ mod tests {
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
-            Segment,
+            Segment, SegmentInner,
         },
         AbstractTree, Slice,
     };
@@ -238,10 +238,10 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
@@ -278,7 +278,8 @@ mod tests {
 
             #[cfg(feature = "bloom")]
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
-        })
+        }
+        .into()
     }
 
     #[test]

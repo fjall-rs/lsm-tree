@@ -184,7 +184,7 @@ impl LevelManifest {
 
     fn resolve_levels(
         level_manifest: Vec<Vec<SegmentId>>,
-        segments: &HashMap<SegmentId, Arc<Segment>>,
+        segments: &HashMap<SegmentId, Segment>,
     ) -> Levels {
         let mut levels = Vec::with_capacity(level_manifest.len());
 
@@ -204,7 +204,7 @@ impl LevelManifest {
 
     pub(crate) fn recover<P: AsRef<Path>>(
         path: P,
-        segments: Vec<Arc<Segment>>,
+        segments: Vec<Segment>,
     ) -> crate::Result<Self> {
         let level_manifest = Self::load_level_manifest(&path)?;
 
@@ -283,7 +283,7 @@ impl LevelManifest {
 
     #[allow(unused)]
     #[cfg(test)]
-    pub(crate) fn add(&mut self, segment: Arc<Segment>) {
+    pub(crate) fn add(&mut self, segment: Segment) {
         self.insert_into_level(0, segment);
     }
 
@@ -297,7 +297,7 @@ impl LevelManifest {
 
     #[allow(unused)]
     #[cfg(test)]
-    pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Arc<Segment>) {
+    pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Segment) {
         let last_level_index = self.depth() - 1;
         let index = level_no.clamp(0, last_level_index);
 
@@ -393,11 +393,11 @@ impl LevelManifest {
         output
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<Segment>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &Segment> + '_ {
         LevelManifestIterator::new(self)
     }
 
-    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Segment> {
         let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
         for segment in self.iter().cloned() {

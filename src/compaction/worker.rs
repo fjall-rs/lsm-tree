@@ -10,7 +10,7 @@ use crate::{
     merge::{BoxedIterator, Merger},
     segment::{
         block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
-        multi_writer::MultiWriter, Segment,
+        multi_writer::MultiWriter, Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
@@ -226,7 +226,7 @@ fn merge_segments(
 
     let created_segments = writer_results
         .into_iter()
-        .map(|trailer| -> crate::Result<Arc<Segment>> {
+        .map(|trailer| -> crate::Result<Segment> {
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
@@ -246,7 +246,7 @@ fn merge_segments(
                 opts.config.block_cache.clone(),
             )?);
 
-            Ok(Arc::new(Segment {
+            Ok(SegmentInner {
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
@@ -260,7 +260,8 @@ fn merge_segments(
 
                 #[cfg(feature = "bloom")]
                 bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
-            }))
+            }
+            .into())
         })
         .collect::<crate::Result<Vec<_>>>()?;
 

@@ -25,7 +25,7 @@ impl<'a> LevelManifestIterator<'a> {
 }
 
 impl<'a> Iterator for LevelManifestIterator<'a> {
-    type Item = &'a Arc<Segment>;
+    type Item = &'a Segment;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

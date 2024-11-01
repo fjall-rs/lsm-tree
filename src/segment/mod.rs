@@ -6,6 +6,7 @@ pub mod block;
 pub mod block_index;
 pub mod file_offsets;
 pub mod id;
+pub mod inner;
 pub mod level_reader;
 pub mod meta;
 pub mod multi_writer;
@@ -27,12 +28,14 @@ use crate::{
 };
 use block::checksum::Checksum;
 use block_index::two_level_index::TwoLevelBlockIndex;
-use file_offsets::FileOffsets;
+use inner::Inner;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
 use crate::bloom::{BloomFilter, CompositeHash};
+
+pub type SegmentInner = Inner;
 
 /// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -43,32 +46,21 @@ use crate::bloom::{BloomFilter, CompositeHash};
 ///
 /// Segments can be merged together to improve read performance and reduce disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
-pub struct Segment {
-    pub(crate) tree_id: TreeId,
+#[derive(Clone)]
+pub struct Segment(Arc<Inner>);
 
-    #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+impl From<Inner> for Segment {
+    fn from(value: Inner) -> Self {
+        Self(Arc::new(value))
+    }
+}
 
-    /// Segment metadata object
-    #[doc(hidden)]
-    pub metadata: meta::Metadata,
+impl std::ops::Deref for Segment {
+    type Target = Inner;
 
-    pub(crate) offsets: FileOffsets,
-
-    /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
-    #[doc(hidden)]
-    pub block_index: Arc<TwoLevelBlockIndex>,
-
-    /// Block cache
-    ///
-    /// Stores index and data blocks
-    #[doc(hidden)]
-    pub block_cache: Arc<BlockCache>,
-
-    /// Bloom filter
-    #[cfg(feature = "bloom")]
-    #[doc(hidden)]
-    pub bloom_filter: Option<BloomFilter>,
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl std::fmt::Debug for Segment {
@@ -200,7 +192,7 @@ impl Segment {
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
-        Ok(Self {
+        Ok(Self(Arc::new(Inner {
             tree_id,
 
             descriptor_table,
@@ -212,7 +204,7 @@ impl Segment {
 
             #[cfg(feature = "bloom")]
             bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
-        })
+        })))
     }
 
     #[cfg(feature = "bloom")]

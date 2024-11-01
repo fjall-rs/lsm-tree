@@ -61,14 +61,14 @@ pub trait AbstractTree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Arc<Segment>>>;
+    ) -> crate::Result<Option<Segment>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()>;
+    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
     fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable>;

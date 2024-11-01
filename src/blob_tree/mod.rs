@@ -14,7 +14,8 @@ use crate::{
     r#abstract::{AbstractTree, RangeItem},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue, ValueType,
+    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue,
+    ValueType,
 };
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -214,10 +215,7 @@ impl BlobTree {
     }
 
     #[doc(hidden)]
-    pub fn flush_active_memtable(
-        &self,
-        eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<Arc<crate::Segment>>> {
+    pub fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
@@ -289,7 +287,7 @@ impl AbstractTree for BlobTree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<Arc<crate::Segment>>> {
+    ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer as SegmentWriter},
@@ -395,7 +393,7 @@ impl AbstractTree for BlobTree {
         Ok(segment)
     }
 
-    fn register_segments(&self, segments: &[Arc<crate::Segment>]) -> crate::Result<()> {
+    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         self.index.register_segments(segments)?;
 
         let count = self

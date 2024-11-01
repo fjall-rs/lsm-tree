@@ -128,7 +128,7 @@ mod tests {
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
-            Segment,
+            Segment, SegmentInner,
         },
         time::unix_timestamp,
         HashSet,
@@ -141,10 +141,10 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     #[allow(clippy::cast_possible_truncation)]
-    fn fixture_segment(id: SegmentId, created_at: u128) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
@@ -181,7 +181,8 @@ mod tests {
 
             #[cfg(feature = "bloom")]
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
-        })
+        }
+        .into()
     }
 
     #[test]
