@@ -202,10 +202,7 @@ impl LevelManifest {
         levels
     }
 
-    pub(crate) fn recover<P: AsRef<Path>>(
-        path: P,
-        segments: Vec<Segment>,
-    ) -> crate::Result<Self> {
+    pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
         let level_manifest = Self::load_level_manifest(&path)?;
 
         let segments: HashMap<_, _> = segments

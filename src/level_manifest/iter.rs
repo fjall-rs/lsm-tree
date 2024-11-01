@@ -4,7 +4,6 @@
 
 use super::LevelManifest;
 use crate::Segment;
-use std::sync::Arc;
 
 /// Iterates through all levels
 pub struct LevelManifestIterator<'a> {
