@@ -50,7 +50,7 @@ impl std::fmt::Display for LevelManifest {
 
             if level.segments.is_empty() {
                 write!(f, "<empty>")?;
-            } else if level.segments.len() >= 24 {
+            } else if level.segments.len() >= 10 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
                     let id = segment.metadata.id;
@@ -63,7 +63,7 @@ impl std::fmt::Display for LevelManifest {
                         if is_hidden { ")" } else { "]" },
                     )?;
                 }
-                write!(f, " . . . . . ")?;
+                write!(f, " . . . ")?;
 
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
@@ -184,7 +184,7 @@ impl LevelManifest {
 
     fn resolve_levels(
         level_manifest: Vec<Vec<SegmentId>>,
-        segments: &HashMap<SegmentId, Arc<Segment>>,
+        segments: &HashMap<SegmentId, Segment>,
     ) -> Levels {
         let mut levels = Vec::with_capacity(level_manifest.len());
 
@@ -202,10 +202,7 @@ impl LevelManifest {
         levels
     }
 
-    pub(crate) fn recover<P: AsRef<Path>>(
-        path: P,
-        segments: Vec<Arc<Segment>>,
-    ) -> crate::Result<Self> {
+    pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
         let level_manifest = Self::load_level_manifest(&path)?;
 
         let segments: HashMap<_, _> = segments
@@ -234,7 +231,7 @@ impl LevelManifest {
 
         log::trace!("Writing level manifest to {path:?}",);
 
-        let serialized = levels.encode_into_vec()?;
+        let serialized = levels.encode_into_vec();
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -283,7 +280,7 @@ impl LevelManifest {
 
     #[allow(unused)]
     #[cfg(test)]
-    pub(crate) fn add(&mut self, segment: Arc<Segment>) {
+    pub(crate) fn add(&mut self, segment: Segment) {
         self.insert_into_level(0, segment);
     }
 
@@ -297,7 +294,7 @@ impl LevelManifest {
 
     #[allow(unused)]
     #[cfg(test)]
-    pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Arc<Segment>) {
+    pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Segment) {
         let last_level_index = self.depth() - 1;
         let index = level_no.clamp(0, last_level_index);
 
@@ -393,11 +390,11 @@ impl LevelManifest {
         output
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<Segment>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = &Segment> + '_ {
         LevelManifestIterator::new(self)
     }
 
-    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Arc<Segment>> {
+    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Segment> {
         let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
         for segment in self.iter().cloned() {
@@ -407,15 +404,15 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn show_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn show_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.remove(key);
+            self.hidden_set.remove(&key);
         }
     }
 
-    pub(crate) fn hide_segments(&mut self, keys: &[SegmentId]) {
+    pub(crate) fn hide_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
         for key in keys {
-            self.hidden_set.insert(*key);
+            self.hidden_set.insert(key);
         }
     }
 }
@@ -501,7 +498,7 @@ mod tests {
             is_disjoint: false,
         };
 
-        let bytes = manifest.deep_clone().encode_into_vec()?;
+        let bytes = manifest.deep_clone().encode_into_vec();
 
         #[rustfmt::skip]
         let raw = &[

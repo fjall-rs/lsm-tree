@@ -36,6 +36,7 @@ impl<'a> GcReader<'a> {
 impl<'a> value_log::IndexReader for GcReader<'a> {
     fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+        use MaybeInlineValue::{Indirect, Inline};
 
         let Some(item) = self
             .get_internal(key)
@@ -45,8 +46,8 @@ impl<'a> value_log::IndexReader for GcReader<'a> {
         };
 
         match item {
-            MaybeInlineValue::Inline(_) => Ok(None),
-            MaybeInlineValue::Indirect { vhandle, .. } => Ok(Some(vhandle)),
+            Inline(_) => Ok(None),
+            Indirect { vhandle, .. } => Ok(Some(vhandle)),
         }
     }
 }

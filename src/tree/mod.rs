@@ -16,7 +16,7 @@ use crate::{
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
-        Segment,
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     value::InternalValue,
@@ -58,7 +58,7 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(|x| x.bloom_filter.len())
+            .map(|x| x.bloom_filter_size())
             .sum()
     }
 
@@ -135,7 +135,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Arc<Segment>>> {
+    ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
@@ -173,7 +173,7 @@ impl AbstractTree for Tree {
         self.consume_writer(segment_id, segment_writer)
     }
 
-    fn register_segments(&self, segments: &[Arc<Segment>]) -> crate::Result<()> {
+    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         // NOTE: Mind lock order L -> M -> S
         log::trace!("flush: acquiring levels manifest write lock");
         let mut original_levels = self.levels.write().expect("lock is poisoned");
@@ -326,7 +326,10 @@ impl AbstractTree for Tree {
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(|s| s.get_highest_seqno()).max()
+        levels
+            .iter()
+            .map(super::segment::Segment::get_highest_seqno)
+            .max()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
@@ -476,10 +479,7 @@ impl Tree {
         &self,
         segment_id: SegmentId,
         mut writer: crate::segment::writer::Writer,
-    ) -> crate::Result<Option<Arc<Segment>>> {
-        #[cfg(feature = "bloom")]
-        use crate::bloom::BloomFilter;
-
+    ) -> crate::Result<Option<Segment>> {
         let segment_folder = writer.opts.folder.clone();
         let segment_file_path = segment_folder.join(segment_id.to_string());
 
@@ -496,7 +496,7 @@ impl Tree {
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
-        let created_segment: Arc<_> = Segment {
+        let created_segment: Segment = SegmentInner {
             tree_id: self.id,
 
             metadata: trailer.metadata,
@@ -506,18 +506,8 @@ impl Tree {
             block_index,
             block_cache: self.config.block_cache.clone(),
 
-            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: {
-                use crate::coding::Decode;
-                use std::io::Seek;
-
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                let mut reader = std::fs::File::open(&segment_file_path)?;
-                reader.seek(std::io::SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
-            },
+            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
         }
         .into();
 
@@ -542,10 +532,7 @@ impl Tree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn flush_active_memtable(
-        &self,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Arc<Segment>>> {
+    pub fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
         log::debug!("flush: flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
@@ -654,10 +641,10 @@ impl Tree {
                             }
                             return Ok(Some(item));
                         }
-                    } else {
-                        // NOTE: Don't go to fallback, go to next level instead
-                        continue;
                     }
+
+                    // NOTE: Go to next level
+                    continue;
                 }
             }
 
@@ -966,7 +953,7 @@ impl Tree {
 
                 descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
 
-                segments.push(Arc::new(segment));
+                segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");
 
                 if idx % progress_mod == 0 {

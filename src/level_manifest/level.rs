@@ -2,15 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, Segment, UserKey};
-use std::{ops::Bound, sync::Arc};
+use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
+use std::ops::Bound;
 
 /// Level of an LSM-tree
 #[derive(Clone, Debug)]
 pub struct Level {
     /// List of segments
     #[doc(hidden)]
-    pub segments: Vec<Arc<Segment>>,
+    pub segments: Vec<Segment>,
 
     /// If the level is disjoint
     ///
@@ -31,7 +31,7 @@ impl std::fmt::Display for Level {
 }
 
 impl std::ops::Deref for Level {
-    type Target = Vec<Arc<Segment>>;
+    type Target = Vec<Segment>;
 
     fn deref(&self) -> &Self::Target {
         &self.segments
@@ -54,13 +54,17 @@ impl Level {
         todo!()
     }
 
+    pub fn list_ids(&self) -> HashSet<SegmentId> {
+        self.segments.iter().map(|x| x.metadata.id).collect()
+    }
+
     fn update_metadata(&mut self) {
         self.set_disjoint_flag();
         self.sort();
         // self.set_key_range();
     }
 
-    pub fn insert(&mut self, segment: Arc<Segment>) {
+    pub fn insert(&mut self, segment: Segment) {
         self.segments.push(segment);
         self.update_metadata();
     }
@@ -137,7 +141,7 @@ impl Level {
     pub fn overlapping_segments<'a>(
         &'a self,
         key_range: &'a KeyRange,
-    ) -> impl Iterator<Item = &'a Arc<Segment>> {
+    ) -> impl Iterator<Item = &'a Segment> {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
@@ -157,14 +161,18 @@ pub struct DisjointLevel<'a>(&'a Level);
 
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
-    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Arc<Segment>> {
+    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Segment> {
         let level = &self.0;
 
         let idx = level
             .segments
             .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
 
-        level.segments.get(idx).cloned()
+        level
+            .segments
+            .get(idx)
+            .filter(|x| x.is_key_in_key_range(key))
+            .cloned()
     }
 
     pub fn range_indexes(
@@ -230,7 +238,7 @@ mod tests {
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
-            Segment,
+            Segment, SegmentInner,
         },
         AbstractTree, Slice,
     };
@@ -241,13 +249,13 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index,
@@ -283,8 +291,9 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
-        })
+            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+        }
+        .into()
     }
 
     #[test]
@@ -406,6 +415,38 @@ mod tests {
                 .expect("should exist")
                 .is_disjoint
         );
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn level_disjoint_containing_key() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(&folder).open()?;
+
+        for k in 'c'..'k' {
+            tree.insert([k as u8], "", 0);
+            tree.flush_active_memtable(0).expect("should flush");
+        }
+
+        let first = tree
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .levels
+            .first()
+            .expect("should exist")
+            .clone();
+
+        let dis = first.as_disjoint().unwrap();
+        assert!(dis.get_segment_containing_key("a").is_none());
+        assert!(dis.get_segment_containing_key("b").is_none());
+        for k in 'c'..'k' {
+            assert!(dis.get_segment_containing_key([k as u8]).is_some());
+        }
+        assert!(dis.get_segment_containing_key("l").is_none());
 
         Ok(())
     }

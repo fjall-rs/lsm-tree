@@ -14,19 +14,16 @@ use crate::{
         },
         id::GlobalSegmentId,
         multi_writer::MultiWriter,
-        Segment,
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
-    Config, HashSet,
+    Config,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
-
-#[cfg(feature = "bloom")]
-use crate::bloom::BloomFilter;
 
 #[cfg(feature = "bloom")]
 use crate::segment::writer::BloomConstructionPolicy;
@@ -142,9 +139,6 @@ fn merge_segments(
             payload
                 .segment_ids
                 .iter()
-                // NOTE: Throw away duplicate segment IDs
-                .collect::<HashSet<_>>()
-                .into_iter()
                 .filter_map(|x| segments.get(x))
                 .cloned()
                 .collect()
@@ -167,7 +161,8 @@ fn merge_segments(
 
     let last_level = levels.last_level_index();
 
-    levels.hide_segments(&payload.segment_ids);
+    levels.hide_segments(payload.segment_ids.iter().copied());
+
     drop(levels);
 
     // NOTE: Only evict tombstones when reaching the last level,
@@ -235,7 +230,7 @@ fn merge_segments(
 
     let created_segments = writer_results
         .into_iter()
-        .map(|trailer| -> crate::Result<Arc<Segment>> {
+        .map(|trailer| -> crate::Result<Segment> {
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
@@ -268,7 +263,7 @@ fn merge_segments(
             };
             let block_index = Arc::new(block_index);
 
-            Ok(Arc::new(Segment {
+            Ok(SegmentInner {
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
@@ -281,20 +276,9 @@ fn merge_segments(
                 block_index,
 
                 #[cfg(feature = "bloom")]
-                bloom_filter: {
-                    use crate::coding::Decode;
-                    use std::{
-                        fs::File,
-                        io::{Seek, SeekFrom},
-                    };
-
-                    assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                    let mut reader = File::open(&segment_file_path)?;
-                    reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                    BloomFilter::decode_from(&mut reader)?
-                },
-            }))
+                bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+            }
+            .into())
         })
         .collect::<crate::Result<Vec<_>>>()?;
 
@@ -328,7 +312,7 @@ fn merge_segments(
 
     if let Err(e) = swap_result {
         // IMPORTANT: Show the segments again, because compaction failed
-        original_levels.show_segments(&payload.segment_ids);
+        original_levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
     };
 
@@ -364,7 +348,7 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    original_levels.show_segments(&payload.segment_ids);
+    original_levels.show_segments(payload.segment_ids.iter().copied());
 
     drop(original_levels);
 

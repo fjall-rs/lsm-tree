@@ -91,7 +91,7 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
-                let segment_ids: Vec<_> = segments_to_compact
+                let segment_ids = segments_to_compact
                     .iter()
                     .map(|x| &x.metadata.id)
                     .copied()
@@ -135,9 +135,9 @@ mod tests {
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
-            Segment,
+            Segment, SegmentInner,
         },
-        SeqNo,
+        HashSet, SeqNo,
     };
     use std::sync::Arc;
     use test_log::test;
@@ -146,13 +146,13 @@ mod tests {
     use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
-    fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Arc<Segment> {
+    fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
-        Arc::new(Segment {
+        SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index,
@@ -188,8 +188,9 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: BloomFilter::with_fp_rate(1, 0.1),
-        })
+            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+        }
+        .into()
     }
 
     #[test]
@@ -238,7 +239,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2, 3, 4],
+                segment_ids: set![1, 2, 3, 4],
                 target_size: u64::MAX,
             })
         );
@@ -267,7 +268,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2],
+                segment_ids: set![1, 2],
                 target_size: u64::MAX,
             })
         );
@@ -300,7 +301,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec![5, 6, 7, 8],
+                segment_ids: set![5, 6, 7, 8],
                 target_size: u64::MAX,
             })
         );
@@ -328,7 +329,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 1,
-                segment_ids: vec![1, 2],
+                segment_ids: set![1, 2],
                 target_size: u64::MAX,
             })
         );
@@ -356,7 +357,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: vec![2, 3],
+                segment_ids: set![2, 3],
                 target_size: u64::MAX,
             })
         );
@@ -371,7 +372,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 3,
-                segment_ids: vec![2, 3],
+                segment_ids: set![2, 3],
                 target_size: u64::MAX,
             })
         );

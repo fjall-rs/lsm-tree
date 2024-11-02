@@ -6,6 +6,7 @@ pub mod block;
 pub mod block_index;
 pub mod file_offsets;
 pub mod id;
+pub mod inner;
 pub mod level_reader;
 pub mod meta;
 pub mod multi_writer;
@@ -19,20 +20,20 @@ pub mod writer;
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    mvcc_stream::MvccStream,
-    segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
+    segment::reader::Reader,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
-    ValueType,
 };
-use block::checksum::Checksum;
-use block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl};
-use file_offsets::FileOffsets;
+use block_index::BlockIndexImpl;
+use inner::Inner;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
 use crate::bloom::{BloomFilter, CompositeHash};
+
+#[allow(clippy::module_name_repetitions)]
+pub type SegmentInner = Inner;
 
 /// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -43,32 +44,21 @@ use crate::bloom::{BloomFilter, CompositeHash};
 ///
 /// Segments can be merged together to improve read performance and reduce disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
-pub struct Segment {
-    pub(crate) tree_id: TreeId,
+#[derive(Clone)]
+pub struct Segment(Arc<Inner>);
 
-    #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+impl From<Inner> for Segment {
+    fn from(value: Inner) -> Self {
+        Self(Arc::new(value))
+    }
+}
 
-    /// Segment metadata object
-    #[doc(hidden)]
-    pub metadata: meta::Metadata,
+impl std::ops::Deref for Segment {
+    type Target = Inner;
 
-    pub(crate) offsets: FileOffsets,
-
-    /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
-    #[doc(hidden)]
-    pub block_index: Arc<BlockIndexImpl>,
-
-    /// Block cache
-    ///
-    /// Stores index and data blocks
-    #[doc(hidden)]
-    pub block_cache: Arc<BlockCache>,
-
-    /// Bloom filter
-    #[cfg(feature = "bloom")]
-    #[doc(hidden)]
-    pub bloom_filter: BloomFilter,
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl std::fmt::Debug for Segment {
@@ -83,6 +73,7 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
+        use block::checksum::Checksum;
         use block_index::IndexBlock;
         use value_block::ValueBlock;
 
@@ -152,6 +143,26 @@ impl Segment {
         Ok(broken_count)
     }
 
+    #[cfg(feature = "bloom")]
+    pub(crate) fn load_bloom<P: AsRef<Path>>(
+        path: P,
+        ptr: value_block::BlockOffset,
+    ) -> crate::Result<Option<BloomFilter>> {
+        Ok(if *ptr > 0 {
+            use crate::coding::Decode;
+            use std::{
+                fs::File,
+                io::{Seek, SeekFrom},
+            };
+
+            let mut reader = File::open(path)?;
+            reader.seek(SeekFrom::Start(*ptr))?;
+            Some(BloomFilter::decode_from(&mut reader)?)
+        } else {
+            None
+        })
+    }
+
     // TODO: need to give recovery a flag to choose which block index to load
 
     /// Tries to recover a segment from a file.
@@ -161,12 +172,18 @@ impl Segment {
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
+        use block_index::two_level_index::TwoLevelBlockIndex;
         use trailer::SegmentFileTrailer;
 
         let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
+
+        assert_eq!(
+            0, *trailer.offsets.range_tombstones_ptr,
+            "Range tombstones not supported"
+        );
 
         log::debug!(
             "Creating block index, with tli_ptr={}",
@@ -185,7 +202,7 @@ impl Segment {
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
-        Ok(Self {
+        Ok(Self(Arc::new(Inner {
             tree_id,
 
             descriptor_table,
@@ -195,29 +212,19 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
-            // TODO: as Bloom method
             #[cfg(feature = "bloom")]
-            bloom_filter: {
-                use crate::coding::Decode;
-                use std::{
-                    fs::File,
-                    io::{Seek, SeekFrom},
-                };
-
-                assert!(*bloom_ptr > 0, "can not find bloom filter block");
-
-                let mut reader = File::open(file_path)?;
-                reader.seek(SeekFrom::Start(*bloom_ptr))?;
-                BloomFilter::decode_from(&mut reader)?
-            },
-        })
+            bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
+        })))
     }
 
     #[cfg(feature = "bloom")]
     #[must_use]
     /// Gets the bloom filter size
     pub fn bloom_filter_size(&self) -> usize {
-        self.bloom_filter.len()
+        self.bloom_filter
+            .as_ref()
+            .map(super::bloom::BloomFilter::len)
+            .unwrap_or_default()
     }
 
     #[cfg(feature = "bloom")]
@@ -227,10 +234,6 @@ impl Segment {
         seqno: Option<SeqNo>,
         hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
-        if !self.bloom_filter.contains_hash(hash) {
-            return Ok(None);
-        }
-
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
@@ -241,6 +244,12 @@ impl Segment {
             return Ok(None);
         }
 
+        if let Some(bf) = &self.bloom_filter {
+            if !bf.contains_hash(hash) {
+                return Ok(None);
+            }
+        }
+
         self.point_read(key, seqno)
     }
 
@@ -249,8 +258,10 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        use crate::{mvcc_stream::MvccStream, ValueType};
         use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
+        use value_block_consumer::ValueBlockConsumer;
 
         let key = key.as_ref();
 
@@ -348,6 +359,10 @@ impl Segment {
         Ok(Some(entry))
     }
 
+    pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
+        self.metadata.key_range.contains_key(key)
+    }
+
     // NOTE: Clippy false positive
     #[allow(unused)]
     /// Retrieves an item from the segment.
@@ -368,15 +383,15 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(key) {
+        if !self.is_key_in_key_range(key) {
             return Ok(None);
         }
 
         #[cfg(feature = "bloom")]
-        {
+        if let Some(bf) = &self.bloom_filter {
             debug_assert!(false, "Use Segment::get_with_hash instead");
 
-            if !self.bloom_filter.contains(key) {
+            if !bf.contains(key) {
                 return Ok(None);
             }
         }

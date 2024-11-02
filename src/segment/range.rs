@@ -24,9 +24,7 @@ pub struct Range {
 
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
-    reader: Reader,
-
-    cache_policy: CachePolicy,
+    pub(crate) reader: Reader,
 }
 
 impl Range {
@@ -54,21 +52,17 @@ impl Range {
 
             reader,
             range,
-
-            cache_policy: CachePolicy::Write,
         }
     }
 
     /// Sets the cache policy
     #[must_use]
     pub fn cache_policy(mut self, policy: CachePolicy) -> Self {
-        self.cache_policy = policy;
+        self.reader = self.reader.cache_policy(policy);
         self
     }
 
-    fn initialize(&mut self) -> crate::Result<()> {
-        // TODO: can we skip searching for lower bound until next is called at least once...?
-        // would make short ranges 1.5-2x faster if only one direction is used
+    fn initialize_lo_bound(&mut self) -> crate::Result<()> {
         let start_key = match self.range.start_bound() {
             Bound::Unbounded => None,
             Bound::Included(start) | Bound::Excluded(start) => {
@@ -82,9 +76,13 @@ impl Range {
                 Some(start)
             }
         };
+        if let Some(key) = start_key.cloned() {
+            self.reader.set_lower_bound(key);
+        }
+        Ok(())
+    }
 
-        // TODO: can we skip searching for upper bound until next_back is called at least once...?
-        // would make short ranges 1.5-2x faster if only one direction is used
+    fn initialize_hi_bound(&mut self) -> crate::Result<()> {
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
                 let upper_bound = self.block_index.get_last_block_handle(CachePolicy::Write)?;
@@ -105,12 +103,20 @@ impl Range {
             }
         };
 
-        if let Some(key) = start_key.cloned() {
-            self.reader.set_lower_bound(key);
-        }
         if let Some(key) = end_key.cloned() {
             self.reader.set_upper_bound(key);
         }
+        Ok(())
+    }
+
+    fn initialize(&mut self) -> crate::Result<()> {
+        // TODO: can we skip searching for lower bound until next is called at least once...?
+        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
+        self.initialize_lo_bound()?;
+
+        // TODO: can we skip searching for upper bound until next_back is called at least once...?
+        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
+        self.initialize_hi_bound()?;
 
         self.is_initialized = true;
 

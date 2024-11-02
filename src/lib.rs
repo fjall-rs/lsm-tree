@@ -103,6 +103,13 @@
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
 
+#[allow(unused)]
+macro_rules! set {
+    ($($x:expr),+ $(,)?) => {
+        [$($x),+].into_iter().collect::<HashSet<_>>()
+    }
+}
+
 macro_rules! fail_iter {
     ($e:expr) => {
         match $e {

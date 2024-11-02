@@ -4,7 +4,6 @@
 
 use super::LevelManifest;
 use crate::Segment;
-use std::sync::Arc;
 
 /// Iterates through all levels
 pub struct LevelManifestIterator<'a> {
@@ -25,7 +24,7 @@ impl<'a> LevelManifestIterator<'a> {
 }
 
 impl<'a> Iterator for LevelManifestIterator<'a> {
-    type Item = &'a Arc<Segment>;
+    type Item = &'a Segment;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

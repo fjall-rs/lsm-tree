@@ -17,7 +17,7 @@ pub use fifo::Strategy as Fifo;
 pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
-use crate::{config::Config, level_manifest::LevelManifest, segment::meta::SegmentId};
+use crate::{config::Config, level_manifest::LevelManifest, segment::meta::SegmentId, HashSet};
 
 /// Alias for `Leveled`
 pub type Levelled = Leveled;
@@ -32,7 +32,7 @@ pub use pulldown::Strategy as PullDown;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
     /// Segments to compact
-    pub segment_ids: Vec<SegmentId>,
+    pub segment_ids: HashSet<SegmentId>,
 
     /// Level to put the created segments into
     pub dest_level: u8,
@@ -60,7 +60,7 @@ pub enum Choice {
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].
-    Drop(Vec<SegmentId>),
+    Drop(HashSet<SegmentId>),
 }
 
 /// Trait for a compaction strategy

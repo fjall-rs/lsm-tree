@@ -149,7 +149,7 @@ fn scan_vs_prefix(c: &mut Criterion) {
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.iter();
-                let iter = iter.into_iter().filter(|x| match x {
+                let iter = iter.filter(|x| match x {
                     Ok((key, _)) => key.starts_with(prefix.as_bytes()),
                     Err(_) => false,
                 });
@@ -159,14 +159,12 @@ fn scan_vs_prefix(c: &mut Criterion) {
         group.bench_function(format!("prefix {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
-                let iter = iter.into_iter();
                 assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
-                let iter = iter.into_iter();
                 assert_eq!(iter.rev().count(), 10);
             });
         });
@@ -181,7 +179,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(folder)
-                .block_size(1_024)
+                .data_block_size(1_024)
                 .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
                 .open()
                 .unwrap();
@@ -219,7 +217,7 @@ fn tree_get_pairs(c: &mut Criterion) {
         {
             let folder = tempfile::tempdir().unwrap();
             let tree = Config::new(folder)
-                .block_size(1_024)
+                .data_block_size(1_024)
                 .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
                 .open()
                 .unwrap();
@@ -262,7 +260,7 @@ fn disk_point_read(c: &mut Criterion) {
     let folder = tempdir().unwrap();
 
     let tree = Config::new(folder)
-        .block_size(1_024)
+        .data_block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
         .open()
         .unwrap();
@@ -300,7 +298,7 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
     let folder = tempfile::tempdir().unwrap();
 
     let tree = Config::new(folder)
-        .block_size(1_024)
+        .data_block_size(1_024)
         .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
         .open()
         .unwrap();
