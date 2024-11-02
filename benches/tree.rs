@@ -149,7 +149,7 @@ fn scan_vs_prefix(c: &mut Criterion) {
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.iter();
-                let iter = iter.into_iter().filter(|x| match x {
+                let iter = iter.filter(|x| match x {
                     Ok((key, _)) => key.starts_with(prefix.as_bytes()),
                     Err(_) => false,
                 });
@@ -159,14 +159,12 @@ fn scan_vs_prefix(c: &mut Criterion) {
         group.bench_function(format!("prefix {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
-                let iter = iter.into_iter();
                 assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
             b.iter(|| {
                 let iter = tree.prefix(prefix);
-                let iter = iter.into_iter();
                 assert_eq!(iter.rev().count(), 10);
             });
         });
