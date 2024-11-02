@@ -177,6 +177,11 @@ impl Segment {
         log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
 
+        assert_eq!(
+            0, *trailer.offsets.range_tombstones_ptr,
+            "Range tombstones not supported"
+        );
+
         log::debug!(
             "Creating block index, with tli_ptr={}",
             trailer.offsets.tli_ptr
