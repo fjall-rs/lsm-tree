@@ -20,14 +20,10 @@ pub mod writer;
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    mvcc_stream::MvccStream,
-    segment::{reader::Reader, value_block_consumer::ValueBlockConsumer},
+    segment::reader::Reader,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
-    ValueType,
 };
-use block::checksum::Checksum;
-use block_index::two_level_index::TwoLevelBlockIndex;
 use inner::Inner;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
@@ -75,6 +71,7 @@ impl std::fmt::Debug for Segment {
 
 impl Segment {
     pub(crate) fn verify(&self) -> crate::Result<usize> {
+        use block::checksum::Checksum;
         use block_index::IndexBlock;
         use value_block::ValueBlock;
 
@@ -170,12 +167,18 @@ impl Segment {
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
     ) -> crate::Result<Self> {
+        use block_index::two_level_index::TwoLevelBlockIndex;
         use trailer::SegmentFileTrailer;
 
         let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
+
+        assert_eq!(
+            0, *trailer.offsets.range_tombstones_ptr,
+            "Range tombstones not supported"
+        );
 
         log::debug!(
             "Creating block index, with tli_ptr={}",
@@ -248,7 +251,9 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        use crate::{mvcc_stream::MvccStream, ValueType};
         use value_block::{CachePolicy, ValueBlock};
+        use value_block_consumer::ValueBlockConsumer;
 
         let key = key.as_ref();
 
