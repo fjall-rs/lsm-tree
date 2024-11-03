@@ -82,7 +82,7 @@ pub trait Encode {
     fn encode_into_vec(&self) -> Vec<u8> {
         let mut v = vec![];
 
-        #[allow(clippy::expected_used)]
+        #[allow(clippy::expect_used)]
         self.encode_into(&mut v).expect("cannot fail");
 
         v
