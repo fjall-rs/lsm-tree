@@ -37,7 +37,7 @@ impl Decode for Manifest {
             return Err(crate::DecodeError::InvalidHeader("Manifest"));
         }
 
-        #[allow(clippy::expect_used, reason = "MAGIC_BYTES is length 4")]
+        #[allow(clippy::expect_used)]
         let version = *header.get(3).expect("header must be length 4");
         let version = Version::try_from(version).map_err(|()| DecodeError::InvalidVersion)?;
 
