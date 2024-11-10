@@ -8,7 +8,7 @@ use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 struct DoubleEndedWrapper<I>(I);
 
@@ -32,16 +32,26 @@ where
     }
 }
 
-/// The memtable serves as an intermediary storage for new items
+/// The memtable serves as an intermediary, ephemeral, sorted storage for new items
+///
+/// When the Memtable exceeds some size, it should be flushed to a disk segment.
+///
+/// For durability, the Memtable is backed by a write-ahead log.
 #[derive(Default)]
 pub struct Memtable {
+    /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
     pub items: SkipMap<InternalKey, UserValue>,
 
-    /// Approximate active memtable size
+    /// Approximate active memtable size.
     ///
-    /// If this grows too large, a flush is triggered
+    /// If this grows too large, a flush is triggered.
     pub(crate) approximate_size: AtomicU32,
+
+    /// Highest encountered sequence number.
+    ///
+    /// This is used so that `get_highest_seqno` has O(1) complexity.
+    pub(crate) highest_seqno: AtomicU64,
 }
 
 impl Memtable {
@@ -167,18 +177,22 @@ impl Memtable {
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
+        self.highest_seqno
+            .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
+
         (item_size, size_before + item_size)
     }
 
     /// Returns the highest sequence number in the memtable.
     pub fn get_highest_seqno(&self) -> Option<SeqNo> {
-        self.items
-            .iter()
-            .map(|x| {
-                let key = x.key();
-                key.seqno
-            })
-            .max()
+        if self.is_empty() {
+            None
+        } else {
+            Some(
+                self.highest_seqno
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )
+        }
     }
 }
 
