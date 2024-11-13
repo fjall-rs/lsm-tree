@@ -160,14 +160,10 @@ impl Encode for KeyRange {
 impl Decode for KeyRange {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let key_min_len = reader.read_u16::<BigEndian>()?;
-        let mut key_min = vec![0; key_min_len.into()];
-        reader.read_exact(&mut key_min)?;
-        let key_min: UserKey = Slice::from(key_min);
+        let key_min: UserKey = Slice::from_reader(reader, key_min_len.into())?;
 
         let key_max_len = reader.read_u16::<BigEndian>()?;
-        let mut key_max = vec![0; key_max_len.into()];
-        reader.read_exact(&mut key_max)?;
-        let key_max: UserKey = Slice::from(key_max);
+        let key_max: UserKey = Slice::from_reader(reader, key_max_len.into())?;
 
         Ok(Self::new((key_min, key_max)))
     }
