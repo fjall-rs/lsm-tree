@@ -6,9 +6,6 @@ use super::{block_index::BlockIndexImpl, file_offsets::FileOffsets, meta::Metada
 use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
 use std::sync::Arc;
 
-#[cfg(feature = "bloom")]
-use crate::bloom::{BloomFilter, CompositeHash};
-
 pub struct Inner {
     pub(crate) tree_id: TreeId,
 
@@ -34,5 +31,5 @@ pub struct Inner {
     /// Bloom filter
     #[cfg(feature = "bloom")]
     #[doc(hidden)]
-    pub bloom_filter: Option<BloomFilter>,
+    pub bloom_filter: Option<crate::bloom::BloomFilter>,
 }

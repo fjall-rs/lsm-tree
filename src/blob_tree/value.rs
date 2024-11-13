@@ -70,9 +70,8 @@ impl Decode for MaybeInlineValue {
         match tag {
             TAG_INLINE => {
                 let len = reader.read_u32_varint()? as usize;
-                let mut bytes = vec![0; len];
-                reader.read_exact(&mut bytes)?;
-                Ok(Self::Inline(Slice::from(bytes)))
+                let slice = Slice::from_reader(reader, len)?;
+                Ok(Self::Inline(slice))
             }
             TAG_INDIRECT => {
                 let vhandle = ValueHandle::decode_from(reader)?;

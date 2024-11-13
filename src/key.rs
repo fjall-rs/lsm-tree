@@ -11,6 +11,7 @@ use std::{
     cmp::Reverse,
     io::{Read, Write},
 };
+use value_log::Slice;
 use varint_rs::{VarintReader, VarintWriter};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -43,7 +44,7 @@ impl InternalKey {
 
         assert!(
             user_key.len() <= u16::MAX.into(),
-            "keys can be 65535 bytes in length"
+            "keys can be 65535 bytes in length",
         );
 
         Self {
@@ -83,8 +84,7 @@ impl Decode for InternalKey {
             .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
 
         let key_len = reader.read_u16_varint()?;
-        let mut key = vec![0; key_len.into()];
-        reader.read_exact(&mut key)?;
+        let key = Slice::from_reader(reader, key_len.into())?;
 
         Ok(Self::new(key, seqno, value_type))
     }

@@ -37,7 +37,8 @@ impl Decode for Manifest {
             return Err(crate::DecodeError::InvalidHeader("Manifest"));
         }
 
-        let version = *header.get(3).expect("header must be size 4");
+        #[allow(clippy::expect_used)]
+        let version = *header.get(3).expect("header must be length 4");
         let version = Version::try_from(version).map_err(|()| DecodeError::InvalidVersion)?;
 
         let tree_type = reader.read_u8()?;

@@ -25,9 +25,6 @@ use std::{
     time::Instant,
 };
 
-#[cfg(feature = "bloom")]
-use crate::segment::writer::BloomConstructionPolicy;
-
 /// Compaction options
 pub struct Options {
     pub tree_id: TreeId,
@@ -185,8 +182,7 @@ fn merge_segments(
 
     #[cfg(feature = "bloom")]
     {
-        // TODO: BUG: BloomConstructionPolicy::default is 10 BPK, so setting to 0 or -1
-        // will still write bloom filters
+        use crate::segment::writer::BloomConstructionPolicy;
 
         if opts.config.bloom_bits_per_key >= 0 {
             // NOTE: Apply some MONKEY to have very high FPR on small levels
@@ -201,6 +197,9 @@ fn merge_segments(
             };
 
             segment_writer = segment_writer.use_bloom_policy(bloom_policy);
+        } else {
+            segment_writer =
+                segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
         }
     }
 

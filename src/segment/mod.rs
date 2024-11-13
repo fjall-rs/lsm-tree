@@ -438,6 +438,7 @@ impl Segment {
 
     /// Returns the amount of tombstone markers in the `Segment`.
     #[must_use]
+    #[doc(hidden)]
     pub fn tombstone_count(&self) -> u64 {
         self.metadata.tombstone_count
     }
