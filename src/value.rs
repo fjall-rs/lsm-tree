@@ -117,7 +117,6 @@ impl InternalValue {
     ///
     /// Panics if the key length is empty or greater than 2^16.
     pub fn new_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
-        let key = key.into();
         let key = InternalKey::new(key, seqno, ValueType::Tombstone);
         Self::new(key, vec![])
     }
@@ -128,7 +127,6 @@ impl InternalValue {
     ///
     /// Panics if the key length is empty or greater than 2^16.
     pub fn new_weak_tombstone<K: Into<UserKey>>(key: K, seqno: u64) -> Self {
-        let key = key.into();
         let key = InternalKey::new(key, seqno, ValueType::WeakTombstone);
         Self::new(key, vec![])
     }
@@ -187,19 +185,16 @@ impl Decode for InternalValue {
         if key.is_tombstone() {
             Ok(Self {
                 key,
+                // TODO: Slice::empty()
                 value: vec![].into(),
             })
         } else {
             // NOTE: Only read value if we are actually a value
 
             let value_len = reader.read_u32_varint()?;
-            let mut value = vec![0; value_len as usize];
-            reader.read_exact(&mut value)?;
+            let value = Slice::from_reader(reader, value_len as usize)?;
 
-            Ok(Self {
-                key,
-                value: value.into(),
-            })
+            Ok(Self { key, value })
         }
     }
 }
