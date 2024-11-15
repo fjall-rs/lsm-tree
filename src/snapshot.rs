@@ -42,8 +42,47 @@ impl Snapshot {
     ///
     /// tree.insert("a", "my_value", 0);
     ///
+    /// let len = snapshot.size_of("a")?;
+    /// assert_eq!(None, len);
+    ///
+    /// let snapshot = tree.snapshot(1);
+    ///
+    /// let len = snapshot.size_of("a")?.unwrap_or_default();
+    /// assert_eq!("my_value".len() as u32, len);
+    ///
+    /// let len = snapshot.size_of("b")?.unwrap_or_default();
+    /// assert_eq!(0, len);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
+        self.tree.size_of_with_seqno(key, self.seqno)
+    }
+
+    /// Retrieves an item from the snapshot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    /// let snapshot = tree.snapshot(0);
+    ///
+    /// tree.insert("a", "my_value", 0);
+    ///
     /// let item = snapshot.get("a")?;
     /// assert_eq!(None, item);
+    ///
+    /// let snapshot = tree.snapshot(1);
+    ///
+    /// let item = snapshot.get("a")?.unwrap();
+    /// assert_eq!(b"my_value", &*item);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```

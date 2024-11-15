@@ -50,6 +50,18 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
+        Ok(self.get(key)?.map(|x| x.len() as u32))
+    }
+
+    fn size_of_with_seqno<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: SeqNo,
+    ) -> crate::Result<Option<u32>> {
+        Ok(self.get_with_seqno(key, seqno)?.map(|x| x.len() as u32))
+    }
+
     #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.levels
