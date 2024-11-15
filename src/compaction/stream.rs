@@ -43,7 +43,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> CompactionStream<I> {
             };
 
             // Consume version
-            if &next.key.user_key == key {
+            if next.key.user_key == key {
                 // NOTE: We know the next value is not empty, because we just peeked it
                 #[allow(clippy::expect_used)]
                 self.inner.next().expect("should not be empty")?;
