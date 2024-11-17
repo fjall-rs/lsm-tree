@@ -423,6 +423,42 @@ pub trait AbstractTree {
         prefix: K,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
+    /// Returns the size of a value if it exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder).open()?;
+    /// tree.insert("a", "my_value", 0);
+    ///
+    /// let size = tree.size_of("a")?.unwrap_or_default();
+    /// assert_eq!("my_value".len() as u32, size);
+    ///
+    /// let size = tree.size_of("b")?.unwrap_or_default();
+    /// assert_eq!(0, size);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>>;
+
+    /// Retrieves the size of a value from a snapshot instant.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn size_of_with_seqno<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: SeqNo,
+    ) -> crate::Result<Option<u32>>;
+
     /// Retrieves an item from the tree.
     ///
     /// # Examples

@@ -43,7 +43,7 @@ impl RawBlockIndex for [KeyedBlockHandle] {
                 return Ok(None);
             };
 
-            if &last_block.end_key < key {
+            if last_block.end_key < key {
                 return Ok(None);
             }
 

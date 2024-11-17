@@ -54,6 +54,12 @@ Uses bloom filters to reduce superfluous disk I/O during point reads, improving 
 
 *Disabled by default.*
 
+### bytes
+
+Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type.
+
+*Disabled by default.*
+
 ## Stable disk format
 
 The disk format is stable as of 1.0.0. 
