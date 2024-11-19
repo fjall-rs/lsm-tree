@@ -53,7 +53,11 @@ impl Memtable {
     /// The item with the highest seqno will be returned, if `seqno` is None.
     #[doc(hidden)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
-        let prefix = key.as_ref();
+        if seqno == Some(0) {
+            return None;
+        }
+
+        let key = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
         // InternalKeys are multi-sorted by 2 categories: user_key and Reverse(seqno). (tombstone doesn't really matter)
@@ -72,18 +76,18 @@ impl Memtable {
         // abcdef -> 5
         //
         let lower_bound = InternalKey::new(
-            prefix,
+            key,
             match seqno {
-                Some(seqno) => seqno.saturating_sub(1),
+                Some(seqno) => seqno - 1,
                 None => SeqNo::MAX,
             },
             ValueType::Value,
         );
 
-        let mut iter = self.items.range(lower_bound..).take_while(|entry| {
-            let key = entry.key();
-            &*key.user_key == prefix
-        });
+        let mut iter = self
+            .items
+            .range(lower_bound..)
+            .take_while(|entry| &*entry.key().user_key == key);
 
         iter.next().map(|entry| InternalValue {
             key: entry.key().clone(),
