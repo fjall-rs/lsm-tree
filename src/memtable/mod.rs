@@ -3,34 +3,11 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
-use crate::mvcc_stream::MvccStream;
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU32;
-
-struct DoubleEndedWrapper<I>(I);
-
-impl<I> Iterator for DoubleEndedWrapper<I>
-where
-    I: Iterator,
-{
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
-impl<I> DoubleEndedIterator for DoubleEndedWrapper<I>
-where
-    I: Iterator,
-{
-    fn next_back(&mut self) -> Option<Self::Item> {
-        None
-    }
-}
 
 /// The memtable serves as an intermediary storage for new items
 #[derive(Default)]
@@ -94,46 +71,24 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(prefix, SeqNo::MAX, ValueType::Value);
+        let lower_bound = InternalKey::new(
+            prefix,
+            match seqno {
+                Some(seqno) => seqno - 1,
+                None => SeqNo::MAX,
+            },
+            ValueType::Value,
+        );
 
-        let iter = self
-            .items
-            .range(lower_bound..)
-            .take_while(|entry| {
-                let key = entry.key();
-                &*key.user_key == prefix
-            })
-            .filter_map(move |entry| {
-                let key = entry.key();
+        let mut iter = self.items.range(lower_bound..).take_while(|entry| {
+            let key = entry.key();
+            &*key.user_key == prefix
+        });
 
-                // Check for seqno if needed
-                if let Some(seqno) = seqno {
-                    if key.seqno < seqno {
-                        Some(InternalValue {
-                            key: entry.key().clone(),
-                            value: entry.value().clone(),
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(InternalValue {
-                        key: entry.key().clone(),
-                        value: entry.value().clone(),
-                    })
-                }
-            })
-            .map(Ok);
-
-        // NOTE: Wrap it in a stupid adapter to make it "double ended" again...
-        // but we never call next_back anyways
-        let iter = DoubleEndedWrapper(iter);
-
-        // NOTE: We need to unwrap the return value again... memtables are not fallible, so it cannot panic
-        #[allow(clippy::expect_used)]
-        MvccStream::new(iter)
-            .next()
-            .map(|x| x.expect("cannot fail"))
+        iter.next().map(|entry| InternalValue {
+            key: entry.key().clone(),
+            value: entry.value().clone(),
+        })
     }
 
     /// Gets approximate size of memtable in bytes.
