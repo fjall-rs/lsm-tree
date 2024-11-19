@@ -74,7 +74,7 @@ impl Memtable {
         let lower_bound = InternalKey::new(
             prefix,
             match seqno {
-                Some(seqno) => seqno - 1,
+                Some(seqno) => seqno.saturating_sub(1),
                 None => SeqNo::MAX,
             },
             ValueType::Value,
