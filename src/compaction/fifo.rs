@@ -13,7 +13,7 @@ use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp,
 /// Will also merge segments if the amount of segments in level 0 grows too much, which
 /// could cause write stalls.
 ///
-/// Additionally, a TTL can be configured to drop old segments.
+/// Additionally, a (lazy) TTL can be configured to drop old segments.
 ///
 /// ###### Caution
 ///
