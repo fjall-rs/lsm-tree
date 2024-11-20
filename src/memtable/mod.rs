@@ -33,6 +33,7 @@ impl Memtable {
     /// Clears the memtable.
     pub fn clear(&mut self) {
         self.items.clear();
+        self.highest_seqno = AtomicU64::new(0);
         self.approximate_size
             .store(0, std::sync::atomic::Ordering::Release);
     }
