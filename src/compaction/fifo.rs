@@ -13,7 +13,7 @@ use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp,
 /// Will also merge segments if the amount of segments in level 0 grows too much, which
 /// could cause write stalls.
 ///
-/// Additionally, a TTL can be configured to drop old segments.
+/// Additionally, a (lazy) TTL can be configured to drop old segments.
 ///
 /// ###### Caution
 ///
@@ -53,14 +53,14 @@ impl CompactionStrategy for Strategy {
             if ttl_seconds > 0 {
                 let now = unix_timestamp().as_micros();
 
-                for segment in first_level.iter() {
+                for segment in resolved_view.iter().flat_map(|lvl| &lvl.segments) {
                     let lifetime_us = now - segment.metadata.created_at;
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
                     if lifetime_sec > ttl_seconds.into() {
-                        log::trace!(
+                        log::warn!(
                             "segment is older than configured TTL: {:?}",
-                            segment.metadata
+                            segment.metadata.id,
                         );
                         segment_ids_to_delete.insert(segment.metadata.id);
                     }
@@ -88,9 +88,9 @@ impl CompactionStrategy for Strategy {
 
                 segment_ids_to_delete.insert(segment.metadata.id);
 
-                log::trace!(
+                log::debug!(
                     "dropping segment to reach configured size limit: {:?}",
-                    segment.metadata
+                    segment.metadata.id,
                 );
             }
         }

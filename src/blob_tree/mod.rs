@@ -231,6 +231,36 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
+        let vhandle = self.index.get_internal(key.as_ref())?;
+
+        Ok(vhandle.map(|x| match x {
+            MaybeInlineValue::Inline(v) => v.len() as u32,
+
+            // NOTE: We skip reading from the value log
+            // because the indirections already store the value size
+            MaybeInlineValue::Indirect { size, .. } => size,
+        }))
+    }
+
+    // NOTE: We skip reading from the value log
+    // because the vHandles already store the value size
+    fn size_of_with_seqno<K: AsRef<[u8]>>(
+        &self,
+        key: K,
+        seqno: SeqNo,
+    ) -> crate::Result<Option<u32>> {
+        let vhandle = self.index.get_internal_with_seqno(key.as_ref(), seqno)?;
+
+        Ok(vhandle.map(|x| match x {
+            MaybeInlineValue::Inline(v) => v.len() as u32,
+
+            // NOTE: We skip reading from the value log
+            // because the indirections already store the value size
+            MaybeInlineValue::Indirect { size, .. } => size,
+        }))
+    }
+
     #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.index.bloom_filter_size()
