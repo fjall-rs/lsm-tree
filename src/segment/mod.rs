@@ -24,6 +24,7 @@ use crate::{
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
 };
+use id::GlobalSegmentId;
 use inner::Inner;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
@@ -267,7 +268,7 @@ impl Segment {
         let Some(block) = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
-            (self.tree_id, self.metadata.id).into(),
+            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
             first_block_handle.offset,
             CachePolicy::Write,
         )?
@@ -281,21 +282,23 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-            let Some(latest) = block.get_latest(key.as_ref()).cloned() else {
+            let Some(latest) = block.get_latest(key.as_ref()) else {
                 return Ok(None);
             };
 
             if latest.key.value_type == ValueType::WeakTombstone {
                 // NOTE: Continue in slow path
             } else {
-                return Ok(Some(latest));
+                return Ok(Some(latest.clone()));
             }
         }
 
+        // TODO: it would be nice to have the possibility of using a lifetime'd
+        // reader, so we don't need to Arc::clone descriptor_table, and block_cache
         let mut reader = Reader::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
+            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
             self.block_cache.clone(),
             first_block_handle.offset,
             None,
@@ -303,7 +306,7 @@ impl Segment {
         reader.lo_block_size = block.header.data_length.into();
         reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
             block,
-            &Some(key.into()),
+            &Some(key.into()), // TODO: this may cause a heap alloc
             &None,
         ));
         reader.lo_initialized = true;
@@ -415,7 +418,7 @@ impl Segment {
         Range::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            (self.tree_id, self.metadata.id).into(),
+            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
             self.block_cache.clone(),
             self.block_index.clone(),
             range,
