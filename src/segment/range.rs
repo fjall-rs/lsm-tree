@@ -19,7 +19,8 @@ use std::sync::Arc;
 pub struct Range {
     block_index: Arc<TwoLevelBlockIndex>,
 
-    is_initialized: bool,
+    lo_initialized: bool,
+    hi_initialized: bool,
 
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
@@ -45,7 +46,8 @@ impl Range {
         );
 
         Self {
-            is_initialized: false,
+            lo_initialized: false,
+            hi_initialized: false,
 
             block_index,
 
@@ -75,9 +77,13 @@ impl Range {
                 Some(start)
             }
         };
+
         if let Some(key) = start_key.cloned() {
             self.reader.set_lower_bound(key);
         }
+
+        self.lo_initialized = true;
+
         Ok(())
     }
 
@@ -107,19 +113,8 @@ impl Range {
         if let Some(key) = end_key.cloned() {
             self.reader.set_upper_bound(key);
         }
-        Ok(())
-    }
 
-    fn initialize(&mut self) -> crate::Result<()> {
-        // TODO: can we skip searching for lower bound until next is called at least once...?
-        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
-        self.initialize_lo_bound()?;
-
-        // TODO: can we skip searching for upper bound until next_back is called at least once...?
-        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
-        self.initialize_hi_bound()?;
-
-        self.is_initialized = true;
+        self.hi_initialized = true;
 
         Ok(())
     }
@@ -129,8 +124,8 @@ impl Iterator for Range {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.is_initialized {
-            if let Err(e) = self.initialize() {
+        if !self.lo_initialized {
+            if let Err(e) = self.initialize_lo_bound() {
                 return Some(Err(e));
             };
         }
@@ -182,16 +177,14 @@ impl Iterator for Range {
 
 impl DoubleEndedIterator for Range {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if !self.is_initialized {
-            if let Err(e) = self.initialize() {
+        if !self.hi_initialized {
+            if let Err(e) = self.initialize_hi_bound() {
                 return Some(Err(e));
             };
         }
 
         loop {
-            let entry_result = self.reader.next_back()?;
-
-            match entry_result {
+            match self.reader.next_back()? {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
