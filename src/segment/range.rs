@@ -103,6 +103,9 @@ impl Range {
                     .get_last_block_containing_key(end, CachePolicy::Write)?
                 {
                     self.reader.hi_block_offset = Some(upper_bound);
+                } else {
+                    self.reader.hi_block_offset =
+                        Some(self.block_index.get_last_block_handle(CachePolicy::Write)?);
                 }
 
                 Some(end)
