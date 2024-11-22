@@ -3,51 +3,37 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
-use crate::mvcc_stream::MvccStream;
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
-struct DoubleEndedWrapper<I>(I);
-
-impl<I> Iterator for DoubleEndedWrapper<I>
-where
-    I: Iterator,
-{
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-
-impl<I> DoubleEndedIterator for DoubleEndedWrapper<I>
-where
-    I: Iterator,
-{
-    fn next_back(&mut self) -> Option<Self::Item> {
-        None
-    }
-}
-
-/// The memtable serves as an intermediary storage for new items
+/// The memtable serves as an intermediary, ephemeral, sorted storage for new items
+///
+/// When the Memtable exceeds some size, it should be flushed to a disk segment.
 #[derive(Default)]
 pub struct Memtable {
+    /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
     pub items: SkipMap<InternalKey, UserValue>,
 
-    /// Approximate active memtable size
+    /// Approximate active memtable size.
     ///
-    /// If this grows too large, a flush is triggered
+    /// If this grows too large, a flush is triggered.
     pub(crate) approximate_size: AtomicU32,
+
+    /// Highest encountered sequence number.
+    ///
+    /// This is used so that `get_highest_seqno` has O(1) complexity.
+    pub(crate) highest_seqno: AtomicU64,
 }
 
 impl Memtable {
     /// Clears the memtable.
     pub fn clear(&mut self) {
         self.items.clear();
+        self.highest_seqno = AtomicU64::new(0);
         self.approximate_size
             .store(0, std::sync::atomic::Ordering::Release);
     }
@@ -76,7 +62,11 @@ impl Memtable {
     /// The item with the highest seqno will be returned, if `seqno` is None.
     #[doc(hidden)]
     pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
-        let prefix = key.as_ref();
+        if seqno == Some(0) {
+            return None;
+        }
+
+        let key = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
         // InternalKeys are multi-sorted by 2 categories: user_key and Reverse(seqno). (tombstone doesn't really matter)
@@ -94,46 +84,24 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(prefix, SeqNo::MAX, ValueType::Value);
+        let lower_bound = InternalKey::new(
+            key,
+            match seqno {
+                Some(seqno) => seqno - 1,
+                None => SeqNo::MAX,
+            },
+            ValueType::Value,
+        );
 
-        let iter = self
+        let mut iter = self
             .items
             .range(lower_bound..)
-            .take_while(|entry| {
-                let key = entry.key();
-                &*key.user_key == prefix
-            })
-            .filter_map(move |entry| {
-                let key = entry.key();
+            .take_while(|entry| &*entry.key().user_key == key);
 
-                // Check for seqno if needed
-                if let Some(seqno) = seqno {
-                    if key.seqno < seqno {
-                        Some(InternalValue {
-                            key: entry.key().clone(),
-                            value: entry.value().clone(),
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(InternalValue {
-                        key: entry.key().clone(),
-                        value: entry.value().clone(),
-                    })
-                }
-            })
-            .map(Ok);
-
-        // NOTE: Wrap it in a stupid adapter to make it "double ended" again...
-        // but we never call next_back anyways
-        let iter = DoubleEndedWrapper(iter);
-
-        // NOTE: We need to unwrap the return value again... memtables are not fallible, so it cannot panic
-        #[allow(clippy::expect_used)]
-        MvccStream::new(iter)
-            .next()
-            .map(|x| x.expect("cannot fail"))
+        iter.next().map(|entry| InternalValue {
+            key: entry.key().clone(),
+            value: entry.value().clone(),
+        })
     }
 
     /// Gets approximate size of memtable in bytes.
@@ -167,18 +135,22 @@ impl Memtable {
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
+        self.highest_seqno
+            .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
+
         (item_size, size_before + item_size)
     }
 
     /// Returns the highest sequence number in the memtable.
     pub fn get_highest_seqno(&self) -> Option<SeqNo> {
-        self.items
-            .iter()
-            .map(|x| {
-                let key = x.key();
-                key.seqno
-            })
-            .max()
+        if self.is_empty() {
+            None
+        } else {
+            Some(
+                self.highest_seqno
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )
+        }
     }
 }
 
