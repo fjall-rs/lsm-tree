@@ -36,7 +36,6 @@ impl FullBlockIndex {
         }
 
         debug_assert!(!block_handles.is_empty());
-        debug_assert_eq!(cnt, block_handles.len());
 
         Ok(Self(block_handles.into_boxed_slice()))
     }

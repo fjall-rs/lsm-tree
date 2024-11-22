@@ -111,10 +111,7 @@ pub enum BlockIndexImpl {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{
-        segment::{block_index::BlockIndex, value_block::BlockOffset},
-        Slice,
-    };
+    use crate::{segment::value_block::BlockOffset, Slice};
     use test_log::test;
 
     fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {

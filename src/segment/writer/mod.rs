@@ -457,8 +457,6 @@ mod tests {
         // the TLI length fits into u32 as well
         #[allow(clippy::cast_possible_truncation)]
         {
-            use crate::segment::block_index::BlockIndex;
-
             let tli =
                 TopLevelIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
 
