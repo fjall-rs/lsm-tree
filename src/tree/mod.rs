@@ -914,8 +914,8 @@ impl Tree {
 
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
-        let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
-        let cnt = segment_ids_to_recover.len();
+        let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
+        let cnt = segment_id_map.len();
 
         log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
 
@@ -960,12 +960,13 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if segment_ids_to_recover.contains(&segment_id) {
+            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
                     block_cache.clone(),
                     descriptor_table.clone(),
+                    level_idx == 0 || level_idx == 1,
                 )?;
 
                 descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
@@ -982,8 +983,11 @@ impl Tree {
             }
         }
 
-        if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Recovered less segments than expected: {segment_ids_to_recover:?}");
+        if segments.len() < cnt {
+            log::error!(
+                "Recovered less segments than expected: {:?}",
+                segment_id_map.keys(),
+            );
             return Err(crate::Error::Unrecoverable);
         }
 
