@@ -88,58 +88,98 @@ impl Segment {
 
         let mut file = guard.file.lock().expect("lock is poisoned");
 
-        todo!();
-        /* // NOTE: TODO: because of 1.74.0
-        #[allow(clippy::explicit_iter_loop)]
-        for handle in self.block_index.top_level_index.iter() {
-            let block = match IndexBlock::from_file(&mut *file, handle.offset) {
-                Ok(v) => v,
-                Err(e) => {
-                    log::error!(
-                        "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                    );
-                    broken_count += 1;
-                    continue;
-                }
-            };
+        // TODO: maybe move to BlockIndexImpl::verify
+        match &*self.block_index {
+            BlockIndexImpl::Full(block_index) => {
+                for handle in block_index.iter() {
+                    let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!(
+                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                 );
+                            broken_count += 1;
+                            data_block_count += 1;
+                            continue;
+                        }
+                    };
 
-            for handle in &*block.items {
-                let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!(
-                            "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                        );
+                    let (_, data) = ValueBlock::to_bytes_compressed(
+                        &value_block.items,
+                        value_block.header.previous_block_offset,
+                        value_block.header.compression,
+                    )?;
+                    let actual_checksum = Checksum::from_bytes(&data);
+
+                    if value_block.header.checksum != actual_checksum {
+                        log::error!("{handle:?} is corrupted, invalid checksum value");
                         broken_count += 1;
-                        data_block_count += 1;
-                        continue;
                     }
-                };
 
-                let (_, data) = ValueBlock::to_bytes_compressed(
-                    &value_block.items,
-                    value_block.header.previous_block_offset,
-                    value_block.header.compression,
-                )?;
-                let actual_checksum = Checksum::from_bytes(&data);
+                    data_block_count += 1;
 
-                if value_block.header.checksum != actual_checksum {
-                    log::error!("{handle:?} is corrupted, invalid checksum value");
-                    broken_count += 1;
-                }
-
-                data_block_count += 1;
-
-                if data_block_count % 1_000 == 0 {
-                    log::debug!("Checked {data_block_count} data blocks");
+                    if data_block_count % 1_000 == 0 {
+                        log::debug!("Checked {data_block_count} data blocks");
+                    }
                 }
             }
-        } */
+            BlockIndexImpl::TwoLevel(block_index) => {
+                // NOTE: TODO: because of 1.74.0
+                #[allow(clippy::explicit_iter_loop)]
+                for handle in block_index.top_level_index.iter() {
+                    let block = match IndexBlock::from_file(&mut *file, handle.offset) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!(
+                 "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+             );
+                            broken_count += 1;
+                            continue;
+                        }
+                    };
 
-        assert_eq!(
-            data_block_count, self.metadata.data_block_count,
-            "not all data blocks were visited"
-        );
+                    for handle in &*block.items {
+                        let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::error!(
+                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                 );
+                                broken_count += 1;
+                                data_block_count += 1;
+                                continue;
+                            }
+                        };
+
+                        let (_, data) = ValueBlock::to_bytes_compressed(
+                            &value_block.items,
+                            value_block.header.previous_block_offset,
+                            value_block.header.compression,
+                        )?;
+                        let actual_checksum = Checksum::from_bytes(&data);
+
+                        if value_block.header.checksum != actual_checksum {
+                            log::error!("{handle:?} is corrupted, invalid checksum value");
+                            broken_count += 1;
+                        }
+
+                        data_block_count += 1;
+
+                        if data_block_count % 1_000 == 0 {
+                            log::debug!("Checked {data_block_count} data blocks");
+                        }
+                    }
+                }
+            }
+        }
+
+        if data_block_count != self.metadata.data_block_count {
+            log::error!(
+                "Not all data blocks were visited during verification of disk segment {:?}",
+                self.metadata.id
+            );
+            broken_count += 1;
+        }
 
         Ok(broken_count)
     }
@@ -164,16 +204,15 @@ impl Segment {
         })
     }
 
-    // TODO: need to give recovery a flag to choose which block index to load
-
     /// Tries to recover a segment from a file.
     pub(crate) fn recover<P: AsRef<Path>>(
         file_path: P,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
+        use_full_block_index: bool,
     ) -> crate::Result<Self> {
-        use block_index::two_level_index::TwoLevelBlockIndex;
+        use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::SegmentFileTrailer;
 
         let file_path = file_path.as_ref();
@@ -190,15 +229,23 @@ impl Segment {
             "Creating block index, with tli_ptr={}",
             trailer.offsets.tli_ptr
         );
-        let block_index = TwoLevelBlockIndex::from_file(
-            file_path,
-            &trailer.metadata,
-            &trailer.offsets,
-            (tree_id, trailer.metadata.id).into(),
-            descriptor_table.clone(),
-            block_cache.clone(),
-        )?;
-        let block_index = BlockIndexImpl::TwoLevel(block_index);
+
+        let block_index = if use_full_block_index {
+            let block_index =
+                FullBlockIndex::from_file(file_path, &trailer.metadata, &trailer.offsets)?;
+
+            BlockIndexImpl::Full(block_index)
+        } else {
+            let block_index = TwoLevelBlockIndex::from_file(
+                file_path,
+                &trailer.metadata,
+                &trailer.offsets,
+                (tree_id, trailer.metadata.id).into(),
+                descriptor_table.clone(),
+                block_cache.clone(),
+            )?;
+            BlockIndexImpl::TwoLevel(block_index)
+        };
 
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
