@@ -10,6 +10,14 @@ use std::{fs::File, io::Seek, path::Path};
 /// The index is fully loaded into memory.
 pub struct FullBlockIndex(Box<[KeyedBlockHandle]>);
 
+impl std::ops::Deref for FullBlockIndex {
+    type Target = Box<[KeyedBlockHandle]>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl FullBlockIndex {
     pub fn from_file<P: AsRef<Path>>(
         path: P,
