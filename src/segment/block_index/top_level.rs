@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{block_handle::KeyedBlockHandle, RawBlockIndex};
-use crate::segment::{block_index::IndexBlock, value_block::CachePolicy};
+use crate::segment::{
+    block_index::IndexBlock,
+    value_block::{BlockOffset, CachePolicy},
+};
 use std::{fs::File, path::Path};
 
 /// The block index stores references to the positions of blocks on a file and their size
@@ -32,14 +35,14 @@ impl TopLevelIndex {
     pub fn from_file<P: AsRef<Path>>(
         path: P,
         _: &crate::segment::meta::Metadata,
-        offsets: &crate::segment::file_offsets::FileOffsets,
+        tli_ptr: BlockOffset,
     ) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        log::trace!("reading TLI from {path:?} at tli_ptr={}", offsets.tli_ptr);
+        log::trace!("reading TLI from {path:?} at tli_ptr={tli_ptr}");
 
         let mut file = File::open(path)?;
-        let items = IndexBlock::from_file(&mut file, offsets.tli_ptr)?.items;
+        let items = IndexBlock::from_file(&mut file, tli_ptr)?.items;
 
         log::trace!("loaded TLI ({path:?}): {items:?}");
         debug_assert!(!items.is_empty());

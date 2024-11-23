@@ -221,7 +221,7 @@ impl TwoLevelBlockIndex {
         let file_path = path.as_ref();
         log::trace!("Reading block index from {file_path:?}");
 
-        let top_level_index = TopLevelIndex::from_file(file_path, metadata, offsets)?;
+        let top_level_index = TopLevelIndex::from_file(file_path, metadata, offsets.tli_ptr)?;
 
         Ok(Self {
             descriptor_table,
