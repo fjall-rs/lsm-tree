@@ -58,7 +58,7 @@ impl Level {
         self.segments.iter().map(|x| x.metadata.id).collect()
     }
 
-    fn update_metadata(&mut self) {
+    pub fn update_metadata(&mut self) {
         self.set_disjoint_flag();
         self.sort();
         // self.set_key_range();
@@ -125,15 +125,19 @@ impl Level {
         self.segments.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    /// Checks if the level is disjoint and caches the result in `is_disjoint`.
-    fn set_disjoint_flag(&mut self) {
+    pub(crate) fn compute_is_disjoint(&self) -> bool {
         let ranges = self
             .segments
             .iter()
             .map(|x| &x.metadata.key_range)
             .collect::<Vec<_>>();
 
-        self.is_disjoint = KeyRange::is_disjoint(&ranges);
+        KeyRange::is_disjoint(&ranges)
+    }
+
+    /// Checks if the level is disjoint and caches the result in `is_disjoint`.
+    fn set_disjoint_flag(&mut self) {
+        self.is_disjoint = self.compute_is_disjoint();
     }
 
     /// Returns an iterator over segments in the level that have a key range
@@ -145,6 +149,17 @@ impl Level {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
+    }
+
+    /// Returns an iterator over segments in the level that have a key range
+    /// fully contained in the input key range.
+    pub fn contained_segments<'a>(
+        &'a self,
+        key_range: &'a KeyRange,
+    ) -> impl Iterator<Item = &'a Segment> {
+        self.segments
+            .iter()
+            .filter(|x| key_range.contains_range(&x.metadata.key_range))
     }
 
     pub fn as_disjoint(&self) -> Option<DisjointLevel<'_>> {

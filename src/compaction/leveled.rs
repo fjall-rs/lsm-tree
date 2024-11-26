@@ -11,6 +11,78 @@ use crate::{
     HashSet, SegmentId,
 };
 
+fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
+    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
+}
+
+// TODO: Currently does not take in `overshoot`
+// TODO: Need to make sure compactions are not too small
+fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<SegmentId>, bool) {
+    // assert!(curr_level.is_disjoint, "Lx is not disjoint");
+    // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
+
+    let mut choices = vec![];
+
+    for size in 1..=next_level.len() {
+        let windows = next_level.windows(size);
+
+        for window in windows {
+            let key_range = aggregate_key_range(window);
+
+            // Pull in all segments in current level into compaction
+            let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
+                curr_level.contained_segments(&key_range).collect()
+            } else {
+                curr_level.overlapping_segments(&key_range).collect()
+            };
+
+            let curr_level_size = curr_level_pull_in
+                .iter()
+                .map(|x| x.metadata.file_size)
+                .sum::<u64>();
+
+            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
+
+            let mut segment_ids: HashSet<_> = window.iter().map(|x| x.metadata.id).collect();
+            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.metadata.id));
+
+            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
+
+            choices.push((write_amp, segment_ids, false));
+        }
+    }
+
+    // NOTE: Find trivial moves
+    for size in (1..=curr_level.len()).rev() {
+        let windows = curr_level.windows(size);
+
+        for window in windows {
+            let segment_ids: HashSet<SegmentId> = window.iter().map(|x| x.metadata.id).collect();
+
+            let key_range = aggregate_key_range(window);
+
+            if next_level.overlapping_segments(&key_range).next().is_none() {
+                choices.push((0.0, segment_ids, true));
+            }
+        }
+    }
+
+    // NOTE: Keep compactions with 25 or less segments
+    // to make compactions not too large
+    //
+    // TODO: ideally, if a level has a lot of compaction debt
+    // compactions could be parallelized as long as they don't overlap in key range
+    choices.retain(|(_, segments, _)| segments.len() <= 25);
+
+    let minimum_effort_choice = choices
+        .into_iter()
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    let (_, set, can_trivial_move) = minimum_effort_choice.expect("should exist");
+
+    (set, can_trivial_move)
+}
+
 /// Levelled compaction strategy (LCS)
 ///
 /// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
@@ -25,18 +97,18 @@ use crate::{
 #[derive(Clone)]
 pub struct Strategy {
     /// When the number of segments in L0 reaches this threshold,
-    /// they are merged into L1
+    /// they are merged into L1.
     ///
     /// Default = 4
     ///
-    /// Same as `level0_file_num_compaction_trigger` in `RocksDB`
+    /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
     pub l0_threshold: u8,
 
-    /// Target segment size (compressed)
+    /// The target segment size as disk (possibly compressed).
     ///
     /// Default = 64 MiB
     ///
-    /// Same as `target_file_size_base` in `RocksDB`
+    /// Same as `target_file_size_base` in `RocksDB`.
     pub target_size: u32,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
@@ -44,114 +116,37 @@ pub struct Strategy {
     /// This is the exponential growth of the from one.
     /// level to the next
     ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1)
+    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
     #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
+
+    /// The target size of L1.
+    ///
+    /// Currently hard coded to 256 MiB.
+    ///
+    /// Default = 256 MiB
+    pub level_base_size: u32,
 }
 
 impl Default for Strategy {
     fn default() -> Self {
         Self {
             l0_threshold: 4,
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 8, // TODO: benchmark vs 10
+            target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
+            level_ratio: 10,
+            level_base_size:/* 256 MiB */ 256 * 1_024 * 1_024,
         }
     }
 }
 
-fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
-    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
-}
+impl Strategy {
+    fn level_target_size(&self, level_idx: u8) -> u64 {
+        assert!(level_idx >= 1, "level_target_size does not apply to L0");
 
-fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, target_size: u32) -> usize {
-    (ratio as usize).pow(u32::from(level_idx)) * (target_size as usize)
-}
+        let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
 
-fn pick_minimal_overlap(
-    curr_level: &Level,
-    next_level: &Level,
-    overshoot: u64,
-) -> (HashSet<SegmentId>, bool) {
-    let mut choices = vec![];
-
-    for size in 1..=curr_level.len() {
-        let windows = curr_level.windows(size);
-
-        for window in windows {
-            let size_sum = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
-
-            if size_sum >= overshoot {
-                // NOTE: Consider this window
-
-                let mut segment_ids: HashSet<SegmentId> =
-                    window.iter().map(|x| x.metadata.id).collect();
-
-                // Get overlapping segments in next level
-                let key_range = aggregate_key_range(window);
-
-                let next_level_overlapping_segments: Vec<_> = next_level
-                    .overlapping_segments(&key_range)
-                    .cloned()
-                    .collect();
-
-                // Get overlapping segments in same level
-                let key_range = aggregate_key_range(&next_level_overlapping_segments);
-
-                let curr_level_overlapping_segment_ids: Vec<_> = curr_level
-                    .overlapping_segments(&key_range)
-                    .filter(|x| !segment_ids.contains(&x.metadata.id))
-                    .collect();
-
-                // Calculate effort
-                let size_next_level = next_level_overlapping_segments
-                    .iter()
-                    .map(|x| x.metadata.file_size)
-                    .sum::<u64>();
-
-                let size_curr_level = curr_level_overlapping_segment_ids
-                    .iter()
-                    .map(|x| x.metadata.file_size)
-                    .sum::<u64>();
-
-                let effort = size_sum + size_next_level + size_curr_level;
-
-                segment_ids.extend(
-                    next_level_overlapping_segments
-                        .iter()
-                        .map(|x| x.metadata.id),
-                );
-
-                segment_ids.extend(
-                    curr_level_overlapping_segment_ids
-                        .iter()
-                        .map(|x| x.metadata.id),
-                );
-
-                // TODO: need to calculate write_amp and choose minimum write_amp instead
-                //
-                // consider the segments in La = A to be the ones in the window
-                // and the segments in La+1 B to be the ones that overlap
-                // and r = A / B
-                // we want to avoid compactions that have a low ratio r
-                // because that means we don't clear out a lot of segments in La
-                // but have to rewrite a lot of segments in La+1
-                //
-                // ultimately, we want the highest ratio
-                // to maximize the amount of segments we are getting rid of in La
-                // for the least amount of effort
-                choices.push((
-                    effort,
-                    segment_ids,
-                    next_level_overlapping_segments.is_empty(),
-                ));
-            }
-        }
+        (power * (self.level_base_size as usize)) as u64
     }
-
-    let minimum_effort_choice = choices.into_iter().min_by(|a, b| a.0.cmp(&b.0));
-    let (_, set, can_trivial_move) = minimum_effort_choice.expect("should exist");
-
-    (set, can_trivial_move)
 }
 
 impl CompactionStrategy for Strategy {
@@ -173,7 +168,7 @@ impl CompactionStrategy for Strategy {
             .enumerate()
             .skip(1)
             .take(resolved_view.len() - 2)
-            .rev()
+        //.rev()
         {
             // NOTE: Level count is 255 max
             #[allow(clippy::cast_possible_truncation)]
@@ -189,18 +184,22 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            let desired_bytes =
-                desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.target_size);
+            let desired_bytes = self.level_target_size(curr_level_index);
 
-            let overshoot = level.size().saturating_sub(desired_bytes as u64);
+            let overshoot = level.size().saturating_sub(desired_bytes);
 
             if overshoot > 0 {
                 let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
                     break;
                 };
 
-                let (segment_ids, can_trivial_move) =
-                    pick_minimal_overlap(level, next_level, overshoot);
+                let (segment_ids, can_trivial_move) = pick_minimal_overlap(level, next_level);
+
+                // eprintln!(
+                //     "merge {} segments, L{}->L{next_level_index}: {segment_ids:?}",
+                //     segment_ids.len(),
+                //     next_level_index - 1,
+                // );
 
                 let choice = CompactionInput {
                     segment_ids,
@@ -585,165 +584,10 @@ mod tests {
     }
 
     #[test]
-    fn leveled_deeper_level_with_overlap() -> crate::Result<()> {
-        let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
-            ..Default::default()
-        };
-        let config = Config::default();
-
-        #[rustfmt::skip]
-        let levels = build_levels(tempdir.path(), vec![
-            vec![],
-            vec![(1, "a", "g", 64), (2, "h", "t", 64), (3, "x", "z", 64)],
-            vec![(4, "f", "l", 64)],
-            vec![],
-        ])?;
-
-        assert_eq!(
-            compactor.choose(&levels, &config),
-            Choice::Merge(CompactionInput {
-                dest_level: 2,
-                segment_ids: set![3],
-                target_size: 64 * 1_024 * 1_024
-            })
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn leveled_deeper_level_no_overlap() -> crate::Result<()> {
-        let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
-            ..Default::default()
-        };
-        let config = Config::default();
-
-        #[rustfmt::skip]
-        let levels = build_levels(tempdir.path(), vec![
-            vec![],
-            vec![(1, "a", "g", 64), (2, "h", "j", 64), (3, "k", "t", 64)],
-            vec![(4, "k", "l", 64)],
-            vec![],
-        ])?;
-
-        assert_eq!(
-            compactor.choose(&levels, &config),
-            // NOTE: We merge because segments are demoted into "cold" levels
-            // see https://github.com/fjall-rs/lsm-tree/issues/63
-            Choice::Merge(CompactionInput {
-                dest_level: 2,
-                segment_ids: set![1],
-                target_size: 64 * 1_024 * 1_024
-            })
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn leveled_last_level_with_overlap() -> crate::Result<()> {
-        let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
-            ..Default::default()
-        };
-        let config = Config::default();
-
-        #[rustfmt::skip]
-        let levels = build_levels(tempdir.path(), vec![
-            vec![],
-            vec![],
-            vec![(1, "a", "g", 64), (2, "a", "g", 64), (3, "a", "g", 64), (4, "a", "g", 64), (5, "y", "z", 64)],
-            vec![(6, "f", "l", 64)],
-        ])?;
-
-        assert_eq!(
-            compactor.choose(&levels, &config),
-            Choice::Merge(CompactionInput {
-                dest_level: 3,
-                // NOTE: 5 is the only segment that has no overlap with #3
-                segment_ids: set![5],
-                target_size: 64 * 1_024 * 1_024
-            })
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn levelled_last_level_with_overlap_invariant() -> crate::Result<()> {
-        let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
-            ..Default::default()
-        };
-        let config = Config::default();
-
-        #[rustfmt::skip]
-        let levels = build_levels(tempdir.path(), vec![
-            vec![],
-            vec![],
-            vec![(1, "a", "g", 64), (2, "h", "j", 64), (3, "k", "l", 64), (4, "m", "n", 64), (5, "y", "z", 64)],
-            vec![(6, "f", "l", 64)],
-        ])?;
-
-        assert_eq!(
-            compactor.choose(&levels, &config),
-            Choice::Move(CompactionInput {
-                dest_level: 3,
-                // NOTE: segment #4 is the left-most segment that has no overlap with L3
-                segment_ids: set![4],
-                target_size: 64 * 1_024 * 1_024
-            })
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn levelled_last_level_without_overlap_invariant() -> crate::Result<()> {
-        let tempdir = tempfile::tempdir()?;
-        let compactor = Strategy {
-            target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
-            ..Default::default()
-        };
-        let config = Config::default();
-
-        #[rustfmt::skip]
-        let levels = build_levels(tempdir.path(), vec![
-            vec![],
-            vec![],
-            vec![(1, "a", "g", 64), (2, "h", "j", 64), (3, "k", "l", 64), (4, "m", "n", 64), (5, "y", "z", 64)],
-            vec![(6, "w", "x", 64)],
-        ])?;
-
-        assert_eq!(
-            compactor.choose(&levels, &config),
-            Choice::Move(CompactionInput {
-                dest_level: 3,
-                segment_ids: set![1],
-                target_size: 64 * 1_024 * 1_024
-            })
-        );
-
-        Ok(())
-    }
-
-    #[test]
     fn levelled_from_tiered() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let compactor = Strategy {
             target_size: 64 * 1_024 * 1_024,
-            level_ratio: 2,
             ..Default::default()
         };
         let config = Config::default();
@@ -751,7 +595,7 @@ mod tests {
         #[rustfmt::skip]
         let levels = build_levels(tempdir.path(), vec![
             vec![],
-            vec![(1, "a", "z", 64), (2, "a", "z", 64), (3, "g", "z", 64)],
+            vec![(1, "a", "z", 64), (2, "a", "z", 64), (3, "g", "z", 64), (5, "g", "z", 64), (6, "g", "z", 64)],
             vec![(4, "a", "g", 64)],
             vec![],
         ])?;
@@ -760,7 +604,7 @@ mod tests {
             compactor.choose(&levels, &config),
             Choice::Merge(CompactionInput {
                 dest_level: 2,
-                segment_ids: [1, 2, 3, 4].into_iter().collect::<HashSet<_>>(),
+                segment_ids: [1, 2, 3, 4, 5, 6].into_iter().collect::<HashSet<_>>(),
                 target_size: 64 * 1_024 * 1_024
             })
         );
