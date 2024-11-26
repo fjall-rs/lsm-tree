@@ -69,8 +69,10 @@ impl TopLevelIndex {
     pub fn iter(&self) -> impl Iterator<Item = &KeyedBlockHandle> {
         self.0.iter()
     }
+}
 
-    pub fn get_lowest_block_containing_key(
+impl KeyedBlockIndex for TopLevelIndex {
+    fn get_lowest_block_containing_key(
         &self,
         key: &[u8],
         _: CachePolicy,
@@ -80,7 +82,7 @@ impl TopLevelIndex {
     }
 
     /// Gets the last block handle that may contain the given item
-    pub fn get_last_block_containing_key(
+    fn get_last_block_containing_key(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
@@ -88,7 +90,7 @@ impl TopLevelIndex {
         self.0.get_last_block_containing_key(key, cache_policy)
     }
 
-    pub fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<&KeyedBlockHandle> {
+    fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<&KeyedBlockHandle> {
         self.0.get_last_block_handle(CachePolicy::Read)
     }
 }

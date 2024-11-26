@@ -84,6 +84,8 @@ impl TwoLevelBlockIndex {
         key: &[u8],
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<BlockOffset>> {
+        use super::KeyedBlockIndex;
+
         let Some(index_block_handle) = self
             .top_level_index
             .get_lowest_block_containing_key(key, cache_policy)
@@ -111,6 +113,8 @@ impl TwoLevelBlockIndex {
         key: &[u8],
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<BlockOffset>> {
+        use super::KeyedBlockIndex;
+
         let Some(index_block_handle) = self
             .top_level_index
             .get_last_block_containing_key(key, cache_policy)
@@ -136,6 +140,8 @@ impl TwoLevelBlockIndex {
         &self,
         cache_policy: CachePolicy,
     ) -> crate::Result<BlockOffset> {
+        use super::KeyedBlockIndex;
+
         let index_block_handle = self
             .top_level_index
             .get_last_block_handle(cache_policy)
