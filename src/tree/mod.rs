@@ -208,6 +208,8 @@ impl AbstractTree for Tree {
             }
         })?;
 
+        // eprintln!("{original_levels}");
+
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.metadata.id);
             sealed_memtables.remove(segment.metadata.id);
@@ -838,7 +840,7 @@ impl Tree {
             &config.block_cache,
             &config.descriptor_table,
         )?;
-        levels.sort_levels();
+        levels.update_metadata();
 
         let highest_segment_id = levels
             .iter()

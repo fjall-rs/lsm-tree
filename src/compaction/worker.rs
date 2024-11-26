@@ -224,7 +224,7 @@ fn merge_segments(
     log::debug!(
         "Compacted in {}ms ({} segments created)",
         start.elapsed().as_millis(),
-        writer_results.len()
+        writer_results.len(),
     );
 
     let created_segments = writer_results

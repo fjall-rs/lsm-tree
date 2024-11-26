@@ -46,11 +46,19 @@ pub struct LevelManifest {
 impl std::fmt::Display for LevelManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (idx, level) in self.levels.iter().enumerate() {
-            write!(f, "{idx}: ")?;
+            write!(
+                f,
+                "{idx} [{}]: ",
+                match (level.is_empty(), level.compute_is_disjoint()) {
+                    (true, _) => ".",
+                    (false, true) => "D",
+                    (false, false) => "_",
+                }
+            )?;
 
             if level.segments.is_empty() {
                 write!(f, "<empty>")?;
-            } else if level.segments.len() >= 10 {
+            } else if level.segments.len() >= 30 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
                     let id = segment.metadata.id;
@@ -96,7 +104,7 @@ impl std::fmt::Display for LevelManifest {
                 f,
                 " | # = {}, {} MiB",
                 level.len(),
-                level.size() / 1_024 / 1_024
+                level.size() / 1_024 / 1_024,
             )?;
         }
 
@@ -283,7 +291,7 @@ impl LevelManifest {
 
         Self::write_to_disk(&self.path, &working_copy)?;
         self.levels = working_copy.into_iter().map(Arc::new).collect();
-        self.sort_levels();
+        self.update_metadata();
         self.set_disjoint_flag();
 
         log::trace!("Swapped level manifest to:\n{self}");
@@ -297,11 +305,11 @@ impl LevelManifest {
         self.insert_into_level(0, segment);
     }
 
-    pub(crate) fn sort_levels(&mut self) {
+    pub fn update_metadata(&mut self) {
         for level in &mut self.levels {
             Arc::get_mut(level)
                 .expect("could not get mutable Arc - this is a bug")
-                .sort();
+                .update_metadata();
         }
     }
 
