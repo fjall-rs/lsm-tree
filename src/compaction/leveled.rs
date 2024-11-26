@@ -323,7 +323,7 @@ mod tests {
         key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
@@ -355,10 +355,13 @@ mod tests {
     ) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
+
         SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index,
 
             offsets: FileOffsets {
                 bloom_ptr: BlockOffset(0),

@@ -2,7 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::block_index::two_level_index::TwoLevelBlockIndex;
+use super::block_index::BlockIndex;
+use super::block_index::BlockIndexImpl;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
 use super::value_block::BlockOffset;
@@ -17,7 +18,7 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 pub struct Range {
-    block_index: Arc<TwoLevelBlockIndex>,
+    block_index: Arc<BlockIndexImpl>,
 
     lo_initialized: bool,
     hi_initialized: bool,
@@ -33,7 +34,7 @@ impl Range {
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
-        block_index: Arc<TwoLevelBlockIndex>,
+        block_index: Arc<BlockIndexImpl>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
         let reader = Reader::new(
@@ -69,9 +70,9 @@ impl Range {
             Bound::Included(start) | Bound::Excluded(start) => {
                 if let Some(lower_bound) = self
                     .block_index
-                    .get_lowest_data_block_handle_containing_item(start, CachePolicy::Write)?
+                    .get_lowest_block_containing_key(start, CachePolicy::Write)?
                 {
-                    self.reader.lo_block_offset = lower_bound.offset;
+                    self.reader.lo_block_offset = lower_bound;
                 }
 
                 Some(start)
@@ -90,20 +91,21 @@ impl Range {
     fn initialize_hi_bound(&mut self) -> crate::Result<()> {
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
-                let upper_bound = self
-                    .block_index
-                    .get_last_data_block_handle(CachePolicy::Write)?;
+                let upper_bound = self.block_index.get_last_block_handle(CachePolicy::Write)?;
 
-                self.reader.hi_block_offset = Some(upper_bound.offset);
+                self.reader.hi_block_offset = Some(upper_bound);
 
                 None
             }
             Bound::Included(end) | Bound::Excluded(end) => {
                 if let Some(upper_bound) = self
                     .block_index
-                    .get_last_data_block_handle_containing_item(end, CachePolicy::Write)?
+                    .get_last_block_containing_key(end, CachePolicy::Write)?
                 {
-                    self.reader.hi_block_offset = Some(upper_bound.offset);
+                    self.reader.hi_block_offset = Some(upper_bound);
+                } else {
+                    self.reader.hi_block_offset =
+                        Some(self.block_index.get_last_block_handle(CachePolicy::Write)?);
                 }
 
                 Some(end)
@@ -233,7 +235,7 @@ mod tests {
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             range::Range,
             writer::{Options, Writer},
         },
@@ -284,13 +286,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         let iter = Range::new(
             trailer.offsets.index_block_ptr,
@@ -382,13 +386,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         {
             let mut iter = Range::new(
@@ -581,13 +587,15 @@ mod tests {
             table.insert(&segment_file_path, (0, 0).into());
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+            let block_index = TwoLevelBlockIndex::from_file(
                 segment_file_path,
+                &trailer.metadata,
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
                 block_cache.clone(),
-            )?);
+            )?;
+            let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
             let ranges: Vec<(Bound<u64>, Bound<u64>)> = vec![
                 range_bounds_to_tuple(&(0..1_000)),
@@ -683,13 +691,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         for (i, &start_char) in chars.iter().enumerate() {
             for &end_char in chars.iter().skip(i + 1) {

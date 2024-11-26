@@ -9,8 +9,12 @@ use crate::{
     level_manifest::LevelManifest,
     merge::{BoxedIterator, Merger},
     segment::{
-        block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
-        multi_writer::MultiWriter, Segment, SegmentInner,
+        block_index::{
+            full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
+        },
+        id::GlobalSegmentId,
+        multi_writer::MultiWriter,
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
@@ -229,21 +233,34 @@ fn merge_segments(
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
-            let tli_ptr = trailer.offsets.tli_ptr;
-
             #[cfg(feature = "bloom")]
             let bloom_ptr = trailer.offsets.bloom_ptr;
 
-            // NOTE: Need to allow because of false positive in Clippy
-            // because of "bloom" feature
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
-                &segment_file_path,
-                tli_ptr,
-                (opts.tree_id, segment_id).into(),
-                opts.config.descriptor_table.clone(),
-                opts.config.block_cache.clone(),
-            )?);
+            let block_index = match payload.dest_level {
+                0 | 1 => {
+                    let block_index = FullBlockIndex::from_file(
+                        &segment_file_path,
+                        &trailer.metadata,
+                        &trailer.offsets,
+                    )?;
+                    BlockIndexImpl::Full(block_index)
+                }
+                _ => {
+                    // NOTE: Need to allow because of false positive in Clippy
+                    // because of "bloom" feature
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    let block_index = TwoLevelBlockIndex::from_file(
+                        &segment_file_path,
+                        &trailer.metadata,
+                        trailer.offsets.tli_ptr,
+                        (opts.tree_id, segment_id).into(),
+                        opts.config.descriptor_table.clone(),
+                        opts.config.block_cache.clone(),
+                    )?;
+                    BlockIndexImpl::TwoLevel(block_index)
+                }
+            };
+            let block_index = Arc::new(block_index);
 
             Ok(SegmentInner {
                 tree_id: opts.tree_id,

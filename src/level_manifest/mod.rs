@@ -175,11 +175,24 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn recover_ids<P: AsRef<Path>>(path: P) -> crate::Result<Vec<SegmentId>> {
-        Ok(Self::load_level_manifest(path)?
-            .into_iter()
-            .flatten()
-            .collect())
+    pub(crate) fn recover_ids<P: AsRef<Path>>(
+        path: P,
+    ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
+        let manifest = Self::load_level_manifest(path)?;
+        let mut result = crate::HashMap::default();
+
+        for (level_idx, segment_ids) in manifest.into_iter().enumerate() {
+            for segment_id in segment_ids {
+                result.insert(
+                    segment_id,
+                    level_idx
+                        .try_into()
+                        .expect("there are less than 256 levels"),
+                );
+            }
+        }
+
+        Ok(result)
     }
 
     fn resolve_levels(
