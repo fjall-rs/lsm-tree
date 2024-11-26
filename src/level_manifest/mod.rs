@@ -52,31 +52,7 @@ impl std::fmt::Display for LevelManifest {
                 match (level.is_empty(), level.compute_is_disjoint()) {
                     (true, _) => ".",
                     (false, true) => "D",
-
-                    (false, false) => {
-                        // #[allow(clippy::all)]
-                        // if idx > 0 {
-                        //     eprintln!("wtf??!");
-                        //     eprintln!(
-                        //         "disjoint: {}",
-                        //         KeyRange::is_disjoint(
-                        //             &level
-                        //                 .segments
-                        //                 .iter()
-                        //                 .map(|x| &x.metadata.key_range)
-                        //                 .collect::<Vec<_>>()
-                        //         )
-                        //     );
-
-                        //     for segment in &level.segments {
-                        //         eprintln!(
-                        //             "{}: {:?}",
-                        //             segment.metadata.id, segment.metadata.key_range
-                        //         );
-                        //     }
-                        // }
-                        "_"
-                    }
+                    (false, false) => "_",
                 }
             )?;
 
@@ -128,7 +104,7 @@ impl std::fmt::Display for LevelManifest {
                 f,
                 " | # = {}, {} MiB",
                 level.len(),
-                level.size() / 1_024 / 1_024
+                level.size() / 1_024 / 1_024,
             )?;
         }
 
