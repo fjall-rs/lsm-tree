@@ -31,8 +31,27 @@ fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<Segm
 
             // Pull in all segments in current level into compaction
             let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
+                // IMPORTANT: Avoid "infectious spread" of key ranges
+                // Imagine these levels:
+                //
+                //      A     B     C     D     E     F
+                // L1 | ----- ----- ----- ----- ----- -----
+                // L2 |    -----  -----  ----- ----- -----
+                //      1      2      3     4     5
+                //
+                // If we took 1, we would also have to include A,
+                // but then we would also have to include 2,
+                // but then we would also have to include B,
+                // but then we would also have to include 3,
+                // ...
+                //
+                // Instead, we consider a window like 1 - 3
+                // and then take A & B, because they are *contained* in that range
+                // Not including C is fine, because we are not shadowing data unexpectedly
                 curr_level.contained_segments(&key_range).collect()
             } else {
+                // If the level is not disjoint, we just merge everything that overlaps
+                // to try and "repair" the level
                 curr_level.overlapping_segments(&key_range).collect()
             };
 
@@ -41,14 +60,17 @@ fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<Segm
                 .map(|x| x.metadata.file_size)
                 .sum::<u64>();
 
-            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
+            // NOTE: Only consider compactions where we actually do some merging
+            if curr_level_size > 0 {
+                let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
-            let mut segment_ids: HashSet<_> = window.iter().map(|x| x.metadata.id).collect();
-            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.metadata.id));
+                let mut segment_ids: HashSet<_> = window.iter().map(|x| x.metadata.id).collect();
+                segment_ids.extend(curr_level_pull_in.iter().map(|x| x.metadata.id));
 
-            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
+                let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-            choices.push((write_amp, segment_ids, false));
+                choices.push((write_amp, segment_ids, false));
+            }
         }
     }
 
