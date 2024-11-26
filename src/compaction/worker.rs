@@ -125,20 +125,36 @@ fn merge_segments(
 ) -> crate::Result<()> {
     if opts.stop_signal.is_stopped() {
         log::debug!("compactor: stopping before compaction because of stop signal");
+        return Ok(());
+    }
+
+    // TODO: this sometimes runs, but shouldn't be possible
+    // TODO: because we have a mutex when hiding & showing segments and checking compaction strategy...
+    if payload
+        .segment_ids
+        .iter()
+        .any(|id| levels.hidden_set.contains(id))
+    {
+        log::warn!("Compaction task contained hidden segments, declining to run it");
+        return Ok(());
     }
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     let merge_iter = {
-        let to_merge: Vec<_> = {
+        let to_merge: Option<Vec<_>> = {
             let segments = levels.get_all_segments();
 
             payload
                 .segment_ids
                 .iter()
-                .filter_map(|x| segments.get(x))
-                .cloned()
+                .map(|x| segments.get(x).cloned())
                 .collect()
+        };
+
+        let Some(to_merge) = to_merge else {
+            log::warn!("Compaction task contained segments that do not exist, declining to run it");
+            return Ok(());
         };
 
         let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());

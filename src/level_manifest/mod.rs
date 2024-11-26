@@ -38,7 +38,7 @@ pub struct LevelManifest {
     ///
     /// While consuming segments (because of compaction) they will not appear in the list of segments
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
-    hidden_set: HiddenSet,
+    pub hidden_set: HiddenSet,
 
     is_disjoint: bool,
 }

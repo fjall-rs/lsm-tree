@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
     key_range::KeyRange,
-    level_manifest::{level::Level, LevelManifest},
+    level_manifest::{level::Level, HiddenSet, LevelManifest},
     segment::Segment,
     HashSet, SegmentId,
 };
@@ -16,8 +16,12 @@ fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
 }
 
 // TODO: Currently does not take in `overshoot`
-// TODO: Need to make sure compactions are not too small
-fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<SegmentId>, bool) {
+// TODO: Need to make sure compactions are not too small either
+fn pick_minimal_compaction(
+    curr_level: &Level,
+    next_level: &Level,
+    hidden_set: &HiddenSet,
+) -> Option<(HashSet<SegmentId>, bool)> {
     // assert!(curr_level.is_disjoint, "Lx is not disjoint");
     // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
 
@@ -27,6 +31,16 @@ fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<Segm
         let windows = next_level.windows(size);
 
         for window in windows {
+            if window
+                .iter()
+                .map(|x| x.metadata.id)
+                .any(|x| hidden_set.contains(&x))
+            {
+                // IMPORTANT: Compaction is blocked because of other
+                // on-going compaction
+                continue;
+            }
+
             let key_range = aggregate_key_range(window);
 
             // Pull in all segments in current level into compaction
@@ -54,6 +68,16 @@ fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<Segm
                 // to try and "repair" the level
                 curr_level.overlapping_segments(&key_range).collect()
             };
+
+            if curr_level_pull_in
+                .iter()
+                .map(|x| x.metadata.id)
+                .any(|x| hidden_set.contains(&x))
+            {
+                // IMPORTANT: Compaction is blocked because of other
+                // on-going compaction
+                continue;
+            }
 
             let curr_level_size = curr_level_pull_in
                 .iter()
@@ -100,9 +124,7 @@ fn pick_minimal_overlap(curr_level: &Level, next_level: &Level) -> (HashSet<Segm
         .into_iter()
         .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
-    let (_, set, can_trivial_move) = minimum_effort_choice.expect("should exist");
-
-    (set, can_trivial_move)
+    minimum_effort_choice.map(|(_, set, can_trivial_move)| (set, can_trivial_move))
 }
 
 /// Levelled compaction strategy (LCS)
@@ -174,24 +196,10 @@ impl Strategy {
 impl CompactionStrategy for Strategy {
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
+        let view = &levels.levels;
 
-        // If there are any levels that already have a compactor working on it
-        // we can't touch those, because that could cause a race condition
-        // violating the leveled compaction invariance of having a single sorted
-        // run per level
-        //
-        // TODO: However, this can probably improved by checking two compaction
-        // workers just don't cross key ranges
-        let busy_levels = levels.busy_levels();
-
-        for (curr_level_index, level) in resolved_view
-            .iter()
-            .enumerate()
-            .skip(1)
-            .take(resolved_view.len() - 2)
-        //.rev()
-        {
+        // L1+ compactions
+        for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2) {
             // NOTE: Level count is 255 max
             #[allow(clippy::cast_possible_truncation)]
             let curr_level_index = curr_level_index as u8;
@@ -202,20 +210,24 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            if busy_levels.contains(&curr_level_index) || busy_levels.contains(&next_level_index) {
+            /*  if busy_levels.contains(&curr_level_index) || busy_levels.contains(&next_level_index) {
                 continue;
-            }
+            } */
 
             let desired_bytes = self.level_target_size(curr_level_index);
 
             let overshoot = level.size().saturating_sub(desired_bytes);
 
             if overshoot > 0 {
-                let Some(next_level) = &resolved_view.get(next_level_index as usize) else {
+                let Some(next_level) = &view.get(next_level_index as usize) else {
                     break;
                 };
 
-                let (segment_ids, can_trivial_move) = pick_minimal_overlap(level, next_level);
+                let Some((segment_ids, can_trivial_move)) =
+                    pick_minimal_compaction(level, next_level, &levels.hidden_set)
+                else {
+                    break;
+                };
 
                 // eprintln!(
                 //     "merge {} segments, L{}->L{next_level_index}: {segment_ids:?}",
@@ -250,8 +262,11 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // L0->L1 compactions
         {
-            let Some(first_level) = resolved_view.first() else {
+            let busy_levels = levels.busy_levels();
+
+            let Some(first_level) = view.first() else {
                 return Choice::DoNothing;
             };
 
@@ -296,10 +311,10 @@ impl CompactionStrategy for Strategy {
                 }
 
                 if !busy_levels.contains(&1) {
-                    let mut level = first_level.clone();
+                    let mut level = (**first_level).clone();
                     level.sort_by_key_range();
 
-                    let Some(next_level) = &resolved_view.get(1) else {
+                    let Some(next_level) = &view.get(1) else {
                         return Choice::DoNothing;
                     };
 
