@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{block_handle::KeyedBlockHandle, RawBlockIndex};
+use super::{block_handle::KeyedBlockHandle, KeyedBlockIndex};
 use crate::segment::{
     block_index::IndexBlock,
     value_block::{BlockOffset, CachePolicy},

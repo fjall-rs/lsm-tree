@@ -55,7 +55,7 @@ impl BlockIndex for FullBlockIndex {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<BlockOffset>> {
-        use super::RawBlockIndex;
+        use super::KeyedBlockIndex;
 
         self.0
             .get_lowest_block_containing_key(key, CachePolicy::Read)
@@ -68,7 +68,7 @@ impl BlockIndex for FullBlockIndex {
         key: &[u8],
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<BlockOffset>> {
-        use super::RawBlockIndex;
+        use super::KeyedBlockIndex;
 
         self.0
             .get_last_block_containing_key(key, cache_policy)
@@ -76,7 +76,7 @@ impl BlockIndex for FullBlockIndex {
     }
 
     fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<BlockOffset> {
-        use super::RawBlockIndex;
+        use super::KeyedBlockIndex;
 
         self.0
             .get_last_block_handle(CachePolicy::Read)

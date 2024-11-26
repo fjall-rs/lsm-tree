@@ -95,7 +95,7 @@ impl TwoLevelBlockIndex {
         let index_block = self.load_index_block(index_block_handle.offset, cache_policy)?;
 
         Ok({
-            use super::RawBlockIndex;
+            use super::KeyedBlockIndex;
 
             index_block
                 .items
@@ -122,7 +122,7 @@ impl TwoLevelBlockIndex {
         let index_block = self.load_index_block(index_block_handle.offset, cache_policy)?;
 
         Ok({
-            use super::RawBlockIndex;
+            use super::KeyedBlockIndex;
 
             index_block
                 .items

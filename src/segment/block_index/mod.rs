@@ -18,7 +18,7 @@ use two_level_index::TwoLevelBlockIndex;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 
-impl RawBlockIndex for [KeyedBlockHandle] {
+impl KeyedBlockIndex for [KeyedBlockHandle] {
     fn get_lowest_block_containing_key(
         &self,
         key: &[u8],
@@ -81,7 +81,7 @@ pub trait BlockIndex {
 }
 
 #[allow(clippy::module_name_repetitions)]
-pub trait RawBlockIndex {
+pub trait KeyedBlockIndex {
     /// Gets the lowest block handle that may contain the given item
     fn get_lowest_block_containing_key(
         &self,
