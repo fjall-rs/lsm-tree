@@ -289,7 +289,7 @@ mod tests {
         let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
             &trailer.metadata,
-            &trailer.offsets,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
@@ -389,7 +389,7 @@ mod tests {
         let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
             &trailer.metadata,
-            &trailer.offsets,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
@@ -590,7 +590,7 @@ mod tests {
             let block_index = TwoLevelBlockIndex::from_file(
                 segment_file_path,
                 &trailer.metadata,
-                &trailer.offsets,
+                trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
                 block_cache.clone(),
@@ -694,7 +694,7 @@ mod tests {
         let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
             &trailer.metadata,
-            &trailer.offsets,
+            trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),

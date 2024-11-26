@@ -239,7 +239,7 @@ impl Segment {
             let block_index = TwoLevelBlockIndex::from_file(
                 file_path,
                 &trailer.metadata,
-                &trailer.offsets,
+                trailer.offsets.tli_ptr,
                 (tree_id, trailer.metadata.id).into(),
                 descriptor_table.clone(),
                 block_cache.clone(),

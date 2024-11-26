@@ -252,7 +252,7 @@ fn merge_segments(
                     let block_index = TwoLevelBlockIndex::from_file(
                         &segment_file_path,
                         &trailer.metadata,
-                        &trailer.offsets,
+                        trailer.offsets.tli_ptr,
                         (opts.tree_id, segment_id).into(),
                         opts.config.descriptor_table.clone(),
                         opts.config.block_cache.clone(),
