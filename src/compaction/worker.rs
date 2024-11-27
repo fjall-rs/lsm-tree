@@ -176,6 +176,8 @@ fn merge_segments(
 
     levels.hide_segments(payload.segment_ids.iter().copied());
 
+    // IMPORTANT: Free lock so the compaction (which may go on for a while)
+    // does not block possible other compactions and reads
     drop(levels);
 
     // NOTE: Only evict tombstones when reaching the last level,
@@ -203,10 +205,11 @@ fn merge_segments(
         if opts.config.bloom_bits_per_key >= 0 {
             // NOTE: Apply some MONKEY to have very high FPR on small levels
             // because it's cheap
+            //
+            // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
             let bloom_policy = match payload.dest_level {
-                // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63 is fixed
-                0 => BloomConstructionPolicy::FpRate(0.0001),
-                1 => BloomConstructionPolicy::FpRate(0.001),
+                0 => BloomConstructionPolicy::FpRate(0.00001),
+                1 => BloomConstructionPolicy::FpRate(0.0005),
                 _ => BloomConstructionPolicy::BitsPerKey(
                     opts.config.bloom_bits_per_key.unsigned_abs(),
                 ),
