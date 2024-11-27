@@ -249,9 +249,6 @@ fn merge_segments(
             let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
-            #[cfg(feature = "bloom")]
-            let bloom_ptr = trailer.offsets.bloom_ptr;
-
             let block_index = match payload.dest_level {
                 0 | 1 => {
                     let block_index = FullBlockIndex::from_file(
@@ -291,7 +288,7 @@ fn merge_segments(
                 block_index,
 
                 #[cfg(feature = "bloom")]
-                bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+                bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
             }
             .into())
         })

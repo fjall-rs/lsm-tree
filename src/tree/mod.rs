@@ -512,9 +512,6 @@ impl Tree {
             FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
-        #[cfg(feature = "bloom")]
-        let bloom_ptr = trailer.offsets.bloom_ptr;
-
         let created_segment: Segment = SegmentInner {
             tree_id: self.id,
 
@@ -526,7 +523,7 @@ impl Tree {
             block_cache: self.config.block_cache.clone(),
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
 
