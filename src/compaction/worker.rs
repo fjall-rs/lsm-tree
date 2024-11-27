@@ -299,14 +299,14 @@ fn merge_segments(
 
     // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring levels manifest write lock");
-    let mut original_levels = opts.levels.write().expect("lock is poisoned");
+    let mut levels = opts.levels.write().expect("lock is poisoned");
 
     // IMPORTANT: Write lock memtable(s), otherwise segments may get deleted while a range read is happening
     // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring sealed memtables write lock");
     let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
 
-    let swap_result = original_levels.atomic_swap(|recipe| {
+    let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
             log::trace!("Persisting segment {}", segment.metadata.id);
 
@@ -327,7 +327,7 @@ fn merge_segments(
 
     if let Err(e) = swap_result {
         // IMPORTANT: Show the segments again, because compaction failed
-        original_levels.show_segments(payload.segment_ids.iter().copied());
+        levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
     };
 
@@ -363,9 +363,9 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    original_levels.show_segments(payload.segment_ids.iter().copied());
+    levels.show_segments(payload.segment_ids.iter().copied());
 
-    drop(original_levels);
+    drop(levels);
 
     log::debug!("compactor: done");
 
