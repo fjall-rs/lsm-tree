@@ -68,19 +68,17 @@ The disk format is stable as of 1.0.0.
 
 Future breaking changes will result in a major version bump and a migration path.
 
+## Run unit benchmarks
+
+```bash
+cargo bench --features bloom,lz4,miniz
+```
+
 ## License
 
 All source code is licensed under MIT OR Apache-2.0.
 
 All contributions are to be licensed as MIT OR Apache-2.0.
-
-## Development
-
-### Run benchmarks
-
-```bash
-cargo bench --features bloom --features lz4 --features miniz
-```
 
 ## Footnotes
 
