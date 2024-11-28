@@ -99,6 +99,7 @@
 #![allow(clippy::missing_const_for_fn)]
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
+#![warn(clippy::needless_lifetimes)]
 
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
