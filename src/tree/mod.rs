@@ -169,11 +169,8 @@ impl AbstractTree for Tree {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
-                segment_writer = segment_writer.use_bloom_policy(
-                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
-                    // is fixed
-                    BloomConstructionPolicy::FpRate(0.0001),
-                );
+                segment_writer =
+                    segment_writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
             } else {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
