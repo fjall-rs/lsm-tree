@@ -199,7 +199,8 @@ impl CompactionStrategy for Strategy {
         let view = &levels.levels;
 
         // L1+ compactions
-        for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2) {
+        for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2).rev()
+        {
             // NOTE: Level count is 255 max
             #[allow(clippy::cast_possible_truncation)]
             let curr_level_index = curr_level_index as u8;
@@ -210,13 +211,18 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            /*  if busy_levels.contains(&curr_level_index) || busy_levels.contains(&next_level_index) {
-                continue;
-            } */
+            let level_size: u64 = level
+                .segments
+                .iter()
+                // NOTE: Take bytes that are already being compacted into account,
+                // otherwise we may be overcompensating
+                .filter(|x| !levels.hidden_set.contains(&x.metadata.id))
+                .map(|x| x.metadata.file_size)
+                .sum();
 
             let desired_bytes = self.level_target_size(curr_level_index);
 
-            let overshoot = level.size().saturating_sub(desired_bytes);
+            let overshoot = level_size.saturating_sub(desired_bytes);
 
             if overshoot > 0 {
                 let Some(next_level) = &view.get(next_level_index as usize) else {

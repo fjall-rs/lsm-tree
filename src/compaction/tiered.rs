@@ -69,13 +69,20 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            let curr_level_bytes = level.size();
+            let level_size: u64 = level
+                .segments
+                .iter()
+                // NOTE: Take bytes that are already being compacted into account,
+                // otherwise we may be overcompensating
+                .filter(|x| !levels.hidden_set.contains(&x.metadata.id))
+                .map(|x| x.metadata.file_size)
+                .sum();
 
             let desired_bytes =
                 desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.base_size)
                     as u64;
 
-            if curr_level_bytes >= desired_bytes {
+            if level_size >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
                 // We want to take N segments, not just the overshoot (like in leveled)
                 let mut overshoot = desired_bytes;
