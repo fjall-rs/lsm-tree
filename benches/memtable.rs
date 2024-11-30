@@ -3,24 +3,23 @@ use lsm_tree::{InternalValue, Memtable};
 use nanoid::nanoid;
 
 fn memtable_get(c: &mut Criterion) {
-    c.bench_function("memtable get", |b| {
-        let memtable = Memtable::default();
+    let memtable = Memtable::default();
 
+    memtable.insert(InternalValue::from_components(
+        "abc_w5wa35aw35naw",
+        vec![],
+        0,
+        lsm_tree::ValueType::Value,
+    ));
+
+    for _ in 0..100_000 {
         memtable.insert(InternalValue::from_components(
-            "abc_w5wa35aw35naw",
+            format!("abc_{}", nanoid!()).as_bytes(),
             vec![],
             0,
             lsm_tree::ValueType::Value,
         ));
-
-        for _ in 0..1_000_000 {
-            memtable.insert(InternalValue::from_components(
-                format!("abc_{}", nanoid!()).as_bytes(),
-                vec![],
-                0,
-                lsm_tree::ValueType::Value,
-            ));
-        }
+    }
 
     c.bench_function("memtable get", |b| {
         b.iter(|| {
