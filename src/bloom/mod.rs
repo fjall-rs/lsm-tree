@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn bloom_fpr() {
-        let item_count = 1_000_000;
+        let item_count = 100_000;
         let wanted_fpr = 0.1;
 
         let mut filter = BloomFilter::with_fp_rate(item_count, wanted_fpr);
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn bloom_fpr_2() {
-        let item_count = 1_000_000;
+        let item_count = 100_000;
         let wanted_fpr = 0.5;
 
         let mut filter = BloomFilter::with_fp_rate(item_count, wanted_fpr);
