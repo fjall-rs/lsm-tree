@@ -21,6 +21,7 @@ fn memtable_get_hit(c: &mut Criterion) {
         ));
     }
 
+    c.bench_function("memtable get", |b| {
         b.iter(|| {
             assert_eq!(
                 [1, 2, 3],
