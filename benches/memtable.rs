@@ -36,13 +36,13 @@ fn memtable_get_snapshot(c: &mut Criterion) {
 
     memtable.insert(InternalValue::from_components(
         "abc_w5wa35aw35naw",
-        vec![],
+        vec![1, 2, 3],
         0,
         lsm_tree::ValueType::Value,
     ));
     memtable.insert(InternalValue::from_components(
         "abc_w5wa35aw35naw",
-        vec![1, 2, 3],
+        vec![1, 2, 3, 4],
         1,
         lsm_tree::ValueType::Value,
     ));
