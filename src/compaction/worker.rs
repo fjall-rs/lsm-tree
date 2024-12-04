@@ -73,7 +73,7 @@ impl Options {
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("compactor: acquiring levels manifest lock");
-    let mut original_levels = opts.levels.write().expect("lock is poisoned");
+    let original_levels = opts.levels.write().expect("lock is poisoned");
 
     log::trace!("compactor: consulting compaction strategy");
     let choice = opts.strategy.choose(&original_levels, &opts.config);
@@ -82,35 +82,15 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
-        Choice::Move(payload) => {
-            let segment_map = original_levels.get_all_segments();
-
-            original_levels.atomic_swap(|recipe| {
-                for segment_id in payload.segment_ids {
-                    if let Some(segment) = segment_map.get(&segment_id).cloned() {
-                        for level in recipe.iter_mut() {
-                            level.remove(segment_id);
-                        }
-
-                        recipe
-                            .get_mut(payload.dest_level as usize)
-                            .expect("destination level should exist")
-                            .insert(segment);
-                    }
-                }
-            })
-        }
-        Choice::Drop(payload) => {
-            drop_segments(
-                original_levels,
-                opts,
-                &payload
-                    .into_iter()
-                    .map(|x| (opts.tree_id, x).into())
-                    .collect::<Vec<_>>(),
-            )?;
-            Ok(())
-        }
+        Choice::Move(payload) => move_segments(original_levels, payload),
+        Choice::Drop(payload) => drop_segments(
+            original_levels,
+            opts,
+            &payload
+                .into_iter()
+                .map(|x| (opts.tree_id, x).into())
+                .collect::<Vec<_>>(),
+        ),
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
             Ok(())
@@ -186,6 +166,28 @@ fn create_compaction_stream<'a>(
     }
 }
 
+fn move_segments(
+    mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    payload: CompactionPayload,
+) -> crate::Result<()> {
+    let segment_map = levels.get_all_segments();
+
+    levels.atomic_swap(|recipe| {
+        for segment_id in payload.segment_ids {
+            if let Some(segment) = segment_map.get(&segment_id).cloned() {
+                for level in recipe.iter_mut() {
+                    level.remove(segment_id);
+                }
+
+                recipe
+                    .get_mut(payload.dest_level as usize)
+                    .expect("destination level should exist")
+                    .insert(segment);
+            }
+        }
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
@@ -202,7 +204,7 @@ fn merge_segments(
     if payload
         .segment_ids
         .iter()
-        .any(|id| levels.hidden_set.contains(id))
+        .any(|id| levels.segment_hidden(*id))
     {
         log::warn!("Compaction task contained hidden segments, declining to run it");
         return Ok(());
