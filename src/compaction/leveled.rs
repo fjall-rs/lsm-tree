@@ -87,7 +87,7 @@ fn pick_minimal_compaction(
 
             // NOTE: Only consider compactions where we actually reach the amount
             // of bytes we need to merge
-            if curr_level_size > overshoot {
+            if curr_level_size >= overshoot {
                 let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
                 let mut segment_ids: HashSet<_> = window.iter().map(|x| x.metadata.id).collect();
