@@ -9,7 +9,7 @@ use crate::{
     merge::{BoxedIterator, Merger},
     multi_reader::MultiReader,
     mvcc_stream::MvccStream,
-    segment::level_reader::LevelReader,
+    segment::{level_reader::LevelReader, value_block::CachePolicy},
     tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
     InternalValue,
@@ -119,7 +119,7 @@ fn collect_disjoint_tree_with_range(
 
     let readers = levels
         .into_iter()
-        .map(|lvl| LevelReader::new(lvl, bounds))
+        .map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write))
         .collect();
 
     MultiReader::new(readers)
@@ -198,7 +198,8 @@ impl TreeIter {
                 for level in &level_manifest.levels {
                     if level.is_disjoint {
                         if !level.is_empty() {
-                            let reader = LevelReader::new(level.clone(), &bounds);
+                            let reader =
+                                LevelReader::new(level.clone(), &bounds, CachePolicy::Write);
 
                             if let Some(seqno) = seqno {
                                 iters.push(Box::new(reader.filter(move |item| match item {
