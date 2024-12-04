@@ -128,22 +128,28 @@ fn create_compaction_stream<'a>(
             continue;
         }
 
-        if level.is_disjoint {
-            let lo = level
+        if level.is_disjoint && level.len() > 1 {
+            let Some(lo) = level
                 .segments
                 .iter()
                 .enumerate()
                 .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
                 .min_by(|(a, _), (b, _)| a.cmp(b))
-                .map(|(idx, _)| idx)?;
+                .map(|(idx, _)| idx)
+            else {
+                continue;
+            };
 
-            let hi = level
+            let Some(hi) = level
                 .segments
                 .iter()
                 .enumerate()
                 .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
                 .max_by(|(a, _), (b, _)| a.cmp(b))
-                .map(|(idx, _)| idx)?;
+                .map(|(idx, _)| idx)
+            else {
+                continue;
+            };
 
             readers.push(Box::new(LevelReader::from_indexes(
                 level.clone(),
