@@ -13,12 +13,13 @@ use crate::{
             full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
         },
         id::GlobalSegmentId,
+        level_reader::LevelReader,
         multi_writer::MultiWriter,
         Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
-    Config,
+    Config, SegmentId, SeqNo,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -117,6 +118,68 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
+fn create_compaction_stream<'a>(
+    levels: &LevelManifest,
+    to_compact: &[SegmentId],
+    eviction_seqno: SeqNo,
+) -> Option<CompactionStream<Merger<'a>>> {
+    use std::ops::Bound::Unbounded;
+
+    let mut readers: Vec<BoxedIterator<'_>> = vec![];
+    let mut found = 0;
+
+    for level in &levels.levels {
+        if level.is_empty() {
+            continue;
+        }
+
+        if level.is_disjoint {
+            let lo = level
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
+                .min_by(|(a, _), (b, _)| a.cmp(b))
+                .map(|(idx, _)| idx)?;
+
+            let hi = level
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
+                .max_by(|(a, _), (b, _)| a.cmp(b))
+                .map(|(idx, _)| idx)?;
+
+            readers.push(Box::new(LevelReader::from_indexes(
+                level.clone(),
+                &(Unbounded, Unbounded),
+                (Some(lo), Some(hi)),
+                crate::segment::value_block::CachePolicy::Read,
+            )));
+
+            found += hi - lo + 1;
+        } else {
+            for &id in to_compact {
+                if let Some(segment) = level.segments.iter().find(|x| x.metadata.id == id) {
+                    found += 1;
+
+                    readers.push(Box::new(
+                        segment
+                            .iter()
+                            .cache_policy(crate::segment::value_block::CachePolicy::Read),
+                    ));
+                }
+            }
+        }
+    }
+
+    if found == to_compact.len() {
+        Some(CompactionStream::new(Merger::new(readers), eviction_seqno))
+    } else {
+        None
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
@@ -129,31 +192,15 @@ fn merge_segments(
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
-    let merge_iter = {
-        let to_merge: Vec<_> = {
-            let segments = levels.get_all_segments();
-
-            payload
-                .segment_ids
-                .iter()
-                .filter_map(|x| segments.get(x))
-                .cloned()
-                .collect()
-        };
-
-        let mut segment_readers: Vec<BoxedIterator<'_>> = Vec::with_capacity(to_merge.len());
-
-        for segment in to_merge {
-            let iter = Box::new(
-                segment
-                    .iter()
-                    .cache_policy(crate::segment::value_block::CachePolicy::Read),
-            );
-            segment_readers.push(iter);
-        }
-
-        let merged = Merger::new(segment_readers);
-        CompactionStream::new(merged, opts.eviction_seqno)
+    let Some(merge_iter) = create_compaction_stream(
+        &levels,
+        &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+        opts.eviction_seqno,
+    ) else {
+        log::warn!(
+            "Compaction task tried to compact segments that do not exist, declining to run it"
+        );
+        return Ok(());
     };
 
     let last_level = levels.last_level_index();
