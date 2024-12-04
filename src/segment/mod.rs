@@ -12,6 +12,7 @@ pub mod meta;
 pub mod multi_writer;
 pub mod range;
 pub mod reader;
+pub mod scanner;
 pub mod trailer;
 pub mod value_block;
 pub mod value_block_consumer;
@@ -27,6 +28,7 @@ use crate::{
 use id::GlobalSegmentId;
 use inner::Inner;
 use range::Range;
+use scanner::Scanner;
 use std::{ops::Bound, path::Path, sync::Arc};
 
 #[cfg(feature = "bloom")]
@@ -406,6 +408,13 @@ impl Segment {
     #[doc(hidden)]
     pub fn iter(&self) -> Range {
         self.range((std::ops::Bound::Unbounded, std::ops::Bound::Unbounded))
+    }
+
+    #[doc(hidden)]
+    pub fn scan<P: AsRef<Path>>(&self, base_folder: P) -> crate::Result<Scanner> {
+        let segment_file_path = base_folder.as_ref().join(self.metadata.id.to_string());
+        let block_count = self.metadata.data_block_count.try_into().expect("oops");
+        Scanner::new(segment_file_path, block_count)
     }
 
     /// Creates a ranged iterator over the `Segment`.

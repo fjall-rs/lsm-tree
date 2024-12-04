@@ -7,16 +7,20 @@ use crate::{
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
-    merge::{BoxedIterator, Merger},
     segment::{
-        block_index::two_level_index::TwoLevelBlockIndex, id::GlobalSegmentId,
-        level_reader::LevelReader, multi_writer::MultiWriter, Segment, SegmentInner,
+        block_index::two_level_index::TwoLevelBlockIndex,
+        id::GlobalSegmentId,
+        level_reader::LevelReader,
+        multi_writer::MultiWriter,
+        scanner::{CompactionMerger, CompactionReader},
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     tree::inner::{SealedMemtables, TreeId},
     Config, SegmentId, SeqNo,
 };
 use std::{
+    path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
@@ -113,14 +117,15 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
-fn create_compaction_stream<'a>(
+fn create_compaction_stream<'a, P: AsRef<Path>>(
+    segment_base_folder: P,
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
-) -> Option<CompactionStream<Merger<'a>>> {
+) -> crate::Result<Option<CompactionStream<CompactionMerger<'a>>>> {
     use std::ops::Bound::Unbounded;
 
-    let mut readers: Vec<BoxedIterator<'_>> = vec![];
+    let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
     for level in &levels.levels {
@@ -163,22 +168,20 @@ fn create_compaction_stream<'a>(
             for &id in to_compact {
                 if let Some(segment) = level.segments.iter().find(|x| x.metadata.id == id) {
                     found += 1;
-
-                    readers.push(Box::new(
-                        segment
-                            .iter()
-                            .cache_policy(crate::segment::value_block::CachePolicy::Read),
-                    ));
+                    readers.push(Box::new(segment.scan(&segment_base_folder)?));
                 }
             }
         }
     }
 
-    if found == to_compact.len() {
-        Some(CompactionStream::new(Merger::new(readers), eviction_seqno))
+    Ok(if found == to_compact.len() {
+        Some(CompactionStream::new(
+            CompactionMerger::new(readers),
+            eviction_seqno,
+        ))
     } else {
         None
-    }
+    })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -194,10 +197,12 @@ fn merge_segments(
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     let Some(merge_iter) = create_compaction_stream(
+        &segments_base_folder,
         &levels,
         &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
-    ) else {
+    )?
+    else {
         log::warn!(
             "Compaction task tried to compact segments that do not exist, declining to run it"
         );
