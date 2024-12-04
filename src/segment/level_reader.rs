@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::range::Range;
+use super::{range::Range, value_block::CachePolicy};
 use crate::{level_manifest::level::Level, InternalValue, UserKey};
 use std::{ops::Bound, sync::Arc};
 
@@ -13,11 +13,16 @@ pub struct LevelReader {
     hi: usize,
     lo_reader: Option<Range>,
     hi_reader: Option<Range>,
+    cache_policy: CachePolicy,
 }
 
 impl LevelReader {
     #[must_use]
-    pub fn new(level: Arc<Level>, range: &(Bound<UserKey>, Bound<UserKey>)) -> Self {
+    pub fn new(
+        level: Arc<Level>,
+        range: &(Bound<UserKey>, Bound<UserKey>),
+        cache_policy: CachePolicy,
+    ) -> Self {
         assert!(!level.is_empty(), "level reader cannot read empty level");
 
         let disjoint_level = level.as_disjoint().expect("level should be disjoint");
@@ -30,16 +35,31 @@ impl LevelReader {
                 hi: 0,
                 lo_reader: None,
                 hi_reader: None,
+                cache_policy,
             };
         };
 
-        let lo_segment = level.get(lo).expect("should exist");
-        let lo_reader = lo_segment.range(range.clone());
+        Self::from_indexes(level, range, (Some(lo), Some(hi)), cache_policy)
+    }
+
+    #[must_use]
+    pub fn from_indexes(
+        level: Arc<Level>,
+        range: &(Bound<UserKey>, Bound<UserKey>),
+        (lo, hi): (Option<usize>, Option<usize>),
+        cache_policy: CachePolicy,
+    ) -> Self {
+        let lo = lo.unwrap_or_default();
+        let hi = hi.unwrap_or(level.len() - 1);
+
+        let lo_segment = level.segments.get(lo).expect("should exist");
+
+        let lo_reader = lo_segment.range(range.clone()).cache_policy(cache_policy);
 
         let hi_reader = if hi > lo {
-            let hi_segment = level.get(hi).expect("should exist");
+            let hi_segment = level.segments.get(hi).expect("should exist");
 
-            Some(hi_segment.range(range.clone()))
+            Some(hi_segment.range(range.clone()).cache_policy(cache_policy))
         } else {
             None
         };
@@ -50,6 +70,7 @@ impl LevelReader {
             hi,
             lo_reader: Some(lo_reader),
             hi_reader,
+            cache_policy,
         }
     }
 }
@@ -69,7 +90,13 @@ impl Iterator for LevelReader {
                 self.lo += 1;
 
                 if self.lo < self.hi {
-                    self.lo_reader = Some(self.segments.get(self.lo).expect("should exist").iter());
+                    self.lo_reader = Some(
+                        self.segments
+                            .get(self.lo)
+                            .expect("should exist")
+                            .iter()
+                            .cache_policy(self.cache_policy),
+                    );
                 }
             } else if let Some(hi_reader) = &mut self.hi_reader {
                 // NOTE: We reached the hi marker, so consume from it instead
@@ -96,7 +123,13 @@ impl DoubleEndedIterator for LevelReader {
                 self.hi -= 1;
 
                 if self.lo < self.hi {
-                    self.hi_reader = Some(self.segments.get(self.hi).expect("should exist").iter());
+                    self.hi_reader = Some(
+                        self.segments
+                            .get(self.hi)
+                            .expect("should exist")
+                            .iter()
+                            .cache_policy(self.cache_policy),
+                    );
                 }
             } else if let Some(lo_reader) = &mut self.lo_reader {
                 // NOTE: We reached the lo marker, so consume from it instead
@@ -154,7 +187,8 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelReader::new(level.clone(), &(Unbounded, Unbounded));
+            let multi_reader =
+                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
 
             let mut iter = multi_reader.flatten();
 
@@ -174,7 +208,8 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelReader::new(level.clone(), &(Unbounded, Unbounded));
+            let multi_reader =
+                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -194,7 +229,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelReader::new(level, &(Unbounded, Unbounded));
+            let multi_reader = LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read);
 
             let mut iter = multi_reader.flatten();
 
