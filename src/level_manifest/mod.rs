@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-mod hidden_set;
+pub(crate) mod hidden_set;
 pub mod iter;
 pub(crate) mod level;
 
@@ -14,6 +14,7 @@ use crate::{
     HashMap, HashSet,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use hidden_set::HiddenSet;
 use iter::LevelManifestIterator;
 use level::Level;
 use std::{
@@ -416,6 +417,10 @@ impl LevelManifest {
 
     pub(crate) fn segment_hidden(&self, key: SegmentId) -> bool {
         self.hidden_set.contains(key)
+    }
+
+    pub(crate) fn hidden_segments(&self) -> &HiddenSet {
+        &self.hidden_set
     }
 
     pub(crate) fn hide_segments<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {

@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
     key_range::KeyRange,
-    level_manifest::{level::Level, LevelManifest},
+    level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
     segment::Segment,
     HashSet, SegmentId,
 };
@@ -20,7 +20,7 @@ fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
 fn pick_minimal_compaction(
     curr_level: &Level,
     next_level: &Level,
-    levels: &LevelManifest,
+    hidden_set: &HiddenSet,
 ) -> Option<(HashSet<SegmentId>, bool)> {
     // assert!(curr_level.is_disjoint, "Lx is not disjoint");
     // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
@@ -33,7 +33,7 @@ fn pick_minimal_compaction(
 
             // IMPORTANT: Compaction is blocked because of other
             // on-going compaction
-            valid_choice &= !segment_ids.iter().any(|x| levels.segment_hidden(*x));
+            valid_choice &= !segment_ids.iter().any(|x| hidden_set.contains(*x));
 
             // NOTE: Keep compactions with 25 or less segments
             // to make compactions not too large
@@ -54,7 +54,7 @@ fn pick_minimal_compaction(
             if window
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| levels.segment_hidden(x))
+                .any(|x| hidden_set.contains(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -92,7 +92,7 @@ fn pick_minimal_compaction(
             if curr_level_pull_in
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| levels.segment_hidden(x))
+                .any(|x| hidden_set.contains(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -243,7 +243,7 @@ impl CompactionStrategy for Strategy {
                 };
 
                 let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, levels)
+                    pick_minimal_compaction(level, next_level, levels.hidden_segments())
                 else {
                     break;
                 };

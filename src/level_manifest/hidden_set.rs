@@ -3,7 +3,7 @@ use crate::segment::meta::SegmentId;
 use crate::HashSet;
 
 #[derive(Clone)]
-pub(super) struct HiddenSet {
+pub(crate) struct HiddenSet {
     pub(crate) set: HashSet<SegmentId>,
 }
 
@@ -16,11 +16,11 @@ impl Default for HiddenSet {
 }
 
 impl HiddenSet {
-    pub(crate) fn hide<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+    pub(super) fn hide<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
         self.set.extend(keys);
     }
 
-    pub(crate) fn show<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+    pub(super) fn show<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
         for key in keys {
             self.set.remove(&key);
         }
