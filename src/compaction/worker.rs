@@ -272,7 +272,17 @@ fn merge_segments(
     }
 
     for (idx, item) in merge_iter.enumerate() {
-        let item = item?;
+        let Ok(item) = item else {
+            log::error!("Compaction failed");
+
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
+
+            return Ok(());
+        };
 
         // IMPORTANT: We can only drop tombstones when writing into last level
         if is_last_level && item.is_tombstone() {
