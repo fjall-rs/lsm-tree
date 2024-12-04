@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
     key_range::KeyRange,
-    level_manifest::{level::Level, HiddenSet, LevelManifest},
+    level_manifest::{level::Level, LevelManifest},
     segment::Segment,
     HashSet, SegmentId,
 };
@@ -20,12 +20,32 @@ fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
 fn pick_minimal_compaction(
     curr_level: &Level,
     next_level: &Level,
-    hidden_set: &HiddenSet,
+    levels: &LevelManifest,
 ) -> Option<(HashSet<SegmentId>, bool)> {
     // assert!(curr_level.is_disjoint, "Lx is not disjoint");
     // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
 
     let mut choices = vec![];
+
+    let mut add_choice =
+        |write_amp: f32, segment_ids: HashSet<SegmentId>, can_trivial_move: bool| {
+            let mut valid_choice = true;
+
+            // IMPORTANT: Compaction is blocked because of other
+            // on-going compaction
+            valid_choice &= !segment_ids.iter().any(|x| levels.segment_hidden(*x));
+
+            // NOTE: Keep compactions with 25 or less segments
+            // to make compactions not too large
+            //
+            // TODO: ideally, if a level has a lot of compaction debt
+            // compactions could be parallelized as long as they don't overlap in key range
+            valid_choice &= segment_ids.len() <= 25;
+
+            if valid_choice {
+                choices.push((write_amp, segment_ids, can_trivial_move));
+            }
+        };
 
     for size in 1..=next_level.len() {
         let windows = next_level.windows(size);
@@ -34,7 +54,7 @@ fn pick_minimal_compaction(
             if window
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| hidden_set.contains(&x))
+                .any(|x| levels.segment_hidden(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -72,7 +92,7 @@ fn pick_minimal_compaction(
             if curr_level_pull_in
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| hidden_set.contains(&x))
+                .any(|x| levels.segment_hidden(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -93,7 +113,7 @@ fn pick_minimal_compaction(
 
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-                choices.push((write_amp, segment_ids, false));
+                add_choice(write_amp, segment_ids, false);
             }
         }
     }
@@ -108,17 +128,10 @@ fn pick_minimal_compaction(
             let key_range = aggregate_key_range(window);
 
             if next_level.overlapping_segments(&key_range).next().is_none() {
-                choices.push((0.0, segment_ids, true));
+                add_choice(0.0, segment_ids, true);
             }
         }
     }
-
-    // NOTE: Keep compactions with 25 or less segments
-    // to make compactions not too large
-    //
-    // TODO: ideally, if a level has a lot of compaction debt
-    // compactions could be parallelized as long as they don't overlap in key range
-    choices.retain(|(_, segments, _)| segments.len() <= 25);
 
     let minimum_effort_choice = choices
         .into_iter()
@@ -216,7 +229,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set.contains(&x.metadata.id))
+                .filter(|x| !levels.segment_hidden(x.metadata.id))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
@@ -230,7 +243,7 @@ impl CompactionStrategy for Strategy {
                 };
 
                 let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, &levels.hidden_set)
+                    pick_minimal_compaction(level, next_level, levels)
                 else {
                     break;
                 };

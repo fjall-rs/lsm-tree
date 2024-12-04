@@ -50,7 +50,7 @@ impl Memtable {
     pub(crate) fn range<'a, R: RangeBounds<InternalKey> + 'a>(
         &'a self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+    ) -> impl DoubleEndedIterator<Item = InternalValue> + 'a {
         self.items.range(range).map(|entry| InternalValue {
             key: entry.key().clone(),
             value: entry.value().clone(),
