@@ -107,6 +107,7 @@ impl Range {
         if let Some(key) = end_key.cloned() {
             self.reader.set_upper_bound(key);
         }
+
         Ok(())
     }
 
