@@ -25,20 +25,20 @@ use std::{
 
 type Levels = Vec<Arc<Level>>;
 
-/// Represents the levels of a log-structured merge tree.
+/// Represents the levels of a log-structured merge tree
 pub struct LevelManifest {
-    /// Path of level manifest file
+    /// Path of level manifest file.
     path: PathBuf,
 
-    /// Actual levels containing segments
+    /// Actual levels containing segments.
     #[doc(hidden)]
     pub levels: Levels,
 
-    /// Set of segment IDs that are masked
+    /// Set of segment IDs that are masked.
     ///
     /// While consuming segments (because of compaction) they will not appear in the list of segments
-    /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
-    hidden_set: hidden_set::HiddenSet,
+    /// as to not cause conflicts between multiple compaction threads (compacting the same segments).
+    hidden_set: HiddenSet,
 
     is_disjoint: bool,
 }
