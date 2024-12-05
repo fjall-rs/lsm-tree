@@ -487,9 +487,9 @@ fn drop_segments(
     // Fail-safe for buggy compaction strategies
     if levels.should_decline_compaction(segment_ids.iter().map(GlobalSegmentId::segment_id)) {
         log::warn!(
-    "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
-    opts.strategy.get_name(),
-);
+            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+            opts.strategy.get_name(),
+        );
         return Ok(());
     }
 
