@@ -35,6 +35,10 @@ impl Default for Strategy {
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "MajorCompaction"
+    }
+
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let segment_ids = levels.iter().map(|x| x.metadata.id).collect();
 

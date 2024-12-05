@@ -160,11 +160,11 @@ fn pick_minimal_compaction(
 
 /// Levelled compaction strategy (LCS)
 ///
-/// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
+/// When a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
 /// Each level Ln for n >= 2 can have up to `level_base_size * ratio^n` segments.
 ///
-/// LCS suffers from comparatively high write amplification, but has decent read & space amplification.
+/// LCS suffers from comparatively high write amplification, but has decent read amplification and great space amplification (~1.1x).
 ///
 /// LCS is the recommended compaction strategy to use.
 ///
@@ -233,6 +233,10 @@ impl Strategy {
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "LeveledStrategy"
+    }
+
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let view = &levels.levels;

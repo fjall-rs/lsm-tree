@@ -11,6 +11,10 @@ use crate::{level_manifest::LevelManifest, Config, HashSet};
 pub struct Strategy(pub u8, pub u8);
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "PullDownCompaction"
+    }
+
     #[allow(clippy::expect_used)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();

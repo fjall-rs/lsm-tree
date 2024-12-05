@@ -43,6 +43,10 @@ pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "MaintenanceStrategy"
+    }
+
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 

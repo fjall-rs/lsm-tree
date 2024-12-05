@@ -415,6 +415,13 @@ impl LevelManifest {
         output
     }
 
+    pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
+        &self,
+        ids: T,
+    ) -> bool {
+        ids.into_iter().any(|id| self.hidden_set().is_hidden(id))
+    }
+
     pub(crate) fn hidden_set(&self) -> &HiddenSet {
         &self.hidden_set
     }

@@ -41,15 +41,14 @@ pub struct Options {
     /// Sealed memtables (required for temporarily locking).
     pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Compaction strategy.
-    ///
-    /// The one inside `config` is NOT used.
+    /// Compaction strategy to use.
     pub strategy: Arc<dyn CompactionStrategy>,
 
-    /// Stop signal
+    /// Stop signal to interrupt a compaction worker in case
+    /// the tree is dropped.
     pub stop_signal: StopSignal,
 
-    /// Evicts items that are older than this seqno
+    /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
 }
 
@@ -75,14 +74,17 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("compactor: acquiring levels manifest lock");
     let original_levels = opts.levels.write().expect("lock is poisoned");
 
-    log::trace!("compactor: consulting compaction strategy");
+    log::trace!(
+        "compactor: consulting compaction strategy {:?}",
+        opts.strategy.get_name(),
+    );
     let choice = opts.strategy.choose(&original_levels, &opts.config);
 
     log::debug!("compactor: choice: {choice:?}");
 
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
-        Choice::Move(payload) => move_segments(original_levels, payload),
+        Choice::Move(payload) => move_segments(original_levels, opts, payload),
         Choice::Drop(payload) => drop_segments(
             original_levels,
             opts,
@@ -168,8 +170,18 @@ fn create_compaction_stream<'a>(
 
 fn move_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    opts: &Options,
     payload: CompactionPayload,
 ) -> crate::Result<()> {
+    // Fail-safe for buggy compaction strategies
+    if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
+        log::warn!(
+        "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+        opts.strategy.get_name(),
+    );
+        return Ok(());
+    }
+
     let segment_map = levels.get_all_segments();
 
     levels.atomic_swap(|recipe| {
@@ -199,14 +211,12 @@ fn merge_segments(
         return Ok(());
     }
 
-    // TODO: this sometimes runs, but shouldn't be possible
-    // TODO: because we have a mutex when hiding & showing segments and checking compaction strategy...
-    if payload
-        .segment_ids
-        .iter()
-        .any(|id| levels.hidden_set().is_hidden(*id))
-    {
-        log::warn!("Compaction task contained hidden segments, declining to run it");
+    // Fail-safe for buggy compaction strategies
+    if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
+        log::warn!(
+            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+            opts.strategy.get_name(),
+        );
         return Ok(());
     }
 
@@ -470,10 +480,19 @@ fn merge_segments(
 }
 
 fn drop_segments(
-    mut original_levels: RwLockWriteGuard<'_, LevelManifest>,
+    mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
     segment_ids: &[GlobalSegmentId],
 ) -> crate::Result<()> {
+    // Fail-safe for buggy compaction strategies
+    if levels.should_decline_compaction(segment_ids.iter().map(GlobalSegmentId::segment_id)) {
+        log::warn!(
+    "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+    opts.strategy.get_name(),
+);
+        return Ok(());
+    }
+
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
@@ -482,7 +501,7 @@ fn drop_segments(
 
     // IMPORTANT: Write the segment with the removed segments first
     // Otherwise the folder is deleted, but the segment is still referenced!
-    original_levels.atomic_swap(|recipe| {
+    levels.atomic_swap(|recipe| {
         for key in segment_ids {
             let segment_id = key.segment_id();
             log::trace!("Removing segment {segment_id}");
@@ -494,7 +513,7 @@ fn drop_segments(
     })?;
 
     drop(memtable_lock);
-    drop(original_levels);
+    drop(levels);
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
