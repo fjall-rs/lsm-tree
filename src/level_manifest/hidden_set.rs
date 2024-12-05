@@ -8,7 +8,7 @@ use crate::HashSet;
 ///
 /// If a compaction task fails, the segments are shown again (removed from the hidden set).
 #[derive(Clone)]
-pub(crate) struct HiddenSet {
+pub struct HiddenSet {
     pub(crate) set: HashSet<SegmentId>,
 }
 
