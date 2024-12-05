@@ -526,7 +526,7 @@ impl Tree {
 
         self.config
             .descriptor_table
-            .insert(segment_file_path, (self.id, created_segment.id()).into());
+            .insert(segment_file_path, created_segment.global_id());
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
@@ -960,7 +960,7 @@ impl Tree {
                     level_idx == 0 || level_idx == 1,
                 )?;
 
-                descriptor_table.insert(&segment_file_path, (tree_id, segment.id()).into());
+                descriptor_table.insert(&segment_file_path, segment.global_id());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");

@@ -70,10 +70,16 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
+    /// Gets the global segment ID.
+    #[must_use]
+    pub fn global_id(&self) -> GlobalSegmentId {
+        (self.tree_id, self.id()).into()
+    }
+
     /// Gets the segment ID.
     ///
     /// The segment ID is unique for this tree, but not
-    /// across multiple trees, use the global segment ID for that.
+    /// across multiple trees, use [`Segment::global_id`] for that.
     #[must_use]
     pub fn id(&self) -> SegmentId {
         self.metadata.id
@@ -89,7 +95,7 @@ impl Segment {
 
         let guard = self
             .descriptor_table
-            .access(&(self.tree_id, self.id()).into())?
+            .access(&self.global_id())?
             .expect("should have gotten file");
 
         let mut file = guard.file.lock().expect("lock is poisoned");
@@ -329,7 +335,7 @@ impl Segment {
         let Some(block) = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
-            GlobalSegmentId::from((self.tree_id, self.id())),
+            self.global_id(),
             first_block_handle,
             CachePolicy::Write,
         )?
@@ -359,7 +365,7 @@ impl Segment {
         let mut reader = Reader::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.id())),
+            self.global_id(),
             self.block_cache.clone(),
             first_block_handle,
             None,
@@ -479,7 +485,7 @@ impl Segment {
         Range::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.id())),
+            self.global_id(),
             self.block_cache.clone(),
             self.block_index.clone(),
             range,

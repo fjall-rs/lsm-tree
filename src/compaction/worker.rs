@@ -439,7 +439,7 @@ fn merge_segments(
 
         opts.config
             .descriptor_table
-            .insert(&segment_file_path, (opts.tree_id, segment.id()).into());
+            .insert(&segment_file_path, segment.global_id());
     }
 
     // NOTE: Segments are registered, we can unlock the memtable(s) safely
