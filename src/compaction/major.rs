@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, level_manifest::LevelManifest};
+use crate::{config::Config, level_manifest::LevelManifest, Segment};
 
 /// Major compaction
 ///
@@ -40,7 +40,7 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let segment_ids = levels.iter().map(|x| x.metadata.id).collect();
+        let segment_ids = levels.iter().map(Segment::id).collect();
 
         Choice::Merge(CompactionInput {
             segment_ids,

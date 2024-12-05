@@ -27,6 +27,7 @@ use crate::{
 use block_index::BlockIndexImpl;
 use id::GlobalSegmentId;
 use inner::Inner;
+use meta::SegmentId;
 use range::Range;
 use std::{ops::Bound, path::Path, sync::Arc};
 
@@ -64,15 +65,20 @@ impl std::ops::Deref for Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Segment:{}({})",
-            self.metadata.id, self.metadata.key_range
-        )
+        write!(f, "Segment:{}({})", self.id(), self.metadata.key_range)
     }
 }
 
 impl Segment {
+    /// Gets the segment ID.
+    ///
+    /// The segment ID is unique for this tree, but not
+    /// across multiple trees, use the global segment ID for that.
+    #[must_use]
+    pub fn id(&self) -> SegmentId {
+        self.metadata.id
+    }
+
     pub(crate) fn verify(&self) -> crate::Result<usize> {
         use block::checksum::Checksum;
         use block_index::IndexBlock;
@@ -83,7 +89,7 @@ impl Segment {
 
         let guard = self
             .descriptor_table
-            .access(&(self.tree_id, self.metadata.id).into())?
+            .access(&(self.tree_id, self.id()).into())?
             .expect("should have gotten file");
 
         let mut file = guard.file.lock().expect("lock is poisoned");
@@ -176,7 +182,7 @@ impl Segment {
         if data_block_count != self.metadata.data_block_count {
             log::error!(
                 "Not all data blocks were visited during verification of disk segment {:?}",
-                self.metadata.id
+                self.id(),
             );
             broken_count += 1;
         }
@@ -323,7 +329,7 @@ impl Segment {
         let Some(block) = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
+            GlobalSegmentId::from((self.tree_id, self.id())),
             first_block_handle,
             CachePolicy::Write,
         )?
@@ -353,7 +359,7 @@ impl Segment {
         let mut reader = Reader::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
+            GlobalSegmentId::from((self.tree_id, self.id())),
             self.block_cache.clone(),
             first_block_handle,
             None,
@@ -473,7 +479,7 @@ impl Segment {
         Range::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
+            GlobalSegmentId::from((self.tree_id, self.id())),
             self.block_cache.clone(),
             self.block_index.clone(),
             range,

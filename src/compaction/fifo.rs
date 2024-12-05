@@ -62,11 +62,8 @@ impl CompactionStrategy for Strategy {
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
                     if lifetime_sec > ttl_seconds.into() {
-                        log::warn!(
-                            "segment is older than configured TTL: {:?}",
-                            segment.metadata.id,
-                        );
-                        segment_ids_to_delete.insert(segment.metadata.id);
+                        log::warn!("segment is older than configured TTL: {:?}", segment.id(),);
+                        segment_ids_to_delete.insert(segment.id());
                     }
                 }
             }
@@ -90,11 +87,11 @@ impl CompactionStrategy for Strategy {
 
                 bytes_to_delete = bytes_to_delete.saturating_sub(segment.metadata.file_size);
 
-                segment_ids_to_delete.insert(segment.metadata.id);
+                segment_ids_to_delete.insert(segment.id());
 
                 log::debug!(
                     "dropping segment to reach configured size limit: {:?}",
-                    segment.metadata.id,
+                    segment.id(),
                 );
             }
         }

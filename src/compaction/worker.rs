@@ -120,7 +120,7 @@ fn create_compaction_stream<'a>(
                 .segments
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
+                .filter(|(_, segment)| to_compact.contains(&segment.id()))
                 .min_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -131,7 +131,7 @@ fn create_compaction_stream<'a>(
                 .segments
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.metadata.id))
+                .filter(|(_, segment)| to_compact.contains(&segment.id()))
                 .max_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -148,7 +148,7 @@ fn create_compaction_stream<'a>(
             found += hi - lo + 1;
         } else {
             for &id in to_compact {
-                if let Some(segment) = level.segments.iter().find(|x| x.metadata.id == id) {
+                if let Some(segment) = level.segments.iter().find(|x| x.id() == id) {
                     found += 1;
 
                     readers.push(Box::new(
@@ -411,7 +411,7 @@ fn merge_segments(
 
     let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
-            log::trace!("Persisting segment {}", segment.metadata.id);
+            log::trace!("Persisting segment {}", segment.id());
 
             recipe
                 .get_mut(payload.dest_level as usize)
@@ -435,12 +435,11 @@ fn merge_segments(
     };
 
     for segment in &created_segments {
-        let segment_file_path = segments_base_folder.join(segment.metadata.id.to_string());
+        let segment_file_path = segments_base_folder.join(segment.id().to_string());
 
-        opts.config.descriptor_table.insert(
-            &segment_file_path,
-            (opts.tree_id, segment.metadata.id).into(),
-        );
+        opts.config
+            .descriptor_table
+            .insert(&segment_file_path, (opts.tree_id, segment.id()).into());
     }
 
     // NOTE: Segments are registered, we can unlock the memtable(s) safely

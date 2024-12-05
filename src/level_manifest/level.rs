@@ -23,8 +23,7 @@ pub struct Level {
 impl std::fmt::Display for Level {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for segment in self.segments.iter().rev().take(2).rev() {
-            let id = segment.metadata.id;
-            write!(f, "[{id}]")?;
+            write!(f, "[{}]", segment.id())?;
         }
         Ok(())
     }
@@ -50,7 +49,7 @@ impl Default for Level {
 
 impl Level {
     pub fn list_ids(&self) -> HashSet<SegmentId> {
-        self.segments.iter().map(|x| x.metadata.id).collect()
+        self.segments.iter().map(Segment::id).collect()
     }
 
     pub fn update_metadata(&mut self) {
@@ -64,11 +63,7 @@ impl Level {
     }
 
     pub fn remove(&mut self, segment_id: SegmentId) -> Option<Segment> {
-        if let Some(idx) = self
-            .segments
-            .iter()
-            .position(|x| x.metadata.id == segment_id)
-        {
+        if let Some(idx) = self.segments.iter().position(|x| x.id() == segment_id) {
             let segment = self.segments.remove(idx);
             self.update_metadata();
             Some(segment)
@@ -110,7 +105,7 @@ impl Level {
 
     /// Returns an iterator over the level's segment IDs.
     pub fn ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
-        self.segments.iter().map(|x| x.metadata.id)
+        self.segments.iter().map(Segment::id)
     }
 
     /// Returns `true` if the level contains no segments.
@@ -514,7 +509,7 @@ mod tests {
             Vec::<SegmentId>::new(),
             level
                 .overlapping_segments(&KeyRange::new((b"a".to_vec().into(), b"b".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
 
@@ -522,7 +517,7 @@ mod tests {
             vec![1],
             level
                 .overlapping_segments(&KeyRange::new((b"d".to_vec().into(), b"k".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
 
@@ -530,7 +525,7 @@ mod tests {
             vec![1, 2],
             level
                 .overlapping_segments(&KeyRange::new((b"f".to_vec().into(), b"x".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
     }

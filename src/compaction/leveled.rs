@@ -58,11 +58,7 @@ fn pick_minimal_compaction(
         let windows = next_level.windows(size);
 
         for window in windows {
-            if window
-                .iter()
-                .map(|x| x.metadata.id)
-                .any(|x| hidden_set.is_hidden(x))
-            {
+            if hidden_set.is_blocked(window.iter().map(Segment::id)) {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
                 continue;
@@ -96,11 +92,7 @@ fn pick_minimal_compaction(
                 curr_level.overlapping_segments(&key_range).collect()
             };
 
-            if curr_level_pull_in
-                .iter()
-                .map(|x| x.metadata.id)
-                .any(|x| hidden_set.is_hidden(x))
-            {
+            if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
                 continue;
@@ -116,8 +108,8 @@ fn pick_minimal_compaction(
             if curr_level_size >= overshoot {
                 let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
-                let mut segment_ids: HashSet<_> = window.iter().map(|x| x.metadata.id).collect();
-                segment_ids.extend(curr_level_pull_in.iter().map(|x| x.metadata.id));
+                let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
+                segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
 
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
@@ -135,7 +127,7 @@ fn pick_minimal_compaction(
         let windows = curr_level.windows(size);
 
         for window in windows {
-            let segment_ids: HashSet<SegmentId> = window.iter().map(|x| x.metadata.id).collect();
+            let segment_ids: HashSet<SegmentId> = window.iter().map(Segment::id).collect();
 
             let key_range = aggregate_key_range(window);
 
@@ -259,7 +251,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set().is_hidden(x.metadata.id))
+                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
@@ -367,15 +359,14 @@ impl CompactionStrategy for Strategy {
                         return Choice::DoNothing;
                     };
 
-                    let mut segment_ids: HashSet<u64> =
-                        level.iter().map(|x| x.metadata.id).collect();
+                    let mut segment_ids: HashSet<u64> = level.iter().map(Segment::id).collect();
 
                     // Get overlapping segments in next level
                     let key_range = aggregate_key_range(&level);
 
                     let next_level_overlapping_segment_ids: Vec<_> = next_level
                         .overlapping_segments(&key_range)
-                        .map(|x| x.metadata.id)
+                        .map(Segment::id)
                         .collect();
 
                     segment_ids.extend(&next_level_overlapping_segment_ids);

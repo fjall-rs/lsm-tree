@@ -208,8 +208,8 @@ impl AbstractTree for Tree {
         // eprintln!("{original_levels}");
 
         for segment in segments {
-            log::trace!("releasing sealed memtable {}", segment.metadata.id);
-            sealed_memtables.remove(segment.metadata.id);
+            log::trace!("releasing sealed memtable {}", segment.id());
+            sealed_memtables.remove(segment.id());
         }
 
         Ok(())
@@ -524,10 +524,9 @@ impl Tree {
         }
         .into();
 
-        self.config.descriptor_table.insert(
-            segment_file_path,
-            (self.id, created_segment.metadata.id).into(),
-        );
+        self.config
+            .descriptor_table
+            .insert(segment_file_path, (self.id, created_segment.id()).into());
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
@@ -836,11 +835,7 @@ impl Tree {
         )?;
         levels.update_metadata();
 
-        let highest_segment_id = levels
-            .iter()
-            .map(|x| x.metadata.id)
-            .max()
-            .unwrap_or_default();
+        let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
 
         let inner = TreeInner {
             id: tree_id,
@@ -965,7 +960,7 @@ impl Tree {
                     level_idx == 0 || level_idx == 1,
                 )?;
 
-                descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
+                descriptor_table.insert(&segment_file_path, (tree_id, segment.id()).into());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");

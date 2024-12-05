@@ -59,7 +59,7 @@ impl std::fmt::Display for LevelManifest {
             } else if level.segments.len() >= 30 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
-                    let id = segment.metadata.id;
+                    let id = segment.id();
                     let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
@@ -73,7 +73,7 @@ impl std::fmt::Display for LevelManifest {
 
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
-                    let id = segment.metadata.id;
+                    let id = segment.id();
                     let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
@@ -85,7 +85,7 @@ impl std::fmt::Display for LevelManifest {
                 }
             } else {
                 for segment in &level.segments {
-                    let id = segment.metadata.id;
+                    let id = segment.id();
                     let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
@@ -221,16 +221,13 @@ impl LevelManifest {
     pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
         let level_manifest = Self::load_level_manifest(&path)?;
 
-        let segments: HashMap<_, _> = segments
-            .into_iter()
-            .map(|seg| (seg.metadata.id, seg))
-            .collect();
+        let segments: HashMap<_, _> = segments.into_iter().map(|seg| (seg.id(), seg)).collect();
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
         let mut manifest = Self {
             levels,
-            hidden_set: Default::default(),
+            hidden_set: HiddenSet::default(),
             path: path.as_ref().to_path_buf(),
             is_disjoint: false,
         };
@@ -388,7 +385,7 @@ impl LevelManifest {
 
         for raw_level in &self.levels {
             let mut level = raw_level.iter().cloned().collect::<Vec<_>>();
-            level.retain(|x| !self.hidden_set.is_hidden(x.metadata.id));
+            level.retain(|x| !self.hidden_set.is_hidden(x.id()));
 
             output.push(Level {
                 segments: level,
@@ -407,7 +404,7 @@ impl LevelManifest {
         &self,
         ids: T,
     ) -> bool {
-        ids.into_iter().any(|id| self.hidden_set().is_hidden(id))
+        self.hidden_set().is_blocked(ids)
     }
 
     pub(crate) fn hidden_set(&self) -> &HiddenSet {
@@ -438,7 +435,7 @@ impl Encode for Vec<Level> {
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
-                writer.write_u64::<BigEndian>(segment.metadata.id)?;
+                writer.write_u64::<BigEndian>(segment.id())?;
             }
         }
 

@@ -31,6 +31,10 @@ impl HiddenSet {
         }
     }
 
+    pub(crate) fn is_blocked<T: IntoIterator<Item = SegmentId>>(&self, ids: T) -> bool {
+        ids.into_iter().any(|id| self.is_hidden(id))
+    }
+
     pub(crate) fn is_hidden(&self, key: SegmentId) -> bool {
         self.set.contains(&key)
     }

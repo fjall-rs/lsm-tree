@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{level_manifest::LevelManifest, Config};
+use crate::{level_manifest::LevelManifest, Config, Segment};
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
@@ -78,7 +78,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set().is_hidden(x.metadata.id))
+                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
@@ -102,11 +102,7 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
-                let segment_ids = segments_to_compact
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
-                    .collect();
+                let segment_ids = segments_to_compact.iter().map(Segment::id).collect();
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,
