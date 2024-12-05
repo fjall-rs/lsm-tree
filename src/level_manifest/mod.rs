@@ -3,7 +3,6 @@
 // (found in the LICENSE-* files in the repository)
 
 pub(crate) mod hidden_set;
-pub mod iter;
 pub(crate) mod level;
 
 use crate::{
@@ -15,7 +14,6 @@ use crate::{
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
-use iter::LevelManifestIterator;
 use level::Level;
 use std::{
     io::{Cursor, Read, Write},
@@ -402,7 +400,7 @@ impl LevelManifest {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Segment> + '_ {
-        LevelManifestIterator::new(self)
+        self.levels.iter().flat_map(|x| &x.segments)
     }
 
     pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
