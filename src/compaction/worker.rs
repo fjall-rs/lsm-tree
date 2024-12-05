@@ -204,7 +204,7 @@ fn merge_segments(
     if payload
         .segment_ids
         .iter()
-        .any(|id| levels.segment_hidden(*id))
+        .any(|id| levels.hidden_set().is_hidden(*id))
     {
         log::warn!("Compaction task contained hidden segments, declining to run it");
         return Ok(());

@@ -11,12 +11,13 @@ use crate::{
     HashSet, SegmentId,
 };
 
+/// Aggregates the key range of a list of segments.
 fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
     KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
 }
 
-// TODO: Currently does not take in `overshoot`
-// TODO: Need to make sure compactions are not too small either
+/// Tries to find the most optimal compaction set from
+/// one level into the other.
 fn pick_minimal_compaction(
     curr_level: &Level,
     next_level: &Level,
@@ -26,27 +27,32 @@ fn pick_minimal_compaction(
     // assert!(curr_level.is_disjoint, "Lx is not disjoint");
     // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
 
+    struct Choice {
+        write_amp: f32,
+        segment_ids: HashSet<SegmentId>,
+        can_trivial_move: bool,
+    }
+
     let mut choices = vec![];
 
-    let mut add_choice =
-        |write_amp: f32, segment_ids: HashSet<SegmentId>, can_trivial_move: bool| {
-            let mut valid_choice = true;
+    let mut add_choice = |choice: Choice| {
+        let mut valid_choice = true;
 
-            // IMPORTANT: Compaction is blocked because of other
-            // on-going compaction
-            valid_choice &= !segment_ids.iter().any(|x| hidden_set.contains(*x));
+        // IMPORTANT: Compaction is blocked because of other
+        // on-going compaction
+        valid_choice &= !choice.segment_ids.iter().any(|x| hidden_set.is_hidden(*x));
 
-            // NOTE: Keep compactions with 25 or less segments
-            // to make compactions not too large
-            //
-            // TODO: ideally, if a level has a lot of compaction debt
-            // compactions could be parallelized as long as they don't overlap in key range
-            valid_choice &= segment_ids.len() <= 25;
+        // NOTE: Keep compactions with 25 or less segments
+        // to make compactions not too large
+        //
+        // TODO: ideally, if a level has a lot of compaction debt
+        // compactions could be parallelized as long as they don't overlap in key range
+        valid_choice &= choice.segment_ids.len() <= 25;
 
-            if valid_choice {
-                choices.push((write_amp, segment_ids, can_trivial_move));
-            }
-        };
+        if valid_choice {
+            choices.push(choice);
+        }
+    };
 
     for size in 1..=next_level.len() {
         let windows = next_level.windows(size);
@@ -55,7 +61,7 @@ fn pick_minimal_compaction(
             if window
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| hidden_set.contains(x))
+                .any(|x| hidden_set.is_hidden(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -93,7 +99,7 @@ fn pick_minimal_compaction(
             if curr_level_pull_in
                 .iter()
                 .map(|x| x.metadata.id)
-                .any(|x| hidden_set.contains(x))
+                .any(|x| hidden_set.is_hidden(x))
             {
                 // IMPORTANT: Compaction is blocked because of other
                 // on-going compaction
@@ -115,7 +121,11 @@ fn pick_minimal_compaction(
 
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-                add_choice(write_amp, segment_ids, false);
+                add_choice(Choice {
+                    write_amp,
+                    segment_ids,
+                    can_trivial_move: false,
+                });
             }
         }
     }
@@ -130,23 +140,29 @@ fn pick_minimal_compaction(
             let key_range = aggregate_key_range(window);
 
             if next_level.overlapping_segments(&key_range).next().is_none() {
-                add_choice(0.0, segment_ids, true);
+                add_choice(Choice {
+                    write_amp: 0.0,
+                    segment_ids,
+                    can_trivial_move: true,
+                });
             }
         }
     }
 
-    let minimum_effort_choice = choices
-        .into_iter()
-        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let minimum_effort_choice = choices.into_iter().min_by(|a, b| {
+        a.write_amp
+            .partial_cmp(&b.write_amp)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    minimum_effort_choice.map(|(_, set, can_trivial_move)| (set, can_trivial_move))
+    minimum_effort_choice.map(|c| (c.segment_ids, c.can_trivial_move))
 }
 
 /// Levelled compaction strategy (LCS)
 ///
 /// If a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
-/// Each level Ln for n >= 1 can have up to ratio^n segments.
+/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^n` segments.
 ///
 /// LCS suffers from comparatively high write amplification, but has decent read & space amplification.
 ///
@@ -199,6 +215,14 @@ impl Default for Strategy {
 }
 
 impl Strategy {
+    /// Calculates the level target size.
+    ///
+    /// L1 = `level_base_size`
+    ///
+    /// L2 = `level_base_size * ratio`
+    ///
+    /// L3 = `level_base_size * ratio * ratio`
+    /// ...
     fn level_target_size(&self, level_idx: u8) -> u64 {
         assert!(level_idx >= 1, "level_target_size does not apply to L0");
 
@@ -231,7 +255,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                .filter(|x| !levels.segment_hidden(x.metadata.id))
+                .filter(|x| !levels.hidden_set().is_hidden(x.metadata.id))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
@@ -245,7 +269,7 @@ impl CompactionStrategy for Strategy {
                 };
 
                 let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, levels.hidden_segments(), overshoot)
+                    pick_minimal_compaction(level, next_level, levels.hidden_set(), overshoot)
                 else {
                     break;
                 };
@@ -392,9 +416,6 @@ mod tests {
     use std::{path::Path, sync::Arc};
     use test_log::test;
 
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
-
     fn string_key_range(a: &str, b: &str) -> KeyRange {
         KeyRange::new((a.as_bytes().into(), b.as_bytes().into()))
     }
@@ -451,7 +472,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()
     }

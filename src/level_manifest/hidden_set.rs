@@ -21,17 +21,17 @@ impl Default for HiddenSet {
 }
 
 impl HiddenSet {
-    pub(super) fn hide<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+    pub(crate) fn hide<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
         self.set.extend(keys);
     }
 
-    pub(super) fn show<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+    pub(crate) fn show<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
         for key in keys {
             self.set.remove(&key);
         }
     }
 
-    pub(crate) fn contains(&self, key: SegmentId) -> bool {
+    pub(crate) fn is_hidden(&self, key: SegmentId) -> bool {
         self.set.contains(&key)
     }
 

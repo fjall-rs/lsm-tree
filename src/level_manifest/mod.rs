@@ -62,7 +62,7 @@ impl std::fmt::Display for LevelManifest {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
                     let id = segment.metadata.id;
-                    let is_hidden = self.segment_hidden(id);
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -76,7 +76,7 @@ impl std::fmt::Display for LevelManifest {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
                     let id = segment.metadata.id;
-                    let is_hidden = self.segment_hidden(id);
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -88,7 +88,7 @@ impl std::fmt::Display for LevelManifest {
             } else {
                 for segment in &level.segments {
                     let id = segment.metadata.id;
-                    let is_hidden = self.segment_hidden(id);
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -373,7 +373,7 @@ impl LevelManifest {
             HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
 
         for (idx, level) in self.levels.iter().enumerate() {
-            if level.ids().any(|id| self.segment_hidden(id)) {
+            if level.ids().any(|id| self.hidden_set.is_hidden(id)) {
                 // NOTE: Level count is u8
                 #[allow(clippy::cast_possible_truncation)]
                 output.insert(idx as u8);
@@ -390,7 +390,7 @@ impl LevelManifest {
 
         for raw_level in &self.levels {
             let mut level = raw_level.iter().cloned().collect::<Vec<_>>();
-            level.retain(|x| !self.segment_hidden(x.metadata.id));
+            level.retain(|x| !self.hidden_set.is_hidden(x.metadata.id));
 
             output.push(Level {
                 segments: level,
@@ -415,11 +415,7 @@ impl LevelManifest {
         output
     }
 
-    pub(crate) fn segment_hidden(&self, key: SegmentId) -> bool {
-        self.hidden_set.contains(key)
-    }
-
-    pub(crate) fn hidden_segments(&self) -> &HiddenSet {
+    pub(crate) fn hidden_set(&self) -> &HiddenSet {
         &self.hidden_set
     }
 
