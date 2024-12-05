@@ -182,18 +182,16 @@ fn move_segments(
         return Ok(());
     }
 
-    let segment_map = levels.get_all_segments();
-
     levels.atomic_swap(|recipe| {
         for segment_id in payload.segment_ids {
-            if let Some(segment) = segment_map.get(&segment_id).cloned() {
-                for level in recipe.iter_mut() {
-                    level.remove(segment_id);
-                }
-
+            if let Some(segment) = recipe.iter_mut().find_map(|x| x.remove(segment_id)) {
+                #[allow(
+                    clippy::expect_used,
+                    reason = "destination level should definitely exist"
+                )]
                 recipe
                     .get_mut(payload.dest_level as usize)
-                    .expect("destination level should exist")
+                    .expect("should exist")
                     .insert(segment);
             }
         }

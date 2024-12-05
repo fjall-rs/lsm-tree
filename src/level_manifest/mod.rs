@@ -405,15 +405,15 @@ impl LevelManifest {
         LevelManifestIterator::new(self)
     }
 
-    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Segment> {
-        let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
+    // pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Segment> {
+    //     let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
 
-        for segment in self.iter().cloned() {
-            output.insert(segment.metadata.id, segment);
-        }
+    //     for segment in self.iter().cloned() {
+    //         output.insert(segment.metadata.id, segment);
+    //     }
 
-        output
-    }
+    //     output
+    // }
 
     pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
         &self,

@@ -69,9 +69,18 @@ impl Level {
         self.update_metadata();
     }
 
-    pub fn remove(&mut self, segment_id: SegmentId) {
-        self.segments.retain(|x| segment_id != x.metadata.id);
-        self.update_metadata();
+    pub fn remove(&mut self, segment_id: SegmentId) -> Option<Segment> {
+        if let Some(idx) = self
+            .segments
+            .iter()
+            .position(|x| x.metadata.id == segment_id)
+        {
+            let segment = self.segments.remove(idx);
+            self.update_metadata();
+            Some(segment)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn sort(&mut self) {
