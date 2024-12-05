@@ -49,11 +49,6 @@ impl Default for Level {
 }
 
 impl Level {
-    // TODO: unit test
-    fn set_key_range(&mut self) {
-        todo!()
-    }
-
     pub fn list_ids(&self) -> HashSet<SegmentId> {
         self.segments.iter().map(|x| x.metadata.id).collect()
     }
@@ -61,7 +56,6 @@ impl Level {
     pub fn update_metadata(&mut self) {
         self.set_disjoint_flag();
         self.sort();
-        // self.set_key_range();
     }
 
     pub fn insert(&mut self, segment: Segment) {
