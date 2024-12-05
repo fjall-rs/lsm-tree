@@ -185,10 +185,8 @@ fn move_segments(
     levels.atomic_swap(|recipe| {
         for segment_id in payload.segment_ids {
             if let Some(segment) = recipe.iter_mut().find_map(|x| x.remove(segment_id)) {
-                #[allow(
-                    clippy::expect_used,
-                    reason = "destination level should definitely exist"
-                )]
+                // NOTE: Destination level should definitely exist
+                #[allow(clippy::expect_used)]
                 recipe
                     .get_mut(payload.dest_level as usize)
                     .expect("should exist")
