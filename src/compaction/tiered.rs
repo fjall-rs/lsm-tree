@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{level_manifest::LevelManifest, Config};
+use crate::{level_manifest::LevelManifest, Config, Segment};
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
@@ -50,6 +50,10 @@ impl Default for Strategy {
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "TieredStrategy"
+    }
+
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
@@ -69,13 +73,20 @@ impl CompactionStrategy for Strategy {
                 continue;
             }
 
-            let curr_level_bytes = level.size();
+            let level_size: u64 = level
+                .segments
+                .iter()
+                // NOTE: Take bytes that are already being compacted into account,
+                // otherwise we may be overcompensating
+                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                .map(|x| x.metadata.file_size)
+                .sum();
 
             let desired_bytes =
                 desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.base_size)
                     as u64;
 
-            if curr_level_bytes >= desired_bytes {
+            if level_size >= desired_bytes {
                 // NOTE: Take desired_bytes because we are in tiered mode
                 // We want to take N segments, not just the overshoot (like in leveled)
                 let mut overshoot = desired_bytes;
@@ -91,11 +102,7 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
-                let segment_ids = segments_to_compact
-                    .iter()
-                    .map(|x| &x.metadata.id)
-                    .copied()
-                    .collect();
+                let segment_ids = segments_to_compact.iter().map(Segment::id).collect();
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,

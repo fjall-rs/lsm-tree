@@ -169,11 +169,8 @@ impl AbstractTree for Tree {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
-                segment_writer = segment_writer.use_bloom_policy(
-                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
-                    // is fixed
-                    BloomConstructionPolicy::FpRate(0.0001),
-                );
+                segment_writer =
+                    segment_writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
             } else {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
@@ -211,8 +208,8 @@ impl AbstractTree for Tree {
         // eprintln!("{original_levels}");
 
         for segment in segments {
-            log::trace!("releasing sealed memtable {}", segment.metadata.id);
-            sealed_memtables.remove(segment.metadata.id);
+            log::trace!("releasing sealed memtable {}", segment.id());
+            sealed_memtables.remove(segment.id());
         }
 
         Ok(())
@@ -512,9 +509,6 @@ impl Tree {
             FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
-        #[cfg(feature = "bloom")]
-        let bloom_ptr = trailer.offsets.bloom_ptr;
-
         let created_segment: Segment = SegmentInner {
             tree_id: self.id,
 
@@ -526,14 +520,13 @@ impl Tree {
             block_cache: self.config.block_cache.clone(),
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
 
-        self.config.descriptor_table.insert(
-            segment_file_path,
-            (self.id, created_segment.metadata.id).into(),
-        );
+        self.config
+            .descriptor_table
+            .insert(segment_file_path, created_segment.global_id());
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
@@ -842,11 +835,7 @@ impl Tree {
         )?;
         levels.update_metadata();
 
-        let highest_segment_id = levels
-            .iter()
-            .map(|x| x.metadata.id)
-            .max()
-            .unwrap_or_default();
+        let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
 
         let inner = TreeInner {
             id: tree_id,
@@ -971,7 +960,7 @@ impl Tree {
                     level_idx == 0 || level_idx == 1,
                 )?;
 
-                descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
+                descriptor_table.insert(&segment_file_path, segment.global_id());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");

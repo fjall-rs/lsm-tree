@@ -39,10 +39,14 @@ pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet
         .min_by_key(|window| window.iter().map(|s| s.metadata.file_size).sum::<u64>())
         .expect("should have at least one window");
 
-    window.iter().map(|x| x.metadata.id).collect()
+    window.iter().map(Segment::id).collect()
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "MaintenanceStrategy"
+    }
+
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
