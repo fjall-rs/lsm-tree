@@ -176,7 +176,7 @@ fn move_segments(
     // Fail-safe for buggy compaction strategies
     if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
         log::warn!(
-        "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+        "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
         return Ok(());
@@ -214,7 +214,7 @@ fn merge_segments(
     // Fail-safe for buggy compaction strategies
     if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -487,7 +487,7 @@ fn drop_segments(
     // Fail-safe for buggy compaction strategies
     if levels.should_decline_compaction(segment_ids.iter().map(GlobalSegmentId::segment_id)) {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree",
+            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
