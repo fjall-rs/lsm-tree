@@ -11,6 +11,8 @@ use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 #[allow(clippy::module_name_repetitions)]
 pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     inner: DoubleEndedPeekable<I>,
+
+    lo_last_seen_key: Option<UserKey>,
 }
 
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
@@ -18,33 +20,9 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
     #[must_use]
     pub fn new(iter: I) -> Self {
         let iter = iter.double_ended_peekable();
-        Self { inner: iter }
-    }
-
-    fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
-        loop {
-            let Some(next) = self.inner.peek() else {
-                return Ok(());
-            };
-
-            let Ok(next) = next else {
-                // NOTE: We just asserted, the peeked value is an error
-                #[allow(clippy::expect_used)]
-                return Err(self
-                    .inner
-                    .next()
-                    .expect("should exist")
-                    .expect_err("should be error"));
-            };
-
-            // Consume version
-            if next.key.user_key == key {
-                // NOTE: We know the next value is not empty, because we just peeked it
-                #[allow(clippy::expect_used)]
-                self.inner.next().expect("should not be empty")?;
-            } else {
-                return Ok(());
-            }
+        Self {
+            inner: iter,
+            lo_last_seen_key: None,
         }
     }
 }
@@ -53,12 +31,19 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> Iterator for M
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let head = fail_iter!(self.inner.next()?);
+        loop {
+            let head = fail_iter!(self.inner.next()?);
 
-        // As long as items are the same key, ignore them
-        fail_iter!(self.drain_key_min(&head.key.user_key));
+            if let Some(last_seen_key) = &self.lo_last_seen_key {
+                if head.key.user_key == last_seen_key {
+                    continue;
+                }
+            }
 
-        Some(Ok(head))
+            self.lo_last_seen_key = Some(head.key.user_key.clone());
+
+            return Some(Ok(head));
+        }
     }
 }
 
