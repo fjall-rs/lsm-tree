@@ -22,7 +22,6 @@ fn pick_minimal_compaction(
     curr_level: &Level,
     next_level: &Level,
     hidden_set: &HiddenSet,
-    overshoot: u64,
 ) -> Option<(HashSet<SegmentId>, bool)> {
     // assert!(curr_level.is_disjoint, "Lx is not disjoint");
     // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
@@ -105,7 +104,7 @@ fn pick_minimal_compaction(
 
             // NOTE: Only consider compactions where we actually reach the amount
             // of bytes we need to merge
-            if curr_level_size >= overshoot {
+            if curr_level_size >= 1 {
                 let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
                 let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
@@ -265,7 +264,7 @@ impl CompactionStrategy for Strategy {
                 };
 
                 let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, levels.hidden_set(), overshoot)
+                    pick_minimal_compaction(level, next_level, levels.hidden_set())
                 else {
                     break;
                 };
