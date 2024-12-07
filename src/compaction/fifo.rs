@@ -40,6 +40,10 @@ impl Strategy {
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "FifoStrategy"
+    }
+
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
@@ -58,11 +62,8 @@ impl CompactionStrategy for Strategy {
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
                     if lifetime_sec > ttl_seconds.into() {
-                        log::warn!(
-                            "segment is older than configured TTL: {:?}",
-                            segment.metadata.id,
-                        );
-                        segment_ids_to_delete.insert(segment.metadata.id);
+                        log::warn!("segment is older than configured TTL: {:?}", segment.id(),);
+                        segment_ids_to_delete.insert(segment.id());
                     }
                 }
             }
@@ -86,11 +87,11 @@ impl CompactionStrategy for Strategy {
 
                 bytes_to_delete = bytes_to_delete.saturating_sub(segment.metadata.file_size);
 
-                segment_ids_to_delete.insert(segment.metadata.id);
+                segment_ids_to_delete.insert(segment.id());
 
                 log::debug!(
                     "dropping segment to reach configured size limit: {:?}",
-                    segment.metadata.id,
+                    segment.id(),
                 );
             }
         }
@@ -124,7 +125,7 @@ mod tests {
         key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
@@ -144,10 +145,13 @@ mod tests {
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
+
         SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index,
 
             offsets: FileOffsets {
                 bloom_ptr: BlockOffset(0),

@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::segment::{
-    block_index::BlockIndex, value_block::BlockOffset, value_block::CachePolicy,
+    block_index::KeyedBlockIndex, value_block::BlockOffset, value_block::CachePolicy,
 };
 
 fn tli_find_item(c: &mut Criterion) {
