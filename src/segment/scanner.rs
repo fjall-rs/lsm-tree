@@ -1,6 +1,6 @@
 use super::value_block::ValueBlock;
 use crate::InternalValue;
-use std::{collections::VecDeque, fs::File, io::BufReader, iter::Peekable, path::Path};
+use std::{collections::VecDeque, fs::File, io::BufReader, path::Path};
 
 /// Segment reader that is optimized for consuming an entire segment
 pub struct Scanner {
@@ -48,81 +48,80 @@ impl Iterator for Scanner {
 
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
+#[derive(Eq)]
+struct HeapItem(usize, InternalValue);
+
+impl PartialEq for HeapItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.1.key == other.1.key
+    }
+}
+
+impl Ord for HeapItem {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.1.key.cmp(&other.1.key)
+    }
+}
+
+impl PartialOrd for HeapItem {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.1.key.cmp(&other.1.key))
+    }
+}
+
+use interval_heap::IntervalHeap;
+
 /// Merges multiple KV iterators
 pub struct CompactionMerger<'a> {
-    iterators: Vec<Peekable<CompactionReader<'a>>>,
+    iterators: Vec<CompactionReader<'a>>,
+    heap: IntervalHeap<HeapItem>,
+
+    initialized_lo: bool,
 }
 
 impl<'a> CompactionMerger<'a> {
     #[must_use]
     pub fn new(iterators: Vec<CompactionReader<'a>>) -> Self {
-        let iterators = iterators
-            .into_iter()
-            .map(std::iter::Iterator::peekable)
-            .collect::<Vec<_>>();
+        let heap = IntervalHeap::with_capacity(iterators.len());
 
-        Self { iterators }
+        let iterators = iterators.into_iter().collect::<Vec<_>>();
+
+        Self {
+            iterators,
+            heap,
+            initialized_lo: false,
+        }
+    }
+
+    #[allow(clippy::indexing_slicing)]
+    fn initialize_lo(&mut self) -> crate::Result<()> {
+        for idx in 0..self.iterators.len() {
+            if let Some(item) = self.iterators[idx].next() {
+                let item = item?;
+                self.heap.push(HeapItem(idx, item));
+            }
+        }
+        self.initialized_lo = true;
+        Ok(())
     }
 }
 
 impl<'a> Iterator for CompactionMerger<'a> {
     type Item = crate::Result<InternalValue>;
 
+    #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<Self::Item> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
+        if !self.initialized_lo {
+            fail_iter!(self.initialize_lo());
         }
 
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next()
-                .expect("should not be empty");
+        let min_item = self.heap.pop_min()?;
 
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
+        if let Some(next_item) = self.iterators[min_item.0].next() {
+            let next_item = fail_iter!(next_item);
+            self.heap.push(HeapItem(min_item.0, next_item));
         }
 
-        let mut min: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, min_val)) = min {
-                            if val.key < min_val.key {
-                                min = Some((idx, val));
-                            }
-                        } else {
-                            min = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = min {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .next()?
-                .expect("should not be error");
-
-            Some(Ok(value))
-        } else {
-            None
-        }
+        Some(Ok(min_item.1))
     }
 }
