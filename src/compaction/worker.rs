@@ -243,7 +243,7 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    let mut segment_writer = MultiWriter::new(
+    let Ok(segment_writer) = MultiWriter::new(
         opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
@@ -252,8 +252,19 @@ fn merge_segments(
             data_block_size: opts.config.data_block_size,
             index_block_size: opts.config.index_block_size,
         },
-    )?
-    .use_compression(opts.config.compression);
+    ) else {
+        log::error!("Compaction failed");
+
+        // IMPORTANT: Show the segments again, because compaction failed
+        opts.levels
+            .write()
+            .expect("lock is poisoned")
+            .show_segments(payload.segment_ids.iter().copied());
+
+        return Ok(());
+    };
+
+    let mut segment_writer = segment_writer.use_compression(opts.config.compression);
 
     #[cfg(feature = "bloom")]
     {
