@@ -14,7 +14,7 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn new<P: AsRef<Path>>(path: P, block_count: usize) -> crate::Result<Self> {
-        let reader = BufReader::with_capacity(64_000, File::open(path)?);
+        let reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         Ok(Self {
             reader,
