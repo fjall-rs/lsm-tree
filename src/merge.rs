@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::InternalValue;
-use interval_heap::IntervalHeap;
+use interval_heap::IntervalHeap as Heap;
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
@@ -31,7 +31,7 @@ impl PartialOrd for HeapItem {
 /// Merges multiple KV iterators
 pub struct Merger<'a> {
     iterators: Vec<BoxedIterator<'a>>,
-    heap: IntervalHeap<HeapItem>,
+    heap: Heap<HeapItem>,
 
     initialized_lo: bool,
     initialized_hi: bool,
@@ -40,7 +40,7 @@ pub struct Merger<'a> {
 impl<'a> Merger<'a> {
     #[must_use]
     pub fn new(iterators: Vec<BoxedIterator<'a>>) -> Self {
-        let heap = IntervalHeap::with_capacity(iterators.len());
+        let heap = Heap::with_capacity(iterators.len());
 
         let iterators = iterators
             .into_iter()
