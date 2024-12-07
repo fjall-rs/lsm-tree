@@ -3,146 +3,117 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::InternalValue;
-use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
-
-// TODO: refactor error handling because it's horrible
+use interval_heap::IntervalHeap;
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
+#[derive(Eq)]
+struct HeapItem(usize, InternalValue);
+
+impl PartialEq for HeapItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.1.key == other.1.key
+    }
+}
+
+impl Ord for HeapItem {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.1.key.cmp(&other.1.key)
+    }
+}
+
+impl PartialOrd for HeapItem {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.1.key.cmp(&other.1.key))
+    }
+}
+
 /// Merges multiple KV iterators
 pub struct Merger<'a> {
-    iterators: Vec<DoubleEndedPeekable<BoxedIterator<'a>>>,
+    iterators: Vec<BoxedIterator<'a>>,
+    heap: IntervalHeap<HeapItem>,
+
+    initialized_lo: bool,
+    initialized_hi: bool,
 }
 
 impl<'a> Merger<'a> {
+    #[must_use]
     pub fn new(iterators: Vec<BoxedIterator<'a>>) -> Self {
+        let heap = IntervalHeap::with_capacity(iterators.len());
+
         let iterators = iterators
             .into_iter()
-            .map(DoubleEndedPeekableExt::double_ended_peekable)
+            // .map(|x| x.peekable())
             .collect::<Vec<_>>();
 
-        Self { iterators }
+        Self {
+            iterators,
+            heap,
+            initialized_lo: false,
+            initialized_hi: false,
+        }
+    }
+
+    #[allow(clippy::indexing_slicing)]
+    fn initialize_lo(&mut self) -> crate::Result<()> {
+        for idx in 0..self.iterators.len() {
+            if let Some(item) = self.iterators[idx].next() {
+                let item = item?;
+                self.heap.push(HeapItem(idx, item));
+            }
+        }
+        self.initialized_lo = true;
+        Ok(())
+    }
+
+    #[allow(clippy::indexing_slicing)]
+    fn initialize_hi(&mut self) -> crate::Result<()> {
+        for idx in 0..self.iterators.len() {
+            if let Some(item) = self.iterators[idx].next_back() {
+                let item = item?;
+                self.heap.push(HeapItem(idx, item));
+            }
+        }
+        self.initialized_hi = true;
+        Ok(())
     }
 }
 
 impl<'a> Iterator for Merger<'a> {
     type Item = crate::Result<InternalValue>;
 
+    #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<Self::Item> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
+        if !self.initialized_lo {
+            fail_iter!(self.initialize_lo());
         }
 
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next()
-                .expect("should not be empty");
+        let min_item = self.heap.pop_min()?;
 
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
+        if let Some(next_item) = self.iterators[min_item.0].next() {
+            let next_item = fail_iter!(next_item);
+            self.heap.push(HeapItem(min_item.0, next_item));
         }
 
-        let mut min: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, min_val)) = min {
-                            if val.key < min_val.key {
-                                min = Some((idx, val));
-                            }
-                        } else {
-                            min = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = min {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .next()?
-                .expect("should not be error");
-
-            Some(Ok(value))
-        } else {
-            None
-        }
+        Some(Ok(min_item.1))
     }
 }
 
 impl<'a> DoubleEndedIterator for Merger<'a> {
+    #[allow(clippy::indexing_slicing)]
     fn next_back(&mut self) -> Option<Self::Item> {
-        let mut idx_with_err = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                if val.is_err() {
-                    idx_with_err = Some(idx);
-                }
-            }
+        if !self.initialized_hi {
+            fail_iter!(self.initialize_hi());
         }
 
-        if let Some(idx) = idx_with_err {
-            let err = self
-                .iterators
-                .get_mut(idx)
-                .expect("should exist")
-                .next_back()
-                .expect("should not be empty");
+        let max_item = self.heap.pop_max()?;
 
-            if let Err(e) = err {
-                return Some(Err(e));
-            }
-
-            panic!("logic error");
+        if let Some(next_item) = self.iterators[max_item.0].next_back() {
+            let next_item = fail_iter!(next_item);
+            self.heap.push(HeapItem(max_item.0, next_item));
         }
 
-        let mut max: Option<(usize, &InternalValue)> = None;
-
-        for (idx, val) in self.iterators.iter_mut().map(|x| x.peek_back()).enumerate() {
-            if let Some(val) = val {
-                match val {
-                    Ok(val) => {
-                        if let Some((_, max_val)) = max {
-                            if val.key > max_val.key {
-                                max = Some((idx, val));
-                            }
-                        } else {
-                            max = Some((idx, val));
-                        }
-                    }
-                    _ => panic!("already checked for errors"),
-                }
-            }
-        }
-
-        if let Some((idx, _)) = max {
-            let value = self
-                .iterators
-                .get_mut(idx)?
-                .next_back()?
-                .expect("should not be error");
-
-            Some(Ok(value))
-        } else {
-            None
-        }
+        Some(Ok(max_item.1))
     }
 }
