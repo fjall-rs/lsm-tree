@@ -116,35 +116,34 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn compression_serialize_none() -> crate::Result<()> {
+    fn compression_serialize_none() {
         let serialized = CompressionType::None.encode_into_vec();
         assert_eq!(2, serialized.len());
-        Ok(())
     }
 
     #[cfg(feature = "lz4")]
     mod lz4 {
         use super::*;
+        use test_log::test;
 
         #[test]
-        fn compression_serialize_none() -> crate::Result<()> {
+        fn compression_serialize_none() {
             let serialized = CompressionType::Lz4.encode_into_vec();
             assert_eq!(2, serialized.len());
-            Ok(())
         }
     }
 
     #[cfg(feature = "miniz")]
     mod miniz {
         use super::*;
+        use test_log::test;
 
         #[test]
-        fn compression_serialize_none() -> crate::Result<()> {
+        fn compression_serialize_none() {
             for lvl in 0..10 {
                 let serialized = CompressionType::Miniz(lvl).encode_into_vec();
                 assert_eq!(2, serialized.len());
             }
-            Ok(())
         }
     }
 }
