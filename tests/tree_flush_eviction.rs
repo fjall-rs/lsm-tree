@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use lsm_tree::AbstractTree;
+use std::sync::Arc;
 use test_log::test;
 
 #[test]
