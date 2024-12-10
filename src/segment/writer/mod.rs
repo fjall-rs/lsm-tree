@@ -237,7 +237,6 @@ impl Writer {
         if Some(&item.key.user_key) != self.current_key.as_ref() {
             // IMPORTANT: Check that we are not at the first key
             if self.current_key.is_some() {
-                dbg!("JUHU");
                 self.can_rotate = true;
             }
 
