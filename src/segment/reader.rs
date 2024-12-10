@@ -176,6 +176,8 @@ impl Iterator for Reader {
             }
         }
 
+        // TODO: when loading the next data block, we unnecessarily do binary search through it
+        // (ValueBlock::with_bounds), but we may be able to skip it sometimes
         match fail_iter!(self.load_data_block(next_block_offset)) {
             Some((size, _, items)) => {
                 self.lo_block_items = Some(items);
@@ -237,6 +239,8 @@ impl DoubleEndedIterator for Reader {
                 return self.lo_block_items.as_mut()?.next_back().map(Ok);
             }
 
+            // TODO: when loading the next data block, we unnecessarily do binary search through it
+            // (ValueBlock::with_bounds), but we may be able to skip it sometimes
             match fail_iter!(self.load_data_block(prev_block_offset)) {
                 Some((_, backlink, items)) => {
                     self.hi_block_items = Some(items);

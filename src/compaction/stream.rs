@@ -102,6 +102,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 mod tests {
     use super::*;
     use crate::value::{InternalValue, ValueType};
+    use test_log::test;
 
     macro_rules! stream {
         ($($key:expr, $sub_key:expr, $value_type:expr),* $(,)?) => {{
@@ -136,7 +137,7 @@ mod tests {
         };
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_queue_weak_tombstones() {
         #[rustfmt::skip]
@@ -156,7 +157,7 @@ mod tests {
     }
 
     /// GC should not evict tombstones, unless they are covered up
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -186,7 +187,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_old_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -231,7 +232,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_tombstone_overwrite_gc() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -252,7 +253,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_simple() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -277,7 +278,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -302,7 +303,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict() {
         #[rustfmt::skip]
@@ -319,7 +320,7 @@ mod tests {
         iter_closed!(iter);
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict_next_value() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -349,7 +350,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -379,7 +380,7 @@ mod tests {
         Ok(())
     }
 
-    #[test_log::test]
+    #[test]
     #[allow(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
