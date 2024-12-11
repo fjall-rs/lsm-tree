@@ -18,6 +18,26 @@ use two_level_index::TwoLevelBlockIndex;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 
+#[allow(clippy::module_name_repetitions)]
+pub trait KeyedBlockIndex {
+    /// Gets the lowest block handle that may contain the given item
+    fn get_lowest_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+
+    /// Gets the last block handle that may contain the given item
+    fn get_last_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+
+    /// Returns a handle to the last block
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<&KeyedBlockHandle>;
+}
+
 impl KeyedBlockIndex for [KeyedBlockHandle] {
     fn get_lowest_block_containing_key(
         &self,
@@ -80,26 +100,24 @@ pub trait BlockIndex {
     fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset>;
 }
 
-#[allow(clippy::module_name_repetitions)]
-pub trait KeyedBlockIndex {
-    /// Gets the lowest block handle that may contain the given item
-    fn get_lowest_block_containing_key(
-        &self,
-        key: &[u8],
-        cache_policy: CachePolicy,
-    ) -> crate::Result<Option<&KeyedBlockHandle>>;
-
-    /// Gets the last block handle that may contain the given item
-    fn get_last_block_containing_key(
-        &self,
-        key: &[u8],
-        cache_policy: CachePolicy,
-    ) -> crate::Result<Option<&KeyedBlockHandle>>;
-
-    /// Returns a handle to the last block
-    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<&KeyedBlockHandle>;
-}
-
+/// The block index stores references to the positions of blocks on a file and their size
+///
+/// __________________
+/// |                |
+/// |     BLOCK0     |
+/// |________________| <- 'G': 0x0
+/// |                |
+/// |     BLOCK1     |
+/// |________________| <- 'M': 0x...
+/// |                |
+/// |     BLOCK2     |
+/// |________________| <- 'Z': 0x...
+///
+/// The block information can be accessed by key.
+/// Because the blocks are sorted, any entries not covered by the index (it is sparse) can be
+/// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
+/// In the diagram above, searching for 'J' yields the block starting with 'G'.
+/// 'J' must be in that block, because the next block starts with 'M').
 #[enum_dispatch::enum_dispatch(BlockIndex)]
 #[allow(clippy::module_name_repetitions)]
 pub enum BlockIndexImpl {
