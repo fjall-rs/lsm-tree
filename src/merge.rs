@@ -5,7 +5,9 @@
 use crate::InternalValue;
 use interval_heap::IntervalHeap as Heap;
 
-pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
+type IterItem = crate::Result<InternalValue>;
+
+pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + 'a>;
 
 #[derive(Eq)]
 struct HeapItem(usize, InternalValue);
@@ -29,23 +31,19 @@ impl PartialOrd for HeapItem {
 }
 
 /// Merges multiple KV iterators
-pub struct Merger<'a> {
-    iterators: Vec<BoxedIterator<'a>>,
+pub struct Merger<I> {
+    iterators: Vec<I>,
     heap: Heap<HeapItem>,
-
     initialized_lo: bool,
     initialized_hi: bool,
 }
 
-impl<'a> Merger<'a> {
+impl<I: Iterator<Item = IterItem>> Merger<I> {
     #[must_use]
-    pub fn new(iterators: Vec<BoxedIterator<'a>>) -> Self {
+    pub fn new(iterators: Vec<I>) -> Self {
         let heap = Heap::with_capacity(iterators.len());
 
-        let iterators = iterators
-            .into_iter()
-            // .map(|x| x.peekable())
-            .collect::<Vec<_>>();
+        let iterators = iterators.into_iter().collect::<Vec<_>>();
 
         Self {
             iterators,
@@ -66,7 +64,9 @@ impl<'a> Merger<'a> {
         self.initialized_lo = true;
         Ok(())
     }
+}
 
+impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
     #[allow(clippy::indexing_slicing)]
     fn initialize_hi(&mut self) -> crate::Result<()> {
         for idx in 0..self.iterators.len() {
@@ -80,8 +80,8 @@ impl<'a> Merger<'a> {
     }
 }
 
-impl<'a> Iterator for Merger<'a> {
-    type Item = crate::Result<InternalValue>;
+impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
+    type Item = IterItem;
 
     #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -100,7 +100,7 @@ impl<'a> Iterator for Merger<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for Merger<'a> {
+impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> {
     #[allow(clippy::indexing_slicing)]
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.initialized_hi {

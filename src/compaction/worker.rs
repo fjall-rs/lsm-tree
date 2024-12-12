@@ -104,7 +104,7 @@ fn create_compaction_stream<'a>(
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
-) -> Option<CompactionStream<Merger<'a>>> {
+) -> Option<CompactionStream<Merger<BoxedIterator<'a>>>> {
     use std::ops::Bound::Unbounded;
 
     let mut readers: Vec<BoxedIterator<'_>> = vec![];
