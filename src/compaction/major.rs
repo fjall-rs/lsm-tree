@@ -7,17 +7,17 @@ use crate::{config::Config, level_manifest::LevelManifest, Segment};
 
 /// Major compaction
 ///
-/// Compacts all segments into the last level
+/// Compacts all segments into the last level.
 pub struct Strategy {
     target_size: u64,
 }
 
 impl Strategy {
-    /// Configures a new `SizeTiered` compaction strategy
+    /// Configures a new `SizeTiered` compaction strategy.
     ///
     /// # Panics
     ///
-    /// Panics, if `target_size` is below 1024 bytes
+    /// Panics, if `target_size` is below 1024 bytes.
     #[must_use]
     #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {

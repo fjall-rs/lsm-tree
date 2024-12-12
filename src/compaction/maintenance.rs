@@ -100,9 +100,6 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
-
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
@@ -146,7 +143,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()
     }

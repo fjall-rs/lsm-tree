@@ -126,7 +126,7 @@ impl MultiWriter {
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         self.writer.write(item)?;
 
-        if *self.writer.meta.file_pos >= self.target_size {
+        if *self.writer.meta.file_pos >= self.target_size && self.writer.can_rotate() {
             self.rotate()?;
         }
 
@@ -142,5 +142,34 @@ impl MultiWriter {
         }
 
         Ok(self.results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{AbstractTree, Config};
+    use test_log::test;
+
+    // NOTE: Tests that versions of the same key stay
+    // in the same segment even if it needs to be rotated
+    // This avoids segments' key ranges overlapping
+    #[test]
+    fn segment_multi_writer_same_key_norotate() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = Config::new(&folder).open()?;
+
+        tree.insert("a", "a1".repeat(4_000), 0);
+        tree.insert("a", "a2".repeat(4_000), 1);
+        tree.insert("a", "a3".repeat(4_000), 2);
+        tree.insert("a", "a4".repeat(4_000), 3);
+        tree.insert("a", "a5".repeat(4_000), 4);
+        tree.flush_active_memtable(0)?;
+        assert_eq!(1, tree.segment_count());
+
+        tree.major_compact(1_024, 0)?;
+        assert_eq!(1, tree.segment_count());
+
+        Ok(())
     }
 }

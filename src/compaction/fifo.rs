@@ -137,9 +137,6 @@ mod tests {
     use std::sync::Arc;
     use test_log::test;
 
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
-
     #[allow(clippy::expect_used)]
     #[allow(clippy::cast_possible_truncation)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
@@ -184,7 +181,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()
     }

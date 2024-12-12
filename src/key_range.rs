@@ -65,18 +65,21 @@ impl KeyRange {
         true
     }
 
+    /// Returns `true` if the key falls within this key range.
     pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
         let (start, end) = &self.0;
         key >= *start && key <= *end
     }
 
+    /// Returns `true` if the `other` is fully contained in this range.
     pub fn contains_range(&self, other: &Self) -> bool {
         let (start1, end1) = &self.0;
         let (start2, end2) = &other.0;
         start1 <= start2 && end1 >= end2
     }
 
+    /// Returns `true` if the `other` overlaps at least partially with this range.
     pub fn overlaps_with_key_range(&self, other: &Self) -> bool {
         let (start1, end1) = &self.0;
         let (start2, end2) = &other.0;

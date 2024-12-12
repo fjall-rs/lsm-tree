@@ -1,6 +1,7 @@
 use lsm_tree::{AbstractTree, Config};
+use test_log::test;
 
-#[test_log::test]
+#[test]
 fn tree_highest_seqno() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.into_path();
 

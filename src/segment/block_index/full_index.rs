@@ -5,9 +5,11 @@ use crate::segment::{
 };
 use std::{fs::File, io::Seek, path::Path};
 
-/// Index that translates item keys to block handles
+/// Index that translates item keys to data block handles
 ///
 /// The index is fully loaded into memory.
+///
+/// Currently, a full block index is used for L0 & L1 segments.
 pub struct FullBlockIndex(Box<[KeyedBlockHandle]>);
 
 impl std::ops::Deref for FullBlockIndex {
