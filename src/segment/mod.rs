@@ -25,8 +25,10 @@ use crate::{
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
 };
+use block_index::BlockIndexImpl;
 use id::GlobalSegmentId;
 use inner::Inner;
+use meta::SegmentId;
 use range::Range;
 use scanner::Scanner;
 use std::{ops::Bound, path::Path, sync::Arc};
@@ -34,6 +36,7 @@ use std::{ops::Bound, path::Path, sync::Arc};
 #[cfg(feature = "bloom")]
 use crate::bloom::{BloomFilter, CompositeHash};
 
+#[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
 
 /// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
@@ -64,15 +67,26 @@ impl std::ops::Deref for Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Segment:{}({})",
-            self.metadata.id, self.metadata.key_range
-        )
+        write!(f, "Segment:{}({})", self.id(), self.metadata.key_range)
     }
 }
 
 impl Segment {
+    /// Gets the global segment ID.
+    #[must_use]
+    pub fn global_id(&self) -> GlobalSegmentId {
+        (self.tree_id, self.id()).into()
+    }
+
+    /// Gets the segment ID.
+    ///
+    /// The segment ID is unique for this tree, but not
+    /// across multiple trees, use [`Segment::global_id`] for that.
+    #[must_use]
+    pub fn id(&self) -> SegmentId {
+        self.metadata.id
+    }
+
     pub(crate) fn verify(&self) -> crate::Result<usize> {
         use block::checksum::Checksum;
         use block_index::IndexBlock;
@@ -83,62 +97,103 @@ impl Segment {
 
         let guard = self
             .descriptor_table
-            .access(&(self.tree_id, self.metadata.id).into())?
+            .access(&self.global_id())?
             .expect("should have gotten file");
 
         let mut file = guard.file.lock().expect("lock is poisoned");
 
-        // NOTE: TODO: because of 1.74.0
-        #[allow(clippy::explicit_iter_loop)]
-        for handle in self.block_index.top_level_index.iter() {
-            let block = match IndexBlock::from_file(&mut *file, handle.offset) {
-                Ok(v) => v,
-                Err(e) => {
-                    log::error!(
-                        "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                    );
-                    broken_count += 1;
-                    continue;
-                }
-            };
+        // TODO: maybe move to BlockIndexImpl::verify
+        match &*self.block_index {
+            BlockIndexImpl::Full(block_index) => {
+                for handle in block_index.iter() {
+                    let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!(
+                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                 );
+                            broken_count += 1;
+                            data_block_count += 1;
+                            continue;
+                        }
+                    };
 
-            for handle in &*block.items {
-                let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!(
-                            "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                        );
+                    let (_, data) = ValueBlock::to_bytes_compressed(
+                        &value_block.items,
+                        value_block.header.previous_block_offset,
+                        value_block.header.compression,
+                    )?;
+                    let actual_checksum = Checksum::from_bytes(&data);
+
+                    if value_block.header.checksum != actual_checksum {
+                        log::error!("{handle:?} is corrupted, invalid checksum value");
                         broken_count += 1;
-                        data_block_count += 1;
-                        continue;
                     }
-                };
 
-                let (_, data) = ValueBlock::to_bytes_compressed(
-                    &value_block.items,
-                    value_block.header.previous_block_offset,
-                    value_block.header.compression,
-                )?;
-                let actual_checksum = Checksum::from_bytes(&data);
+                    data_block_count += 1;
 
-                if value_block.header.checksum != actual_checksum {
-                    log::error!("{handle:?} is corrupted, invalid checksum value");
-                    broken_count += 1;
+                    if data_block_count % 1_000 == 0 {
+                        log::debug!("Checked {data_block_count} data blocks");
+                    }
                 }
+            }
+            BlockIndexImpl::TwoLevel(block_index) => {
+                // NOTE: TODO: because of 1.74.0
+                #[allow(clippy::explicit_iter_loop)]
+                for handle in block_index.top_level_index.iter() {
+                    let block = match IndexBlock::from_file(&mut *file, handle.offset) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            log::error!(
+                 "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+             );
+                            broken_count += 1;
+                            continue;
+                        }
+                    };
 
-                data_block_count += 1;
+                    for handle in &*block.items {
+                        let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                log::error!(
+                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
+                 );
+                                broken_count += 1;
+                                data_block_count += 1;
+                                continue;
+                            }
+                        };
 
-                if data_block_count % 1_000 == 0 {
-                    log::debug!("Checked {data_block_count} data blocks");
+                        let (_, data) = ValueBlock::to_bytes_compressed(
+                            &value_block.items,
+                            value_block.header.previous_block_offset,
+                            value_block.header.compression,
+                        )?;
+                        let actual_checksum = Checksum::from_bytes(&data);
+
+                        if value_block.header.checksum != actual_checksum {
+                            log::error!("{handle:?} is corrupted, invalid checksum value");
+                            broken_count += 1;
+                        }
+
+                        data_block_count += 1;
+
+                        if data_block_count % 1_000 == 0 {
+                            log::debug!("Checked {data_block_count} data blocks");
+                        }
+                    }
                 }
             }
         }
 
-        assert_eq!(
-            data_block_count, self.metadata.data_block_count,
-            "not all data blocks were visited"
-        );
+        if data_block_count != self.metadata.data_block_count {
+            log::error!(
+                "Not all data blocks were visited during verification of disk segment {:?}",
+                self.id(),
+            );
+            broken_count += 1;
+        }
 
         Ok(broken_count)
     }
@@ -169,8 +224,9 @@ impl Segment {
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
+        use_full_block_index: bool,
     ) -> crate::Result<Self> {
-        use block_index::two_level_index::TwoLevelBlockIndex;
+        use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::SegmentFileTrailer;
 
         let file_path = file_path.as_ref();
@@ -187,13 +243,23 @@ impl Segment {
             "Creating block index, with tli_ptr={}",
             trailer.offsets.tli_ptr
         );
-        let block_index = TwoLevelBlockIndex::from_file(
-            file_path,
-            trailer.offsets.tli_ptr,
-            (tree_id, trailer.metadata.id).into(),
-            descriptor_table.clone(),
-            block_cache.clone(),
-        )?;
+
+        let block_index = if use_full_block_index {
+            let block_index =
+                FullBlockIndex::from_file(file_path, &trailer.metadata, &trailer.offsets)?;
+
+            BlockIndexImpl::Full(block_index)
+        } else {
+            let block_index = TwoLevelBlockIndex::from_file(
+                file_path,
+                &trailer.metadata,
+                trailer.offsets.tli_ptr,
+                (tree_id, trailer.metadata.id).into(),
+                descriptor_table.clone(),
+                block_cache.clone(),
+            )?;
+            BlockIndexImpl::TwoLevel(block_index)
+        };
 
         #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
@@ -255,6 +321,7 @@ impl Segment {
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         use crate::{mvcc_stream::MvccStream, ValueType};
+        use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
         use value_block_consumer::ValueBlockConsumer;
 
@@ -262,7 +329,7 @@ impl Segment {
 
         let Some(first_block_handle) = self
             .block_index
-            .get_lowest_data_block_handle_containing_item(key.as_ref(), CachePolicy::Write)?
+            .get_lowest_block_containing_key(key, CachePolicy::Write)?
         else {
             return Ok(None);
         };
@@ -270,8 +337,8 @@ impl Segment {
         let Some(block) = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
             &self.block_cache,
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
-            first_block_handle.offset,
+            self.global_id(),
+            first_block_handle,
             CachePolicy::Write,
         )?
         else {
@@ -300,9 +367,9 @@ impl Segment {
         let mut reader = Reader::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
+            self.global_id(),
             self.block_cache.clone(),
-            first_block_handle.offset,
+            first_block_handle,
             None,
         );
         reader.lo_block_size = block.header.data_length.into();
@@ -372,17 +439,17 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        let key = key.as_ref();
+
         if let Some(seqno) = seqno {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
             }
         }
 
-        if !self.is_key_in_key_range(&key) {
+        if !self.is_key_in_key_range(key) {
             return Ok(None);
         }
-
-        let key = key.as_ref();
 
         #[cfg(feature = "bloom")]
         if let Some(bf) = &self.bloom_filter {
@@ -427,7 +494,7 @@ impl Segment {
         Range::new(
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
-            GlobalSegmentId::from((self.tree_id, self.metadata.id)),
+            self.global_id(),
             self.block_cache.clone(),
             self.block_index.clone(),
             range,

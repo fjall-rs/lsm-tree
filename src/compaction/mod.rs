@@ -69,6 +69,10 @@ pub enum Choice {
 /// and emits a choice on what to do.
 #[allow(clippy::module_name_repetitions)]
 pub trait CompactionStrategy {
+    // TODO: could be : Display instead
+    /// Gets the compaction strategy name.
+    fn get_name(&self) -> &'static str;
+
     /// Decides on what to do based on the current state of the LSM-tree's levels
     fn choose(&self, _: &LevelManifest, config: &Config) -> Choice;
 }

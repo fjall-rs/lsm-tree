@@ -3,16 +3,22 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod block_handle;
+pub mod full_index;
 pub mod top_level;
 pub mod two_level_index;
 pub mod writer;
 
-use super::{block::Block, value_block::CachePolicy};
+use super::{
+    block::Block,
+    value_block::{BlockOffset, CachePolicy},
+};
 use block_handle::KeyedBlockHandle;
+use full_index::FullBlockIndex;
+use two_level_index::TwoLevelBlockIndex;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 
-impl BlockIndex for [KeyedBlockHandle] {
+impl KeyedBlockIndex for [KeyedBlockHandle] {
     fn get_lowest_block_containing_key(
         &self,
         key: &[u8],
@@ -54,7 +60,28 @@ impl BlockIndex for [KeyedBlockHandle] {
     }
 }
 
+#[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {
+    /// Gets the lowest block handle that may contain the given item
+    fn get_lowest_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockOffset>>;
+
+    /// Gets the last block handle that may contain the given item
+    fn get_last_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockOffset>>;
+
+    /// Returns a handle to the last block
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset>;
+}
+
+#[allow(clippy::module_name_repetitions)]
+pub trait KeyedBlockIndex {
     /// Gets the lowest block handle that may contain the given item
     fn get_lowest_block_containing_key(
         &self,
@@ -73,14 +100,18 @@ pub trait BlockIndex {
     fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<&KeyedBlockHandle>;
 }
 
+#[enum_dispatch::enum_dispatch(BlockIndex)]
+#[allow(clippy::module_name_repetitions)]
+pub enum BlockIndexImpl {
+    Full(FullBlockIndex),
+    TwoLevel(TwoLevelBlockIndex),
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{
-        segment::{block_index::BlockIndex, value_block::BlockOffset},
-        Slice,
-    };
+    use crate::{segment::value_block::BlockOffset, Slice};
     use test_log::test;
 
     fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {

@@ -59,6 +59,12 @@ path = "benches/tli.rs"
 required-features = []
 
 [[bench]]
+name = "merge"
+harness = false
+path = "benches/merge.rs"
+required-features = []
+
+[[bench]]
 name = "memtable"
 harness = false
 path = "benches/memtable.rs"

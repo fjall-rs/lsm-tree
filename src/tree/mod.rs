@@ -14,7 +14,9 @@ use crate::{
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{
-        block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment, SegmentInner,
+        block_index::{full_index::FullBlockIndex, BlockIndexImpl},
+        meta::TableType,
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     value::InternalValue,
@@ -167,11 +169,8 @@ impl AbstractTree for Tree {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
-                segment_writer = segment_writer.use_bloom_policy(
-                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
-                    // is fixed
-                    BloomConstructionPolicy::FpRate(0.0001),
-                );
+                segment_writer =
+                    segment_writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
             } else {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
@@ -206,9 +205,11 @@ impl AbstractTree for Tree {
             }
         })?;
 
+        // eprintln!("{original_levels}");
+
         for segment in segments {
-            log::trace!("releasing sealed memtable {}", segment.metadata.id);
-            sealed_memtables.remove(segment.metadata.id);
+            log::trace!("releasing sealed memtable {}", segment.id());
+            sealed_memtables.remove(segment.id());
         }
 
         Ok(())
@@ -504,16 +505,9 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
-            &segment_file_path,
-            trailer.offsets.tli_ptr,
-            (self.id, segment_id).into(),
-            self.config.descriptor_table.clone(),
-            self.config.block_cache.clone(),
-        )?);
-
-        #[cfg(feature = "bloom")]
-        let bloom_ptr = trailer.offsets.bloom_ptr;
+        let block_index =
+            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
+        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
         let created_segment: Segment = SegmentInner {
             tree_id: self.id,
@@ -526,14 +520,13 @@ impl Tree {
             block_cache: self.config.block_cache.clone(),
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
 
-        self.config.descriptor_table.insert(
-            segment_file_path,
-            (self.id, created_segment.metadata.id).into(),
-        );
+        self.config
+            .descriptor_table
+            .insert(segment_file_path, created_segment.global_id());
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
@@ -703,6 +696,7 @@ impl Tree {
             }
             return Ok(Some(entry));
         };
+
         drop(memtable_lock);
 
         // Now look in sealed memtables
@@ -839,13 +833,9 @@ impl Tree {
             &config.block_cache,
             &config.descriptor_table,
         )?;
-        levels.sort_levels();
+        levels.update_metadata();
 
-        let highest_segment_id = levels
-            .iter()
-            .map(|x| x.metadata.id)
-            .max()
-            .unwrap_or_default();
+        let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
 
         let inner = TreeInner {
             id: tree_id,
@@ -915,8 +905,8 @@ impl Tree {
 
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
 
-        let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
-        let cnt = segment_ids_to_recover.len();
+        let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
+        let cnt = segment_id_map.len();
 
         log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
 
@@ -961,15 +951,16 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if segment_ids_to_recover.contains(&segment_id) {
+            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
                     block_cache.clone(),
                     descriptor_table.clone(),
+                    level_idx == 0 || level_idx == 1,
                 )?;
 
-                descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
+                descriptor_table.insert(&segment_file_path, segment.global_id());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");
@@ -983,8 +974,11 @@ impl Tree {
             }
         }
 
-        if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Recovered less segments than expected: {segment_ids_to_recover:?}");
+        if segments.len() < cnt {
+            log::error!(
+                "Recovered less segments than expected: {:?}",
+                segment_id_map.keys(),
+            );
             return Err(crate::Error::Unrecoverable);
         }
 

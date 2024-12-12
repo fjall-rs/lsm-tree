@@ -7,7 +7,7 @@ use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileOffsets {
     pub metadata_ptr: BlockOffset,
     pub index_block_ptr: BlockOffset,

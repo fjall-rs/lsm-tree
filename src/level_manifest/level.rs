@@ -17,13 +17,13 @@ pub struct Level {
     /// is only recomputed when the level is changed
     /// to avoid unnecessary CPU work
     pub is_disjoint: bool,
+    // pub key_range: KeyRange,
 }
 
 impl std::fmt::Display for Level {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for segment in self.segments.iter().rev().take(2).rev() {
-            let id = segment.metadata.id;
-            write!(f, "[{id}]")?;
+            write!(f, "[{}]", segment.id())?;
         }
         Ok(())
     }
@@ -41,26 +41,35 @@ impl Default for Level {
     fn default() -> Self {
         Self {
             is_disjoint: true,
-            segments: Vec::with_capacity(10),
+            segments: Vec::new(),
+            // key_range: KeyRange::empty(),
         }
     }
 }
 
 impl Level {
     pub fn list_ids(&self) -> HashSet<SegmentId> {
-        self.segments.iter().map(|x| x.metadata.id).collect()
+        self.segments.iter().map(Segment::id).collect()
+    }
+
+    pub fn update_metadata(&mut self) {
+        self.set_disjoint_flag();
+        self.sort();
     }
 
     pub fn insert(&mut self, segment: Segment) {
         self.segments.push(segment);
-        self.set_disjoint_flag();
-        self.sort();
+        self.update_metadata();
     }
 
-    pub fn remove(&mut self, segment_id: SegmentId) {
-        self.segments.retain(|x| segment_id != x.metadata.id);
-        self.set_disjoint_flag();
-        self.sort();
+    pub fn remove(&mut self, segment_id: SegmentId) -> Option<Segment> {
+        if let Some(idx) = self.segments.iter().position(|x| x.id() == segment_id) {
+            let segment = self.segments.remove(idx);
+            self.update_metadata();
+            Some(segment)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn sort(&mut self) {
@@ -96,7 +105,7 @@ impl Level {
 
     /// Returns an iterator over the level's segment IDs.
     pub fn ids(&self) -> impl Iterator<Item = SegmentId> + '_ {
-        self.segments.iter().map(|x| x.metadata.id)
+        self.segments.iter().map(Segment::id)
     }
 
     /// Returns `true` if the level contains no segments.
@@ -114,15 +123,19 @@ impl Level {
         self.segments.iter().map(|x| x.metadata.file_size).sum()
     }
 
-    /// Checks if the level is disjoint and caches the result in `is_disjoint`.
-    fn set_disjoint_flag(&mut self) {
+    pub(crate) fn compute_is_disjoint(&self) -> bool {
         let ranges = self
             .segments
             .iter()
             .map(|x| &x.metadata.key_range)
             .collect::<Vec<_>>();
 
-        self.is_disjoint = KeyRange::is_disjoint(&ranges);
+        KeyRange::is_disjoint(&ranges)
+    }
+
+    /// Checks if the level is disjoint and caches the result in `is_disjoint`.
+    fn set_disjoint_flag(&mut self) {
+        self.is_disjoint = self.compute_is_disjoint();
     }
 
     /// Returns an iterator over segments in the level that have a key range
@@ -134,6 +147,17 @@ impl Level {
         self.segments
             .iter()
             .filter(|x| x.metadata.key_range.overlaps_with_key_range(key_range))
+    }
+
+    /// Returns an iterator over segments in the level that have a key range
+    /// fully contained in the input key range.
+    pub fn contained_segments<'a>(
+        &'a self,
+        key_range: &'a KeyRange,
+    ) -> impl Iterator<Item = &'a Segment> {
+        self.segments
+            .iter()
+            .filter(|x| key_range.contains_range(&x.metadata.key_range))
     }
 
     pub fn as_disjoint(&self) -> Option<DisjointLevel<'_>> {
@@ -223,7 +247,7 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         key_range::KeyRange,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
             value_block::BlockOffset,
@@ -241,10 +265,13 @@ mod tests {
     fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
+
         SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index,
 
             offsets: FileOffsets {
                 bloom_ptr: BlockOffset(0),
@@ -287,6 +314,7 @@ mod tests {
     fn level_disjoint_cull() {
         let level = Level {
             is_disjoint: true,
+            // key_range: KeyRange::empty(),
             segments: vec![
                 fixture_segment(0, KeyRange::new((Slice::from("a"), Slice::from("c")))),
                 fixture_segment(1, KeyRange::new((Slice::from("d"), Slice::from("g")))),
@@ -481,7 +509,7 @@ mod tests {
             Vec::<SegmentId>::new(),
             level
                 .overlapping_segments(&KeyRange::new((b"a".to_vec().into(), b"b".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
 
@@ -489,7 +517,7 @@ mod tests {
             vec![1],
             level
                 .overlapping_segments(&KeyRange::new((b"d".to_vec().into(), b"k".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
 
@@ -497,7 +525,7 @@ mod tests {
             vec![1, 2],
             level
                 .overlapping_segments(&KeyRange::new((b"f".to_vec().into(), b"x".to_vec().into())))
-                .map(|x| x.metadata.id)
+                .map(Segment::id)
                 .collect::<Vec<_>>(),
         );
     }
