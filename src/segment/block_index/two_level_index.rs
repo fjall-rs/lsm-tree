@@ -29,24 +29,25 @@ impl IndexBlockFetcher {
     }
 }
 
-/// Index that translates item keys to block handles
+/// Index that translates item keys to data block handles
 ///
 /// The index is only partially loaded into memory.
 ///
 /// See <https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html>
 #[allow(clippy::module_name_repetitions)]
 pub struct TwoLevelBlockIndex {
-    descriptor_table: Arc<FileDescriptorTable>,
-
-    /// Segment ID
     segment_id: GlobalSegmentId,
+
+    descriptor_table: Arc<FileDescriptorTable>,
 
     /// Level-0 index. Is read-only and always fully loaded.
     ///
     /// This index points to index blocks inside the level-1 index.
     pub(crate) top_level_index: TopLevelIndex,
 
-    /// Level-1 index. This index is only partially loaded into memory, decreasing memory usage, compared to a fully loaded one.
+    /// Level-1 index.
+    ///
+    /// This index is only partially loaded into memory, decreasing memory usage, compared to a fully loaded one.
     ///
     /// However to find a disk block, one layer of indirection is required:
     ///

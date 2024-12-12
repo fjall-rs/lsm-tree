@@ -9,24 +9,9 @@ use crate::segment::{
 };
 use std::{fs::File, path::Path};
 
-/// The block index stores references to the positions of blocks on a file and their size
+/// The top-level index (TLI) is the level-0 index in a partitioned (two-level) block index
 ///
-/// __________________
-/// |                |
-/// |     BLOCK0     |
-/// |________________| <- 'G': 0x0
-/// |                |
-/// |     BLOCK1     |
-/// |________________| <- 'M': 0x...
-/// |                |
-/// |     BLOCK2     |
-/// |________________| <- 'Z': 0x...
-///
-/// The block information can be accessed by key.
-/// Because the blocks are sorted, any entries not covered by the index (it is sparse) can be
-/// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
-/// In the diagram above, searching for 'J' yields the block starting with 'G'.
-/// 'J' must be in that block, because the next block starts with 'M').
+/// See `top_level_index.rs` for more info.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub struct TopLevelIndex(Box<[KeyedBlockHandle]>);

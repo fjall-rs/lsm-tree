@@ -22,6 +22,7 @@ use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
     segment::reader::Reader,
+    time::unix_timestamp,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
 };
@@ -72,6 +73,22 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
+    // TODO: in Leveled compaction, compact segments that live very long and have
+    // many versions (possibly unnecessary space usage of old, stale versions)
+    /// Calculates how many versions per key there are on average.
+    #[must_use]
+    pub fn version_factor(&self) -> f32 {
+        self.metadata.item_count as f32 / self.metadata.key_count as f32
+    }
+
+    /// Gets the segment age in nanoseconds.
+    #[must_use]
+    pub fn age(&self) -> u128 {
+        let now = unix_timestamp().as_nanos();
+        let created_at = self.metadata.created_at * 1_000;
+        now.saturating_sub(created_at)
+    }
+
     /// Gets the global segment ID.
     #[must_use]
     pub fn global_id(&self) -> GlobalSegmentId {

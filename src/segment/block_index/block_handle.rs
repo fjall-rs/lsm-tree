@@ -97,6 +97,7 @@ impl Decode for KeyedBlockHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_log::test;
 
     #[test]
     fn index_block_size() {
