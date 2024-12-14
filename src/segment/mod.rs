@@ -7,7 +7,6 @@ pub mod block_index;
 pub mod file_offsets;
 pub mod id;
 pub mod inner;
-pub mod level_reader;
 pub mod meta;
 pub mod multi_writer;
 pub mod range;

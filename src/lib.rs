@@ -154,6 +154,8 @@ mod key_range;
 #[doc(hidden)]
 pub mod level_manifest;
 
+mod level_reader;
+
 mod manifest;
 mod memtable;
 
