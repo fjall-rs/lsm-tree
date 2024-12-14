@@ -274,10 +274,6 @@ impl AbstractTree for BlobTree {
         self.index.is_first_level_disjoint()
     }
 
-    /* fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        import_tree(path, self)
-    } */
-
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
