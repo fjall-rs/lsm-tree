@@ -23,28 +23,6 @@ pub trait AbstractTree {
     #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize;
 
-    /*  /// Imports data from a flat file (see [`Tree::export`]),
-    /// blocking the caller until it is done.
-    ///
-    /// # Errors
-    ///
-    /// Returns error, if an IO error occurred, or the import was not successful.
-    fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()>;
-
-    /// Exports the entire tree into a single flat file,
-    /// blocking the caller until it is done.
-    ///
-    /// The format is as follows (numbers are big endian):
-    ///
-    /// [N=key len; 2 bytes]\[key: N bytes]\[M=val len; 4 bytes]\[val: M bytes]\[item count; 8 bytes]\[checksum; 8 bytes]\[trailer; "LSMTEXP2"]
-    ///
-    /// # Errors
-    ///
-    /// Returns error, if an IO error occurred.
-    fn export<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        export_tree(path, self.iter())
-    } */
-
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize>;
 

@@ -91,10 +91,6 @@ impl AbstractTree for Tree {
             .is_disjoint
     }
 
-    /* fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        import_tree(path, self)
-    } */
-
     fn verify(&self) -> crate::Result<usize> {
         // NOTE: Lock memtable to prevent any tampering with disk segments
         let _lock = self.lock_active_memtable();
