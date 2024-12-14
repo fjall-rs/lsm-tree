@@ -103,7 +103,11 @@ impl Reader {
             Ok(Some((
                 block.header.data_length.into(),
                 block.header.previous_block_offset,
-                ValueBlockConsumer::with_bounds(block, &self.start_key, &self.end_key),
+                ValueBlockConsumer::with_bounds(
+                    block,
+                    self.start_key.as_deref(),
+                    self.end_key.as_deref(),
+                ),
             )))
         })
     }
