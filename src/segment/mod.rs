@@ -7,7 +7,6 @@ pub mod block_index;
 pub mod file_offsets;
 pub mod id;
 pub mod inner;
-pub mod level_reader;
 pub mod meta;
 pub mod multi_writer;
 pub mod range;
@@ -337,7 +336,7 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
-        use crate::{mvcc_stream::MvccStream, ValueType};
+        use crate::mvcc_stream::MvccStream;
         use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
         use value_block_consumer::ValueBlockConsumer;
@@ -368,15 +367,7 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-            let Some(latest) = block.get_latest(key.as_ref()) else {
-                return Ok(None);
-            };
-
-            if latest.key.value_type == ValueType::WeakTombstone {
-                // NOTE: Continue in slow path
-            } else {
-                return Ok(Some(latest.clone()));
-            }
+            return Ok(block.get_latest(key.as_ref()).cloned());
         }
 
         // TODO: it would be nice to have the possibility of using a lifetime'd
