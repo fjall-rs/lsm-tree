@@ -7,13 +7,13 @@ use crate::{
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
+    level_reader::LevelReader,
     merge::{BoxedIterator, Merger},
     segment::{
         block_index::{
             full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
         },
         id::GlobalSegmentId,
-        level_reader::LevelReader,
         multi_writer::MultiWriter,
         Segment, SegmentInner,
     },
