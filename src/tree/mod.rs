@@ -404,13 +404,17 @@ impl AbstractTree for Tree {
         Box::new(self.create_prefix(prefix, None, None))
     }
 
-    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
-        let value =
-            InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
+    fn insert<K: Into<UserKey>, V: Into<UserValue>>(
+        &self,
+        key: K,
+        value: V,
+        seqno: SeqNo,
+    ) -> (u32, u32) {
+        let value = InternalValue::from_components(key, value, seqno, ValueType::Value);
         self.append_entry(value)
     }
 
-    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    fn raw_insert_with_lock<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
@@ -418,17 +422,17 @@ impl AbstractTree for Tree {
         seqno: SeqNo,
         r#type: ValueType,
     ) -> (u32, u32) {
-        let value = InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, r#type);
+        let value = InternalValue::from_components(key, value, seqno, r#type);
         lock.insert(value)
     }
 
-    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_tombstone(key.as_ref(), seqno);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_tombstone(key, seqno);
         self.append_entry(value)
     }
 
-    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_weak_tombstone(key.as_ref(), seqno);
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
 }
