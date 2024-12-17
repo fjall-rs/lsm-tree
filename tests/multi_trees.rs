@@ -1,4 +1,5 @@
 use lsm_tree::{AbstractTree, Config};
+use test_log::test;
 
 #[test]
 fn tree_multi_segment_ids() -> lsm_tree::Result<()> {

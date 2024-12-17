@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::value_block::ValueBlock;
-use crate::{value::InternalValue, UserKey};
+use crate::value::InternalValue;
 use std::sync::Arc;
 
 pub struct ValueBlockConsumer {
@@ -15,14 +15,14 @@ pub struct ValueBlockConsumer {
 impl ValueBlockConsumer {
     #[must_use]
     pub fn new(inner: Arc<ValueBlock>) -> Self {
-        Self::with_bounds(inner, &None, &None)
+        Self::with_bounds(inner, None, None)
     }
 
     #[must_use]
     pub fn with_bounds(
         inner: Arc<ValueBlock>,
-        start_key: &Option<UserKey>,
-        end_key: &Option<UserKey>,
+        start_key: Option<&[u8]>,
+        end_key: Option<&[u8]>,
     ) -> Self {
         let mut lo = start_key.as_ref().map_or(0, |key| {
             inner.items.partition_point(|x| &*x.key.user_key < *key)
@@ -90,12 +90,9 @@ impl DoubleEndedIterator for ValueBlockConsumer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{
-        segment::{
-            block::{checksum::Checksum, header::Header},
-            value_block::BlockOffset,
-        },
-        Slice,
+    use crate::segment::{
+        block::{checksum::Checksum, header::Header},
+        value_block::BlockOffset,
     };
     use test_log::test;
 
@@ -227,15 +224,13 @@ mod tests {
             InternalValue::from_components(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Slice::from(*b"c")), &None);
+        let mut iter = ValueBlockConsumer::with_bounds(block.clone().into(), Some(b"c"), None);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"d", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"e", &*iter.next().expect("should exist").key.user_key);
         iter_closed!(iter);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &Some(Slice::from(*b"c")), &None);
+        let mut iter = ValueBlockConsumer::with_bounds(block.into(), Some(b"c"), None);
         assert_eq!(
             *b"e",
             &*iter.next_back().expect("should exist").key.user_key
@@ -261,15 +256,13 @@ mod tests {
             InternalValue::from_components(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Slice::from(*b"c")));
+        let mut iter = ValueBlockConsumer::with_bounds(block.clone().into(), None, Some(b"c"));
         assert_eq!(*b"a", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"b", &*iter.next().expect("should exist").key.user_key);
         assert_eq!(*b"c", &*iter.next().expect("should exist").key.user_key);
         iter_closed!(iter);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Slice::from(*b"c")));
+        let mut iter = ValueBlockConsumer::with_bounds(block.into(), None, Some(b"c"));
         assert_eq!(
             *b"c",
             &*iter.next_back().expect("should exist").key.user_key
@@ -294,12 +287,10 @@ mod tests {
             InternalValue::from_components(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &None, &Some(Slice::from(*b"a")));
+        let mut iter = ValueBlockConsumer::with_bounds(block.clone().into(), None, Some(b"a"));
         iter_closed!(iter);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &None, &Some(Slice::from(*b"a"))).rev();
+        let mut iter = ValueBlockConsumer::with_bounds(block.into(), None, Some(b"a")).rev();
         iter_closed!(iter);
     }
 
@@ -313,12 +304,10 @@ mod tests {
             InternalValue::from_components(*b"e", vec![], 0, crate::ValueType::Value),
         ]);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.clone().into(), &Some(Slice::from(*b"f")), &None);
+        let mut iter = ValueBlockConsumer::with_bounds(block.clone().into(), Some(b"f"), None);
         iter_closed!(iter);
 
-        let mut iter =
-            ValueBlockConsumer::with_bounds(block.into(), &Some(Slice::from(*b"f")), &None).rev();
+        let mut iter = ValueBlockConsumer::with_bounds(block.into(), Some(b"f"), None).rev();
         iter_closed!(iter);
     }
 }
