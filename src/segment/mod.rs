@@ -5,6 +5,7 @@
 pub mod block;
 pub mod block_index;
 pub mod file_offsets;
+mod forward_reader;
 pub mod id;
 pub mod inner;
 pub mod meta;
@@ -19,12 +20,12 @@ pub mod writer;
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::reader::Reader,
     time::unix_timestamp,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
 };
 use block_index::BlockIndexImpl;
+use forward_reader::ForwardReader;
 use id::GlobalSegmentId;
 use inner::Inner;
 use meta::SegmentId;
@@ -367,15 +368,12 @@ impl Segment {
             return Ok(block.get_latest(key.as_ref()).cloned());
         }
 
-        // TODO: it would be nice to have the possibility of using a lifetime'd
-        // reader, so we don't need to Arc::clone descriptor_table, and block_cache
-        let mut reader = Reader::new(
+        let mut reader = ForwardReader::new(
             self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
+            &self.descriptor_table,
             self.global_id(),
-            self.block_cache.clone(),
+            &self.block_cache,
             first_block_handle,
-            None,
         );
         reader.lo_block_size = block.header.data_length.into();
         reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(block, Some(key), None));

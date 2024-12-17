@@ -13,8 +13,9 @@ use crate::{
 use std::sync::Arc;
 
 pub struct Reader {
-    descriptor_table: Arc<FileDescriptorTable>,
     segment_id: GlobalSegmentId,
+
+    descriptor_table: Arc<FileDescriptorTable>,
     block_cache: Arc<BlockCache>,
 
     data_block_boundary: BlockOffset,
