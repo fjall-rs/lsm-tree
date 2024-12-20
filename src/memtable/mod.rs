@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::key::{InternalKey, InternalKeyRef};
+use crate::key::InternalKey;
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
@@ -84,7 +84,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKeyRef::new(
+        let lower_bound = InternalKey::new(
             key,
             match seqno {
                 Some(seqno) => seqno - 1,

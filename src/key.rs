@@ -7,7 +7,6 @@ use crate::{
     SeqNo, UserKey, ValueType,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use crossbeam_skiplist::equivalent::{Comparable, Equivalent};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
@@ -106,53 +105,54 @@ impl Ord for InternalKey {
     }
 }
 
-impl Equivalent<InternalKeyRef<'_>> for InternalKey {
-    fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
-        self.user_key == other.user_key && self.seqno == other.seqno
-    }
-}
+// TODO: wait for new crossbeam-skiplist
+// TODO: https://github.com/crossbeam-rs/crossbeam/pull/1162
+//
+// impl Equivalent<InternalKeyRef<'_>> for InternalKey {
+//     fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
+//         self.user_key == other.user_key && self.seqno == other.seqno
+//     }
+// }
 
-impl Comparable<InternalKeyRef<'_>> for InternalKey {
-    fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
-        (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
-    }
-}
-
-// REF
+// impl Comparable<InternalKeyRef<'_>> for InternalKey {
+//     fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
+//         (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
+//     }
+// }
 
 // Temporary internal key without heap allocation
-#[derive(Debug, Eq)]
-pub struct InternalKeyRef<'a> {
-    pub user_key: &'a [u8],
-    pub seqno: SeqNo,
-    pub value_type: ValueType,
-}
+// #[derive(Debug, Eq)]
+// pub struct InternalKeyRef<'a> {
+//     pub user_key: &'a [u8],
+//     pub seqno: SeqNo,
+//     pub value_type: ValueType,
+// }
 
-impl<'a> InternalKeyRef<'a> {
-    // Constructor for InternalKeyRef
-    pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
-        InternalKeyRef {
-            user_key,
-            seqno,
-            value_type,
-        }
-    }
-}
+// impl<'a> InternalKeyRef<'a> {
+//     // Constructor for InternalKeyRef
+//     pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
+//         InternalKeyRef {
+//             user_key,
+//             seqno,
+//             value_type,
+//         }
+//     }
+// }
 
-impl<'a> PartialEq for InternalKeyRef<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.user_key == other.user_key && self.seqno == other.seqno
-    }
-}
+// impl<'a> PartialEq for InternalKeyRef<'a> {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.user_key == other.user_key && self.seqno == other.seqno
+//     }
+// }
 
-impl<'a> PartialOrd for InternalKeyRef<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
+// impl<'a> PartialOrd for InternalKeyRef<'a> {
+//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
 
-impl<'a> Ord for InternalKeyRef<'a> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
-    }
-}
+// impl<'a> Ord for InternalKeyRef<'a> {
+//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+//         (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+//     }
+// }
