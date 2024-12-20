@@ -121,8 +121,8 @@ fn pick_minimal_compaction(
         }
     }
 
-    // NOTE: Find trivial moves
-    for size in (1..=curr_level.len()).rev() {
+    // NOTE: Find largest trivial move (if it exists)
+    'trivial_move_search: for size in (1..=curr_level.len()).rev() {
         let windows = curr_level.windows(size);
 
         for window in windows {
@@ -136,6 +136,7 @@ fn pick_minimal_compaction(
                     segment_ids,
                     can_trivial_move: true,
                 });
+                break 'trivial_move_search;
             }
         }
     }
