@@ -1,8 +1,9 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use test_log::test;
 
 const ITEM_COUNT: usize = 100;
 
-#[test_log::test]
+#[test]
 fn snapshot_basic() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

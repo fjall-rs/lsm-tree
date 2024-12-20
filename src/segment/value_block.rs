@@ -80,7 +80,12 @@ impl ValueBlock {
 
                 let file_guard = descriptor_table
                     .access(&segment_id)?
+                    .ok_or(())
+                    .map_err(|()| {
+                        log::error!("Failed to get file guard for segment {segment_id:?}");
+                    })
                     .expect("should acquire file handle");
+                // TODO: ^ use inspect instead: 1.76
 
                 let block = Self::from_file(
                     &mut *file_guard.file.lock().expect("lock is poisoned"),

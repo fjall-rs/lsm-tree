@@ -2,8 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{range::Range, value_block::CachePolicy};
-use crate::{level_manifest::level::Level, InternalValue, UserKey};
+use crate::{
+    level_manifest::level::Level,
+    segment::{range::Range, value_block::CachePolicy},
+    InternalValue, UserKey,
+};
 use std::{ops::Bound, sync::Arc};
 
 /// Reads through a disjoint level
