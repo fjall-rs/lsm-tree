@@ -355,13 +355,11 @@ impl AbstractTree for Tree {
         key: K,
         seqno: SeqNo,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self
-            .get_internal_entry(key, true, Some(seqno))?
-            .map(|x| x.value))
+        Ok(self.get_internal_entry(key, Some(seqno))?.map(|x| x.value))
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
+        Ok(self.get_internal_entry(key, None)?.map(|x| x.value))
     }
 
     fn iter_with_seqno(
@@ -578,25 +576,18 @@ impl Tree {
         &self,
         memtable_lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
-        evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
@@ -618,7 +609,6 @@ impl Tree {
     fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
@@ -648,10 +638,7 @@ impl Tree {
                         let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
-                            if evict_tombstone {
-                                return Ok(ignore_tombstone_value(item));
-                            }
-                            return Ok(Some(item));
+                            return Ok(ignore_tombstone_value(item));
                         }
                     }
 
@@ -668,10 +655,7 @@ impl Tree {
                 let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
-                    if evict_tombstone {
-                        return Ok(ignore_tombstone_value(item));
-                    }
-                    return Ok(Some(item));
+                    return Ok(ignore_tombstone_value(item));
                 }
             }
         }
@@ -683,7 +667,6 @@ impl Tree {
     pub fn get_internal_entry<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
@@ -691,24 +674,18 @@ impl Tree {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
 
         drop(memtable_lock);
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in segments... this may involve disk I/O
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     #[doc(hidden)]
