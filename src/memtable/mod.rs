@@ -2,29 +2,38 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::key::InternalKey;
+use crate::key::{InternalKey, InternalKeyRef};
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
-/// The memtable serves as an intermediary storage for new items
+/// The memtable serves as an intermediary, ephemeral, sorted storage for new items
+///
+/// When the Memtable exceeds some size, it should be flushed to a disk segment.
 #[derive(Default)]
 pub struct Memtable {
+    /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
     pub items: SkipMap<InternalKey, UserValue>,
 
-    /// Approximate active memtable size
+    /// Approximate active memtable size.
     ///
-    /// If this grows too large, a flush is triggered
+    /// If this grows too large, a flush is triggered.
     pub(crate) approximate_size: AtomicU32,
+
+    /// Highest encountered sequence number.
+    ///
+    /// This is used so that `get_highest_seqno` has O(1) complexity.
+    pub(crate) highest_seqno: AtomicU64,
 }
 
 impl Memtable {
     /// Clears the memtable.
     pub fn clear(&mut self) {
         self.items.clear();
+        self.highest_seqno = AtomicU64::new(0);
         self.approximate_size
             .store(0, std::sync::atomic::Ordering::Release);
     }
@@ -41,7 +50,7 @@ impl Memtable {
     pub(crate) fn range<'a, R: RangeBounds<InternalKey> + 'a>(
         &'a self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+    ) -> impl DoubleEndedIterator<Item = InternalValue> + 'a {
         self.items.range(range).map(|entry| InternalValue {
             key: entry.key().clone(),
             value: entry.value().clone(),
@@ -75,7 +84,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(
+        let lower_bound = InternalKeyRef::new(
             key,
             match seqno {
                 Some(seqno) => seqno - 1,
@@ -126,18 +135,22 @@ impl Memtable {
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
         self.items.insert(key, item.value);
 
+        self.highest_seqno
+            .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
+
         (item_size, size_before + item_size)
     }
 
     /// Returns the highest sequence number in the memtable.
     pub fn get_highest_seqno(&self) -> Option<SeqNo> {
-        self.items
-            .iter()
-            .map(|x| {
-                let key = x.key();
-                key.seqno
-            })
-            .max()
+        if self.is_empty() {
+            None
+        } else {
+            Some(
+                self.highest_seqno
+                    .load(std::sync::atomic::Ordering::Acquire),
+            )
+        }
     }
 }
 

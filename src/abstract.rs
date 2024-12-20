@@ -559,10 +559,15 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32);
+    fn insert<K: Into<UserKey>, V: Into<UserValue>>(
+        &self,
+        key: K,
+        value: V,
+        seqno: SeqNo,
+    ) -> (u32, u32);
 
     /// Inserts a key-value pair.
-    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    fn raw_insert_with_lock<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
@@ -598,7 +603,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
 
     /// Removes an item from the tree.
     ///
@@ -632,5 +637,5 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
 }

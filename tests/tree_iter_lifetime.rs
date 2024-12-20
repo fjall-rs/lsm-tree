@@ -1,5 +1,6 @@
 use lsm_tree::{AbstractTree, KvPair};
 use std::path::Path;
+use test_log::test;
 
 fn iterrr(
     path: &Path,
@@ -14,7 +15,7 @@ fn iterrr(
     Ok(tree.iter())
 }
 
-#[test_log::test]
+#[test]
 fn tree_iter_lifetime() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir().unwrap();
     assert_eq!(100, iterrr(folder.path())?.count());

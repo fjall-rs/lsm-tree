@@ -5,11 +5,12 @@
 use crate::{
     key::InternalKey,
     level_manifest::LevelManifest,
+    level_reader::LevelReader,
     memtable::Memtable,
     merge::{BoxedIterator, Merger},
     multi_reader::MultiReader,
     mvcc_stream::MvccStream,
-    segment::{level_reader::LevelReader, value_block::CachePolicy},
+    segment::value_block::CachePolicy,
     tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
     InternalValue,
