@@ -246,7 +246,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                // .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
