@@ -43,10 +43,7 @@ fn pick_minimal_compaction(
 
         // NOTE: Keep compactions with 25 or less segments
         // to make compactions not too large
-        //
-        // TODO: ideally, if a level has a lot of compaction debt
-        // compactions could be parallelized as long as they don't overlap in key range
-        valid_choice &= choice.segment_ids.len() <= 25;
+        valid_choice &= choice.can_trivial_move || choice.segment_ids.len() <= 25;
 
         if valid_choice {
             choices.push(choice);
@@ -126,14 +123,12 @@ fn pick_minimal_compaction(
         let windows = curr_level.windows(size);
 
         for window in windows {
-            let segment_ids: HashSet<SegmentId> = window.iter().map(Segment::id).collect();
-
             let key_range = aggregate_key_range(window);
 
             if next_level.overlapping_segments(&key_range).next().is_none() {
                 add_choice(Choice {
                     write_amp: 0.0,
-                    segment_ids,
+                    segment_ids: window.iter().map(Segment::id).collect(),
                     can_trivial_move: true,
                 });
                 break 'trivial_move_search;
@@ -251,7 +246,7 @@ impl CompactionStrategy for Strategy {
                 .iter()
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                // .filter(|x| !levels.hidden_set().is_hidden(x.id()))
                 .map(|x| x.metadata.file_size)
                 .sum();
 
