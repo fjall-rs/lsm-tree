@@ -566,16 +566,6 @@ pub trait AbstractTree {
         seqno: SeqNo,
     ) -> (u32, u32);
 
-    /// Inserts a key-value pair.
-    fn raw_insert_with_lock<K: Into<UserKey>, V: Into<UserValue>>(
-        &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
-        key: K,
-        value: V,
-        seqno: SeqNo,
-        r#type: ValueType,
-    ) -> (u32, u32);
-
     /// Removes an item from the tree.
     ///
     /// Returns the added item's size and new size of the memtable.

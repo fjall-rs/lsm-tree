@@ -596,27 +596,6 @@ impl AbstractTree for BlobTree {
         )
     }
 
-    fn raw_insert_with_lock<K: Into<UserKey>, V: Into<UserValue>>(
-        &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
-        key: K,
-        value: V,
-        seqno: SeqNo,
-        r#type: ValueType,
-    ) -> (u32, u32) {
-        use value::MaybeInlineValue;
-
-        // NOTE: Initially, we always write an inline value
-        // On memtable flush, depending on the values' sizes, they will be separated
-        // into inline or indirect values
-        let item = MaybeInlineValue::Inline(value.into());
-
-        let value = item.encode_into_vec();
-
-        let value = InternalValue::from_components(key, value, seqno, r#type);
-        lock.insert(value)
-    }
-
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,

@@ -412,18 +412,6 @@ impl AbstractTree for Tree {
         self.append_entry(value)
     }
 
-    fn raw_insert_with_lock<K: Into<UserKey>, V: Into<UserValue>>(
-        &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
-        key: K,
-        value: V,
-        seqno: SeqNo,
-        r#type: ValueType,
-    ) -> (u32, u32) {
-        let value = InternalValue::from_components(key, value, seqno, r#type);
-        lock.insert(value)
-    }
-
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         let value = InternalValue::new_tombstone(key, seqno);
         self.append_entry(value)
