@@ -866,9 +866,8 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering LSM-tree at {tree_path:?}");
-
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
+        log::info!("Recovering manifest at {level_manifest_path:?}");
 
         let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
         let cnt = segment_id_map.len();
