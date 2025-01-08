@@ -16,8 +16,8 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(tree.iter().rev().count(), ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.iter(None, None).rev().count(), ITEM_COUNT);
 
     {
         let snapshot = tree.snapshot(seqno.get());
@@ -30,8 +30,8 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
         tree.remove(key, seqno.next());
     }
 
-    assert_eq!(tree.len()?, 0);
-    assert_eq!(tree.iter().rev().count(), 0);
+    assert_eq!(tree.len(None, None)?, 0);
+    assert_eq!(tree.iter(None, None).rev().count(), 0);
 
     {
         let snapshot = tree.snapshot(seqno.get());
@@ -59,8 +59,8 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(tree.len()?, ITEM_COUNT);
-        assert_eq!(tree.iter().rev().count(), ITEM_COUNT);
+        assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+        assert_eq!(tree.iter(None, None).rev().count(), ITEM_COUNT);
 
         {
             let snapshot = tree.snapshot(seqno.get());
@@ -75,8 +75,8 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().rev().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).rev().count(), 0);
 
         {
             let snapshot = tree.snapshot(seqno.get());
@@ -89,8 +89,8 @@ fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().rev().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).rev().count(), 0);
 
         {
             let snapshot = tree.snapshot(seqno.get());

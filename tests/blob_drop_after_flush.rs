@@ -35,7 +35,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
 
     assert_eq!(
         "neptune".repeat(10_000).as_bytes(),
-        &*tree.get("a")?.unwrap(),
+        &*tree.get("a", None)?.unwrap(),
     );
 
     let report = gc_report.join().unwrap()?;

@@ -60,7 +60,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
-        self.tree.size_of_with_seqno(key, self.seqno)
+        self.tree.size_of(key, Some(self.seqno))
     }
 
     /// Retrieves an item from the snapshot.
@@ -91,7 +91,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        self.tree.get_with_seqno(key, self.seqno)
+        self.tree.get(key, Some(self.seqno))
     }
 
     /// Returns an iterator that scans through the entire snapshot.
@@ -118,7 +118,7 @@ impl Snapshot {
     /// ```
     #[must_use]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.iter_with_seqno(self.seqno, None)
+        self.tree.iter(Some(self.seqno), None)
     }
 
     /// Returns an iterator that scans through the entire snapshot, returning keys only.
@@ -145,7 +145,7 @@ impl Snapshot {
     /// ```
     #[must_use]
     pub fn keys(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static {
-        self.tree.keys_with_seqno(self.seqno, None)
+        self.tree.keys(Some(self.seqno), None)
     }
 
     /// Returns an iterator that scans through the entire snapshot, returning values only.
@@ -172,7 +172,7 @@ impl Snapshot {
     /// ```
     #[must_use]
     pub fn values(&self) -> impl DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static {
-        self.tree.values_with_seqno(self.seqno, None)
+        self.tree.values(Some(self.seqno), None)
     }
 
     /// Returns an iterator over a range of items in the snapshot.
@@ -201,7 +201,7 @@ impl Snapshot {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.range_with_seqno(range, self.seqno, None)
+        self.tree.range(range, Some(self.seqno), None)
     }
 
     /// Returns an iterator over a prefixed set of items in the snapshot.
@@ -230,7 +230,7 @@ impl Snapshot {
         &self,
         prefix: K,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.tree.prefix_with_seqno(prefix, self.seqno, None)
+        self.tree.prefix(prefix, Some(self.seqno), None)
     }
 
     /// Returns the first key-value pair in the snapshot.
@@ -318,7 +318,7 @@ impl Snapshot {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<bool> {
-        self.tree.contains_key_with_seqno(key, self.seqno)
+        self.tree.contains_key(key, Some(self.seqno))
     }
 
     /// Returns `true` if the snapshot is empty.

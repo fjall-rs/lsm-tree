@@ -52,16 +52,8 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
-        Ok(self.get(key)?.map(|x| x.len() as u32))
-    }
-
-    fn size_of_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: SeqNo,
-    ) -> crate::Result<Option<u32>> {
-        Ok(self.get_with_seqno(key, seqno)?.map(|x| x.len() as u32))
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+        Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
     #[cfg(feature = "bloom")]
@@ -108,34 +100,20 @@ impl AbstractTree for Tree {
         Ok(sum)
     }
 
-    fn keys_with_seqno(
+    fn keys(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(k, _)| k)),
-        )
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(k, _)| k)))
     }
 
-    fn values_with_seqno(
+    fn values(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(_, v)| v)),
-        )
-    }
-
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(k, _)| k)))
-    }
-
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(_, v)| v)))
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(
@@ -350,56 +328,30 @@ impl AbstractTree for Tree {
         Snapshot::new(Standard(self.clone()), seqno)
     }
 
-    fn get_with_seqno<K: AsRef<[u8]>>(
+    fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, Some(seqno))?.map(|x| x.value))
-    }
-
-    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, None)?.map(|x| x.value))
-    }
-
-    fn iter_with_seqno(
-        &self,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        self.range_with_seqno::<UserKey, _>(.., seqno, index)
-    }
-
-    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, Some(seqno), index))
-    }
-
-    fn prefix_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, Some(seqno), index))
+        Ok(self.get_internal_entry(key, seqno)?.map(|x| x.value))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, None, None))
+        Box::new(self.create_range(&range, seqno, index))
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, None, None))
+        Box::new(self.create_prefix(prefix, seqno, index))
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(

@@ -47,21 +47,21 @@
 //! // So you can handle I/O errors if they occur
 //! tree.insert("my_key", "my_value", /* sequence number */ 0);
 //!
-//! let item = tree.get("my_key")?;
+//! let item = tree.get("my_key", None)?;
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // Search by prefix
-//! for item in tree.prefix("prefix") {
+//! for item in tree.prefix("prefix", None, None) {
 //!   // ...
 //! }
 //!
 //! // Search by range
-//! for item in tree.range("a"..="z") {
+//! for item in tree.range("a"..="z", None, None) {
 //!   // ...
 //! }
 //!
 //! // Iterators implement DoubleEndedIterator, so you can search backwards, too!
-//! for item in tree.prefix("prefix").rev() {
+//! for item in tree.prefix("prefix", None, None).rev() {
 //!   // ...
 //! }
 //!

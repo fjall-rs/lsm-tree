@@ -151,7 +151,7 @@ impl KvStore {
     }
 
     pub fn get<K: AsRef<str>>(&self, key: K) -> lsm_tree::Result<Option<Arc<str>>> {
-        Ok(self.tree.get(key.as_ref())?.map(|bytes| {
+        Ok(self.tree.get(key.as_ref(), None)?.map(|bytes| {
             std::str::from_utf8(&bytes)
                 .expect("should be valid utf-8")
                 .into()
@@ -159,15 +159,15 @@ impl KvStore {
     }
 
     pub fn contains_key<K: AsRef<str>>(&self, key: K) -> lsm_tree::Result<bool> {
-        self.tree.contains_key(key.as_ref())
+        self.tree.contains_key(key.as_ref(), None)
     }
 
     pub fn is_empty(&self) -> lsm_tree::Result<bool> {
-        self.tree.is_empty()
+        self.tree.is_empty(None, None)
     }
 
     pub fn len(&self) -> lsm_tree::Result<usize> {
-        self.tree.len()
+        self.tree.len(None, None)
     }
 }
 
