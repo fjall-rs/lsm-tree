@@ -15,7 +15,6 @@ use crate::{
     tree::inner::MemtableId,
     value::InternalValue,
     Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue,
-    ValueType,
 };
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -23,7 +22,7 @@ use index::IndexTree;
 use std::{
     io::Cursor,
     ops::{RangeBounds, RangeFull},
-    sync::{atomic::AtomicUsize, Arc, RwLockWriteGuard},
+    sync::{atomic::AtomicUsize, Arc},
 };
 use value::MaybeInlineValue;
 use value_log::ValueLog;

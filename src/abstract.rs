@@ -5,7 +5,6 @@
 use crate::{
     compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
     Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
-    ValueType,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
