@@ -3,16 +3,42 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod block_handle;
+pub mod full_index;
 pub mod top_level;
 pub mod two_level_index;
 pub mod writer;
 
-use super::{block::Block, value_block::CachePolicy};
+use super::{
+    block::Block,
+    value_block::{BlockOffset, CachePolicy},
+};
 use block_handle::KeyedBlockHandle;
+use full_index::FullBlockIndex;
+use two_level_index::TwoLevelBlockIndex;
 
 pub type IndexBlock = Block<KeyedBlockHandle>;
 
-impl BlockIndex for [KeyedBlockHandle] {
+#[allow(clippy::module_name_repetitions)]
+pub trait KeyedBlockIndex {
+    /// Gets the lowest block handle that may contain the given item
+    fn get_lowest_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+
+    /// Gets the last block handle that may contain the given item
+    fn get_last_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+
+    /// Returns a handle to the last block
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<&KeyedBlockHandle>;
+}
+
+impl KeyedBlockIndex for [KeyedBlockHandle] {
     fn get_lowest_block_containing_key(
         &self,
         key: &[u8],
@@ -54,33 +80,56 @@ impl BlockIndex for [KeyedBlockHandle] {
     }
 }
 
+#[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {
     /// Gets the lowest block handle that may contain the given item
     fn get_lowest_block_containing_key(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+    ) -> crate::Result<Option<BlockOffset>>;
 
     /// Gets the last block handle that may contain the given item
     fn get_last_block_containing_key(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<&KeyedBlockHandle>>;
+    ) -> crate::Result<Option<BlockOffset>>;
 
     /// Returns a handle to the last block
-    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<&KeyedBlockHandle>;
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset>;
+}
+
+/// The block index stores references to the positions of blocks on a file and their size
+///
+/// __________________
+/// |                |
+/// |     BLOCK0     |
+/// |________________| <- 'G': 0x0
+/// |                |
+/// |     BLOCK1     |
+/// |________________| <- 'M': 0x...
+/// |                |
+/// |     BLOCK2     |
+/// |________________| <- 'Z': 0x...
+///
+/// The block information can be accessed by key.
+/// Because the blocks are sorted, any entries not covered by the index (it is sparse) can be
+/// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
+/// In the diagram above, searching for 'J' yields the block starting with 'G'.
+/// 'J' must be in that block, because the next block starts with 'M').
+#[enum_dispatch::enum_dispatch(BlockIndex)]
+#[allow(clippy::module_name_repetitions)]
+pub enum BlockIndexImpl {
+    Full(FullBlockIndex),
+    TwoLevel(TwoLevelBlockIndex),
 }
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{
-        segment::{block_index::BlockIndex, value_block::BlockOffset},
-        Slice,
-    };
+    use crate::{segment::value_block::BlockOffset, Slice};
     use test_log::test;
 
     fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {

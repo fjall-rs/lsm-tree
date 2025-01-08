@@ -2,7 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::block_index::two_level_index::TwoLevelBlockIndex;
+use super::block_index::BlockIndex;
+use super::block_index::BlockIndexImpl;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
 use super::value_block::BlockOffset;
@@ -17,9 +18,10 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 pub struct Range {
-    block_index: Arc<TwoLevelBlockIndex>,
+    block_index: Arc<BlockIndexImpl>,
 
-    is_initialized: bool,
+    lo_initialized: bool,
+    hi_initialized: bool,
 
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
@@ -32,7 +34,7 @@ impl Range {
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
         block_cache: Arc<BlockCache>,
-        block_index: Arc<TwoLevelBlockIndex>,
+        block_index: Arc<BlockIndexImpl>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
         let reader = Reader::new(
@@ -45,7 +47,8 @@ impl Range {
         );
 
         Self {
-            is_initialized: false,
+            lo_initialized: false,
+            hi_initialized: false,
 
             block_index,
 
@@ -67,37 +70,42 @@ impl Range {
             Bound::Included(start) | Bound::Excluded(start) => {
                 if let Some(lower_bound) = self
                     .block_index
-                    .get_lowest_data_block_handle_containing_item(start, CachePolicy::Write)?
+                    .get_lowest_block_containing_key(start, CachePolicy::Write)?
                 {
-                    self.reader.lo_block_offset = lower_bound.offset;
+                    self.reader.lo_block_offset = lower_bound;
                 }
 
                 Some(start)
             }
         };
+
         if let Some(key) = start_key.cloned() {
             self.reader.set_lower_bound(key);
         }
+
+        self.lo_initialized = true;
+
         Ok(())
     }
 
     fn initialize_hi_bound(&mut self) -> crate::Result<()> {
         let end_key: Option<&Slice> = match self.range.end_bound() {
             Bound::Unbounded => {
-                let upper_bound = self
-                    .block_index
-                    .get_last_data_block_handle(CachePolicy::Write)?;
+                let upper_bound = self.block_index.get_last_block_handle(CachePolicy::Write)?;
 
-                self.reader.hi_block_offset = Some(upper_bound.offset);
+                self.reader.hi_block_offset = Some(upper_bound);
 
                 None
             }
             Bound::Included(end) | Bound::Excluded(end) => {
                 if let Some(upper_bound) = self
                     .block_index
-                    .get_last_data_block_handle_containing_item(end, CachePolicy::Write)?
+                    .get_last_block_containing_key(end, CachePolicy::Write)?
                 {
-                    self.reader.hi_block_offset = Some(upper_bound.offset);
+                    self.reader.hi_block_offset = Some(upper_bound);
+                } else {
+                    self.reader.hi_block_offset =
+                        Some(self.block_index.get_last_block_handle(CachePolicy::Write)?);
                 }
 
                 Some(end)
@@ -108,19 +116,7 @@ impl Range {
             self.reader.set_upper_bound(key);
         }
 
-        Ok(())
-    }
-
-    fn initialize(&mut self) -> crate::Result<()> {
-        // TODO: can we skip searching for lower bound until next is called at least once...?
-        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
-        self.initialize_lo_bound()?;
-
-        // TODO: can we skip searching for upper bound until next_back is called at least once...?
-        // would make short ranges 1.5-2x faster (if cache miss) if only one direction is used
-        self.initialize_hi_bound()?;
-
-        self.is_initialized = true;
+        self.hi_initialized = true;
 
         Ok(())
     }
@@ -130,8 +126,8 @@ impl Iterator for Range {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.is_initialized {
-            if let Err(e) = self.initialize() {
+        if !self.lo_initialized {
+            if let Err(e) = self.initialize_lo_bound() {
                 return Some(Err(e));
             };
         }
@@ -183,16 +179,14 @@ impl Iterator for Range {
 
 impl DoubleEndedIterator for Range {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if !self.is_initialized {
-            if let Err(e) = self.initialize() {
+        if !self.hi_initialized {
+            if let Err(e) = self.initialize_hi_bound() {
                 return Some(Err(e));
             };
         }
 
         loop {
-            let entry_result = self.reader.next_back()?;
-
-            match entry_result {
+            match self.reader.next_back()? {
                 Ok(entry) => {
                     match self.range.start_bound() {
                         Bound::Included(start) => {
@@ -241,7 +235,7 @@ mod tests {
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             range::Range,
             writer::{Options, Writer},
         },
@@ -292,13 +286,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         let iter = Range::new(
             trailer.offsets.index_block_ptr,
@@ -390,13 +386,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         {
             let mut iter = Range::new(
@@ -589,13 +587,15 @@ mod tests {
             table.insert(&segment_file_path, (0, 0).into());
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-            let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+            let block_index = TwoLevelBlockIndex::from_file(
                 segment_file_path,
+                &trailer.metadata,
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
                 table.clone(),
                 block_cache.clone(),
-            )?);
+            )?;
+            let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
             let ranges: Vec<(Bound<u64>, Bound<u64>)> = vec![
                 range_bounds_to_tuple(&(0..1_000)),
@@ -691,13 +691,15 @@ mod tests {
         table.insert(&segment_file_path, (0, 0).into());
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
+        let block_index = TwoLevelBlockIndex::from_file(
             segment_file_path,
+            &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
             table.clone(),
             block_cache.clone(),
-        )?);
+        )?;
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         for (i, &start_char) in chars.iter().enumerate() {
             for &end_char in chars.iter().skip(i + 1) {

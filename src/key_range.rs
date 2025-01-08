@@ -65,12 +65,21 @@ impl KeyRange {
         true
     }
 
+    /// Returns `true` if the key falls within this key range.
     pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
         let (start, end) = &self.0;
         key >= *start && key <= *end
     }
 
+    /// Returns `true` if the `other` is fully contained in this range.
+    pub fn contains_range(&self, other: &Self) -> bool {
+        let (start1, end1) = &self.0;
+        let (start2, end2) = &other.0;
+        start1 <= start2 && end1 >= end2
+    }
+
+    /// Returns `true` if the `other` overlaps at least partially with this range.
     pub fn overlaps_with_key_range(&self, other: &Self) -> bool {
         let (start1, end1) = &self.0;
         let (start2, end2) = &other.0;
@@ -183,11 +192,24 @@ mod tests {
     }
 
     #[test]
-    fn key_range_aggregate() {
+    fn key_range_aggregate_1() {
         let ranges = [
             int_key_range(2, 4),
             int_key_range(0, 4),
             int_key_range(7, 10),
+        ];
+        let aggregated = KeyRange::aggregate(ranges.iter());
+        let (min, max) = aggregated.0;
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &*min);
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &*max);
+    }
+
+    #[test]
+    fn key_range_aggregate_2() {
+        let ranges = [
+            int_key_range(6, 7),
+            int_key_range(0, 2),
+            int_key_range(0, 10),
         ];
         let aggregated = KeyRange::aggregate(ranges.iter());
         let (min, max) = aggregated.0;

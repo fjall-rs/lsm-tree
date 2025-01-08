@@ -3,21 +3,21 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, level_manifest::LevelManifest};
+use crate::{config::Config, level_manifest::LevelManifest, Segment};
 
 /// Major compaction
 ///
-/// Compacts all segments into the last level
+/// Compacts all segments into the last level.
 pub struct Strategy {
     target_size: u64,
 }
 
 impl Strategy {
-    /// Configures a new `SizeTiered` compaction strategy
+    /// Configures a new `SizeTiered` compaction strategy.
     ///
     /// # Panics
     ///
-    /// Panics, if `target_size` is below 1024 bytes
+    /// Panics, if `target_size` is below 1024 bytes.
     #[must_use]
     #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {
@@ -35,8 +35,12 @@ impl Default for Strategy {
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "MajorCompaction"
+    }
+
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let segment_ids = levels.iter().map(|x| x.metadata.id).collect();
+        let segment_ids = levels.iter().map(Segment::id).collect();
 
         Choice::Merge(CompactionInput {
             segment_ids,

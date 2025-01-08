@@ -88,7 +88,7 @@ impl BloomFilter {
     /// Size of bloom filter in bytes.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.inner.bytes().len()
     }
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {

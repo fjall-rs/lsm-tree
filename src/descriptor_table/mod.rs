@@ -53,6 +53,9 @@ pub struct FileDescriptorTableInner {
     size: AtomicUsize,
 }
 
+/// The descriptor table caches file descriptors to avoid `fopen()` calls
+///
+/// See `TableCache` in `RocksDB`.
 #[doc(alias("table cache"))]
 #[allow(clippy::module_name_repetitions)]
 pub struct FileDescriptorTable {

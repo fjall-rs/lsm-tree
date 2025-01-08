@@ -4,13 +4,13 @@
 
 use super::{
     super::{id::GlobalSegmentId, value_block::CachePolicy},
-    block_handle::KeyedBlockHandle,
     top_level::TopLevelIndex,
     BlockIndex, IndexBlock,
 };
 use crate::{
-    block_cache::BlockCache, descriptor_table::FileDescriptorTable,
-    segment::value_block::BlockOffset,
+    block_cache::BlockCache,
+    descriptor_table::FileDescriptorTable,
+    segment::{meta::Metadata, value_block::BlockOffset},
 };
 use std::{path::Path, sync::Arc};
 
@@ -29,24 +29,25 @@ impl IndexBlockFetcher {
     }
 }
 
-/// Index that translates item keys to block handles
+/// Index that translates item keys to data block handles
 ///
 /// The index is only partially loaded into memory.
 ///
 /// See <https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html>
 #[allow(clippy::module_name_repetitions)]
 pub struct TwoLevelBlockIndex {
-    descriptor_table: Arc<FileDescriptorTable>,
-
-    /// Segment ID
     segment_id: GlobalSegmentId,
+
+    descriptor_table: Arc<FileDescriptorTable>,
 
     /// Level-0 index. Is read-only and always fully loaded.
     ///
     /// This index points to index blocks inside the level-1 index.
     pub(crate) top_level_index: TopLevelIndex,
 
-    /// Level-1 index. This index is only partially loaded into memory, decreasing memory usage, compared to a fully loaded one.
+    /// Level-1 index.
+    ///
+    /// This index is only partially loaded into memory, decreasing memory usage, compared to a fully loaded one.
     ///
     /// However to find a disk block, one layer of indirection is required:
     ///
@@ -55,13 +56,37 @@ pub struct TwoLevelBlockIndex {
     index_block_fetcher: IndexBlockFetcher,
 }
 
+impl BlockIndex for TwoLevelBlockIndex {
+    fn get_lowest_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockOffset>> {
+        self.get_lowest_data_block_handle_containing_item(key, cache_policy)
+    }
+
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<BlockOffset> {
+        self.get_last_data_block_handle(cache_policy)
+    }
+
+    fn get_last_block_containing_key(
+        &self,
+        key: &[u8],
+        cache_policy: CachePolicy,
+    ) -> crate::Result<Option<BlockOffset>> {
+        self.get_last_data_block_handle_containing_item(key, cache_policy)
+    }
+}
+
 impl TwoLevelBlockIndex {
     /// Gets the lowest block handle that may contain the given item
     pub fn get_lowest_data_block_handle_containing_item(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<KeyedBlockHandle>> {
+    ) -> crate::Result<Option<BlockOffset>> {
+        use super::KeyedBlockIndex;
+
         let Some(index_block_handle) = self
             .top_level_index
             .get_lowest_block_containing_key(key, cache_policy)
@@ -70,13 +95,17 @@ impl TwoLevelBlockIndex {
             return Ok(None);
         };
 
-        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+        let index_block = self.load_index_block(index_block_handle.offset, cache_policy)?;
 
-        Ok(index_block
-            .items
-            .get_lowest_block_containing_key(key, cache_policy)
-            .expect("cannot fail")
-            .cloned())
+        Ok({
+            use super::KeyedBlockIndex;
+
+            index_block
+                .items
+                .get_lowest_block_containing_key(key, cache_policy)
+                .expect("cannot fail")
+                .map(|x| x.offset)
+        })
     }
 
     /// Gets the last block handle that may contain the given item
@@ -84,7 +113,9 @@ impl TwoLevelBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<KeyedBlockHandle>> {
+    ) -> crate::Result<Option<BlockOffset>> {
+        use super::KeyedBlockIndex;
+
         let Some(index_block_handle) = self
             .top_level_index
             .get_last_block_containing_key(key, cache_policy)
@@ -93,45 +124,48 @@ impl TwoLevelBlockIndex {
             return Ok(Some(self.get_last_data_block_handle(cache_policy)?));
         };
 
-        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+        let index_block = self.load_index_block(index_block_handle.offset, cache_policy)?;
 
-        Ok(index_block
-            .items
-            .get_last_block_containing_key(key, cache_policy)
-            .expect("cannot fail")
-            .cloned())
+        Ok({
+            use super::KeyedBlockIndex;
+
+            index_block
+                .items
+                .get_last_block_containing_key(key, cache_policy)
+                .expect("cannot fail")
+                .map(|x| x.offset)
+        })
     }
 
     pub fn get_last_data_block_handle(
         &self,
         cache_policy: CachePolicy,
-    ) -> crate::Result<KeyedBlockHandle> {
+    ) -> crate::Result<BlockOffset> {
+        use super::KeyedBlockIndex;
+
         let index_block_handle = self
             .top_level_index
             .get_last_block_handle(cache_policy)
             .expect("cannot fail");
 
-        let index_block = self.load_index_block(index_block_handle, cache_policy)?;
+        let index_block = self.load_index_block(index_block_handle.offset, cache_policy)?;
 
         Ok(index_block
             .items
             .last()
             .expect("index block should not be empty")
-            .clone())
+            .offset)
     }
 
     /// Loads an index block from disk
     pub fn load_index_block(
         &self,
-        block_handle: &KeyedBlockHandle,
+        offset: BlockOffset,
         cache_policy: CachePolicy,
     ) -> crate::Result<Arc<IndexBlock>> {
-        log::trace!("loading index block {:?}/{block_handle:?}", self.segment_id);
+        log::trace!("loading index block {:?}/{offset:?}", self.segment_id);
 
-        if let Some(block) = self
-            .index_block_fetcher
-            .get(self.segment_id, block_handle.offset)
-        {
+        if let Some(block) = self.index_block_fetcher.get(self.segment_id, offset) {
             // Cache hit: Copy from block
 
             Ok(block)
@@ -145,13 +179,13 @@ impl TwoLevelBlockIndex {
 
             let block = IndexBlock::from_file(
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
-                block_handle.offset,
+                offset,
             )
             .map_err(|e| {
                 log::error!(
                     "Failed to load index block {:?}/{:?}: {e:?}",
                     self.segment_id,
-                    block_handle.offset
+                    offset
                 );
                 e
             })?;
@@ -162,11 +196,8 @@ impl TwoLevelBlockIndex {
             let block = Arc::new(block);
 
             if cache_policy == CachePolicy::Write {
-                self.index_block_fetcher.insert(
-                    self.segment_id,
-                    block_handle.offset,
-                    block.clone(),
-                );
+                self.index_block_fetcher
+                    .insert(self.segment_id, offset, block.clone());
             }
 
             Ok(block)
@@ -187,16 +218,17 @@ impl TwoLevelBlockIndex {
     }
 
     pub fn from_file<P: AsRef<Path>>(
-        file_path: P,
-        offset: BlockOffset,
+        path: P,
+        metadata: &Metadata,
+        tli_ptr: BlockOffset,
         segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
         block_cache: Arc<BlockCache>,
     ) -> crate::Result<Self> {
-        let file_path = file_path.as_ref();
+        let file_path = path.as_ref();
         log::trace!("Reading block index from {file_path:?}");
 
-        let top_level_index = TopLevelIndex::from_file(file_path, offset)?;
+        let top_level_index = TopLevelIndex::from_file(file_path, metadata, tli_ptr)?;
 
         Ok(Self {
             descriptor_table,

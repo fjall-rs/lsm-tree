@@ -14,7 +14,9 @@ use crate::{
     memtable::Memtable,
     range::{prefix_to_range, MemtableLockGuard, TreeIter},
     segment::{
-        block_index::two_level_index::TwoLevelBlockIndex, meta::TableType, Segment, SegmentInner,
+        block_index::{full_index::FullBlockIndex, BlockIndexImpl},
+        meta::TableType,
+        Segment, SegmentInner,
     },
     stop_signal::StopSignal,
     value::InternalValue,
@@ -163,11 +165,8 @@ impl AbstractTree for Tree {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
-                segment_writer = segment_writer.use_bloom_policy(
-                    // TODO: increase to 0.00001 when https://github.com/fjall-rs/lsm-tree/issues/63
-                    // is fixed
-                    BloomConstructionPolicy::FpRate(0.0001),
-                );
+                segment_writer =
+                    segment_writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
             } else {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
@@ -202,9 +201,11 @@ impl AbstractTree for Tree {
             }
         })?;
 
+        // eprintln!("{original_levels}");
+
         for segment in segments {
-            log::trace!("releasing sealed memtable {}", segment.metadata.id);
-            sealed_memtables.remove(segment.metadata.id);
+            log::trace!("releasing sealed memtable {}", segment.id());
+            sealed_memtables.remove(segment.id());
         }
 
         Ok(())
@@ -354,13 +355,11 @@ impl AbstractTree for Tree {
         key: K,
         seqno: SeqNo,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self
-            .get_internal_entry(key, true, Some(seqno))?
-            .map(|x| x.value))
+        Ok(self.get_internal_entry(key, Some(seqno))?.map(|x| x.value))
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
+        Ok(self.get_internal_entry(key, None)?.map(|x| x.value))
     }
 
     fn iter_with_seqno(
@@ -403,31 +402,23 @@ impl AbstractTree for Tree {
         Box::new(self.create_prefix(prefix, None, None))
     }
 
-    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
-        let value =
-            InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
-        self.append_entry(value)
-    }
-
-    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,
-        r#type: ValueType,
     ) -> (u32, u32) {
-        let value = InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, r#type);
-        lock.insert(value)
-    }
-
-    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_tombstone(key.as_ref(), seqno);
+        let value = InternalValue::from_components(key, value, seqno, ValueType::Value);
         self.append_entry(value)
     }
 
-    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_weak_tombstone(key.as_ref(), seqno);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_tombstone(key, seqno);
+        self.append_entry(value)
+    }
+
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
 }
@@ -500,16 +491,9 @@ impl Tree {
 
         log::debug!("Finalized segment write at {segment_folder:?}");
 
-        let block_index = Arc::new(TwoLevelBlockIndex::from_file(
-            &segment_file_path,
-            trailer.offsets.tli_ptr,
-            (self.id, segment_id).into(),
-            self.config.descriptor_table.clone(),
-            self.config.block_cache.clone(),
-        )?);
-
-        #[cfg(feature = "bloom")]
-        let bloom_ptr = trailer.offsets.bloom_ptr;
+        let block_index =
+            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
+        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
         let created_segment: Segment = SegmentInner {
             tree_id: self.id,
@@ -522,14 +506,13 @@ impl Tree {
             block_cache: self.config.block_cache.clone(),
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Segment::load_bloom(&segment_file_path, bloom_ptr)?,
+            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
 
-        self.config.descriptor_table.insert(
-            segment_file_path,
-            (self.id, created_segment.metadata.id).into(),
-        );
+        self.config
+            .descriptor_table
+            .insert(segment_file_path, created_segment.global_id());
 
         log::debug!("Flushed segment to {segment_folder:?}");
 
@@ -581,25 +564,18 @@ impl Tree {
         &self,
         memtable_lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
-        evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
@@ -621,7 +597,6 @@ impl Tree {
     fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
@@ -651,10 +626,7 @@ impl Tree {
                         let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
-                            if evict_tombstone {
-                                return Ok(ignore_tombstone_value(item));
-                            }
-                            return Ok(Some(item));
+                            return Ok(ignore_tombstone_value(item));
                         }
                     }
 
@@ -671,10 +643,7 @@ impl Tree {
                 let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
-                    if evict_tombstone {
-                        return Ok(ignore_tombstone_value(item));
-                    }
-                    return Ok(Some(item));
+                    return Ok(ignore_tombstone_value(item));
                 }
             }
         }
@@ -686,7 +655,6 @@ impl Tree {
     pub fn get_internal_entry<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
@@ -694,23 +662,18 @@ impl Tree {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
+
         drop(memtable_lock);
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in segments... this may involve disk I/O
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     #[doc(hidden)]
@@ -835,13 +798,9 @@ impl Tree {
             &config.block_cache,
             &config.descriptor_table,
         )?;
-        levels.sort_levels();
+        levels.update_metadata();
 
-        let highest_segment_id = levels
-            .iter()
-            .map(|x| x.metadata.id)
-            .max()
-            .unwrap_or_default();
+        let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
 
         let inner = TreeInner {
             id: tree_id,
@@ -907,12 +866,11 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering LSM-tree at {tree_path:?}");
-
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
+        log::info!("Recovering manifest at {level_manifest_path:?}");
 
-        let segment_ids_to_recover = LevelManifest::recover_ids(&level_manifest_path)?;
-        let cnt = segment_ids_to_recover.len();
+        let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
+        let cnt = segment_id_map.len();
 
         log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
 
@@ -957,15 +915,16 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if segment_ids_to_recover.contains(&segment_id) {
+            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
                     block_cache.clone(),
                     descriptor_table.clone(),
+                    level_idx == 0 || level_idx == 1,
                 )?;
 
-                descriptor_table.insert(&segment_file_path, (tree_id, segment.metadata.id).into());
+                descriptor_table.insert(&segment_file_path, segment.global_id());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");
@@ -979,8 +938,11 @@ impl Tree {
             }
         }
 
-        if segments.len() < segment_ids_to_recover.len() {
-            log::error!("Recovered less segments than expected: {segment_ids_to_recover:?}");
+        if segments.len() < cnt {
+            log::error!(
+                "Recovered less segments than expected: {:?}",
+                segment_id_map.keys(),
+            );
             return Err(crate::Error::Unrecoverable);
         }
 

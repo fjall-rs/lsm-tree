@@ -596,34 +596,18 @@ impl AbstractTree for BlobTree {
         )
     }
 
-    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,
-        r#type: ValueType,
     ) -> (u32, u32) {
         use value::MaybeInlineValue;
 
         // NOTE: Initially, we always write an inline value
         // On memtable flush, depending on the values' sizes, they will be separated
         // into inline or indirect values
-        let item = MaybeInlineValue::Inline(value.as_ref().into());
-
-        let value = item.encode_into_vec();
-
-        let value = InternalValue::from_components(key.as_ref(), value, seqno, r#type);
-        lock.insert(value)
-    }
-
-    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
-        use value::MaybeInlineValue;
-
-        // NOTE: Initially, we always write an inline value
-        // On memtable flush, depending on the values' sizes, they will be separated
-        // into inline or indirect values
-        let item = MaybeInlineValue::Inline(value.as_ref().into());
+        let item = MaybeInlineValue::Inline(value.into());
 
         let value = item.encode_into_vec();
 
@@ -680,11 +664,11 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove(key, seqno)
     }
 
-    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove_weak(key, seqno)
     }
 }

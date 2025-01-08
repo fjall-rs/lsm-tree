@@ -1,7 +1,8 @@
 use lsm_tree::{AbstractTree, Config};
 use std::time::Duration;
+use test_log::test;
 
-#[test_log::test]
+#[test]
 fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

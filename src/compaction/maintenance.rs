@@ -39,10 +39,14 @@ pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet
         .min_by_key(|window| window.iter().map(|s| s.metadata.file_size).sum::<u64>())
         .expect("should have at least one window");
 
-    window.iter().map(|x| x.metadata.id).collect()
+    window.iter().map(Segment::id).collect()
 }
 
 impl CompactionStrategy for Strategy {
+    fn get_name(&self) -> &'static str {
+        "MaintenanceStrategy"
+    }
+
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let resolved_view = levels.resolved_view();
 
@@ -86,24 +90,27 @@ mod tests {
         key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
-            block_index::two_level_index::TwoLevelBlockIndex, file_offsets::FileOffsets,
-            meta::Metadata, value_block::BlockOffset, Segment, SegmentInner,
+            block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
+            file_offsets::FileOffsets,
+            meta::Metadata,
+            value_block::BlockOffset,
+            Segment, SegmentInner,
         },
     };
     use std::sync::Arc;
     use test_log::test;
 
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
-
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
 
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
+
         SegmentInner {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
-            block_index: Arc::new(TwoLevelBlockIndex::new((0, id).into(), block_cache.clone())),
+            block_index,
 
             offsets: FileOffsets {
                 bloom_ptr: BlockOffset(0),
@@ -136,7 +143,7 @@ mod tests {
             block_cache,
 
             #[cfg(feature = "bloom")]
-            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()
     }

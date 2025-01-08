@@ -20,7 +20,7 @@ impl<'a> GcReader<'a> {
     fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
         let Some(item) = self
             .tree
-            .get_internal_entry_with_lock(self.memtable, key, true, None)?
+            .get_internal_entry_with_lock(self.memtable, key, None)?
             .map(|x| x.value)
         else {
             return Ok(None);

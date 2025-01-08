@@ -60,7 +60,7 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     for seqno in 1..version_count {
         let item = tree
-            .get_internal_entry(key, true, Some(seqno))?
+            .get_internal_entry(key, Some(seqno))?
             .expect("should exist");
         assert_eq!(format!("abc{}", version_count).as_bytes(), &*item.value);
 

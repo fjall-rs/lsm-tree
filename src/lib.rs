@@ -154,6 +154,8 @@ mod key_range;
 #[doc(hidden)]
 pub mod level_manifest;
 
+mod level_reader;
+
 mod manifest;
 mod memtable;
 
@@ -161,7 +163,10 @@ mod memtable;
 pub mod merge;
 
 mod multi_reader;
-mod mvcc_stream;
+
+#[doc(hidden)]
+pub mod mvcc_stream;
+
 mod path;
 
 #[doc(hidden)]

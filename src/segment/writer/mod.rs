@@ -55,6 +55,8 @@ pub struct Writer {
 
     current_key: Option<UserKey>,
 
+    can_rotate: bool,
+
     #[cfg(feature = "bloom")]
     bloom_policy: BloomConstructionPolicy,
 
@@ -134,12 +136,19 @@ impl Writer {
 
             current_key: None,
 
+            can_rotate: false,
+
             #[cfg(feature = "bloom")]
             bloom_policy: BloomConstructionPolicy::default(),
 
             #[cfg(feature = "bloom")]
             bloom_hash_buffer: Vec::new(),
         })
+    }
+
+    #[must_use]
+    pub fn can_rotate(&self) -> bool {
+        self.can_rotate
     }
 
     #[must_use]
@@ -224,7 +233,13 @@ impl Writer {
             self.meta.tombstone_count += 1;
         }
 
+        // NOTE: Check if we visit a new key
         if Some(&item.key.user_key) != self.current_key.as_ref() {
+            // IMPORTANT: Check that we are not at the first key
+            if self.current_key.is_some() {
+                self.can_rotate = true;
+            }
+
             self.meta.key_count += 1;
             self.current_key = Some(item.key.user_key.clone());
 
@@ -241,7 +256,7 @@ impl Writer {
         let seqno = item.key.seqno;
 
         if self.meta.first_key.is_none() {
-            self.meta.first_key = Some(item.key.clone().user_key);
+            self.meta.first_key = Some(item.key.user_key.clone());
         }
 
         self.chunk_size += item.size();
@@ -251,13 +266,8 @@ impl Writer {
             self.spill_block()?;
         }
 
-        if self.meta.lowest_seqno > seqno {
-            self.meta.lowest_seqno = seqno;
-        }
-
-        if self.meta.highest_seqno < seqno {
-            self.meta.highest_seqno = seqno;
-        }
+        self.meta.lowest_seqno = self.meta.lowest_seqno.min(seqno);
+        self.meta.highest_seqno = self.meta.highest_seqno.max(seqno);
 
         Ok(())
     }
@@ -377,6 +387,52 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn segment_writer_seqnos() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?;
+
+        writer.write(InternalValue::from_components(
+            "a",
+            nanoid::nanoid!().as_bytes(),
+            7,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "b",
+            nanoid::nanoid!().as_bytes(),
+            5,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "c",
+            nanoid::nanoid!().as_bytes(),
+            8,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "d",
+            nanoid::nanoid!().as_bytes(),
+            10,
+            ValueType::Value,
+        ))?;
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(5, trailer.metadata.seqnos.0);
+        assert_eq!(10, trailer.metadata.seqnos.1);
+
+        Ok(())
+    }
+
+    #[test]
     #[cfg(feature = "bloom")]
     fn segment_writer_zero_bpk() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
@@ -457,7 +513,12 @@ mod tests {
         // the TLI length fits into u32 as well
         #[allow(clippy::cast_possible_truncation)]
         {
-            let tli = TopLevelIndex::from_file(&segment_file_path, trailer.offsets.tli_ptr)?;
+            let tli = TopLevelIndex::from_file(
+                &segment_file_path,
+                &trailer.metadata,
+                trailer.offsets.tli_ptr,
+            )?;
+
             assert_eq!(tli.len() as u32, trailer.metadata.index_block_count);
         }
 

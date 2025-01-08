@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub mod iter;
+pub(crate) mod hidden_set;
 pub(crate) mod level;
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     HashMap, HashSet,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use iter::LevelManifestIterator;
+use hidden_set::HiddenSet;
 use level::Level;
 use std::{
     io::{Cursor, Read, Write},
@@ -21,23 +21,21 @@ use std::{
     sync::Arc,
 };
 
-pub type HiddenSet = HashSet<SegmentId>;
-
 type Levels = Vec<Arc<Level>>;
 
-/// Represents the levels of a log-structured merge tree.
+/// Represents the levels of a log-structured merge tree
 pub struct LevelManifest {
-    /// Path of level manifest file
+    /// Path of level manifest file.
     path: PathBuf,
 
-    /// Actual levels containing segments
+    /// Actual levels containing segments.
     #[doc(hidden)]
     pub levels: Levels,
 
-    /// Set of segment IDs that are masked
+    /// Set of segment IDs that are masked.
     ///
     /// While consuming segments (because of compaction) they will not appear in the list of segments
-    /// as to not cause conflicts between multiple compaction threads (compacting the same segments)
+    /// as to not cause conflicts between multiple compaction threads (compacting the same segments).
     hidden_set: HiddenSet,
 
     is_disjoint: bool,
@@ -46,15 +44,23 @@ pub struct LevelManifest {
 impl std::fmt::Display for LevelManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (idx, level) in self.levels.iter().enumerate() {
-            write!(f, "{idx}: ")?;
+            write!(
+                f,
+                "{idx} [{}]: ",
+                match (level.is_empty(), level.compute_is_disjoint()) {
+                    (true, _) => ".",
+                    (false, true) => "D",
+                    (false, false) => "_",
+                }
+            )?;
 
             if level.segments.is_empty() {
                 write!(f, "<empty>")?;
-            } else if level.segments.len() >= 10 {
+            } else if level.segments.len() >= 30 {
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().take(2) {
-                    let id = segment.metadata.id;
-                    let is_hidden = self.hidden_set.contains(&id);
+                    let id = segment.id();
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -67,8 +73,8 @@ impl std::fmt::Display for LevelManifest {
 
                 #[allow(clippy::indexing_slicing)]
                 for segment in level.segments.iter().rev().take(2).rev() {
-                    let id = segment.metadata.id;
-                    let is_hidden = self.hidden_set.contains(&id);
+                    let id = segment.id();
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -79,8 +85,8 @@ impl std::fmt::Display for LevelManifest {
                 }
             } else {
                 for segment in &level.segments {
-                    let id = segment.metadata.id;
-                    let is_hidden = self.hidden_set.contains(&id);
+                    let id = segment.id();
+                    let is_hidden = self.hidden_set.is_hidden(id);
 
                     write!(
                         f,
@@ -96,7 +102,7 @@ impl std::fmt::Display for LevelManifest {
                 f,
                 " | # = {}, {} MiB",
                 level.len(),
-                level.size() / 1_024 / 1_024
+                level.size() / 1_024 / 1_024,
             )?;
         }
 
@@ -118,10 +124,7 @@ impl LevelManifest {
         let mut manifest = Self {
             path: path.as_ref().to_path_buf(),
             levels,
-            hidden_set: HashSet::with_capacity_and_hasher(
-                10,
-                xxhash_rust::xxh3::Xxh3Builder::new(),
-            ),
+            hidden_set: Default::default(),
             is_disjoint: true,
         };
         Self::write_to_disk(path, &manifest.deep_clone())?;
@@ -175,11 +178,24 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn recover_ids<P: AsRef<Path>>(path: P) -> crate::Result<Vec<SegmentId>> {
-        Ok(Self::load_level_manifest(path)?
-            .into_iter()
-            .flatten()
-            .collect())
+    pub(crate) fn recover_ids<P: AsRef<Path>>(
+        path: P,
+    ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
+        let manifest = Self::load_level_manifest(path)?;
+        let mut result = crate::HashMap::default();
+
+        for (level_idx, segment_ids) in manifest.into_iter().enumerate() {
+            for segment_id in segment_ids {
+                result.insert(
+                    segment_id,
+                    level_idx
+                        .try_into()
+                        .expect("there are less than 256 levels"),
+                );
+            }
+        }
+
+        Ok(result)
     }
 
     fn resolve_levels(
@@ -205,19 +221,13 @@ impl LevelManifest {
     pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
         let level_manifest = Self::load_level_manifest(&path)?;
 
-        let segments: HashMap<_, _> = segments
-            .into_iter()
-            .map(|seg| (seg.metadata.id, seg))
-            .collect();
+        let segments: HashMap<_, _> = segments.into_iter().map(|seg| (seg.id(), seg)).collect();
 
         let levels = Self::resolve_levels(level_manifest, &segments);
 
         let mut manifest = Self {
             levels,
-            hidden_set: HashSet::with_capacity_and_hasher(
-                10,
-                xxhash_rust::xxh3::Xxh3Builder::new(),
-            ),
+            hidden_set: HiddenSet::default(),
             path: path.as_ref().to_path_buf(),
             is_disjoint: false,
         };
@@ -270,7 +280,7 @@ impl LevelManifest {
 
         Self::write_to_disk(&self.path, &working_copy)?;
         self.levels = working_copy.into_iter().map(Arc::new).collect();
-        self.sort_levels();
+        self.update_metadata();
         self.set_disjoint_flag();
 
         log::trace!("Swapped level manifest to:\n{self}");
@@ -284,11 +294,11 @@ impl LevelManifest {
         self.insert_into_level(0, segment);
     }
 
-    pub(crate) fn sort_levels(&mut self) {
+    pub fn update_metadata(&mut self) {
         for level in &mut self.levels {
             Arc::get_mut(level)
                 .expect("could not get mutable Arc - this is a bug")
-                .sort();
+                .update_metadata();
         }
     }
 
@@ -358,14 +368,10 @@ impl LevelManifest {
             HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
 
         for (idx, level) in self.levels.iter().enumerate() {
-            for segment_id in level.ids() {
-                if self.hidden_set.contains(&segment_id) {
-                    // NOTE: Level count is u8
-                    #[allow(clippy::cast_possible_truncation)]
-                    let idx = idx as u8;
-
-                    output.insert(idx);
-                }
+            if level.ids().any(|id| self.hidden_set.is_hidden(id)) {
+                // NOTE: Level count is u8
+                #[allow(clippy::cast_possible_truncation)]
+                output.insert(idx as u8);
             }
         }
 
@@ -379,7 +385,7 @@ impl LevelManifest {
 
         for raw_level in &self.levels {
             let mut level = raw_level.iter().cloned().collect::<Vec<_>>();
-            level.retain(|x| !self.hidden_set.contains(&x.metadata.id));
+            level.retain(|x| !self.hidden_set.is_hidden(x.id()));
 
             output.push(Level {
                 segments: level,
@@ -391,29 +397,26 @@ impl LevelManifest {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Segment> + '_ {
-        LevelManifestIterator::new(self)
+        self.levels.iter().flat_map(|x| &x.segments)
     }
 
-    pub(crate) fn get_all_segments(&self) -> HashMap<SegmentId, Segment> {
-        let mut output = HashMap::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
-
-        for segment in self.iter().cloned() {
-            output.insert(segment.metadata.id, segment);
-        }
-
-        output
+    pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
+        &self,
+        ids: T,
+    ) -> bool {
+        self.hidden_set().is_blocked(ids)
     }
 
-    pub(crate) fn show_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
-        for key in keys {
-            self.hidden_set.remove(&key);
-        }
+    pub(crate) fn hidden_set(&self) -> &HiddenSet {
+        &self.hidden_set
     }
 
-    pub(crate) fn hide_segments(&mut self, keys: impl Iterator<Item = SegmentId>) {
-        for key in keys {
-            self.hidden_set.insert(key);
-        }
+    pub(crate) fn hide_segments<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+        self.hidden_set.hide(keys);
+    }
+
+    pub(crate) fn show_segments<T: IntoIterator<Item = SegmentId>>(&mut self, keys: T) {
+        self.hidden_set.show(keys);
     }
 }
 
@@ -432,7 +435,7 @@ impl Encode for Vec<Level> {
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
-                writer.write_u64::<BigEndian>(segment.metadata.id)?;
+                writer.write_u64::<BigEndian>(segment.id())?;
             }
         }
 
@@ -443,8 +446,11 @@ impl Encode for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use crate::{coding::Encode, level_manifest::LevelManifest, AbstractTree};
-    use std::collections::HashSet;
+    use crate::{
+        coding::Encode,
+        level_manifest::{hidden_set::HiddenSet, LevelManifest},
+        AbstractTree,
+    };
     use test_log::test;
 
     #[test]
@@ -492,7 +498,7 @@ mod tests {
     #[test]
     fn level_manifest_raw_empty() -> crate::Result<()> {
         let manifest = LevelManifest {
-            hidden_set: HashSet::default(),
+            hidden_set: HiddenSet::default(),
             levels: Vec::default(),
             path: "a".into(),
             is_disjoint: false,
