@@ -7,7 +7,7 @@ use crate::{
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
-    level_reader::LevelReader,
+    level_scanner::LevelScanner,
     merge::Merger,
     segment::{
         block_index::{
@@ -108,8 +108,6 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
 ) -> crate::Result<Option<CompactionStream<Merger<CompactionReader<'a>>>>> {
-    use std::ops::Bound::Unbounded;
-
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
@@ -141,12 +139,11 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
                 continue;
             };
 
-            readers.push(Box::new(LevelReader::from_indexes(
+            readers.push(Box::new(LevelScanner::from_indexes(
+                segment_base_folder.as_ref().to_owned(),
                 level.clone(),
-                &(Unbounded, Unbounded),
                 (Some(lo), Some(hi)),
-                crate::segment::value_block::CachePolicy::Read,
-            )));
+            )?));
 
             found += hi - lo + 1;
         } else {
