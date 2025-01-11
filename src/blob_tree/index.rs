@@ -19,23 +19,12 @@ impl std::ops::Deref for IndexTree {
 }
 
 impl IndexTree {
-    pub(crate) fn get_internal_with_seqno(
+    pub(crate) fn get_vhandle(
         &self,
         key: &[u8],
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
     ) -> crate::Result<Option<MaybeInlineValue>> {
-        let Some(item) = self.get_with_seqno(key, seqno)? else {
-            return Ok(None);
-        };
-
-        let mut cursor = Cursor::new(item);
-        let item = MaybeInlineValue::decode_from(&mut cursor)?;
-
-        Ok(Some(item))
-    }
-
-    pub(crate) fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
-        let Some(item) = self.get(key)? else {
+        let Some(item) = self.get(key, seqno)? else {
             return Ok(None);
         };
 

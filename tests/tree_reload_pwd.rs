@@ -21,7 +21,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     let folder_new = tempfile::tempdir()?;
@@ -37,7 +37,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
 
     {
         let tree = Config::new(&folder_new_subfolder).open()?;
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     Ok(())

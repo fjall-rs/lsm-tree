@@ -19,13 +19,13 @@ fn segment_ranges() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes());
+    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
     assert_eq!(10_000, iter.count());
 
-    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes());
+    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
     assert_eq!(10_000, iter.rev().count());
 
-    let mut iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes());
+    let mut iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
     let mut count = 0;
 
     for x in 0.. {
@@ -66,13 +66,13 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes());
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
     assert_eq!(10, iter.count());
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes());
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
     assert_eq!(10, iter.rev().count());
 
-    let mut iter = tree.range(0u64.to_be_bytes()..5u64.to_be_bytes());
+    let mut iter = tree.range(0u64.to_be_bytes()..5u64.to_be_bytes(), None, None);
 
     assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
     assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
@@ -103,13 +103,13 @@ fn segment_range_last_back_2() -> lsm_tree::Result<()> {
     tree.insert(11u64.to_be_bytes(), [], 0);
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes());
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
     assert_eq!(10, iter.count());
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes());
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
     assert_eq!(10, iter.rev().count());
 
-    let mut iter = tree.range(0u64.to_be_bytes()..12u64.to_be_bytes());
+    let mut iter = tree.range(0u64.to_be_bytes()..12u64.to_be_bytes(), None, None);
 
     assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
     assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);

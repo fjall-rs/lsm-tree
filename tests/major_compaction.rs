@@ -20,23 +20,23 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
     assert_eq!(1, tree.segment_count());
 
-    let item = tree.get_internal_entry("a", true, None)?.unwrap();
+    let item = tree.get_internal_entry("a", None)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 0);
 
-    let item = tree.get_internal_entry("b", true, None)?.unwrap();
+    let item = tree.get_internal_entry("b", None)?.unwrap();
     assert_eq!(&*item.key.user_key, "b".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 1);
 
-    let item = tree.get_internal_entry("c", true, None)?.unwrap();
+    let item = tree.get_internal_entry("c", None)?.unwrap();
     assert_eq!(&*item.key.user_key, "c".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 2);
 
     assert_eq!(1, tree.segment_count());
-    assert_eq!(3, tree.len()?);
+    assert_eq!(3, tree.len(None, None)?);
 
     let batch_seqno = seqno.next();
     tree.remove("a".as_bytes(), batch_seqno);
@@ -49,7 +49,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
 
     assert_eq!(0, tree.segment_count());
-    assert_eq!(0, tree.len()?);
+    assert_eq!(0, tree.len(None, None)?);
 
     Ok(())
 }

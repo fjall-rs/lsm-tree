@@ -52,16 +52,8 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
-        Ok(self.get(key)?.map(|x| x.len() as u32))
-    }
-
-    fn size_of_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: SeqNo,
-    ) -> crate::Result<Option<u32>> {
-        Ok(self.get_with_seqno(key, seqno)?.map(|x| x.len() as u32))
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+        Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
     #[cfg(feature = "bloom")]
@@ -91,10 +83,6 @@ impl AbstractTree for Tree {
             .is_disjoint
     }
 
-    /* fn import<P: AsRef<Path>>(&self, path: P) -> crate::Result<()> {
-        import_tree(path, self)
-    } */
-
     fn verify(&self) -> crate::Result<usize> {
         // NOTE: Lock memtable to prevent any tampering with disk segments
         let _lock = self.lock_active_memtable();
@@ -112,34 +100,20 @@ impl AbstractTree for Tree {
         Ok(sum)
     }
 
-    fn keys_with_seqno(
+    fn keys(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(k, _)| k)),
-        )
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(k, _)| k)))
     }
 
-    fn values_with_seqno(
+    fn values(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(_, v)| v)),
-        )
-    }
-
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(k, _)| k)))
-    }
-
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(_, v)| v)))
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(
@@ -152,6 +126,8 @@ impl AbstractTree for Tree {
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
+
+        let start = std::time::Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
@@ -184,7 +160,11 @@ impl AbstractTree for Tree {
             segment_writer.write(item?)?;
         }
 
-        self.consume_writer(segment_id, segment_writer)
+        let result = self.consume_writer(segment_id, segment_writer)?;
+
+        log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
+
+        Ok(result)
     }
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
@@ -354,85 +334,49 @@ impl AbstractTree for Tree {
         Snapshot::new(Standard(self.clone()), seqno)
     }
 
-    fn get_with_seqno<K: AsRef<[u8]>>(
+    fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self
-            .get_internal_entry(key, true, Some(seqno))?
-            .map(|x| x.value))
-    }
-
-    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, true, None)?.map(|x| x.value))
-    }
-
-    fn iter_with_seqno(
-        &self,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        self.range_with_seqno::<UserKey, _>(.., seqno, index)
-    }
-
-    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, Some(seqno), index))
-    }
-
-    fn prefix_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, Some(seqno), index))
+        Ok(self.get_internal_entry(key, seqno)?.map(|x| x.value))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, None, None))
+        Box::new(self.create_range(&range, seqno, index))
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, None, None))
+        Box::new(self.create_prefix(prefix, seqno, index))
     }
 
-    fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&self, key: K, value: V, seqno: SeqNo) -> (u32, u32) {
-        let value =
-            InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, ValueType::Value);
-        self.append_entry(value)
-    }
-
-    fn raw_insert_with_lock<K: AsRef<[u8]>, V: AsRef<[u8]>>(
+    fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
-        lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
         value: V,
         seqno: SeqNo,
-        r#type: ValueType,
     ) -> (u32, u32) {
-        let value = InternalValue::from_components(key.as_ref(), value.as_ref(), seqno, r#type);
-        lock.insert(value)
-    }
-
-    fn remove<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_tombstone(key.as_ref(), seqno);
+        let value = InternalValue::from_components(key, value, seqno, ValueType::Value);
         self.append_entry(value)
     }
 
-    fn remove_weak<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
-        let value = InternalValue::new_weak_tombstone(key.as_ref(), seqno);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_tombstone(key, seqno);
+        self.append_entry(value)
+    }
+
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+        let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
 }
@@ -578,25 +522,18 @@ impl Tree {
         &self,
         memtable_lock: &RwLockWriteGuard<'_, Memtable>,
         key: K,
-        evict_tombstone: bool,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
@@ -618,7 +555,6 @@ impl Tree {
     fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
@@ -648,10 +584,7 @@ impl Tree {
                         let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
-                            if evict_tombstone {
-                                return Ok(ignore_tombstone_value(item));
-                            }
-                            return Ok(Some(item));
+                            return Ok(ignore_tombstone_value(item));
                         }
                     }
 
@@ -668,10 +601,7 @@ impl Tree {
                 let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
-                    if evict_tombstone {
-                        return Ok(ignore_tombstone_value(item));
-                    }
-                    return Ok(Some(item));
+                    return Ok(ignore_tombstone_value(item));
                 }
             }
         }
@@ -683,7 +613,6 @@ impl Tree {
     pub fn get_internal_entry<K: AsRef<[u8]>>(
         &self,
         key: K,
-        evict_tombstone: bool, // TODO: remove?, just always true
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
@@ -691,24 +620,18 @@ impl Tree {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
         if let Some(entry) = memtable_lock.get(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         };
 
         drop(memtable_lock);
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
-            if evict_tombstone {
-                return Ok(ignore_tombstone_value(entry));
-            }
-            return Ok(Some(entry));
+            return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in segments... this may involve disk I/O
-        self.get_internal_entry_from_segments(key, evict_tombstone, seqno)
+        self.get_internal_entry_from_segments(key, seqno)
     }
 
     #[doc(hidden)]
@@ -901,9 +824,8 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering LSM-tree at {tree_path:?}");
-
         let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
+        log::info!("Recovering manifest at {level_manifest_path:?}");
 
         let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
         let cnt = segment_id_map.len();

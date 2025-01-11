@@ -30,7 +30,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let mut iter = tree.iter();
+    let mut iter = tree.iter(None, None);
 
     assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
@@ -42,7 +42,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Reverse
 
-    let mut iter = tree.iter().rev();
+    let mut iter = tree.iter(None, None).rev();
 
     assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
@@ -54,7 +54,7 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Ping Pong
 
-    let mut iter = tree.iter();
+    let mut iter = tree.iter(None, None);
 
     assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"f"), iter.next_back().unwrap()?.0);

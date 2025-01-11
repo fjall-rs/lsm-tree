@@ -339,8 +339,8 @@ fn merge_segments(
     };
 
     log::debug!(
-        "Compacted in {}ms ({} segments created)",
-        start.elapsed().as_millis(),
+        "Compacted in {:?} ({} segments created)",
+        start.elapsed(),
         writer_results.len(),
     );
 

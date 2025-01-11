@@ -35,9 +35,9 @@ fn blob_gc_1() -> lsm_tree::Result<()> {
 
     tree.gc_drop_stale()?;
 
-    assert_eq!(&*tree.get("a")?.unwrap(), b"a");
-    assert_eq!(&*tree.get("b")?.unwrap(), b"b");
-    assert_eq!(&*tree.get("c")?.unwrap(), b"c");
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"a");
+    assert_eq!(&*tree.get("b", None)?.unwrap(), b"b");
+    assert_eq!(&*tree.get("c", None)?.unwrap(), b"c");
     assert_eq!(0, tree.blobs.segment_count());
     assert_eq!(0.0, tree.blobs.space_amp());
 
@@ -73,10 +73,10 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
     let strategy = value_log::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
 
-    assert_eq!(&*tree.get("a")?.unwrap(), b"a");
-    assert_eq!(&*tree.get("b")?.unwrap(), b"b");
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"a");
+    assert_eq!(&*tree.get("b", None)?.unwrap(), b"b");
     assert_eq!(
-        &*tree.get("c")?.unwrap(),
+        &*tree.get("c", None)?.unwrap(),
         "neptune".repeat(10_000).as_bytes()
     );
     assert_eq!(1, tree.blobs.segment_count());
@@ -123,17 +123,17 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
     let strategy = value_log::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
 
-    assert!(tree.get("a")?.is_none());
-    assert!(tree.get("b")?.is_none());
+    assert!(tree.get("a", None)?.is_none());
+    assert!(tree.get("b", None)?.is_none());
     assert_eq!(
-        &*tree.get("c")?.unwrap(),
+        &*tree.get("c", None)?.unwrap(),
         "neptune".repeat(10_000).as_bytes()
     );
     assert_eq!(1, tree.blobs.segment_count());
     assert_eq!(1.0, tree.blobs.space_amp());
 
     tree.remove("c", seqno.next());
-    assert!(tree.get("c")?.is_none());
+    assert!(tree.get("c", None)?.is_none());
 
     tree.gc_scan_stats(seqno.get(), 1_000)?;
 

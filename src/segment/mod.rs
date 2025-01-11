@@ -5,6 +5,7 @@
 pub mod block;
 pub mod block_index;
 pub mod file_offsets;
+mod forward_reader;
 pub mod id;
 pub mod inner;
 pub mod meta;
@@ -20,12 +21,12 @@ pub mod writer;
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::reader::Reader,
     time::unix_timestamp,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
 };
 use block_index::BlockIndexImpl;
+use forward_reader::ForwardReader;
 use id::GlobalSegmentId;
 use inner::Inner;
 use meta::SegmentId;
@@ -336,7 +337,6 @@ impl Segment {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
-        use crate::mvcc_stream::MvccStream;
         use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
         use value_block_consumer::ValueBlockConsumer;
@@ -370,22 +370,15 @@ impl Segment {
             return Ok(block.get_latest(key.as_ref()).cloned());
         }
 
-        // TODO: it would be nice to have the possibility of using a lifetime'd
-        // reader, so we don't need to Arc::clone descriptor_table, and block_cache
-        let mut reader = Reader::new(
+        let mut reader = ForwardReader::new(
             self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
+            &self.descriptor_table,
             self.global_id(),
-            self.block_cache.clone(),
+            &self.block_cache,
             first_block_handle,
-            None,
         );
         reader.lo_block_size = block.header.data_length.into();
-        reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(
-            block,
-            &Some(key.into()), // TODO: this may cause a heap alloc
-            &None,
-        ));
+        reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(block, Some(key), None));
         reader.lo_initialized = true;
 
         // NOTE: For finding a specific seqno,
@@ -405,7 +398,7 @@ impl Segment {
         // unfortunately is in the next block
         //
         // Also because of weak tombstones, we may have to look further than the first item we encounter
-        let reader = reader.filter(|x| {
+        let mut reader = reader.filter(|x| {
             match x {
                 Ok(entry) => {
                     // Check for seqno if needed
@@ -419,7 +412,7 @@ impl Segment {
             }
         });
 
-        let Some(entry) = MvccStream::new(reader).next().transpose()? else {
+        let Some(entry) = reader.next().transpose()? else {
             return Ok(None);
         };
 

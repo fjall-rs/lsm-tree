@@ -18,7 +18,7 @@ fn blob_tree_separation_threshold() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
     assert_eq!(tree.blobs.segment_count(), 1);
 
-    assert_eq!(2, tree.len()?);
+    assert_eq!(2, tree.len(None, None)?);
 
     Ok(())
 }

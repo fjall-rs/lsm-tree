@@ -39,18 +39,6 @@ impl BitArray {
         Self(bytes)
     }
 
-    /// Size in bytes
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[allow(unused)]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.0
