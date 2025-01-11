@@ -127,6 +127,8 @@ impl AbstractTree for Tree {
             segment::writer::{Options, Writer},
         };
 
+        let start = std::time::Instant::now();
+
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
 
@@ -158,7 +160,11 @@ impl AbstractTree for Tree {
             segment_writer.write(item?)?;
         }
 
-        self.consume_writer(segment_id, segment_writer)
+        let result = self.consume_writer(segment_id, segment_writer)?;
+
+        log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
+
+        Ok(result)
     }
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
