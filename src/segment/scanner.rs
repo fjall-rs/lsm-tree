@@ -14,7 +14,7 @@ pub struct Scanner {
 
 impl Scanner {
     pub fn new<P: AsRef<Path>>(path: P, block_count: usize) -> crate::Result<Self> {
-        // TODO: larger buffer size may be better for HDD
+        // TODO: a larger buffer size may be better for HDD
         let reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         Ok(Self {
