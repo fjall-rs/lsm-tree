@@ -178,6 +178,7 @@ pub mod segment;
 
 mod seqno;
 mod snapshot;
+mod windows;
 
 #[doc(hidden)]
 pub mod stop_signal;
