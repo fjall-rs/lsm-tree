@@ -384,12 +384,7 @@ fn merge_segments(
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index,
 
-                bloom_filter: {
-                    match Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr) {
-                        Ok(filter) => filter,
-                        Err(e) => return Err(e),
-                    }
-                },
+                bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
             }
             .into())
         })
