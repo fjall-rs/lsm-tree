@@ -19,7 +19,6 @@ pub type RangeItem = crate::Result<KvPair>;
 #[enum_dispatch]
 pub trait AbstractTree {
     /// Gets the memory usage of all bloom filters in the tree.
-    #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize;
 
     #[doc(hidden)]

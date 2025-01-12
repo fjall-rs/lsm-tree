@@ -263,7 +263,6 @@ fn merge_segments(
 
     let mut segment_writer = segment_writer.use_compression(opts.config.compression);
 
-    #[cfg(feature = "bloom")]
     {
         use crate::segment::writer::BloomConstructionPolicy;
 
@@ -385,7 +384,6 @@ fn merge_segments(
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index,
 
-                #[cfg(feature = "bloom")]
                 bloom_filter: {
                     match Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr) {
                         Ok(filter) => filter,

@@ -20,6 +20,7 @@ pub mod writer;
 
 use crate::{
     block_cache::BlockCache,
+    bloom::{BloomFilter, CompositeHash},
     descriptor_table::FileDescriptorTable,
     time::unix_timestamp,
     tree::inner::TreeId,
@@ -33,9 +34,6 @@ use meta::SegmentId;
 use range::Range;
 use scanner::Scanner;
 use std::{ops::Bound, path::Path, sync::Arc};
-
-#[cfg(feature = "bloom")]
-use crate::bloom::{BloomFilter, CompositeHash};
 
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
@@ -215,7 +213,6 @@ impl Segment {
         Ok(broken_count)
     }
 
-    #[cfg(feature = "bloom")]
     pub(crate) fn load_bloom<P: AsRef<Path>>(
         path: P,
         ptr: value_block::BlockOffset,
@@ -278,7 +275,6 @@ impl Segment {
             BlockIndexImpl::TwoLevel(block_index)
         };
 
-        #[cfg(feature = "bloom")]
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
         Ok(Self(Arc::new(Inner {
@@ -291,12 +287,10 @@ impl Segment {
             block_index: Arc::new(block_index),
             block_cache,
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
         })))
     }
 
-    #[cfg(feature = "bloom")]
     #[must_use]
     /// Gets the bloom filter size
     pub fn bloom_filter_size(&self) -> usize {
@@ -306,7 +300,6 @@ impl Segment {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "bloom")]
     pub fn get_with_hash<K: AsRef<[u8]>>(
         &self,
         key: K,
@@ -426,42 +419,6 @@ impl Segment {
 
     pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
         self.metadata.key_range.contains_key(key)
-    }
-
-    // NOTE: Clippy false positive
-    #[allow(unused)]
-    /// Retrieves an item from the segment.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub(crate) fn get<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<InternalValue>> {
-        let key = key.as_ref();
-
-        if let Some(seqno) = seqno {
-            if self.metadata.seqnos.0 >= seqno {
-                return Ok(None);
-            }
-        }
-
-        if !self.is_key_in_key_range(key) {
-            return Ok(None);
-        }
-
-        #[cfg(feature = "bloom")]
-        if let Some(bf) = &self.bloom_filter {
-            debug_assert!(false, "Use Segment::get_with_hash instead");
-
-            if !bf.contains(key) {
-                return Ok(None);
-            }
-        }
-
-        self.point_read(key, seqno)
     }
 
     // TODO: move segment tests into module, then make pub(crate)

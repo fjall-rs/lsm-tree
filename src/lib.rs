@@ -130,7 +130,6 @@ pub mod blob_tree;
 mod block_cache;
 
 #[doc(hidden)]
-#[cfg(feature = "bloom")]
 pub mod bloom;
 
 #[doc(hidden)]

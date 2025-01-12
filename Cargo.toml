@@ -20,8 +20,6 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
-bloom = []
-all = ["bloom", "lz4", "miniz"]
 bytes = ["value-log/bytes"]
 
 [dependencies]
