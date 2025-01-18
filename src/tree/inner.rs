@@ -4,7 +4,7 @@
 
 use crate::{
     config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
-    segment::meta::SegmentId, stop_signal::StopSignal,
+    prefix_extractor::PrefixExtractor, segment::meta::SegmentId, stop_signal::StopSignal,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -74,12 +74,15 @@ pub struct TreeInner {
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
+
+    pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
         let levels =
             LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
+        let prefix_extractor = config.prefix_extractor.clone();
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -89,6 +92,7 @@ impl TreeInner {
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
+            prefix_extractor,
         })
     }
 

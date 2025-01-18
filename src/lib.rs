@@ -134,6 +134,9 @@ mod block_cache;
 pub mod bloom;
 
 #[doc(hidden)]
+pub mod prefix_extractor;
+
+#[doc(hidden)]
 pub mod coding;
 pub mod compaction;
 mod config;

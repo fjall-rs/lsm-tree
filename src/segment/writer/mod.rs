@@ -15,6 +15,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
+    prefix_extractor::PrefixExtractor,
     segment::{block::ItemSize, value_block::BlockOffset},
     value::{InternalValue, UserKey},
     SegmentId,
@@ -23,6 +24,7 @@ use std::{
     fs::File,
     io::{BufWriter, Seek, Write},
     path::PathBuf,
+    sync::Arc,
 };
 
 #[cfg(feature = "bloom")]
@@ -104,6 +106,7 @@ pub struct Options {
     pub data_block_size: u32,
     pub index_block_size: u32,
     pub segment_id: SegmentId,
+    pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl Writer {
@@ -248,8 +251,20 @@ impl Writer {
             // of the same key
             #[cfg(feature = "bloom")]
             if self.bloom_policy.is_active() {
-                self.bloom_hash_buffer
-                    .push(BloomFilter::get_hash(&item.key.user_key));
+                let key: Option<&[u8]> = match &self.opts.prefix_extractor {
+                    None => Some(&item.key.user_key),
+                    Some(prefix_extractor) => {
+                        let key = &item.key.user_key;
+                        if prefix_extractor.in_domain(key) {
+                            Some(prefix_extractor.transform(key))
+                        } else {
+                            None
+                        }
+                    }
+                };
+                if let Some(key) = key {
+                    self.bloom_hash_buffer.push(BloomFilter::get_hash(key));
+                };
             }
         }
 
@@ -397,6 +412,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
+            prefix_extractor: None,
         })?;
 
         writer.write(InternalValue::from_components(
@@ -446,6 +462,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
+            prefix_extractor: Option::None,
         })?
         .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
 
@@ -484,6 +501,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
+            prefix_extractor: None,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
@@ -555,6 +573,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
+            prefix_extractor: None,
         })?;
 
         for key in 0u64..ITEM_COUNT {

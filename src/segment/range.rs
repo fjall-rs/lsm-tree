@@ -263,6 +263,7 @@ mod tests {
             folder: folder.clone(),
             data_block_size: 1_000, // NOTE: Block size 1 to for each item to be its own block
             index_block_size: 4_096,
+            prefix_extractor: None,
         })?;
 
         let items = chars.iter().map(|&key| {
@@ -363,6 +364,7 @@ mod tests {
             folder: folder.clone(),
             data_block_size: 4_096,
             index_block_size: 4_096,
+            prefix_extractor: None,
         })?;
 
         let items = (0u64..ITEM_COUNT).map(|i| {
@@ -564,6 +566,7 @@ mod tests {
                 folder: folder.clone(),
                 data_block_size,
                 index_block_size: 4_096,
+                prefix_extractor: None,
             })?;
 
             let items = (0u64..ITEM_COUNT).map(|i| {
@@ -668,6 +671,7 @@ mod tests {
             folder: folder.clone(),
             data_block_size: 250,
             index_block_size: 4_096,
+            prefix_extractor: None,
         })?;
 
         let items = chars.iter().map(|&key| {

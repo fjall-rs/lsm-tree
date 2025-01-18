@@ -83,6 +83,7 @@ impl DoubleEndedIterator for TreeIter {
 fn collect_disjoint_tree_with_range(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
+    prefix_hash: Option<(u64, u64)>,
 ) -> MultiReader<LevelReader> {
     debug_assert!(level_manifest.is_disjoint());
 
@@ -120,7 +121,7 @@ fn collect_disjoint_tree_with_range(
 
     let readers = levels
         .into_iter()
-        .map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write))
+        .map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write, prefix_hash))
         .collect();
 
     MultiReader::new(readers)
@@ -134,6 +135,7 @@ impl TreeIter {
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
         level_manifest: ArcRwLockReadGuardian<LevelManifest>,
+        prefix_hash: Option<(u64, u64)>,
     ) -> Self {
         Self::new(guard, |lock| {
             let lo = match &bounds.0 {
@@ -185,7 +187,8 @@ impl TreeIter {
 
             // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
             if level_manifest.is_disjoint() {
-                let reader = collect_disjoint_tree_with_range(&level_manifest, &bounds);
+                let reader =
+                    collect_disjoint_tree_with_range(&level_manifest, &bounds, prefix_hash);
 
                 if let Some(seqno) = seqno {
                     iters.push(Box::new(reader.filter(move |item| match item {
@@ -199,8 +202,12 @@ impl TreeIter {
                 for level in &level_manifest.levels {
                     if level.is_disjoint {
                         if !level.is_empty() {
-                            let reader =
-                                LevelReader::new(level.clone(), &bounds, CachePolicy::Write);
+                            let reader = LevelReader::new(
+                                level.clone(),
+                                &bounds,
+                                CachePolicy::Write,
+                                prefix_hash,
+                            );
 
                             if let Some(seqno) = seqno {
                                 iters.push(Box::new(reader.filter(move |item| match item {
@@ -213,7 +220,9 @@ impl TreeIter {
                         }
                     } else {
                         for segment in &level.segments {
-                            if segment.check_key_range_overlap(&bounds) {
+                            let may_contain_hash =
+                                prefix_hash.map_or(true, |hash| segment.may_contain_hash(hash));
+                            if may_contain_hash && segment.check_key_range_overlap(&bounds) {
                                 let reader = segment.range(bounds.clone());
 
                                 if let Some(seqno) = seqno {

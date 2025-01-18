@@ -125,9 +125,9 @@ impl BlobTree {
             // to the tree
         }
 
-        let iter = self
-            .index
-            .create_internal_range::<&[u8], RangeFull>(&.., Some(seqno), None);
+        let iter =
+            self.index
+                .create_internal_range::<&[u8], RangeFull>(&.., Some(seqno), None, None);
 
         // Stores the max seqno of every blob file
         let mut seqno_map = crate::HashMap::<SegmentId, SeqNo>::default();
@@ -330,6 +330,7 @@ impl AbstractTree for BlobTree {
             data_block_size: self.index.config.data_block_size,
             index_block_size: self.index.config.index_block_size,
             folder: lsm_segment_folder,
+            prefix_extractor: self.index.prefix_extractor.clone(),
         })?
         .use_compression(self.index.config.compression);
 
@@ -549,7 +550,7 @@ impl AbstractTree for BlobTree {
         Box::new(
             self.index
                 .0
-                .create_range(&range, Some(seqno), index)
+                .create_range(&range, Some(seqno), index, None)
                 .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
@@ -577,7 +578,7 @@ impl AbstractTree for BlobTree {
         Box::new(
             self.index
                 .0
-                .create_range(&range, None, None)
+                .create_range(&range, None, None, None)
                 .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }

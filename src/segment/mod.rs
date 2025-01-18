@@ -450,14 +450,7 @@ impl Segment {
             return Ok(None);
         }
 
-        #[cfg(feature = "bloom")]
-        if let Some(bf) = &self.bloom_filter {
-            debug_assert!(false, "Use Segment::get_with_hash instead");
-
-            if !bf.contains(key) {
-                return Ok(None);
-            }
-        }
+        let key = key.as_ref();
 
         self.point_read(key, seqno)
     }
@@ -512,5 +505,18 @@ impl Segment {
         bounds: &(Bound<UserKey>, Bound<UserKey>),
     ) -> bool {
         self.metadata.key_range.overlaps_with_bounds(bounds)
+    }
+
+    // NOTE: Clippy false positive when bloom feature is enabled
+    #[allow(unused)]
+    pub(crate) fn may_contain_hash(&self, hash: (u64, u64)) -> bool {
+        #[cfg(feature = "bloom")]
+        if let Some(bloom_filter) = &self.bloom_filter {
+            bloom_filter.contains_hash(hash)
+        } else {
+            true
+        }
+        #[cfg(not(feature = "bloom"))]
+        true
     }
 }
