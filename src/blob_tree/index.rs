@@ -3,8 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::value::MaybeInlineValue;
-use crate::{coding::Decode, AbstractTree, SeqNo, Tree as LsmTree};
-use std::io::Cursor;
+use crate::{AbstractTree, SeqNo, Tree as LsmTree};
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone)]
@@ -28,8 +27,7 @@ impl IndexTree {
             return Ok(None);
         };
 
-        let mut cursor = Cursor::new(item);
-        let item = MaybeInlineValue::decode_from(&mut cursor)?;
+        let item = MaybeInlineValue::from_slice(&item)?;
 
         Ok(Some(item))
     }
