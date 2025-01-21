@@ -68,17 +68,17 @@ fn pick_minimal_compaction(
             //      A     B     C     D     E     F
             // L1 | ----- ----- ----- ----- ----- -----
             // L2 |    -----  -----  ----- ----- -----
-            //      1      2      3     4     5
+            //         1      2      3     4     5
             //
-            // If we took 1, we would also have to include A,
+            // If we took 1, we would also have to include B,
             // but then we would also have to include 2,
-            // but then we would also have to include B,
+            // but then we would also have to include C,
             // but then we would also have to include 3,
             // ...
             //
             // Instead, we consider a window like 1 - 3
-            // and then take A & B, because they are *contained* in that range
-            // Not including C is fine, because we are not shadowing data unexpectedly
+            // and then take B & C, because they are *contained* in that range
+            // Not including A or D is fine, because we are not shadowing data unexpectedly
             curr_level.contained_segments(&key_range).collect()
         } else {
             // If the level is not disjoint, we just merge everything that overlaps
@@ -369,6 +369,25 @@ impl CompactionStrategy for Strategy {
                         return Choice::Move(choice);
                     }
                     return Choice::Merge(choice);
+                }
+            }
+        }
+
+        eprintln!("{levels}");
+
+        // NOTE: Look at tombstone ratios
+        {
+            for (idx, level) in view.iter().enumerate().skip(1) {
+                for segment in &level.segments {
+                    let ratio = segment.tombstone_count();
+
+                    if ratio > 0 {
+                        eprintln!(
+                            "#{} in L{idx} has a lot of tombstones: {ratio} in {} items",
+                            segment.id(),
+                            segment.metadata.key_count,
+                        );
+                    }
                 }
             }
         }
