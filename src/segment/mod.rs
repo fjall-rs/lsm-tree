@@ -472,6 +472,13 @@ impl Segment {
         self.metadata.tombstone_count
     }
 
+    /// Returns the ratio of tombstone markers in the `Segment`.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn tombstone_ratio(&self) -> f32 {
+        self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+    }
+
     /// Checks if a key range is (partially or fully) contained in this segment.
     pub(crate) fn check_key_range_overlap(
         &self,
