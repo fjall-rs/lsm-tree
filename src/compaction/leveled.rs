@@ -373,7 +373,7 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        eprintln!("{levels}");
+        // eprintln!("{levels}");
 
         // NOTE: Look at tombstone ratios
         {
