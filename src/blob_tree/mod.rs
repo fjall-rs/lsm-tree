@@ -569,29 +569,6 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    /*     fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Slice>> {
-           use value::MaybeInlineValue::{Indirect, Inline};
-
-           let key = key.as_ref();
-
-           let Some(value) = self.index.get_internal(key)? else {
-               return Ok(None);
-           };
-
-           match value {
-               Inline(bytes) => Ok(Some(bytes)),
-               Indirect { vhandle, .. } => {
-                   // Resolve indirection using value log
-                   match self.blobs.get(&vhandle)? {
-                       Some(bytes) => Ok(Some(bytes)),
-                       None => {
-                           panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(key))
-                       }
-                   }
-               }
-           }
-       }
-    */
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
         self.index.remove(key, seqno)
     }
