@@ -142,7 +142,6 @@ mod tests {
             },
             block_cache,
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()

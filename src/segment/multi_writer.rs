@@ -4,13 +4,10 @@
 
 use super::{
     trailer::SegmentFileTrailer,
-    writer::{Options, Writer},
+    writer::{BloomConstructionPolicy, Options, Writer},
 };
 use crate::{value::InternalValue, CompressionType};
 use std::sync::{atomic::AtomicU64, Arc};
-
-#[cfg(feature = "bloom")]
-use super::writer::BloomConstructionPolicy;
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
 ///
@@ -33,7 +30,6 @@ pub struct MultiWriter {
 
     pub compression: CompressionType,
 
-    #[cfg(feature = "bloom")]
     bloom_policy: BloomConstructionPolicy,
 }
 
@@ -64,7 +60,6 @@ impl MultiWriter {
 
             compression: CompressionType::None,
 
-            #[cfg(feature = "bloom")]
             bloom_policy: BloomConstructionPolicy::default(),
         })
     }
@@ -77,7 +72,6 @@ impl MultiWriter {
     }
 
     #[must_use]
-    #[cfg(feature = "bloom")]
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self.writer = self.writer.use_bloom_policy(bloom_policy);
@@ -108,10 +102,7 @@ impl MultiWriter {
         })?
         .use_compression(self.compression);
 
-        #[cfg(feature = "bloom")]
-        {
-            new_writer = new_writer.use_bloom_policy(self.bloom_policy);
-        }
+        new_writer = new_writer.use_bloom_policy(self.bloom_policy);
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 

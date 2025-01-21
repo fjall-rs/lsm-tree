@@ -244,7 +244,6 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.index.bloom_filter_size()
     }
@@ -306,12 +305,9 @@ impl AbstractTree for BlobTree {
         })?
         .use_compression(self.index.config.compression);
 
-        #[cfg(feature = "bloom")]
-        {
-            segment_writer = segment_writer.use_bloom_policy(
-                crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-            );
-        }
+        segment_writer = segment_writer.use_bloom_policy(
+            crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
+        );
 
         let mut blob_writer = self.blobs.get_writer()?;
 

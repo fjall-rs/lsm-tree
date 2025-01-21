@@ -13,6 +13,7 @@ use super::{
     value_block::ValueBlock,
 };
 use crate::{
+    bloom::BloomFilter,
     coding::Encode,
     file::fsync_directory,
     segment::{block::ItemSize, value_block::BlockOffset},
@@ -24,9 +25,6 @@ use std::{
     io::{BufWriter, Seek, Write},
     path::PathBuf,
 };
-
-#[cfg(feature = "bloom")]
-use crate::bloom::BloomFilter;
 
 /// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
@@ -57,31 +55,26 @@ pub struct Writer {
 
     can_rotate: bool,
 
-    #[cfg(feature = "bloom")]
     bloom_policy: BloomConstructionPolicy,
 
     /// Hashes for bloom filter
     ///
     /// using enhanced double hashing, so we got two u64s
-    #[cfg(feature = "bloom")]
     bloom_hash_buffer: Vec<(u64, u64)>,
 }
 
 #[derive(Copy, Clone, Debug)]
-#[cfg(feature = "bloom")]
 pub enum BloomConstructionPolicy {
     BitsPerKey(u8),
     FpRate(f32),
 }
 
-#[cfg(feature = "bloom")]
 impl Default for BloomConstructionPolicy {
     fn default() -> Self {
         Self::BitsPerKey(10)
     }
 }
 
-#[cfg(feature = "bloom")]
 impl BloomConstructionPolicy {
     #[must_use]
     pub fn build(&self, n: usize) -> BloomFilter {
@@ -91,6 +84,7 @@ impl BloomConstructionPolicy {
         }
     }
 
+    #[must_use]
     pub fn is_active(&self) -> bool {
         match self {
             Self::BitsPerKey(bpk) => *bpk > 0,
@@ -138,10 +132,8 @@ impl Writer {
 
             can_rotate: false,
 
-            #[cfg(feature = "bloom")]
             bloom_policy: BloomConstructionPolicy::default(),
 
-            #[cfg(feature = "bloom")]
             bloom_hash_buffer: Vec::new(),
         })
     }
@@ -159,7 +151,6 @@ impl Writer {
     }
 
     #[must_use]
-    #[cfg(feature = "bloom")]
     pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self
@@ -246,7 +237,6 @@ impl Writer {
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
-            #[cfg(feature = "bloom")]
             if self.bloom_policy.is_active() {
                 self.bloom_hash_buffer
                     .push(BloomFilter::get_hash(&item.key.user_key));
@@ -294,7 +284,6 @@ impl Writer {
         self.meta.index_block_count = self.index_writer.block_count;
 
         // Write bloom filter
-        #[cfg(feature = "bloom")]
         let bloom_ptr = {
             if self.bloom_hash_buffer.is_empty() {
                 BlockOffset(0)
@@ -318,9 +307,6 @@ impl Writer {
                 BlockOffset(bloom_ptr)
             }
         };
-
-        #[cfg(not(feature = "bloom"))]
-        let bloom_ptr = BlockOffset(0);
         log::trace!("bloom_ptr={bloom_ptr}");
 
         // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
@@ -433,7 +419,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "bloom")]
     fn segment_writer_zero_bpk() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
@@ -504,7 +489,6 @@ mod tests {
         assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
 
-        #[cfg(feature = "bloom")]
         assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());
@@ -575,7 +559,6 @@ mod tests {
         assert_eq!(ITEM_COUNT * VERSION_COUNT, trailer.metadata.item_count);
         assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
 
-        #[cfg(feature = "bloom")]
         assert!(*trailer.offsets.bloom_ptr > 0);
 
         let segment_file_path = folder.join(segment_id.to_string());

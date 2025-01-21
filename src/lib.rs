@@ -130,7 +130,6 @@ pub mod blob_tree;
 mod block_cache;
 
 #[doc(hidden)]
-#[cfg(feature = "bloom")]
 pub mod bloom;
 
 #[doc(hidden)]
@@ -155,6 +154,7 @@ mod key_range;
 pub mod level_manifest;
 
 mod level_reader;
+mod level_scanner;
 
 mod manifest;
 mod memtable;
@@ -177,6 +177,7 @@ pub mod segment;
 
 mod seqno;
 mod snapshot;
+mod windows;
 
 #[doc(hidden)]
 pub mod stop_signal;

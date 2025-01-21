@@ -56,7 +56,6 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.levels
             .read()
@@ -140,7 +139,6 @@ impl AbstractTree for Tree {
         })?
         .use_compression(self.config.compression);
 
-        #[cfg(feature = "bloom")]
         {
             use crate::segment::writer::BloomConstructionPolicy;
 
@@ -463,7 +461,6 @@ impl Tree {
             block_index,
             block_cache: self.config.block_cache.clone(),
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
@@ -559,7 +556,6 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        #[cfg(feature = "bloom")]
         let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
@@ -572,16 +568,9 @@ impl Tree {
                     // [a:5, a:4] [a:3, b:5]
                     // ^
                     // snapshot read a:3!!!
-                    // ^
-                    // level will probably not be recognized as disjoint because
-                    // it technically isn't
-                    // but multiwriter *could* write a level like that... (right now)
 
                     if let Some(segment) = level.get_segment_containing_key(&key) {
-                        #[cfg(not(feature = "bloom"))]
-                        let maybe_item = segment.get(&key, seqno)?;
-                        #[cfg(feature = "bloom")]
-                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                        let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
                             return Ok(ignore_tombstone_value(item));
@@ -595,10 +584,7 @@ impl Tree {
 
             // NOTE: Fallback to linear search
             for segment in &level.segments {
-                #[cfg(not(feature = "bloom"))]
-                let maybe_item = segment.get(&key, seqno)?;
-                #[cfg(feature = "bloom")]
-                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
                     return Ok(ignore_tombstone_value(item));
