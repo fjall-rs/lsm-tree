@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::Arc};
 
 /// Scans through a disjoint level
 ///
-/// Used for compaction.
+/// Optimized for compaction, by using a `SegmentScanner` instead of `SegmentReader`.
 pub struct LevelScanner {
     base_folder: PathBuf,
     segments: Arc<Level>,

@@ -300,7 +300,7 @@ impl Segment {
             .unwrap_or_default()
     }
 
-    pub fn get_with_hash<K: AsRef<[u8]>>(
+    pub fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
         seqno: Option<SeqNo>,

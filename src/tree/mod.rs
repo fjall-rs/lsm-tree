@@ -568,13 +568,9 @@ impl Tree {
                     // [a:5, a:4] [a:3, b:5]
                     // ^
                     // snapshot read a:3!!!
-                    // ^
-                    // level will probably not be recognized as disjoint because
-                    // it technically isn't
-                    // but multiwriter *could* write a level like that... (right now)
 
                     if let Some(segment) = level.get_segment_containing_key(&key) {
-                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                        let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
                             return Ok(ignore_tombstone_value(item));
@@ -588,7 +584,7 @@ impl Tree {
 
             // NOTE: Fallback to linear search
             for segment in &level.segments {
-                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
                     return Ok(ignore_tombstone_value(item));
