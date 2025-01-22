@@ -462,7 +462,7 @@ mod tests {
             data_block_size: 4_096,
             index_block_size: 4_096,
             segment_id,
-            prefix_extractor: Option::None,
+            prefix_extractor: None,
         })?
         .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
 
