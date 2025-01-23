@@ -360,7 +360,7 @@ impl Segment {
             // (see explanation for that below)
             // This only really works because sequence numbers are sorted
             // in descending order
-            return Ok(block.get_latest(key.as_ref()).cloned());
+            return Ok(block.get_latest(key).cloned());
         }
 
         let mut reader = ForwardReader::new(
