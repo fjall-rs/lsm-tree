@@ -18,6 +18,13 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    // TODO: doc & finalize
+    #[doc(hidden)]
+    fn bulk_ingest(
+        &self,
+        iterator: impl Iterator<Item = (UserKey, UserValue)>,
+    ) -> crate::Result<()>;
+
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 

@@ -230,6 +230,13 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn bulk_ingest(
+        &self,
+        iterator: impl Iterator<Item = (UserKey, UserValue)>,
+    ) -> crate::Result<()> {
+        todo!()
+    }
+
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {

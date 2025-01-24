@@ -29,6 +29,7 @@ use std::{
     ops::RangeBounds,
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    time::Instant,
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -52,6 +53,118 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn bulk_ingest(
+        &self,
+        iterator: impl Iterator<Item = (UserKey, UserValue)>,
+    ) -> crate::Result<()> {
+        use crate::{
+            compaction::PullDown, file::SEGMENTS_FOLDER,
+            segment::block_index::two_level_index::TwoLevelBlockIndex,
+            segment::multi_writer::MultiWriter,
+        };
+
+        assert!(
+            self.is_empty(None, None)?,
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let folder = self.config.path.join(SEGMENTS_FOLDER);
+        log::debug!("Ingesting into disk segments in {folder:?}");
+
+        let start = Instant::now();
+
+        let mut writer = MultiWriter::new(
+            self.segment_id_counter.clone(),
+            128 * 1_024 * 1_024,
+            crate::segment::writer::Options {
+                folder: folder.clone(),
+                data_block_size: self.config.data_block_size,
+                index_block_size: self.config.index_block_size,
+                segment_id: 0, /* TODO: unused */
+            },
+        )?
+        .use_compression(self.config.compression);
+
+        {
+            use crate::segment::writer::BloomConstructionPolicy;
+
+            if self.config.bloom_bits_per_key >= 0 {
+                writer = writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
+            } else {
+                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
+            }
+        }
+
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iterator {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            writer.write(InternalValue::from_components(
+                key,
+                value,
+                0,
+                ValueType::Value,
+            ))?;
+
+            count += 1;
+        }
+
+        let results = writer.finish()?;
+
+        let created_segments = results
+            .into_iter()
+            .map(|trailer| -> crate::Result<Segment> {
+                let segment_id = trailer.metadata.id;
+                let segment_file_path = folder.join(segment_id.to_string());
+
+                let block_index = TwoLevelBlockIndex::from_file(
+                    &segment_file_path,
+                    &trailer.metadata,
+                    trailer.offsets.tli_ptr,
+                    (self.id, segment_id).into(),
+                    self.config.descriptor_table.clone(),
+                    self.config.block_cache.clone(),
+                )?;
+                let block_index = BlockIndexImpl::TwoLevel(block_index);
+                let block_index = Arc::new(block_index);
+
+                Ok(SegmentInner {
+                    tree_id: self.id,
+
+                    descriptor_table: self.config.descriptor_table.clone(),
+                    block_cache: self.config.block_cache.clone(),
+
+                    metadata: trailer.metadata,
+                    offsets: trailer.offsets,
+
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    block_index,
+
+                    bloom_filter: Segment::load_bloom(
+                        &segment_file_path,
+                        trailer.offsets.bloom_ptr,
+                    )?,
+                }
+                .into())
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        self.register_segments(&created_segments)?;
+        self.compact(Arc::new(PullDown(0, 6)), 0)?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        Ok(())
+    }
+
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
@@ -126,7 +239,7 @@ impl AbstractTree for Tree {
             segment::writer::{Options, Writer},
         };
 
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
