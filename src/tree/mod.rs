@@ -158,7 +158,17 @@ impl AbstractTree for Tree {
             .collect::<crate::Result<Vec<_>>>()?;
 
         self.register_segments(&created_segments)?;
+
+        // TODO: need to make sure, PullDown does NOT rewrite data again
         self.compact(Arc::new(PullDown(0, 6)), 0)?;
+
+        for segment in &created_segments {
+            let segment_file_path = folder.join(segment.id().to_string());
+
+            self.config
+                .descriptor_table
+                .insert(&segment_file_path, segment.global_id());
+        }
 
         log::info!("Ingested {count} items in {:?}", start.elapsed());
 
