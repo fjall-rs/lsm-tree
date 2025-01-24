@@ -53,10 +53,7 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn bulk_ingest(
-        &self,
-        iterator: impl Iterator<Item = (UserKey, UserValue)>,
-    ) -> crate::Result<()> {
+    fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
         use crate::{
             compaction::PullDown, file::SEGMENTS_FOLDER,
             segment::block_index::two_level_index::TwoLevelBlockIndex,
@@ -98,7 +95,7 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
-        for (key, value) in iterator {
+        for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
                     key > last_key,

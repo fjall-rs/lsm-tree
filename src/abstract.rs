@@ -20,10 +20,7 @@ pub type RangeItem = crate::Result<KvPair>;
 pub trait AbstractTree {
     // TODO: doc & finalize
     #[doc(hidden)]
-    fn bulk_ingest(
-        &self,
-        iterator: impl Iterator<Item = (UserKey, UserValue)>,
-    ) -> crate::Result<()>;
+    fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
