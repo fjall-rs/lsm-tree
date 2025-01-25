@@ -174,13 +174,6 @@ pub struct Strategy {
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
     #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
-
-    /// The target size of L1.
-    ///
-    /// Currently hard coded to 256 MiB.
-    ///
-    /// Default = 256 MiB
-    pub level_base_size: u32,
 }
 
 impl Default for Strategy {
@@ -189,7 +182,6 @@ impl Default for Strategy {
             l0_threshold: 4,
             target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
             level_ratio: 10,
-            level_base_size:/* 256 MiB */ 256 * 1_024 * 1_024,
         }
     }
 }
@@ -208,7 +200,11 @@ impl Strategy {
 
         let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
 
-        (power * (self.level_base_size as usize)) as u64
+        (power * (self.level_base_size() as usize)) as u64
+    }
+
+    fn level_base_size(&self) -> u64 {
+        self.target_size as u64 * self.l0_threshold as u64
     }
 }
 
