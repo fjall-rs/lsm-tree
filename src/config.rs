@@ -147,7 +147,6 @@ impl Config {
     ///
     /// Panics if `n` is less than -1.
     #[must_use]
-    #[cfg(feature = "bloom")]
     pub fn bloom_bits_per_key(mut self, bits: i8) -> Self {
         assert!(bits >= -1, "invalid bits_per_key value");
 

@@ -37,7 +37,7 @@ use std::sync::{
 /// tree.remove("b".as_bytes(), batch_seqno);
 /// tree.remove("c".as_bytes(), batch_seqno);
 /// #
-/// # assert!(tree.is_empty()?);
+/// # assert!(tree.is_empty(None, None)?);
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 #[derive(Clone, Default, Debug)]

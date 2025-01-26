@@ -16,7 +16,7 @@ fn segment_remove_weak_simple() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert!(tree.get("a")?.is_none());
+    assert!(tree.get("a", None)?.is_none());
 
     Ok(())
 }

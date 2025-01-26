@@ -12,7 +12,7 @@ fn iterrr(
         tree.insert(x, x, 0);
     }
 
-    Ok(tree.iter())
+    Ok(tree.iter(None, None))
 }
 
 #[test]

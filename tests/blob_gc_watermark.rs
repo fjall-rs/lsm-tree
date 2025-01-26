@@ -13,19 +13,19 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     tree.insert("a", "neptune".repeat(10_000), seqno.next());
     let snapshot = tree.snapshot(seqno.get());
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune".repeat(10_000));
 
     tree.insert("a", "neptune2".repeat(10_000), seqno.next());
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a")?.unwrap(), b"neptune2".repeat(10_000));
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune2".repeat(10_000));
 
     tree.insert("a", "neptune3".repeat(10_000), seqno.next());
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a")?.unwrap(), b"neptune3".repeat(10_000));
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
 
     tree.flush_active_memtable(0)?;
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a")?.unwrap(), b"neptune3".repeat(10_000));
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
 
     let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
     assert_eq!(2, report.stale_blobs);
@@ -41,7 +41,7 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     assert_eq!(2, report.stale_blobs);
 
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a")?.unwrap(), b"neptune3".repeat(10_000));
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
 
     Ok(())
 }

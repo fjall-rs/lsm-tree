@@ -14,7 +14,7 @@ use crate::{
     r#abstract::{AbstractTree, RangeItem},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Slice, Snapshot, UserKey, UserValue,
+    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
@@ -230,26 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
-    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
-        let vhandle = self.index.get_internal(key.as_ref())?;
-
-        Ok(vhandle.map(|x| match x {
-            MaybeInlineValue::Inline(v) => v.len() as u32,
-
-            // NOTE: We skip reading from the value log
-            // because the indirections already store the value size
-            MaybeInlineValue::Indirect { size, .. } => size,
-        }))
-    }
-
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
-    fn size_of_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: SeqNo,
-    ) -> crate::Result<Option<u32>> {
-        let vhandle = self.index.get_internal_with_seqno(key.as_ref(), seqno)?;
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+        let vhandle = self.index.get_vhandle(key.as_ref(), seqno)?;
 
         Ok(vhandle.map(|x| match x {
             MaybeInlineValue::Inline(v) => v.len() as u32,
@@ -260,7 +244,6 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.index.bloom_filter_size()
     }
@@ -280,31 +263,20 @@ impl AbstractTree for BlobTree {
         Ok(index_tree_sum + vlog_sum)
     }
 
-    fn keys_with_seqno(
+    fn keys(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        self.index.keys_with_seqno(seqno, index)
+        self.index.keys(seqno, index)
     }
 
-    fn values_with_seqno(
+    fn values(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(
-            self.iter_with_seqno(seqno, index)
-                .map(|x| x.map(|(_, v)| v)),
-        )
-    }
-
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        self.index.keys()
-    }
-
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.iter().map(|x| x.map(|(_, v)| v)))
+        Box::new(self.iter(seqno, index).map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(
@@ -333,12 +305,9 @@ impl AbstractTree for BlobTree {
         })?
         .use_compression(self.index.config.compression);
 
-        #[cfg(feature = "bloom")]
-        {
-            segment_writer = segment_writer.use_bloom_policy(
-                crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-            );
-        }
+        segment_writer = segment_writer.use_bloom_policy(
+            crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
+        );
 
         let mut blob_writer = self.blobs.get_writer()?;
 
@@ -496,20 +465,14 @@ impl AbstractTree for BlobTree {
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster key reads
-    fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<bool> {
-        self.index.contains_key(key)
-    }
-
-    // NOTE: Override the default implementation to not fetch
-    // data from the value log, so we get much faster key reads
-    fn contains_key_with_seqno<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
-        self.index.contains_key_with_seqno(key, seqno)
+    fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<bool> {
+        self.index.contains_key(key, seqno)
     }
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster scans
-    fn len(&self) -> crate::Result<usize> {
-        self.index.len()
+    fn len(&self, seqno: Option<SeqNo>, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
+        self.index.len(seqno, index)
     }
 
     #[must_use]
@@ -531,53 +494,17 @@ impl AbstractTree for BlobTree {
         Snapshot::new(Blob(self.clone()), seqno)
     }
 
-    fn iter_with_seqno(
-        &self,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        self.range_with_seqno::<UserKey, _>(.., seqno, index)
-    }
-
-    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        let vlog = self.blobs.clone();
-        Box::new(
-            self.index
-                .0
-                .create_range(&range, Some(seqno), index)
-                .map(move |item| resolve_value_handle(&vlog, item)),
-        )
-    }
-
-    fn prefix_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        let vlog = self.blobs.clone();
-        Box::new(
-            self.index
-                .0
-                .create_prefix(prefix, Some(seqno), index)
-                .map(move |item| resolve_value_handle(&vlog, item)),
-        )
-    }
-
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
-                .create_range(&range, None, None)
+                .create_range(&range, seqno, index)
                 .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
@@ -585,12 +512,14 @@ impl AbstractTree for BlobTree {
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
         let vlog = self.blobs.clone();
         Box::new(
             self.index
                 .0
-                .create_prefix(prefix, None, None)
+                .create_prefix(prefix, seqno, index)
                 .map(move |item| resolve_value_handle(&vlog, item)),
         )
     }
@@ -613,16 +542,16 @@ impl AbstractTree for BlobTree {
         self.index.insert(key, value, seqno)
     }
 
-    fn get_with_seqno<K: AsRef<[u8]>>(
+    fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
     ) -> crate::Result<Option<crate::UserValue>> {
         use value::MaybeInlineValue::{Indirect, Inline};
 
         let key = key.as_ref();
 
-        let Some(value) = self.index.get_internal_with_seqno(key, seqno)? else {
+        let Some(value) = self.index.get_vhandle(key, seqno)? else {
             return Ok(None);
         };
 
@@ -634,29 +563,6 @@ impl AbstractTree for BlobTree {
                     Some(bytes) => Ok(Some(bytes)),
                     None => {
                         panic!("value handle ({key:?} => {vhandle:?}) did not match any blob - this is a bug")
-                    }
-                }
-            }
-        }
-    }
-
-    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<Slice>> {
-        use value::MaybeInlineValue::{Indirect, Inline};
-
-        let key = key.as_ref();
-
-        let Some(value) = self.index.get_internal(key)? else {
-            return Ok(None);
-        };
-
-        match value {
-            Inline(bytes) => Ok(Some(bytes)),
-            Indirect { vhandle, .. } => {
-                // Resolve indirection using value log
-                match self.blobs.get(&vhandle)? {
-                    Some(bytes) => Ok(Some(bytes)),
-                    None => {
-                        panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(key))
                     }
                 }
             }

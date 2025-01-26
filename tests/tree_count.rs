@@ -15,9 +15,15 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
         tree.insert(key, value.as_bytes(), 0);
     }
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
-    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(
+        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
 
     Ok(())
 }
@@ -36,9 +42,15 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
-    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(
+        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
 
     Ok(())
 }
@@ -57,9 +69,15 @@ fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
-    assert_eq!(tree.iter().filter(|x| x.is_ok()).count(), ITEM_COUNT);
-    assert_eq!(tree.iter().rev().filter(|x| x.is_ok()).count(), ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(
+        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        ITEM_COUNT
+    );
 
     Ok(())
 }
@@ -87,7 +105,7 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     loop {
         let chunk = tree
-            .range(range.clone())
+            .range(range.clone(), None, None)
             .take(10)
             .collect::<lsm_tree::Result<Vec<_>>>()?;
 

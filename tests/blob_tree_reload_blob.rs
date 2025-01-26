@@ -11,18 +11,18 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().flatten().count(), 0);
-        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).flatten().count(), 0);
+        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
         assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().flatten().count(), 0);
-        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).flatten().count(), 0);
+        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
         assert_eq!(tree.tree_type(), TreeType::Blob);
 
         tree.flush_active_memtable(0)?;
@@ -31,9 +31,9 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().flatten().count(), 0);
-        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).flatten().count(), 0);
+        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
         assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
@@ -63,9 +63,12 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        assert_eq!(tree.len()?, ITEM_COUNT * 2);
-        assert_eq!(tree.iter().flatten().count(), ITEM_COUNT * 2);
-        assert_eq!(tree.iter().rev().flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(tree.len(None, None)?, ITEM_COUNT * 2);
+        assert_eq!(tree.iter(None, None).flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(
+            tree.iter(None, None).rev().flatten().count(),
+            ITEM_COUNT * 2
+        );
 
         tree.flush_active_memtable(0)?;
     }
@@ -73,9 +76,12 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, ITEM_COUNT * 2);
-        assert_eq!(tree.iter().flatten().count(), ITEM_COUNT * 2);
-        assert_eq!(tree.iter().rev().flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(tree.len(None, None)?, ITEM_COUNT * 2);
+        assert_eq!(tree.iter(None, None).flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(
+            tree.iter(None, None).rev().flatten().count(),
+            ITEM_COUNT * 2
+        );
     }
 
     Ok(())
@@ -101,18 +107,18 @@ fn blob_tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().flatten().count(), 0);
-        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).flatten().count(), 0);
+        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
     }
 
     // Recover tree
     {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
-        assert_eq!(tree.len()?, 0);
-        assert_eq!(tree.iter().flatten().count(), 0);
-        assert_eq!(tree.iter().rev().flatten().count(), 0);
+        assert_eq!(tree.len(None, None)?, 0);
+        assert_eq!(tree.iter(None, None).flatten().count(), 0);
+        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
     }
 
     assert!(!file0.try_exists()?);

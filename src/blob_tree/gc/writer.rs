@@ -42,7 +42,6 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
 
         #[allow(clippy::significant_drop_in_scrutinee)]
         for (key, vhandle, size) in self.buffer.drain(..) {
-            // TODO: encode into slice using Slice::with_size...
             let buf = MaybeInlineValue::Indirect { vhandle, size }.encode_into_vec();
 
             self.memtable.insert(InternalValue::from_components(

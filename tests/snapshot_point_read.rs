@@ -16,20 +16,20 @@ fn snapshot_404() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(b"a", &*tree.get("a")?.unwrap());
-    assert_eq!(b"a2", &*tree.get("a2")?.unwrap());
-    assert!(tree.get("b")?.is_none());
-    assert_eq!(b"c", &*tree.get("c")?.unwrap());
+    assert_eq!(b"a", &*tree.get("a", None)?.unwrap());
+    assert_eq!(b"a2", &*tree.get("a2", None)?.unwrap());
+    assert!(tree.get("b", None)?.is_none());
+    assert_eq!(b"c", &*tree.get("c", None)?.unwrap());
 
-    assert!(tree.get_with_seqno("a", 0)?.is_none());
-    assert!(tree.get_with_seqno("a2", 0)?.is_none());
-    assert!(tree.get_with_seqno("b", 0)?.is_none());
-    assert!(tree.get_with_seqno("c", 0)?.is_none());
+    assert!(tree.get("a", Some(0))?.is_none());
+    assert!(tree.get("a2", Some(0))?.is_none());
+    assert!(tree.get("b", Some(0))?.is_none());
+    assert!(tree.get("c", Some(0))?.is_none());
 
-    assert_eq!(b"a", &*tree.get_with_seqno("a", 1)?.unwrap());
-    assert_eq!(b"a2", &*tree.get_with_seqno("a2", 1)?.unwrap());
-    assert!(tree.get_with_seqno("b", 1)?.is_none());
-    assert_eq!(b"c", &*tree.get_with_seqno("c", 1)?.unwrap());
+    assert_eq!(b"a", &*tree.get("a", Some(1))?.unwrap());
+    assert_eq!(b"a2", &*tree.get("a2", Some(1))?.unwrap());
+    assert!(tree.get("b", Some(1))?.is_none());
+    assert_eq!(b"c", &*tree.get("c", Some(1))?.unwrap());
 
     Ok(())
 }
@@ -56,7 +56,7 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len()?, 1);
+    assert_eq!(tree.len(None, None)?, 1);
 
     for seqno in 1..version_count {
         let item = tree
@@ -64,7 +64,7 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
             .expect("should exist");
         assert_eq!(format!("abc{}", version_count).as_bytes(), &*item.value);
 
-        let item = tree.get(key)?.expect("should exist");
+        let item = tree.get(key, None)?.expect("should exist");
         assert_eq!(format!("abc{}", version_count).as_bytes(), &*item);
     }
 
@@ -94,19 +94,19 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
 
-        let item = tree.get(key)?.expect("should exist");
+        let item = tree.get(key, None)?.expect("should exist");
         assert_eq!("abc9".as_bytes(), &*item);
     }
 
     let snapshot = tree.snapshot(seqno.get());
 
-    assert_eq!(tree.len()?, snapshot.len()?);
-    assert_eq!(tree.len()?, snapshot.iter().rev().count());
+    assert_eq!(tree.len(None, None)?, snapshot.len()?);
+    assert_eq!(tree.len(None, None)?, snapshot.iter().rev().count());
 
     // This batch will be too new for snapshot (invisible)
     for batch in 0..BATCHES {
@@ -125,7 +125,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
         let item = snapshot.get(key)?.expect("should exist");
         assert_eq!("abc9".as_bytes(), &*item);
 
-        let item = tree.get(key)?.expect("should exist");
+        let item = tree.get(key, None)?.expect("should exist");
         assert_eq!("def9".as_bytes(), &*item);
     }
 
@@ -154,12 +154,12 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len()?, ITEM_COUNT);
+    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
 
     let snapshot = tree.snapshot(seqno.get());
 
-    assert_eq!(tree.len()?, snapshot.len()?);
-    assert_eq!(tree.len()?, snapshot.iter().rev().count());
+    assert_eq!(tree.len(None, None)?, snapshot.len()?);
+    assert_eq!(tree.len(None, None)?, snapshot.iter().rev().count());
 
     // This batch will be in memtable and too new for snapshot (invisible)
     for batch in 0..BATCHES {
@@ -177,7 +177,7 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
         let item = snapshot.get(key)?.expect("should exist");
         assert_eq!("abc9".as_bytes(), &*item);
 
-        let item = tree.get(key)?.expect("should exist");
+        let item = tree.get(key, None)?.expect("should exist");
         assert_eq!("def9".as_bytes(), &*item);
     }
 

@@ -29,7 +29,6 @@ pub struct Inner {
     pub block_cache: Arc<BlockCache>,
 
     /// Bloom filter
-    #[cfg(feature = "bloom")]
     #[doc(hidden)]
     pub bloom_filter: Option<crate::bloom::BloomFilter>,
 }

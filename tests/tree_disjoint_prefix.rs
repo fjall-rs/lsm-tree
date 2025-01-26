@@ -35,7 +35,7 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let mut iter = tree.prefix("d");
+    let mut iter = tree.prefix("d", None, None);
 
     assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
@@ -44,7 +44,7 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
 
     // NOTE: Reverse
 
-    let mut iter = tree.prefix("d").rev();
+    let mut iter = tree.prefix("d", None, None).rev();
 
     assert_eq!(Slice::from(*b"dc"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
@@ -53,7 +53,7 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
 
     // NOTE: Ping Pong
 
-    let mut iter = tree.prefix("d");
+    let mut iter = tree.prefix("d", None, None);
 
     assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
     assert_eq!(Slice::from(*b"dc"), iter.next_back().unwrap()?.0);

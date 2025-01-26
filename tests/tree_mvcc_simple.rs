@@ -22,9 +22,9 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
 
     tree.insert("a", "a5", 5);
 
-    assert_eq!(&*tree.get("a")?.unwrap(), b"a5");
-    assert_eq!(&*tree.get("b")?.unwrap(), b"b3");
-    assert_eq!(&*tree.get("c")?.unwrap(), b"c4");
+    assert_eq!(&*tree.get("a", None)?.unwrap(), b"a5");
+    assert_eq!(&*tree.get("b", None)?.unwrap(), b"b3");
+    assert_eq!(&*tree.get("c", None)?.unwrap(), b"c4");
 
     let snapshot = tree.snapshot(1);
     assert_eq!(&*snapshot.get("a")?.unwrap(), b"a0");
@@ -61,7 +61,7 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
     assert_eq!(&*snapshot.get("c")?.unwrap(), b"c4");
 
-    let mut iter = tree.iter();
+    let mut iter = tree.iter(None, None);
 
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
     assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");

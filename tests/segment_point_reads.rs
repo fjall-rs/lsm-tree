@@ -21,7 +21,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
-        assert!(tree.contains_key(key)?, "{key:?} not found");
+        assert!(tree.contains_key(key, None)?, "{key:?} not found");
     }
 
     Ok(())
@@ -133,7 +133,7 @@ fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in &keys {
-        let item = tree.get(key)?.unwrap();
+        let item = tree.get(key, None)?.unwrap();
         assert_eq!(
             String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
             ITEM_COUNT as u64 - 1

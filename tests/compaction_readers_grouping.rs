@@ -15,7 +15,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     tree.insert("b".as_bytes(), "abc", seqno.next());
     tree.insert("c".as_bytes(), "abc", seqno.next());
     tree.flush_active_memtable(0)?;
-    assert_eq!(3, tree.len()?);
+    assert_eq!(3, tree.len(None, None)?);
 
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(0, 2)), 0)?;
 
@@ -23,13 +23,13 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     tree.insert("e".as_bytes(), "abc", seqno.next());
     tree.insert("f".as_bytes(), "abc", seqno.next());
     tree.flush_active_memtable(0)?;
-    assert_eq!(6, tree.len()?);
+    assert_eq!(6, tree.len(None, None)?);
 
     tree.insert("g".as_bytes(), "abc", seqno.next());
     tree.insert("h".as_bytes(), "abc", seqno.next());
     tree.insert("i".as_bytes(), "abc", seqno.next());
     tree.flush_active_memtable(0)?;
-    assert_eq!(9, tree.len()?);
+    assert_eq!(9, tree.len(None, None)?);
 
     // NOTE: Previously, create_compaction_stream would short circuit
     // breaking this

@@ -6,7 +6,7 @@ fn tree_load_v2() -> lsm_tree::Result<()> {
     let folder = "test_fixture/v2_tree";
 
     let tree = Config::new(folder).open()?;
-    assert_eq!(5, tree.len()?);
+    assert_eq!(5, tree.len(None, None)?);
 
     Ok(())
 }

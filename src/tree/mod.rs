@@ -52,19 +52,10 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn size_of<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<u32>> {
-        Ok(self.get(key)?.map(|x| x.len() as u32))
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+        Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn size_of_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: SeqNo,
-    ) -> crate::Result<Option<u32>> {
-        Ok(self.get_with_seqno(key, seqno)?.map(|x| x.len() as u32))
-    }
-
-    #[cfg(feature = "bloom")]
     fn bloom_filter_size(&self) -> usize {
         self.levels
             .read()
@@ -108,34 +99,20 @@ impl AbstractTree for Tree {
         Ok(sum)
     }
 
-    fn keys_with_seqno(
+    fn keys(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(k, _)| k)),
-        )
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(k, _)| k)))
     }
 
-    fn values_with_seqno(
+    fn values(
         &self,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(
-            self.create_iter(Some(seqno), index)
-                .map(|x| x.map(|(_, v)| v)),
-        )
-    }
-
-    fn keys(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(k, _)| k)))
-    }
-
-    fn values(&self) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(None, None).map(|x| x.map(|(_, v)| v)))
+        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(_, v)| v)))
     }
 
     fn flush_memtable(
@@ -149,6 +126,8 @@ impl AbstractTree for Tree {
             segment::writer::{Options, Writer},
         };
 
+        let start = std::time::Instant::now();
+
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
 
@@ -160,7 +139,6 @@ impl AbstractTree for Tree {
         })?
         .use_compression(self.config.compression);
 
-        #[cfg(feature = "bloom")]
         {
             use crate::segment::writer::BloomConstructionPolicy;
 
@@ -180,16 +158,20 @@ impl AbstractTree for Tree {
             segment_writer.write(item?)?;
         }
 
-        self.consume_writer(segment_id, segment_writer)
+        let result = self.consume_writer(segment_id, segment_writer)?;
+
+        log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
+
+        Ok(result)
     }
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("flush: acquiring levels manifest write lock");
+        log::trace!("Acquiring levels manifest write lock");
         let mut original_levels = self.levels.write().expect("lock is poisoned");
 
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("flush: acquiring sealed memtables write lock");
+        log::trace!("Acquiring sealed memtables write lock");
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
 
         original_levels.atomic_swap(|recipe| {
@@ -350,56 +332,30 @@ impl AbstractTree for Tree {
         Snapshot::new(Standard(self.clone()), seqno)
     }
 
-    fn get_with_seqno<K: AsRef<[u8]>>(
+    fn get<K: AsRef<[u8]>>(
         &self,
         key: K,
-        seqno: SeqNo,
+        seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, Some(seqno))?.map(|x| x.value))
-    }
-
-    fn get<K: AsRef<[u8]>>(&self, key: K) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, None)?.map(|x| x.value))
-    }
-
-    fn iter_with_seqno(
-        &self,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        self.range_with_seqno::<UserKey, _>(.., seqno, index)
-    }
-
-    fn range_with_seqno<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, Some(seqno), index))
-    }
-
-    fn prefix_with_seqno<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, Some(seqno), index))
+        Ok(self.get_internal_entry(key, seqno)?.map(|x| x.value))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, None, None))
+        Box::new(self.create_range(&range, seqno, index))
     }
 
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, None, None))
+        Box::new(self.create_prefix(prefix, seqno, index))
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
@@ -505,7 +461,6 @@ impl Tree {
             block_index,
             block_cache: self.config.block_cache.clone(),
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
         }
         .into();
@@ -531,7 +486,7 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     pub fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
-        log::debug!("flush: flushing active memtable");
+        log::debug!("Flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
             return Ok(None);
@@ -601,7 +556,6 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        #[cfg(feature = "bloom")]
         let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
@@ -614,16 +568,9 @@ impl Tree {
                     // [a:5, a:4] [a:3, b:5]
                     // ^
                     // snapshot read a:3!!!
-                    // ^
-                    // level will probably not be recognized as disjoint because
-                    // it technically isn't
-                    // but multiwriter *could* write a level like that... (right now)
 
                     if let Some(segment) = level.get_segment_containing_key(&key) {
-                        #[cfg(not(feature = "bloom"))]
-                        let maybe_item = segment.get(&key, seqno)?;
-                        #[cfg(feature = "bloom")]
-                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                        let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
                             return Ok(ignore_tombstone_value(item));
@@ -637,10 +584,7 @@ impl Tree {
 
             // NOTE: Fallback to linear search
             for segment in &level.segments {
-                #[cfg(not(feature = "bloom"))]
-                let maybe_item = segment.get(&key, seqno)?;
-                #[cfg(feature = "bloom")]
-                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                let maybe_item = segment.get(&key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
                     return Ok(ignore_tombstone_value(item));

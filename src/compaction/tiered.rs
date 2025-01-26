@@ -131,6 +131,7 @@ mod tests {
     use super::Strategy;
     use crate::{
         block_cache::BlockCache,
+        bloom::BloomFilter,
         compaction::{Choice, CompactionStrategy, Input as CompactionInput},
         config::Config,
         descriptor_table::FileDescriptorTable,
@@ -148,9 +149,6 @@ mod tests {
     };
     use std::sync::Arc;
     use test_log::test;
-
-    #[cfg(feature = "bloom")]
-    use crate::bloom::BloomFilter;
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Segment {
@@ -194,7 +192,6 @@ mod tests {
             },
             block_cache,
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()

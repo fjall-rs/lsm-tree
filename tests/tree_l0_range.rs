@@ -31,13 +31,13 @@ fn tree_l0_range() -> lsm_tree::Result<()> {
     tree.insert("g", "g", 3);
     tree.flush_active_memtable(0)?;
 
-    let mut range = tree.range("c"..="e");
+    let mut range = tree.range("c"..="e", None, None);
     assert_eq!(b"C", &*range.next().unwrap().unwrap().1);
     assert_eq!(b"d", &*range.next().unwrap().unwrap().1);
     assert_eq!(b"e", &*range.next().unwrap().unwrap().1);
     assert!(range.next().is_none());
 
-    let mut range = tree.range("f"..="g").rev();
+    let mut range = tree.range("f"..="g", None, None).rev();
     assert_eq!(b"g", &*range.next().unwrap().unwrap().1);
     assert_eq!(b"f", &*range.next().unwrap().unwrap().1);
     assert!(range.next().is_none());
