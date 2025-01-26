@@ -5,6 +5,7 @@
 use crate::{
     descriptor_table::FileDescriptorTable,
     path::absolute_path,
+    prefix_extractor::{self, PrefixExtractor},
     segment::meta::{CompressionType, TableType},
     BlobTree, BlockCache, Tree,
 };
@@ -102,6 +103,10 @@ pub struct Config {
     /// Descriptor table to use
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
+
+    /// Custom implementation to extract prefix from a key
+    /// when using read or updates in bloom filter to optimize DB scans by prefix
+    pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl Default for Config {
@@ -123,6 +128,7 @@ impl Default for Config {
             blob_cache: Arc::new(BlobCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
             blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
+            prefix_extractor: None,
         }
     }
 }
@@ -301,6 +307,13 @@ impl Config {
     #[doc(hidden)]
     pub fn descriptor_table(mut self, descriptor_table: Arc<FileDescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
+        self
+    }
+
+    #[must_use]
+    #[doc(hidden)]
+    pub fn prefix_extractor(mut self, prefix_extractor: Arc<dyn PrefixExtractor>) -> Self {
+        self.prefix_extractor = Some(prefix_extractor);
         self
     }
 

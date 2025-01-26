@@ -9,6 +9,7 @@ use crate::{
     level_manifest::LevelManifest,
     level_reader::LevelReader,
     merge::{BoxedIterator, Merger},
+    prefix_extractor::PrefixExtractor,
     segment::{
         block_index::{
             full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
@@ -50,6 +51,8 @@ pub struct Options {
 
     /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
+
+    pub prefix_extractor: Option<Arc<dyn PrefixExtractor>>,
 }
 
 impl Options {
@@ -63,6 +66,7 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
+            prefix_extractor: tree.prefix_extractor.clone(),
         }
     }
 }
@@ -143,6 +147,7 @@ fn create_compaction_stream<'a>(
                 &(Unbounded, Unbounded),
                 (Some(lo), Some(hi)),
                 crate::segment::value_block::CachePolicy::Read,
+                None,
             )));
 
             found += hi - lo + 1;
@@ -251,6 +256,7 @@ fn merge_segments(
             segment_id: 0, // TODO: this is never used in MultiWriter
             data_block_size: opts.config.data_block_size,
             index_block_size: opts.config.index_block_size,
+            prefix_extractor: opts.prefix_extractor.clone(),
         },
     ) else {
         log::error!("Compaction failed");

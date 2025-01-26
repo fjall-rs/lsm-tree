@@ -4,6 +4,8 @@
 
 pub mod inner;
 
+#[cfg(feature = "bloom")]
+use crate::bloom::BloomFilter;
 use crate::{
     coding::{Decode, Encode},
     compaction::{stream::CompactionStream, CompactionStrategy},
@@ -157,6 +159,7 @@ impl AbstractTree for Tree {
             folder,
             data_block_size: self.config.data_block_size,
             index_block_size: self.config.index_block_size,
+            prefix_extractor: self.prefix_extractor.clone(),
         })?
         .use_compression(self.config.compression);
 
@@ -376,7 +379,7 @@ impl AbstractTree for Tree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, Some(seqno), index))
+        Box::new(self.create_range(&range, Some(seqno), index, None))
     }
 
     fn prefix_with_seqno<K: AsRef<[u8]>>(
@@ -392,7 +395,7 @@ impl AbstractTree for Tree {
         &self,
         range: R,
     ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, None, None))
+        Box::new(self.create_range(&range, None, None, None))
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -602,7 +605,17 @@ impl Tree {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         #[cfg(feature = "bloom")]
-        let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
+        let maybe_hash = match &self.prefix_extractor {
+            None => Some(BloomFilter::get_hash(key.as_ref())),
+            Some(prefix_extractor) => {
+                if prefix_extractor.in_domain(key.as_ref()) {
+                    let key = prefix_extractor.transform(key.as_ref());
+                    Some(BloomFilter::get_hash(key))
+                } else {
+                    None
+                }
+            }
+        };
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
@@ -623,7 +636,10 @@ impl Tree {
                         #[cfg(not(feature = "bloom"))]
                         let maybe_item = segment.get(&key, seqno)?;
                         #[cfg(feature = "bloom")]
-                        let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                        let maybe_item = match maybe_hash {
+                            Some(key_hash) => segment.get_with_hash(&key, seqno, key_hash)?,
+                            None => segment.get(&key, seqno)?,
+                        };
 
                         if let Some(item) = maybe_item {
                             return Ok(ignore_tombstone_value(item));
@@ -640,7 +656,10 @@ impl Tree {
                 #[cfg(not(feature = "bloom"))]
                 let maybe_item = segment.get(&key, seqno)?;
                 #[cfg(feature = "bloom")]
-                let maybe_item = segment.get_with_hash(&key, seqno, key_hash)?;
+                let maybe_item = match maybe_hash {
+                    Some(key_hash) => segment.get_with_hash(&key, seqno, key_hash)?,
+                    None => segment.get(&key, seqno)?,
+                };
 
                 if let Some(item) = maybe_item {
                     return Ok(ignore_tombstone_value(item));
@@ -683,7 +702,7 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.create_range::<UserKey, _>(&.., seqno, ephemeral)
+        self.create_range::<UserKey, _>(&.., seqno, ephemeral, None)
     }
 
     #[doc(hidden)]
@@ -692,6 +711,7 @@ impl Tree {
         range: &'a R,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
+        prefix_hash: Option<(u64, u64)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
@@ -728,6 +748,7 @@ impl Tree {
             bounds,
             seqno,
             level_manifest_lock,
+            prefix_hash,
         )
     }
 
@@ -737,8 +758,9 @@ impl Tree {
         range: &'a R,
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
+        prefix_hash: Option<(u64, u64)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.create_internal_range(range, seqno, ephemeral)
+        self.create_internal_range(range, seqno, ephemeral, prefix_hash)
             .map(|item| match item {
                 Ok(kv) => Ok((kv.key.user_key, kv.value)),
                 Err(e) => Err(e),
@@ -753,7 +775,17 @@ impl Tree {
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let range = prefix_to_range(prefix.as_ref());
-        self.create_range(&range, seqno, ephemeral)
+        #[cfg(feature = "bloom")]
+        let prefix_hash = self
+            .prefix_extractor
+            .as_ref()
+            .filter(|prefix_extractor| prefix_extractor.in_domain(prefix.as_ref()))
+            .map(|prefix_extractor| prefix_extractor.transform(prefix.as_ref()))
+            .map(BloomFilter::get_hash);
+        #[cfg(not(feature = "bloom"))]
+        let prefix_hash = None;
+
+        self.create_range(&range, seqno, ephemeral, prefix_hash)
     }
 
     /// Adds an item to the active memtable.
@@ -801,6 +833,7 @@ impl Tree {
         levels.update_metadata();
 
         let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
+        let prefix_extractor = config.prefix_extractor.clone();
 
         let inner = TreeInner {
             id: tree_id,
@@ -810,6 +843,7 @@ impl Tree {
             levels: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
             config,
+            prefix_extractor,
         };
 
         Ok(Self(Arc::new(inner)))

@@ -52,6 +52,7 @@ impl MultiWriter {
             folder: opts.folder.clone(),
             data_block_size: opts.data_block_size,
             index_block_size: opts.index_block_size,
+            prefix_extractor: opts.prefix_extractor.clone(),
         })?;
 
         Ok(Self {
@@ -105,6 +106,7 @@ impl MultiWriter {
             folder: self.opts.folder.clone(),
             data_block_size: self.opts.data_block_size,
             index_block_size: self.opts.index_block_size,
+            prefix_extractor: self.opts.prefix_extractor.clone(),
         })?
         .use_compression(self.compression);
 

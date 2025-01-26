@@ -4,7 +4,7 @@
 
 use crate::{
     level_manifest::level::Level,
-    segment::{range::Range, value_block::CachePolicy},
+    segment::{range::Range, value_block::CachePolicy, Segment},
     InternalValue, UserKey,
 };
 use std::{ops::Bound, sync::Arc};
@@ -17,6 +17,7 @@ pub struct LevelReader {
     lo_reader: Option<Range>,
     hi_reader: Option<Range>,
     cache_policy: CachePolicy,
+    prefix_hash: Option<(u64, u64)>,
 }
 
 impl LevelReader {
@@ -25,6 +26,7 @@ impl LevelReader {
         level: Arc<Level>,
         range: &(Bound<UserKey>, Bound<UserKey>),
         cache_policy: CachePolicy,
+        prefix_hash: Option<(u64, u64)>,
     ) -> Self {
         assert!(!level.is_empty(), "level reader cannot read empty level");
 
@@ -39,10 +41,17 @@ impl LevelReader {
                 lo_reader: None,
                 hi_reader: None,
                 cache_policy,
+                prefix_hash,
             };
         };
 
-        Self::from_indexes(level, range, (Some(lo), Some(hi)), cache_policy)
+        Self::from_indexes(
+            level,
+            range,
+            (Some(lo), Some(hi)),
+            cache_policy,
+            prefix_hash,
+        )
     }
 
     #[must_use]
@@ -51,6 +60,7 @@ impl LevelReader {
         range: &(Bound<UserKey>, Bound<UserKey>),
         (lo, hi): (Option<usize>, Option<usize>),
         cache_policy: CachePolicy,
+        prefix_hash: Option<(u64, u64)>,
     ) -> Self {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(level.len() - 1);
@@ -74,7 +84,13 @@ impl LevelReader {
             lo_reader: Some(lo_reader),
             hi_reader,
             cache_policy,
+            prefix_hash,
         }
+    }
+
+    fn may_segment_contain_hash(&self, segment: &Segment) -> bool {
+        self.prefix_hash
+            .map_or(true, |hash| segment.may_contain_hash(hash))
     }
 }
 
@@ -90,24 +106,20 @@ impl Iterator for LevelReader {
 
                 // NOTE: Lo reader is empty, get next one
                 self.lo_reader = None;
-                self.lo += 1;
-
-                if self.lo < self.hi {
-                    self.lo_reader = Some(
-                        self.segments
-                            .get(self.lo)
-                            .expect("should exist")
-                            .iter()
-                            .cache_policy(self.cache_policy),
-                    );
-                }
-            } else if let Some(hi_reader) = &mut self.hi_reader {
+            } else if self.lo == self.hi {
                 // NOTE: We reached the hi marker, so consume from it instead
                 //
                 // If it returns nothing, it is empty, so we are done
-                return hi_reader.next();
+                return self.hi_reader.as_mut().and_then(|r| r.next());
             } else {
-                return None;
+                self.lo += 1;
+
+                if self.lo < self.hi {
+                    let segment = self.segments.get(self.lo).expect("should exist");
+                    if self.may_segment_contain_hash(segment) {
+                        self.lo_reader = Some(segment.iter().cache_policy(self.cache_policy));
+                    }
+                }
             }
         }
     }
@@ -121,26 +133,22 @@ impl DoubleEndedIterator for LevelReader {
                     return Some(item);
                 }
 
-                // NOTE: Hi reader is empty, get orev one
+                // NOTE: Hi reader is empty, get the previous one
                 self.hi_reader = None;
-                self.hi -= 1;
-
-                if self.lo < self.hi {
-                    self.hi_reader = Some(
-                        self.segments
-                            .get(self.hi)
-                            .expect("should exist")
-                            .iter()
-                            .cache_policy(self.cache_policy),
-                    );
-                }
-            } else if let Some(lo_reader) = &mut self.lo_reader {
+            } else if self.lo == self.hi {
                 // NOTE: We reached the lo marker, so consume from it instead
                 //
                 // If it returns nothing, it is empty, so we are done
-                return lo_reader.next_back();
+                return self.lo_reader.as_mut().and_then(|r| r.next_back());
             } else {
-                return None;
+                self.hi -= 1;
+
+                if self.lo < self.hi {
+                    let segment = self.segments.get(self.hi).expect("should exist");
+                    if self.may_segment_contain_hash(segment) {
+                        self.hi_reader = Some(segment.iter().cache_policy(self.cache_policy));
+                    }
+                }
             }
         }
     }
@@ -190,8 +198,12 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
+            let multi_reader = LevelReader::new(
+                level.clone(),
+                &(Unbounded, Unbounded),
+                CachePolicy::Read,
+                None,
+            );
 
             let mut iter = multi_reader.flatten();
 
@@ -211,8 +223,12 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
+            let multi_reader = LevelReader::new(
+                level.clone(),
+                &(Unbounded, Unbounded),
+                CachePolicy::Read,
+                None,
+            );
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -232,7 +248,8 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read);
+            let multi_reader =
+                LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read, None);
 
             let mut iter = multi_reader.flatten();
 
