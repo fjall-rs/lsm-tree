@@ -468,9 +468,12 @@ fn merge_segments(
     levels.show_segments(payload.segment_ids.iter().copied());
     drop(levels);
 
-    for segment_id in &payload.segment_ids {
-        log::trace!("Closing file handles for old segment file");
+    log::trace!(
+        "Closing file handles for old segment files: {:?}",
+        payload.segment_ids
+    );
 
+    for segment_id in &payload.segment_ids {
         opts.config
             .descriptor_table
             .remove((opts.tree_id, *segment_id).into());
