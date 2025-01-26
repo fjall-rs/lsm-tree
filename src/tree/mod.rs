@@ -167,11 +167,11 @@ impl AbstractTree for Tree {
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("flush: acquiring levels manifest write lock");
+        log::trace!("Acquiring levels manifest write lock");
         let mut original_levels = self.levels.write().expect("lock is poisoned");
 
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("flush: acquiring sealed memtables write lock");
+        log::trace!("Acquiring sealed memtables write lock");
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
 
         original_levels.atomic_swap(|recipe| {
@@ -486,7 +486,7 @@ impl Tree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     pub fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
-        log::debug!("flush: flushing active memtable");
+        log::debug!("Flushing active memtable");
 
         let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
             return Ok(None);

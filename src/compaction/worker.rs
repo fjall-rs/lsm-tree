@@ -198,7 +198,7 @@ fn merge_segments(
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
     if opts.stop_signal.is_stopped() {
-        log::debug!("compactor: stopping before compaction because of stop signal");
+        log::debug!("Stopping before compaction because of stop signal");
         return Ok(());
     }
 
@@ -479,7 +479,7 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    log::debug!("compactor: done");
+    log::error!("Compaction successful");
 
     Ok(())
 }
@@ -501,7 +501,7 @@ fn drop_segments(
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
-    log::trace!("compaction: acquiring sealed memtables write lock");
+    log::trace!("Acquiring sealed memtables write lock");
     let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
 
     // IMPORTANT: Write the segment with the removed segments first
