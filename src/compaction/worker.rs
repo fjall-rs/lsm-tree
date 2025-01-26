@@ -433,7 +433,7 @@ fn merge_segments(
         // IMPORTANT: Show the segments again, because compaction failed
         levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
-    };
+    }
 
     for segment in &created_segments {
         let segment_file_path = segments_base_folder.join(segment.id().to_string());
@@ -458,6 +458,16 @@ fn merge_segments(
         }
     }
 
+    // NOTE: Unlock level manifest before clearing old file descriptors
+    // Holding onto some file descriptors shortly is fine and has no
+    // effect on future compactions
+    //
+    // Benchmarks showed that clearing the file descriptors can take quite
+    // some time even on fast SSDs (more than 100ms for a realistic compaction)
+    // so we unnecessarily hide the segments for e.g. 100ms more than we need to
+    levels.show_segments(payload.segment_ids.iter().copied());
+    drop(levels);
+
     for segment_id in &payload.segment_ids {
         log::trace!("Closing file handles for old segment file");
 
@@ -465,10 +475,6 @@ fn merge_segments(
             .descriptor_table
             .remove((opts.tree_id, *segment_id).into());
     }
-
-    levels.show_segments(payload.segment_ids.iter().copied());
-
-    drop(levels);
 
     log::debug!("compactor: done");
 
