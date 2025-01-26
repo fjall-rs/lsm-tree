@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
-// (Type (disk or index), Segment ID, Block offset)
+// (Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(GlobalSegmentId, BlockOffset);
 
