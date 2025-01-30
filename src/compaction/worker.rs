@@ -479,7 +479,7 @@ fn merge_segments(
             .remove((opts.tree_id, *segment_id).into());
     }
 
-    log::error!("Compaction successful");
+    log::trace!("Compaction successful");
 
     Ok(())
 }
