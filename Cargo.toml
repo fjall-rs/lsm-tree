@@ -72,7 +72,7 @@ required-features = []
 name = "bloom"
 harness = false
 path = "benches/bloom.rs"
-required-features = ["bloom"]
+required-features = []
 
 [[bench]]
 name = "block"
