@@ -45,6 +45,7 @@ xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 fs_extra = "1.3.0"
 nanoid = "0.4.0"
+rand = "0.7.2"
 test-log = "0.2.16"
 
 [package.metadata.cargo-all-features]
