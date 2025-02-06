@@ -369,25 +369,6 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        // eprintln!("{levels}");
-
-        // NOTE: Look at tombstone ratios
-        {
-            for (idx, level) in view.iter().enumerate().skip(1) {
-                for segment in &level.segments {
-                    let ratio = segment.tombstone_count();
-
-                    if ratio > 0 {
-                        eprintln!(
-                            "#{} in L{idx} has a lot of tombstones: {ratio} in {} items",
-                            segment.id(),
-                            segment.metadata.key_count,
-                        );
-                    }
-                }
-            }
-        }
-
         Choice::DoNothing
     }
 }
