@@ -10,6 +10,7 @@ use crate::{
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// I/O error
     Io(std::io::Error),

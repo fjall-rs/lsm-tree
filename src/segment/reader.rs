@@ -99,6 +99,9 @@ impl Reader {
             self.cache_policy,
         )?;
 
+        // TODO: we only need to truncate items from blocks that are not the first and last block
+        // TODO: because any block inbetween must (trivially) only contain relevant items
+
         // Truncate as many items as possible
         block.map_or(Ok(None), |block| {
             Ok(Some((

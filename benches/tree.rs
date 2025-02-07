@@ -25,7 +25,7 @@ fn full_scan(c: &mut Criterion) {
             tree.flush_active_memtable(0).unwrap();
 
             b.iter(|| {
-                assert_eq!(tree.len().unwrap(), item_count as usize);
+                assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
             })
         });
 
@@ -44,10 +44,10 @@ fn full_scan(c: &mut Criterion) {
             }
 
             tree.flush_active_memtable(0).unwrap();
-            assert_eq!(tree.len().unwrap(), item_count as usize);
+            assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
 
             b.iter(|| {
-                assert_eq!(tree.len().unwrap(), item_count as usize);
+                assert_eq!(tree.len(None, None).unwrap(), item_count as usize);
             })
         });
     }
@@ -73,12 +73,12 @@ fn scan_vs_query(c: &mut Criterion) {
         }
 
         tree.flush_active_memtable(0).unwrap();
-        assert_eq!(tree.len().unwrap(), size);
+        assert_eq!(tree.len(None, None).unwrap(), size);
 
         group.sample_size(10);
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.iter();
+                let iter = tree.iter(None, None);
                 let iter = iter.into_iter();
                 let count = iter
                     .filter(|x| match x {
@@ -96,20 +96,28 @@ fn scan_vs_query(c: &mut Criterion) {
         });
         group.bench_function(format!("query {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.range((
-                    Included(60000_u64.to_be_bytes().to_vec()),
-                    Excluded(60010_u64.to_be_bytes().to_vec()),
-                ));
+                let iter = tree.range(
+                    (
+                        Included(60000_u64.to_be_bytes().to_vec()),
+                        Excluded(60010_u64.to_be_bytes().to_vec()),
+                    ),
+                    None,
+                    None,
+                );
                 let iter = iter.into_iter();
                 assert_eq!(iter.count(), 10);
             })
         });
         group.bench_function(format!("query rev {}", size), |b| {
             b.iter(|| {
-                let iter = tree.range((
-                    Included(60000_u64.to_be_bytes().to_vec()),
-                    Excluded(60010_u64.to_be_bytes().to_vec()),
-                ));
+                let iter = tree.range(
+                    (
+                        Included(60000_u64.to_be_bytes().to_vec()),
+                        Excluded(60010_u64.to_be_bytes().to_vec()),
+                    ),
+                    None,
+                    None,
+                );
                 let iter = iter.into_iter();
                 assert_eq!(iter.rev().count(), 10);
             })
@@ -143,12 +151,12 @@ fn scan_vs_prefix(c: &mut Criterion) {
         }
 
         tree.flush_active_memtable(0).unwrap();
-        assert_eq!(tree.len().unwrap() as u64, size + 10);
+        assert_eq!(tree.len(None, None).unwrap() as u64, size + 10);
 
         group.sample_size(10);
         group.bench_function(format!("scan {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.iter();
+                let iter = tree.iter(None, None);
                 let iter = iter.filter(|x| match x {
                     Ok((key, _)) => key.starts_with(prefix.as_bytes()),
                     Err(_) => false,
@@ -158,13 +166,13 @@ fn scan_vs_prefix(c: &mut Criterion) {
         });
         group.bench_function(format!("prefix {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.prefix(prefix);
+                let iter = tree.prefix(prefix, None, None);
                 assert_eq!(iter.count(), 10);
             });
         });
         group.bench_function(format!("prefix rev {} (uncached)", size), |b| {
             b.iter(|| {
-                let iter = tree.prefix(prefix);
+                let iter = tree.prefix(prefix, None, None);
                 assert_eq!(iter.rev().count(), 10);
             });
         });
@@ -199,7 +207,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::first_key_value (disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.first_key_value().unwrap().is_some());
+                        assert!(tree.first_key_value(None, None).unwrap().is_some());
                     });
                 },
             );
@@ -208,7 +216,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::last_key_value (disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.last_key_value().unwrap().is_some());
+                        assert!(tree.last_key_value(None, None).unwrap().is_some());
                     });
                 },
             );
@@ -239,7 +247,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::first_key_value (non-disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.first_key_value().unwrap().is_some());
+                        assert!(tree.first_key_value(None, None).unwrap().is_some());
                     });
                 },
             );
@@ -248,7 +256,7 @@ fn tree_get_pairs(c: &mut Criterion) {
                 &format!("Tree::last_key_value (non-disjoint), {segment_count} segments"),
                 |b| {
                     b.iter(|| {
-                        assert!(tree.last_key_value().unwrap().is_some());
+                        assert!(tree.last_key_value(None, None).unwrap().is_some());
                     });
                 },
             );
@@ -279,7 +287,7 @@ fn disk_point_read(c: &mut Criterion) {
         let tree = tree.clone();
 
         b.iter(|| {
-            tree.get("a").unwrap().unwrap();
+            tree.get("a", None).unwrap().unwrap();
         });
     });
 
@@ -338,13 +346,32 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
 
     group.bench_function("Tree::first_key_value".to_string(), |b| {
         b.iter(|| {
-            assert_eq!(&*tree.first_key_value().unwrap().unwrap().1, b"a");
+            assert_eq!(&*tree.first_key_value(None, None).unwrap().unwrap().1, b"a");
         });
     });
 
     group.bench_function("Tree::last_key_value".to_string(), |b| {
         b.iter(|| {
-            assert_eq!(&*tree.last_key_value().unwrap().unwrap().1, b"g");
+            assert_eq!(&*tree.last_key_value(None, None).unwrap().unwrap().1, b"g");
+        });
+    });
+}
+
+fn blob_tree_get(c: &mut Criterion) {
+    let folder = tempfile::tempdir().unwrap();
+
+    let tree = Config::new(folder.path())
+        .block_cache(BlockCache::with_capacity_bytes(0).into())
+        .open_as_blob_tree()
+        .unwrap();
+
+    let value = b"powek5bowa".repeat(100);
+
+    tree.insert("mykey", &value, 0);
+
+    c.bench_function("blob tree get", |b| {
+        b.iter(|| {
+            tree.get("mykey", None).unwrap().unwrap();
         });
     });
 }
@@ -354,6 +381,7 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    blob_tree_get,
     disjoint_tree_minmax,
     disk_point_read,
     full_scan,

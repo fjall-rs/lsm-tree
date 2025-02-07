@@ -17,33 +17,45 @@ fn tree_range_count() -> lsm_tree::Result<()> {
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 4);
     tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
 
-    assert_eq!(2, tree.range("a"..="f").count());
-    assert_eq!(2, tree.range("f"..="g").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count());
+    assert_eq!(2, tree.range("f"..="g", None, None).count());
 
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(2, tree.range("a"..="f").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count(),);
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 6);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 7);
     tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 8);
 
-    assert_eq!(2, tree.range("a"..="f").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count());
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     Ok(())
@@ -65,33 +77,45 @@ fn blob_tree_range_count() -> lsm_tree::Result<()> {
     tree.insert("f".as_bytes(), b"neptune!".repeat(128_000), 4);
     tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 5);
 
-    assert_eq!(2, tree.range("a"..="f").count());
-    assert_eq!(2, tree.range("f"..="g").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count());
+    assert_eq!(2, tree.range("f"..="g", None, None).count());
 
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(2, tree.range("a"..="f").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count());
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 6);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 7);
     tree.insert("g".as_bytes(), nanoid::nanoid!().as_bytes(), 8);
 
-    assert_eq!(2, tree.range("a"..="f").count());
+    assert_eq!(2, tree.range("a"..="f", None, None).count());
     assert_eq!(
         1,
-        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>((Excluded("f".into()), Unbounded))
-            .count()
+        tree.range::<Vec<u8>, (Bound<Vec<u8>>, Bound<Vec<u8>>)>(
+            (Excluded("f".into()), Unbounded),
+            None,
+            None
+        )
+        .count()
     );
 
     Ok(())

@@ -23,7 +23,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     {
@@ -31,7 +31,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
             .data_block_size(2_048)
             .index_block_size(2_048)
             .open()?;
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     {
@@ -39,7 +39,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
             .data_block_size(4_096)
             .index_block_size(4_096)
             .open()?;
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     {
@@ -47,7 +47,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
             .data_block_size(78_652)
             .index_block_size(78_652)
             .open()?;
-        assert_eq!(ITEM_COUNT, tree.len()?);
+        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
     }
 
     Ok(())

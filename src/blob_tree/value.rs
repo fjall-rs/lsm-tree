@@ -41,6 +41,38 @@ impl Decode for ValueHandle {
 const TAG_INLINE: u8 = 0;
 const TAG_INDIRECT: u8 = 1;
 
+impl MaybeInlineValue {
+    pub fn from_slice(bytes: &Slice) -> Result<Self, DecodeError> {
+        let tag = *bytes.first().expect("vhandle bytes should not be empty");
+
+        match tag {
+            TAG_INLINE => {
+                // TODO: 3.0.0 because the length field is varint encoded
+                // TODO: we need to get the amount of bytes the integer needs
+                // TODO: maybe not use varint encoding here... (breaking)
+                let len_size = {
+                    let mut reader = bytes.get(1..).expect("see above");
+                    let len = reader.read_u32_varint()?;
+                    match len {
+                        0..=0x7F => 1,                  // Fits in 7 bits
+                        0x80..=0x3FFF => 2,             // Fits in 14 bits
+                        0x4000..=0x001F_FFFF => 3,      // Fits in 21 bits
+                        0x0020_0000..=0x0FFF_FFFF => 4, // Fits in 28 bits
+                        _ => 5,                         // Fits in 35 bits
+                    }
+                };
+                let slice = bytes.slice((1 + len_size)..);
+                Ok(Self::Inline(slice))
+            }
+            TAG_INDIRECT => {
+                let mut reader = &**bytes;
+                Self::decode_from(&mut reader)
+            }
+            x => Err(DecodeError::InvalidTag(("MaybeInlineValue", x))),
+        }
+    }
+}
+
 impl Encode for MaybeInlineValue {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         match self {

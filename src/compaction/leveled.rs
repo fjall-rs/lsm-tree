@@ -8,6 +8,7 @@ use crate::{
     key_range::KeyRange,
     level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
     segment::Segment,
+    windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, SegmentId,
 };
 
@@ -50,89 +51,81 @@ fn pick_minimal_compaction(
         }
     };
 
-    for size in 1..=next_level.len() {
-        let windows = next_level.windows(size);
+    for window in next_level.growing_windows() {
+        if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+            // IMPORTANT: Compaction is blocked because of other
+            // on-going compaction
+            continue;
+        }
 
-        for window in windows {
-            if hidden_set.is_blocked(window.iter().map(Segment::id)) {
-                // IMPORTANT: Compaction is blocked because of other
-                // on-going compaction
-                continue;
-            }
+        let key_range = aggregate_key_range(window);
 
-            let key_range = aggregate_key_range(window);
+        // Pull in all segments in current level into compaction
+        let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
+            // IMPORTANT: Avoid "infectious spread" of key ranges
+            // Imagine these levels:
+            //
+            //      A     B     C     D     E     F
+            // L1 | ----- ----- ----- ----- ----- -----
+            // L2 |    -----  -----  ----- ----- -----
+            //         1      2      3     4     5
+            //
+            // If we took 1, we would also have to include B,
+            // but then we would also have to include 2,
+            // but then we would also have to include C,
+            // but then we would also have to include 3,
+            // ...
+            //
+            // Instead, we consider a window like 1 - 3
+            // and then take B & C, because they are *contained* in that range
+            // Not including A or D is fine, because we are not shadowing data unexpectedly
+            curr_level.contained_segments(&key_range).collect()
+        } else {
+            // If the level is not disjoint, we just merge everything that overlaps
+            // to try and "repair" the level
+            curr_level.overlapping_segments(&key_range).collect()
+        };
 
-            // Pull in all segments in current level into compaction
-            let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
-                // IMPORTANT: Avoid "infectious spread" of key ranges
-                // Imagine these levels:
-                //
-                //      A     B     C     D     E     F
-                // L1 | ----- ----- ----- ----- ----- -----
-                // L2 |    -----  -----  ----- ----- -----
-                //      1      2      3     4     5
-                //
-                // If we took 1, we would also have to include A,
-                // but then we would also have to include 2,
-                // but then we would also have to include B,
-                // but then we would also have to include 3,
-                // ...
-                //
-                // Instead, we consider a window like 1 - 3
-                // and then take A & B, because they are *contained* in that range
-                // Not including C is fine, because we are not shadowing data unexpectedly
-                curr_level.contained_segments(&key_range).collect()
-            } else {
-                // If the level is not disjoint, we just merge everything that overlaps
-                // to try and "repair" the level
-                curr_level.overlapping_segments(&key_range).collect()
-            };
+        if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
+            // IMPORTANT: Compaction is blocked because of other
+            // on-going compaction
+            continue;
+        }
 
-            if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
-                // IMPORTANT: Compaction is blocked because of other
-                // on-going compaction
-                continue;
-            }
+        let curr_level_size = curr_level_pull_in
+            .iter()
+            .map(|x| x.metadata.file_size)
+            .sum::<u64>();
 
-            let curr_level_size = curr_level_pull_in
-                .iter()
-                .map(|x| x.metadata.file_size)
-                .sum::<u64>();
+        // NOTE: Only consider compactions where we actually reach the amount
+        // of bytes we need to merge
+        if curr_level_size >= 1 {
+            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
-            // NOTE: Only consider compactions where we actually reach the amount
-            // of bytes we need to merge
-            if curr_level_size >= 1 {
-                let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
+            let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
+            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
 
-                let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
-                segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
+            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-                let write_amp = (next_level_size as f32) / (curr_level_size as f32);
-
-                add_choice(Choice {
-                    write_amp,
-                    segment_ids,
-                    can_trivial_move: false,
-                });
-            }
+            add_choice(Choice {
+                write_amp,
+                segment_ids,
+                can_trivial_move: false,
+            });
         }
     }
 
     // NOTE: Find largest trivial move (if it exists)
-    'trivial_move_search: for size in (1..=curr_level.len()).rev() {
-        let windows = curr_level.windows(size);
+    for window in curr_level.shrinking_windows() {
+        let key_range = aggregate_key_range(window);
 
-        for window in windows {
-            let key_range = aggregate_key_range(window);
-
-            if next_level.overlapping_segments(&key_range).next().is_none() {
-                add_choice(Choice {
-                    write_amp: 0.0,
-                    segment_ids: window.iter().map(Segment::id).collect(),
-                    can_trivial_move: true,
-                });
-                break 'trivial_move_search;
-            }
+        if next_level.overlapping_segments(&key_range).next().is_none() {
+            add_choice(Choice {
+                write_amp: 0.0,
+                segment_ids: window.iter().map(Segment::id).collect(),
+                can_trivial_move: true,
+            });
+            break;
         }
     }
 
@@ -181,13 +174,6 @@ pub struct Strategy {
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
     #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
-
-    /// The target size of L1.
-    ///
-    /// Currently hard coded to 256 MiB.
-    ///
-    /// Default = 256 MiB
-    pub level_base_size: u32,
 }
 
 impl Default for Strategy {
@@ -196,7 +182,6 @@ impl Default for Strategy {
             l0_threshold: 4,
             target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
             level_ratio: 10,
-            level_base_size:/* 256 MiB */ 256 * 1_024 * 1_024,
         }
     }
 }
@@ -215,7 +200,11 @@ impl Strategy {
 
         let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
 
-        (power * (self.level_base_size as usize)) as u64
+        (power * (self.level_base_size() as usize)) as u64
+    }
+
+    fn level_base_size(&self) -> u64 {
+        self.target_size as u64 * self.l0_threshold as u64
     }
 }
 
@@ -461,7 +450,6 @@ mod tests {
             },
             block_cache,
 
-            #[cfg(feature = "bloom")]
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
         }
         .into()
