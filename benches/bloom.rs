@@ -25,7 +25,7 @@ fn filter_contains(c: &mut Criterion) {
             filter.set_with_hash(BloomFilter::get_hash(key));
         }
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         c.bench_function(
             &format!(
@@ -34,7 +34,7 @@ fn filter_contains(c: &mut Criterion) {
             ),
             |b| {
                 b.iter(|| {
-                    use rand::seq::SliceRandom;
+                    use rand::seq::IndexedRandom;
 
                     let sample = keys.choose(&mut rng).unwrap();
                     let hash = BloomFilter::get_hash(sample);
