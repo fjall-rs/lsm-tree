@@ -49,7 +49,7 @@ rand = "0.9.0"
 test-log = "0.2.16"
 
 [package.metadata.cargo-all-features]
-denylist = ["all"]
+denylist = []
 
 [[bench]]
 name = "tli"
