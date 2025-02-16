@@ -230,6 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn blob_file_count(&self) -> usize {
+        self.blobs.segment_count()
+    }
+
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {

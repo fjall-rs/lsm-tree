@@ -101,6 +101,11 @@ pub trait AbstractTree {
     /// Returns the amount of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
 
+    /// Returns the amount of blob files currently in the tree.
+    fn blob_file_count(&self) -> usize {
+        0
+    }
+
     /// Returns the amount of disk segments in the first level.
     fn first_level_segment_count(&self) -> usize;
 
