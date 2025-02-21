@@ -838,6 +838,10 @@ impl Tree {
 
             let file_name = dirent.file_name();
 
+            if file_name == ".DS_Store" {
+                continue;
+            }
+
             let segment_file_name = file_name.to_str().ok_or_else(|| {
                 log::error!("invalid segment file name {file_name:?}");
                 crate::Error::Unrecoverable
