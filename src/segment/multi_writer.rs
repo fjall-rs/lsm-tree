@@ -157,9 +157,34 @@ mod tests {
         tree.insert("a", "a5".repeat(4_000), 4);
         tree.flush_active_memtable(0)?;
         assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.len(None, None)?);
 
         tree.major_compact(1_024, 0)?;
         assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.len(None, None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_multi_writer_same_key_norotate_2() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = Config::new(&folder).open()?;
+
+        tree.insert("a", "a1".repeat(4_000), 0);
+        tree.insert("a", "a1".repeat(4_000), 1);
+        tree.insert("a", "a1".repeat(4_000), 2);
+        tree.insert("b", "a1".repeat(4_000), 0);
+        tree.insert("c", "a1".repeat(4_000), 0);
+        tree.insert("c", "a1".repeat(4_000), 1);
+        tree.flush_active_memtable(0)?;
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(3, tree.len(None, None)?);
+
+        tree.major_compact(1_024, 0)?;
+        assert_eq!(3, tree.segment_count());
+        assert_eq!(3, tree.len(None, None)?);
 
         Ok(())
     }
