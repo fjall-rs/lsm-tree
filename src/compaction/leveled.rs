@@ -217,6 +217,12 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let view = &levels.levels;
 
+        // TODO: look at L1+, if not disjoint
+        // TODO: try to repairing level by rewriting
+        // TODO: abort if any segment is hidden
+        // TODO: then make sure, non-disjoint levels cannot be used in subsequent code below
+        // TODO: add tests
+
         // L1+ compactions
         for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2).rev()
         {
