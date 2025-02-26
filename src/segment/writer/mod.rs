@@ -53,8 +53,6 @@ pub struct Writer {
 
     current_key: Option<UserKey>,
 
-    can_rotate: bool,
-
     bloom_policy: BloomConstructionPolicy,
 
     /// Hashes for bloom filter
@@ -130,17 +128,10 @@ impl Writer {
 
             current_key: None,
 
-            can_rotate: false,
-
             bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
         })
-    }
-
-    #[must_use]
-    pub fn can_rotate(&self) -> bool {
-        self.can_rotate
     }
 
     #[must_use]
@@ -226,11 +217,6 @@ impl Writer {
 
         // NOTE: Check if we visit a new key
         if Some(&item.key.user_key) != self.current_key.as_ref() {
-            // IMPORTANT: Check that we are not at the first key
-            if self.current_key.is_some() {
-                self.can_rotate = true;
-            }
-
             self.meta.key_count += 1;
             self.current_key = Some(item.key.user_key.clone());
 
