@@ -65,7 +65,7 @@ Future breaking changes will result in a major version bump and a migration path
 ## Run unit benchmarks
 
 ```bash
-cargo bench --features bloom,lz4,miniz
+cargo bench --features lz4,miniz
 ```
 
 ## License
