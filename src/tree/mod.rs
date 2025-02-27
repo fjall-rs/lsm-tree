@@ -9,6 +9,7 @@ use crate::{
     compaction::{stream::CompactionStream, CompactionStrategy},
     config::Config,
     descriptor_table::FileDescriptorTable,
+    iter_guard::IterGuard,
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
@@ -379,7 +380,27 @@ impl AbstractTree for Tree {
     }
 }
 
+struct Guard(crate::Result<(UserKey, UserValue)>);
+
+impl IterGuard for Guard {
+    fn key(self) -> crate::Result<UserKey> {
+        Ok(self.0?.0)
+    }
+
+    fn with_value(self) -> crate::Result<(UserKey, UserValue)> {
+        self.0
+    }
+}
+
 impl Tree {
+    fn new_iter(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> impl Iterator<Item = impl IterGuard> {
+        self.iter(seqno, index).map(Guard)
+    }
+
     /// Opens an LSM-tree in the given directory.
     ///
     /// Will recover previous state if the folder was previously

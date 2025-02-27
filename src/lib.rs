@@ -147,6 +147,8 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+mod iter_guard;
+
 mod key;
 mod key_range;
 

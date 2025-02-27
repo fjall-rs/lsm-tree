@@ -11,6 +11,7 @@ use crate::{
     coding::{Decode, Encode},
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
+    iter_guard::IterGuard,
     r#abstract::{AbstractTree, RangeItem},
     tree::inner::MemtableId,
     value::InternalValue,
@@ -74,7 +75,40 @@ pub struct BlobTree {
     pub pending_segments: Arc<AtomicUsize>,
 }
 
+struct Guard<'a>(
+    &'a ValueLog<MyCompressor>,
+    crate::Result<(UserKey, UserValue)>,
+);
+
+impl IterGuard for Guard<'_> {
+    fn key(self) -> crate::Result<UserKey> {
+        Ok(self.1?.0)
+    }
+
+    // TODO: size() -> does not need to resolve vHandle
+
+    fn with_value(self) -> crate::Result<(UserKey, UserValue)> {
+        resolve_value_handle(self.0, self.1)
+    }
+}
+
 impl BlobTree {
+    fn new_iter(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> impl Iterator<Item = impl IterGuard + use<'_>> + use<'_> {
+        self.iter(seqno, index).map(|kv| Guard(&self.blobs, kv))
+    }
+
+    /* fn keys(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> impl Iterator<Item = crate::Result<UserKey>> + use<'_> {
+        self.new_iter(seqno, index).map(IterGuard::key)
+    } */
+
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
         let path = &config.path;
 
