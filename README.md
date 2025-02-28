@@ -26,7 +26,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Multi-threaded flushing (immutable/sealed memtables)
 - Partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
 - Block caching to keep hot data in memory
-- Bloom filters to increase point lookup performance (`bloom` feature, disabled by default)
+- Bloom filters to increase point lookup performance
 - Snapshots (MVCC)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
@@ -48,12 +48,6 @@ Allows using `DEFLATE/zlib` compression, powered by [`miniz_oxide`](https://gith
 
 *Disabled by default.*
 
-### bloom
-
-Uses bloom filters to reduce superfluous disk I/O during point reads, improving performance, but also increasing memory usage.
-
-*Disabled by default.*
-
 ### bytes
 
 Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type.
@@ -71,7 +65,7 @@ Future breaking changes will result in a major version bump and a migration path
 ## Run unit benchmarks
 
 ```bash
-cargo bench --features bloom,lz4,miniz
+cargo bench --features lz4,miniz
 ```
 
 ## License
