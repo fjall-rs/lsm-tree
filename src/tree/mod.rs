@@ -384,10 +384,14 @@ struct Guard(crate::Result<(UserKey, UserValue)>);
 
 impl IterGuard for Guard {
     fn key(self) -> crate::Result<UserKey> {
-        Ok(self.0?.0)
+        self.0.map(|(k, _)| k)
     }
 
-    fn with_value(self) -> crate::Result<(UserKey, UserValue)> {
+    fn size(self) -> crate::Result<u32> {
+        self.into_inner().map(|(_, v)| v.len() as u32)
+    }
+
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
         self.0
     }
 }

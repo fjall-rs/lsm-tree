@@ -82,12 +82,15 @@ struct Guard<'a>(
 
 impl IterGuard for Guard<'_> {
     fn key(self) -> crate::Result<UserKey> {
-        Ok(self.1?.0)
+        self.1.map(|(k, _)| k)
     }
 
     // TODO: size() -> does not need to resolve vHandle
+    fn size(self) -> crate::Result<u32> {
+        unimplemented!()
+    }
 
-    fn with_value(self) -> crate::Result<(UserKey, UserValue)> {
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
         resolve_value_handle(self.0, self.1)
     }
 }
