@@ -55,13 +55,13 @@ impl LevelReader {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(level.len() - 1);
 
+        // TODO: lazily init readers?
         let lo_segment = level.segments.get(lo).expect("should exist");
-
         let lo_reader = lo_segment.range(range.clone()).cache_policy(cache_policy);
 
+        // TODO: lazily init readers?
         let hi_reader = if hi > lo {
             let hi_segment = level.segments.get(hi).expect("should exist");
-
             Some(hi_segment.range(range.clone()).cache_policy(cache_policy))
         } else {
             None
@@ -121,7 +121,7 @@ impl DoubleEndedIterator for LevelReader {
                     return Some(item);
                 }
 
-                // NOTE: Hi reader is empty, get orev one
+                // NOTE: Hi reader is empty, get prev one
                 self.hi_reader = None;
                 self.hi -= 1;
 
