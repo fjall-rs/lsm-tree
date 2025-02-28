@@ -275,18 +275,22 @@ impl Writer {
                 BlockOffset(0)
             } else {
                 let bloom_ptr = self.block_writer.stream_position()?;
-
                 let n = self.bloom_hash_buffer.len();
+
                 log::trace!(
-                    "Writing bloom filter with {n} hashes: {:?}",
-                    self.bloom_policy
+                    "Constructing Bloom filter with {n} entries: {:?}",
+                    self.bloom_policy,
                 );
+
+                let start = std::time::Instant::now();
 
                 let mut filter = self.bloom_policy.build(n);
 
                 for hash in std::mem::take(&mut self.bloom_hash_buffer) {
                     filter.set_with_hash(hash);
                 }
+
+                log::trace!("Built Bloom filter in {:?}", start.elapsed());
 
                 filter.encode_into(&mut self.block_writer)?;
 
