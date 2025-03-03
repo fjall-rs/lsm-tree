@@ -43,7 +43,20 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Encode(e) => Some(e),
+            Self::Decode(e) => Some(e),
+            Self::Decompress(_) => None,
+            Self::InvalidVersion(_) => None,
+            Self::Unrecoverable => None,
+            Self::InvalidChecksum(_) => None,
+            Self::ValueLog(e) => Some(e),
+        }
+    }
+}
 
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {

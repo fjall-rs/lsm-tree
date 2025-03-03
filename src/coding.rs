@@ -29,6 +29,14 @@ impl From<std::io::Error> for EncodeError {
     }
 }
 
+impl std::error::Error for EncodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+        }
+    }
+}
+
 /// Error during deserialization
 #[derive(Debug)]
 pub enum DecodeError {
@@ -70,6 +78,16 @@ impl From<std::io::Error> for DecodeError {
 impl From<std::str::Utf8Error> for DecodeError {
     fn from(value: std::str::Utf8Error) -> Self {
         Self::Utf8(value)
+    }
+}
+
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Utf8(e) => Some(e),
+            _ => None,
+        }
     }
 }
 
