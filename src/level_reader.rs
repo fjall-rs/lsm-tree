@@ -31,6 +31,8 @@ impl LevelReader {
         let disjoint_level = level.as_disjoint().expect("level should be disjoint");
 
         let Some((lo, hi)) = disjoint_level.range_indexes(range) else {
+            // TODO: return None
+
             // NOTE: We will never emit any item
             return Self {
                 segments: level,

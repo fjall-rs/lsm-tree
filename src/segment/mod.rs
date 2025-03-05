@@ -300,9 +300,9 @@ impl Segment {
             .unwrap_or_default()
     }
 
-    pub fn get<K: AsRef<[u8]>>(
+    pub fn get(
         &self,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
         hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
@@ -312,7 +312,7 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(&key) {
+        if !self.metadata.key_range.contains_key(key) {
             return Ok(None);
         }
 
@@ -325,16 +325,10 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
-    fn point_read<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<InternalValue>> {
+    fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> crate::Result<Option<InternalValue>> {
         use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
         use value_block_consumer::ValueBlockConsumer;
-
-        let key = key.as_ref();
 
         let Some(first_block_handle) = self
             .block_index
@@ -417,7 +411,7 @@ impl Segment {
         Ok(Some(entry))
     }
 
-    pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
+    pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
         self.metadata.key_range.contains_key(key)
     }
 

@@ -554,9 +554,11 @@ impl Tree {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
+        let key = key.as_ref();
+
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::bloom::BloomFilter::get_hash(key.as_ref());
+        let key_hash = crate::bloom::BloomFilter::get_hash(key);
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
@@ -569,8 +571,8 @@ impl Tree {
                     // ^
                     // snapshot read a:3!!!
 
-                    if let Some(segment) = level.get_segment_containing_key(&key) {
-                        let maybe_item = segment.get(&key, seqno, key_hash)?;
+                    if let Some(segment) = level.get_segment_containing_key(key) {
+                        let maybe_item = segment.get(key, seqno, key_hash)?;
 
                         if let Some(item) = maybe_item {
                             return Ok(ignore_tombstone_value(item));
@@ -584,7 +586,7 @@ impl Tree {
 
             // NOTE: Fallback to linear search
             for segment in &level.segments {
-                let maybe_item = segment.get(&key, seqno, key_hash)?;
+                let maybe_item = segment.get(key, seqno, key_hash)?;
 
                 if let Some(item) = maybe_item {
                     return Ok(ignore_tombstone_value(item));
