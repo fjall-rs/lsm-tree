@@ -13,15 +13,14 @@ fn filter_construction(c: &mut Criterion) {
 }
 
 fn filter_contains(c: &mut Criterion) {
+    let keys = (0..100_000u128)
+        .map(|x| x.to_be_bytes().to_vec())
+        .collect::<Vec<_>>();
+
     for fpr in [0.01, 0.001, 0.0001, 0.00001] {
         let mut filter = BloomFilter::with_fp_rate(100_000, fpr);
 
-        let keys: &[&[u8]] = &[
-            b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
-            b"item8", b"item9",
-        ];
-
-        for key in keys {
+        for key in &keys {
             filter.set_with_hash(BloomFilter::get_hash(key));
         }
 
@@ -30,7 +29,7 @@ fn filter_contains(c: &mut Criterion) {
         c.bench_function(
             &format!(
                 "bloom filter contains key, true positive ({}%)",
-                fpr * 100.0
+                fpr * 100.0,
             ),
             |b| {
                 b.iter(|| {
