@@ -44,11 +44,11 @@ impl KeyRange {
         Self((Slice::new(b""), Slice::new(b"")))
     }
 
-    fn min(&self) -> &UserKey {
+    pub fn min(&self) -> &UserKey {
         &self.0 .0
     }
 
-    fn max(&self) -> &UserKey {
+    pub fn max(&self) -> &UserKey {
         &self.0 .1
     }
 
