@@ -175,17 +175,14 @@ pub struct DisjointLevel<'a>(&'a Level);
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
     pub fn get_segment_containing_key(&self, key: &[u8]) -> Option<Segment> {
-        let level = &self.0;
-        let segments = &level.segments;
-
         // NOTE: PERF: For some reason, hand-rolling a binary search is
         // faster than using slice::partition_point
         let mut left = 0;
-        let mut right = segments.len();
+        let mut right = self.0.segments.len();
 
         while left < right {
             let mid = (left + right) / 2;
-            let segment = segments.get(mid).expect("should exist");
+            let segment = self.0.segments.get(mid).expect("should exist");
 
             if segment.metadata.key_range.max() < &key {
                 left = mid + 1;
@@ -194,7 +191,7 @@ impl<'a> DisjointLevel<'a> {
             }
         }
 
-        level
+        self.0
             .segments
             .get(left)
             .filter(|x| x.metadata.key_range.min() <= &key)
