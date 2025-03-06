@@ -213,6 +213,14 @@ fn merge_segments(
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
+    log::debug!(
+        "Compacting segments {:?} into L{}, compression={}, mvcc_gc_watermark={}",
+        payload.segment_ids,
+        payload.dest_level,
+        opts.config.compression,
+        opts.eviction_seqno,
+    );
+
     let Some(merge_iter) = create_compaction_stream(
         &segments_base_folder,
         &levels,
@@ -316,7 +324,7 @@ fn merge_segments(
             return Ok(());
         };
 
-        if idx % 100_000 == 0 && opts.stop_signal.is_stopped() {
+        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
             return Ok(());
         }
