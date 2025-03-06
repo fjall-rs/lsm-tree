@@ -146,12 +146,60 @@ impl DoubleEndedIterator for LevelReader {
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
-    use std::ops::Bound::Unbounded;
+    use std::ops::Bound::{Included, Unbounded};
     use test_log::test;
 
-    // TODO: same test for prefix & ranges
+    #[test]
+    fn level_reader_skip() -> crate::Result<()> {
+        let tempdir = tempfile::tempdir()?;
+        let tree = crate::Config::new(&tempdir).open()?;
+
+        let ids = [
+            ["a", "b", "c"],
+            ["d", "e", "f"],
+            ["g", "h", "i"],
+            ["j", "k", "l"],
+        ];
+
+        for batch in ids {
+            for id in batch {
+                tree.insert(id, vec![], 0);
+            }
+            tree.flush_active_memtable(0)?;
+        }
+
+        let segments = tree
+            .levels
+            .read()
+            .expect("lock is poisoned")
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let level = Arc::new(Level {
+            segments,
+            is_disjoint: true,
+        });
+
+        assert!(LevelReader::new(
+            level.clone(),
+            &(Included(b"y".into()), Included(b"z".into())),
+            CachePolicy::Read
+        )
+        .is_none());
+
+        assert!(LevelReader::new(
+            level.clone(),
+            &(Included(b"y".into()), Unbounded),
+            CachePolicy::Read
+        )
+        .is_none());
+
+        Ok(())
+    }
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn level_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
@@ -183,7 +231,6 @@ mod tests {
             is_disjoint: true,
         });
 
-        #[allow(clippy::unwrap_used)]
         {
             let multi_reader =
                 LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
@@ -205,7 +252,6 @@ mod tests {
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
         {
             let multi_reader =
                 LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
@@ -227,10 +273,10 @@ mod tests {
             assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
         {
             let multi_reader =
-                LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read).unwrap();
+                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
+                    .unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -246,6 +292,42 @@ mod tests {
             assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"g"), iter.next_back().unwrap().key.user_key);
+        }
+
+        {
+            let multi_reader = LevelReader::new(
+                level.clone(),
+                &(Included(b"g".into()), Unbounded),
+                CachePolicy::Read,
+            )
+            .unwrap();
+
+            let mut iter = multi_reader.flatten();
+
+            assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+        }
+
+        {
+            let multi_reader = LevelReader::new(
+                level,
+                &(Included(b"g".into()), Unbounded),
+                CachePolicy::Read,
+            )
+            .unwrap();
+
+            let mut iter = multi_reader.flatten().rev();
+
+            assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key.user_key);
         }
 
         Ok(())
