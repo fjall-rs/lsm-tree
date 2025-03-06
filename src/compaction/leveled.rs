@@ -205,7 +205,7 @@ impl Strategy {
     }
 
     fn level_base_size(&self) -> u64 {
-        self.target_size as u64 * self.l0_threshold as u64
+        u64::from(self.target_size) * u64::from(self.l0_threshold)
     }
 }
 
