@@ -411,11 +411,10 @@ impl Segment {
         Ok(Some(entry))
     }
 
+    #[must_use]
     pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
         self.metadata.key_range.contains_key(key)
     }
-
-    // TODO: move segment tests into module, then make pub(crate)
 
     /// Creates an iterator over the `Segment`.
     ///
