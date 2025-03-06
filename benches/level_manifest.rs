@@ -32,7 +32,7 @@ fn find_segment(c: &mut Criterion) {
 
     std::fs::create_dir_all(".bench").unwrap();
 
-    for segment_count in [1u16, 4, 5, 10, 100, 1_000] {
+    for segment_count in [1u16, 2, 3, 4, 5, 10, 100, 1_000] {
         let folder = tempfile::tempdir_in(".bench").unwrap();
         let tree = Config::new(folder).data_block_size(1_024).open().unwrap();
 
