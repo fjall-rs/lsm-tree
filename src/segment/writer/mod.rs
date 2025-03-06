@@ -340,7 +340,7 @@ impl Writer {
         fsync_directory(&self.opts.folder)?;
 
         log::debug!(
-            "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
+            "Written {} items in {} blocks into new segment file, written {} MiB",
             self.meta.item_count,
             self.meta.data_block_count,
             *self.meta.file_pos / 1_024 / 1_024
