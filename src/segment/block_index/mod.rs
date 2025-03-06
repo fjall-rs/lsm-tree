@@ -44,8 +44,23 @@ impl KeyedBlockIndex for [KeyedBlockHandle] {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<&KeyedBlockHandle>> {
-        let idx = self.partition_point(|x| &*x.end_key < key);
-        Ok(self.get(idx))
+        // NOTE: PERF: For some reason, hand-rolling a binary search is
+        // faster than using slice::partition_point
+        let mut left = 0;
+        let mut right = self.len();
+
+        while left < right {
+            let mid = (left + right) / 2;
+            let item = self.get(mid).expect("should exist");
+
+            if item.end_key < key {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        Ok(self.get(left))
     }
 
     fn get_last_block_containing_key(
@@ -129,10 +144,10 @@ pub enum BlockIndexImpl {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{segment::value_block::BlockOffset, Slice};
+    use crate::{segment::value_block::BlockOffset, UserKey};
     use test_log::test;
 
-    fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {
+    fn bh<K: Into<UserKey>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: end_key.into(),
             offset,
