@@ -61,7 +61,7 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(|x| x.bloom_filter_size())
+            .map(super::segment::Segment::bloom_filter_size)
             .sum()
     }
 
