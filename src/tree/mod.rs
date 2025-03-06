@@ -337,7 +337,9 @@ impl AbstractTree for Tree {
         key: K,
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
-        Ok(self.get_internal_entry(key, seqno)?.map(|x| x.value))
+        Ok(self
+            .get_internal_entry(key.as_ref(), seqno)?
+            .map(|x| x.value))
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
@@ -515,33 +517,33 @@ impl Tree {
     }
 
     /// Used for [`BlobTree`] lookup
-    pub(crate) fn get_internal_entry_with_lock<K: AsRef<[u8]>>(
+    pub(crate) fn get_internal_entry_with_lock(
         &self,
         memtable_lock: &RwLockWriteGuard<'_, Memtable>,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
-        if let Some(entry) = memtable_lock.get(&key, seqno) {
+        if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         };
 
         // Now look in sealed memtables
-        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
+        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         }
 
         self.get_internal_entry_from_segments(key, seqno)
     }
 
-    fn get_internal_entry_from_sealed_memtables<K: AsRef<[u8]>>(
+    fn get_internal_entry_from_sealed_memtables(
         &self,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
     ) -> Option<InternalValue> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
 
         for (_, memtable) in memtable_lock.iter().rev() {
-            if let Some(entry) = memtable.get(&key, seqno) {
+            if let Some(entry) = memtable.get(key, seqno) {
                 return Some(entry);
             }
         }
@@ -549,13 +551,11 @@ impl Tree {
         None
     }
 
-    fn get_internal_entry_from_segments<K: AsRef<[u8]>>(
+    fn get_internal_entry_from_segments(
         &self,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
-        let key = key.as_ref();
-
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::bloom::BloomFilter::get_hash(key);
@@ -598,23 +598,23 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn get_internal_entry<K: AsRef<[u8]>>(
+    pub fn get_internal_entry(
         &self,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
 
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
 
-        if let Some(entry) = memtable_lock.get(&key, seqno) {
+        if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         };
 
         drop(memtable_lock);
 
         // Now look in sealed memtables
-        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(&key, seqno) {
+        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         }
 
