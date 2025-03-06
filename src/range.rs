@@ -120,7 +120,7 @@ fn collect_disjoint_tree_with_range(
 
     let readers = levels
         .into_iter()
-        .map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write))
+        .filter_map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write))
         .collect();
 
     MultiReader::new(readers)
@@ -199,16 +199,17 @@ impl TreeIter {
                 for level in &level_manifest.levels {
                     if level.is_disjoint {
                         if !level.is_empty() {
-                            let reader =
-                                LevelReader::new(level.clone(), &bounds, CachePolicy::Write);
-
-                            if let Some(seqno) = seqno {
-                                iters.push(Box::new(reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                })));
-                            } else {
-                                iters.push(Box::new(reader));
+                            if let Some(reader) =
+                                LevelReader::new(level.clone(), &bounds, CachePolicy::Write)
+                            {
+                                if let Some(seqno) = seqno {
+                                    iters.push(Box::new(reader.filter(move |item| match item {
+                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                        Err(_) => true,
+                                    })));
+                                } else {
+                                    iters.push(Box::new(reader));
+                                }
                             }
                         }
                     } else {

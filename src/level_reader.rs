@@ -25,26 +25,19 @@ impl LevelReader {
         level: Arc<Level>,
         range: &(Bound<UserKey>, Bound<UserKey>),
         cache_policy: CachePolicy,
-    ) -> Self {
+    ) -> Option<Self> {
         assert!(!level.is_empty(), "level reader cannot read empty level");
 
         let disjoint_level = level.as_disjoint().expect("level should be disjoint");
 
-        let Some((lo, hi)) = disjoint_level.range_indexes(range) else {
-            // TODO: return None
+        let (lo, hi) = disjoint_level.range_indexes(range)?;
 
-            // NOTE: We will never emit any item
-            return Self {
-                segments: level,
-                lo: 0,
-                hi: 0,
-                lo_reader: None,
-                hi_reader: None,
-                cache_policy,
-            };
-        };
-
-        Self::from_indexes(level, range, (Some(lo), Some(hi)), cache_policy)
+        Some(Self::from_indexes(
+            level,
+            range,
+            (Some(lo), Some(hi)),
+            cache_policy,
+        ))
     }
 
     #[must_use]
@@ -193,7 +186,8 @@ mod tests {
         #[allow(clippy::unwrap_used)]
         {
             let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
+                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
+                    .unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -214,7 +208,8 @@ mod tests {
         #[allow(clippy::unwrap_used)]
         {
             let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read);
+                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
+                    .unwrap();
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -234,7 +229,8 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read);
+            let multi_reader =
+                LevelReader::new(level, &(Unbounded, Unbounded), CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.flatten();
 
