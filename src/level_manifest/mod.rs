@@ -124,7 +124,7 @@ impl LevelManifest {
         let mut manifest = Self {
             path: path.as_ref().to_path_buf(),
             levels,
-            hidden_set: Default::default(),
+            hidden_set: HiddenSet::default(),
             is_disjoint: true,
         };
         Self::write_to_disk(path, &manifest.deep_clone())?;
