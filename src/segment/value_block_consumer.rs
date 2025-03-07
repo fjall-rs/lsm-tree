@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::value_block::ValueBlock;
-use crate::value::InternalValue;
+use crate::{binary_search::partition_point, value::InternalValue};
 use std::sync::Arc;
 
 pub struct ValueBlockConsumer {
@@ -26,13 +26,13 @@ impl ValueBlockConsumer {
         end_key: Option<&[u8]>,
     ) -> Self {
         let mut lo = start_key.as_ref().map_or(0, |key| {
-            inner.items.partition_point(|x| &*x.key.user_key < *key)
+            partition_point(&inner.items, |x| &*x.key.user_key < *key)
         });
 
         let hi = end_key.as_ref().map_or_else(
             || inner.items.len() - 1,
             |key| {
-                let idx = inner.items.partition_point(|x| &*x.key.user_key <= *key);
+                let idx = partition_point(&inner.items, |x| &*x.key.user_key <= *key);
 
                 if idx == 0 {
                     let first = inner

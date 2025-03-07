@@ -12,6 +12,7 @@ use super::{
     block::Block,
     value_block::{BlockOffset, CachePolicy},
 };
+use crate::binary_search::partition_point;
 use block_handle::KeyedBlockHandle;
 use full_index::FullBlockIndex;
 use two_level_index::TwoLevelBlockIndex;
@@ -44,23 +45,8 @@ impl KeyedBlockIndex for [KeyedBlockHandle] {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<&KeyedBlockHandle>> {
-        // NOTE: PERF: For some reason, hand-rolling a binary search is
-        // faster than using slice::partition_point
-        let mut left = 0;
-        let mut right = self.len();
-
-        while left < right {
-            let mid = (left + right) / 2;
-            let item = self.get(mid).expect("should exist");
-
-            if item.end_key < key {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
-
-        Ok(self.get(left))
+        let idx = partition_point(self, |item| item.end_key < key);
+        Ok(self.get(idx))
     }
 
     fn get_last_block_containing_key(
@@ -68,7 +54,7 @@ impl KeyedBlockIndex for [KeyedBlockHandle] {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<&KeyedBlockHandle>> {
-        let idx = self.partition_point(|x| &*x.end_key <= key);
+        let idx = partition_point(self, |x| &*x.end_key <= key);
 
         if idx == 0 {
             return Ok(self.first());
