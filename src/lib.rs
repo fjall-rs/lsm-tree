@@ -125,6 +125,9 @@ mod any_tree;
 mod r#abstract;
 
 #[doc(hidden)]
+pub mod binary_search;
+
+#[doc(hidden)]
 pub mod blob_tree;
 
 mod block_cache;
