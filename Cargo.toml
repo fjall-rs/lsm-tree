@@ -98,3 +98,9 @@ name = "fd_table"
 harness = false
 path = "benches/fd_table.rs"
 required-features = []
+
+[[bench]]
+name = "partition_point"
+harness = false
+path = "benches/partition_point.rs"
+required-features = []
