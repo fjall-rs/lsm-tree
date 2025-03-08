@@ -18,7 +18,6 @@ impl ValueBlockConsumer {
         Self::with_bounds(inner, None, None)
     }
 
-    // TODO: PERF: benchmark replacing partition_point
     #[must_use]
     pub fn with_bounds(
         inner: Arc<ValueBlock>,

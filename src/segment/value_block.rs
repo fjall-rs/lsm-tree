@@ -57,7 +57,6 @@ pub type ValueBlock = Block<InternalValue>;
 impl ValueBlock {
     #[must_use]
     pub fn get_latest(&self, key: &[u8]) -> Option<&InternalValue> {
-        // TODO: bench hand rolled binary search
         let idx = partition_point(&self.items, |item| &*item.key.user_key < key);
 
         self.items
