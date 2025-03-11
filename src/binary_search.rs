@@ -2,9 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-// NOTE: PERF: For some reason, hand-rolling a binary search is
-// faster than using slice::partition_point
-
 /// Returns the index of the partition point according to the given predicate
 /// (the index of the first element of the second partition).
 ///
@@ -23,8 +20,9 @@ where
     while left < right {
         let mid = (left + right) / 2;
 
-        // TODO: PERF: could use get_unchecked for perf... but unsafe
-        let item = slice.get(mid).expect("should exist");
+        // SAFETY: See https://github.com/rust-lang/rust/blob/ebf0cf75d368c035f4c7e7246d203bd469ee4a51/library/core/src/slice/mod.rs#L2834-L2836
+        #[warn(unsafe_code)]
+        let item = unsafe { slice.get_unchecked(mid) };
 
         if pred(item) {
             left = mid + 1;
@@ -47,8 +45,8 @@ mod tests {
         let idx = partition_point(&items, |&x| x < 1);
         assert_eq!(0, idx);
 
-        let pp_idx = items.partition_point(|&x| x < 1);
-        assert_eq!(pp_idx, idx);
+        let std_pp_idx = items.partition_point(|&x| x < 1);
+        assert_eq!(std_pp_idx, idx);
     }
 
     #[test]
@@ -57,8 +55,8 @@ mod tests {
         let idx = partition_point(&items, |&x| x < 5);
         assert_eq!(4, idx);
 
-        let pp_idx = items.partition_point(|&x| x < 5);
-        assert_eq!(pp_idx, idx);
+        let std_pp_idx = items.partition_point(|&x| x < 5);
+        assert_eq!(std_pp_idx, idx);
     }
 
     #[test]
@@ -67,8 +65,8 @@ mod tests {
         let idx = partition_point(&items, |&x| x < 3);
         assert_eq!(2, idx);
 
-        let pp_idx = items.partition_point(|&x| x < 3);
-        assert_eq!(pp_idx, idx);
+        let std_pp_idx = items.partition_point(|&x| x < 3);
+        assert_eq!(std_pp_idx, idx);
     }
 
     #[test]
@@ -77,8 +75,8 @@ mod tests {
         let idx = partition_point(&items, |&x| x < 10);
         assert_eq!(5, idx);
 
-        let pp_idx = items.partition_point(|&x| x < 10);
-        assert_eq!(pp_idx, idx);
+        let std_pp_idx = items.partition_point(|&x| x < 10);
+        assert_eq!(std_pp_idx, idx);
     }
 
     #[test]
@@ -87,7 +85,7 @@ mod tests {
         let idx = partition_point(&items, |&x| x < 10);
         assert_eq!(0, idx);
 
-        let pp_idx = items.partition_point(|&x| x < 10);
-        assert_eq!(pp_idx, idx);
+        let std_pp_idx = items.partition_point(|&x| x < 10);
+        assert_eq!(std_pp_idx, idx);
     }
 }
