@@ -14,8 +14,5 @@ Cargo.lock
 *.pdb
 
 .lsm.data
-.data
-/old_*
 .test*
-.block_index_test
 .bench
