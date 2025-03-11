@@ -5,7 +5,7 @@
 /// Returns the index of the partition point according to the given predicate
 /// (the index of the first element of the second partition).
 ///
-/// Faster alternative to [`slice::partition_point`] (according to benchmarks).
+/// Faster alternative to [`std::slice::partition_point`] (according to benchmarks).
 pub fn partition_point<T, F>(slice: &[T], pred: F) -> usize
 where
     F: Fn(&T) -> bool,
