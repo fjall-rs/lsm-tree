@@ -21,12 +21,11 @@ impl std::ops::Deref for FullBlockIndex {
 }
 
 impl FullBlockIndex {
-    pub fn from_file<P: AsRef<Path>>(
-        path: P,
+    pub fn from_file(
+        path: &Path,
         metadata: &crate::segment::meta::Metadata,
         offsets: &crate::segment::file_offsets::FileOffsets,
     ) -> crate::Result<Self> {
-        let path = path.as_ref();
         let cnt = metadata.index_block_count as usize;
 
         log::trace!(

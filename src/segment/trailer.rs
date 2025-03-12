@@ -26,7 +26,7 @@ pub struct SegmentFileTrailer {
 }
 
 impl SegmentFileTrailer {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+    pub fn from_file(path: &Path) -> crate::Result<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
         reader.seek(std::io::SeekFrom::End(-(TRAILER_SIZE as i64)))?;
