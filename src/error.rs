@@ -49,11 +49,11 @@ impl std::error::Error for Error {
             Self::Io(e) => Some(e),
             Self::Encode(e) => Some(e),
             Self::Decode(e) => Some(e),
-            Self::Decompress(_) => None,
-            Self::InvalidVersion(_) => None,
-            Self::Unrecoverable => None,
-            Self::InvalidChecksum(_) => None,
             Self::ValueLog(e) => Some(e),
+            Self::Decompress(_)
+            | Self::InvalidVersion(_)
+            | Self::Unrecoverable
+            | Self::InvalidChecksum(_) => None,
         }
     }
 }
