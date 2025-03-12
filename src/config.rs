@@ -107,7 +107,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            path: absolute_path(DEFAULT_FILE_FOLDER),
+            path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
 
             block_cache: Arc::new(BlockCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
@@ -131,7 +131,7 @@ impl Config {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
-            path: absolute_path(path),
+            path: absolute_path(path.as_ref()),
             ..Default::default()
         }
     }

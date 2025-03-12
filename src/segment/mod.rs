@@ -213,8 +213,8 @@ impl Segment {
         Ok(broken_count)
     }
 
-    pub(crate) fn load_bloom<P: AsRef<Path>>(
-        path: P,
+    pub(crate) fn load_bloom(
+        path: &Path,
         ptr: value_block::BlockOffset,
     ) -> crate::Result<Option<BloomFilter>> {
         Ok(if *ptr > 0 {
@@ -233,8 +233,8 @@ impl Segment {
     }
 
     /// Tries to recover a segment from a file.
-    pub(crate) fn recover<P: AsRef<Path>>(
-        file_path: P,
+    pub(crate) fn recover(
+        file_path: &Path,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
@@ -242,8 +242,6 @@ impl Segment {
     ) -> crate::Result<Self> {
         use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::SegmentFileTrailer;
-
-        let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
@@ -432,7 +430,7 @@ impl Segment {
     pub fn scan<P: AsRef<Path>>(&self, base_folder: P) -> crate::Result<Scanner> {
         let segment_file_path = base_folder.as_ref().join(self.metadata.id.to_string());
         let block_count = self.metadata.data_block_count.try_into().expect("oops");
-        Scanner::new(segment_file_path, block_count)
+        Scanner::new(&segment_file_path, block_count)
     }
 
     /// Creates a ranged iterator over the `Segment`.

@@ -115,19 +115,19 @@ impl LevelManifest {
         !self.hidden_set.is_empty()
     }
 
-    pub(crate) fn create_new<P: AsRef<Path>>(level_count: u8, path: P) -> crate::Result<Self> {
+    pub(crate) fn create_new<P: Into<PathBuf>>(level_count: u8, path: P) -> crate::Result<Self> {
         assert!(level_count > 0, "level_count should be >= 1");
 
         let levels = (0..level_count).map(|_| Arc::default()).collect::<Vec<_>>();
 
         #[allow(unused_mut)]
         let mut manifest = Self {
-            path: path.as_ref().to_path_buf(),
+            path: path.into(),
             levels,
             hidden_set: HiddenSet::default(),
             is_disjoint: true,
         };
-        Self::write_to_disk(path, &manifest.deep_clone())?;
+        Self::write_to_disk(&manifest.path, &manifest.deep_clone())?;
 
         Ok(manifest)
     }
@@ -144,10 +144,8 @@ impl LevelManifest {
         self.is_disjoint = KeyRange::is_disjoint(&key_ranges.iter().collect::<Vec<_>>());
     }
 
-    pub(crate) fn load_level_manifest<P: AsRef<Path>>(
-        path: P,
-    ) -> crate::Result<Vec<Vec<SegmentId>>> {
-        let mut level_manifest = Cursor::new(std::fs::read(&path)?);
+    pub(crate) fn load_level_manifest(path: &Path) -> crate::Result<Vec<Vec<SegmentId>>> {
+        let mut level_manifest = Cursor::new(std::fs::read(path)?);
 
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
@@ -178,8 +176,8 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn recover_ids<P: AsRef<Path>>(
-        path: P,
+    pub(crate) fn recover_ids(
+        path: &Path,
     ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
         let manifest = Self::load_level_manifest(path)?;
         let mut result = crate::HashMap::default();
@@ -218,7 +216,12 @@ impl LevelManifest {
         levels
     }
 
-    pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
+    pub(crate) fn recover<P: Into<PathBuf>>(
+        path: P,
+        segments: Vec<Segment>,
+    ) -> crate::Result<Self> {
+        let path = path.into();
+
         let level_manifest = Self::load_level_manifest(&path)?;
 
         let segments: HashMap<_, _> = segments.into_iter().map(|seg| (seg.id(), seg)).collect();
@@ -228,7 +231,7 @@ impl LevelManifest {
         let mut manifest = Self {
             levels,
             hidden_set: HiddenSet::default(),
-            path: path.as_ref().to_path_buf(),
+            path,
             is_disjoint: false,
         };
         manifest.set_disjoint_flag();
@@ -236,10 +239,8 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
-        let path = path.as_ref();
-
-        log::trace!("Writing level manifest to {path:?}",);
+    pub(crate) fn write_to_disk(path: &Path, levels: &Vec<Level>) -> crate::Result<()> {
+        log::trace!("Writing level manifest to {path:?}");
 
         let serialized = levels.encode_into_vec();
 

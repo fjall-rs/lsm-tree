@@ -61,12 +61,10 @@ impl Memtable {
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None.
     #[doc(hidden)]
-    pub fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> Option<InternalValue> {
+    pub fn get(&self, key: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
         if seqno == Some(0) {
             return None;
         }
-
-        let key = key.as_ref();
 
         // NOTE: This range start deserves some explanation...
         // InternalKeys are multi-sorted by 2 categories: user_key and Reverse(seqno). (tombstone doesn't really matter)
@@ -172,10 +170,10 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get("hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", None);
         assert_eq!(None, item);
 
-        let item = memtable.get("hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", None);
         assert_eq!(*b"hello-value-999991", &*item.unwrap().value);
 
         memtable.insert(InternalValue::from_components(
@@ -185,22 +183,22 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get("hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", None);
         assert_eq!(None, item);
 
-        let item = memtable.get("hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", None);
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
 
-        let item = memtable.get("hello-key-99999", Some(1));
+        let item = memtable.get(b"hello-key-99999", Some(1));
         assert_eq!(None, item);
 
-        let item = memtable.get("hello-key-999991", Some(1));
+        let item = memtable.get(b"hello-key-999991", Some(1));
         assert_eq!((*b"hello-value-999991"), &*item.unwrap().value);
 
-        let item = memtable.get("hello-key-99999", Some(2));
+        let item = memtable.get(b"hello-key-99999", Some(2));
         assert_eq!(None, item);
 
-        let item = memtable.get("hello-key-999991", Some(2));
+        let item = memtable.get(b"hello-key-999991", Some(2));
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
     }
 
@@ -213,7 +211,7 @@ mod tests {
 
         memtable.insert(value.clone());
 
-        assert_eq!(Some(value), memtable.get("abc", None));
+        assert_eq!(Some(value), memtable.get(b"abc", None));
     }
 
     #[test]
@@ -258,7 +256,7 @@ mod tests {
                 4,
                 ValueType::Value,
             )),
-            memtable.get("abc", None)
+            memtable.get(b"abc", None)
         );
     }
 
@@ -286,7 +284,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get("abc", None)
+            memtable.get(b"abc", None)
         );
 
         assert_eq!(
@@ -296,7 +294,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get("abc0", None)
+            memtable.get(b"abc0", None)
         );
     }
 
@@ -330,7 +328,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get("abc", None)
+            memtable.get(b"abc", None)
         );
 
         assert_eq!(
@@ -340,7 +338,7 @@ mod tests {
                 99,
                 ValueType::Value,
             )),
-            memtable.get("abc", Some(100))
+            memtable.get(b"abc", Some(100))
         );
 
         assert_eq!(
@@ -350,7 +348,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get("abc", Some(50))
+            memtable.get(b"abc", Some(50))
         );
     }
 }
