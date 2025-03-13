@@ -236,7 +236,7 @@ impl Metadata {
     }
 
     /// Reads and parses a Segment metadata file
-    pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+    pub fn from_disk(path: &Path) -> crate::Result<Self> {
         let file_content = std::fs::read(path)?;
         let mut cursor = Cursor::new(file_content);
         let meta = Self::decode_from(&mut cursor)?;

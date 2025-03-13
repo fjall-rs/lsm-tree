@@ -44,11 +44,11 @@ impl KeyRange {
         Self((Slice::new(b""), Slice::new(b"")))
     }
 
-    fn min(&self) -> &UserKey {
+    pub fn min(&self) -> &UserKey {
         &self.0 .0
     }
 
-    fn max(&self) -> &UserKey {
+    pub fn max(&self) -> &UserKey {
         &self.0 .1
     }
 
@@ -66,8 +66,7 @@ impl KeyRange {
     }
 
     /// Returns `true` if the key falls within this key range.
-    pub fn contains_key<K: AsRef<[u8]>>(&self, key: K) -> bool {
-        let key = key.as_ref();
+    pub fn contains_key(&self, key: &[u8]) -> bool {
         let (start, end) = &self.0;
         key >= *start && key <= *end
     }

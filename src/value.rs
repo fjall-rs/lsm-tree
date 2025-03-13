@@ -185,8 +185,7 @@ impl Decode for InternalValue {
         if key.is_tombstone() {
             Ok(Self {
                 key,
-                // TODO: Slice::empty()
-                value: vec![].into(),
+                value: Slice::empty(),
             })
         } else {
             // NOTE: Only read value if we are actually a value

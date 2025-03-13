@@ -287,7 +287,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -387,7 +387,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -588,7 +588,7 @@ mod tests {
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
             let block_index = TwoLevelBlockIndex::from_file(
-                segment_file_path,
+                &segment_file_path,
                 &trailer.metadata,
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
@@ -692,7 +692,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),

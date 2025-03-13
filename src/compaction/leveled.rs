@@ -12,6 +12,7 @@ use crate::{
     HashSet, SegmentId,
 };
 
+// TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
 /// Aggregates the key range of a list of segments.
 fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
     KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
@@ -204,7 +205,7 @@ impl Strategy {
     }
 
     fn level_base_size(&self) -> u64 {
-        self.target_size as u64 * self.l0_threshold as u64
+        u64::from(self.target_size) * u64::from(self.l0_threshold)
     }
 }
 

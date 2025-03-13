@@ -213,8 +213,8 @@ impl Segment {
         Ok(broken_count)
     }
 
-    pub(crate) fn load_bloom<P: AsRef<Path>>(
-        path: P,
+    pub(crate) fn load_bloom(
+        path: &Path,
         ptr: value_block::BlockOffset,
     ) -> crate::Result<Option<BloomFilter>> {
         Ok(if *ptr > 0 {
@@ -233,8 +233,8 @@ impl Segment {
     }
 
     /// Tries to recover a segment from a file.
-    pub(crate) fn recover<P: AsRef<Path>>(
-        file_path: P,
+    pub(crate) fn recover(
+        file_path: &Path,
         tree_id: TreeId,
         block_cache: Arc<BlockCache>,
         descriptor_table: Arc<FileDescriptorTable>,
@@ -242,8 +242,6 @@ impl Segment {
     ) -> crate::Result<Self> {
         use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::SegmentFileTrailer;
-
-        let file_path = file_path.as_ref();
 
         log::debug!("Recovering segment from file {file_path:?}");
         let trailer = SegmentFileTrailer::from_file(file_path)?;
@@ -300,9 +298,9 @@ impl Segment {
             .unwrap_or_default()
     }
 
-    pub fn get<K: AsRef<[u8]>>(
+    pub fn get(
         &self,
-        key: K,
+        key: &[u8],
         seqno: Option<SeqNo>,
         hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
@@ -312,7 +310,7 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(&key) {
+        if !self.metadata.key_range.contains_key(key) {
             return Ok(None);
         }
 
@@ -325,16 +323,10 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
-    fn point_read<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<InternalValue>> {
+    fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> crate::Result<Option<InternalValue>> {
         use block_index::BlockIndex;
         use value_block::{CachePolicy, ValueBlock};
         use value_block_consumer::ValueBlockConsumer;
-
-        let key = key.as_ref();
 
         let Some(first_block_handle) = self
             .block_index
@@ -417,11 +409,10 @@ impl Segment {
         Ok(Some(entry))
     }
 
-    pub fn is_key_in_key_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
+    #[must_use]
+    pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
         self.metadata.key_range.contains_key(key)
     }
-
-    // TODO: move segment tests into module, then make pub(crate)
 
     /// Creates an iterator over the `Segment`.
     ///
@@ -439,7 +430,7 @@ impl Segment {
     pub fn scan<P: AsRef<Path>>(&self, base_folder: P) -> crate::Result<Scanner> {
         let segment_file_path = base_folder.as_ref().join(self.metadata.id.to_string());
         let block_count = self.metadata.data_block_count.try_into().expect("oops");
-        Scanner::new(segment_file_path, block_count)
+        Scanner::new(&segment_file_path, block_count)
     }
 
     /// Creates a ranged iterator over the `Segment`.

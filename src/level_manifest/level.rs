@@ -174,12 +174,12 @@ pub struct DisjointLevel<'a>(&'a Level);
 
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
-    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Segment> {
+    pub fn get_segment_containing_key(&self, key: &[u8]) -> Option<Segment> {
         let level = &self.0;
 
         let idx = level
             .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
+            .partition_point(|x| &*x.metadata.key_range.1 < key);
 
         level
             .segments
@@ -188,6 +188,7 @@ impl<'a> DisjointLevel<'a> {
             .cloned()
     }
 
+    // TODO: use a single custom binary search instead of partition_point... benchmark it and add some unit tests before
     pub fn range_indexes(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
@@ -450,12 +451,12 @@ mod tests {
             .clone();
 
         let dis = first.as_disjoint().unwrap();
-        assert!(dis.get_segment_containing_key("a").is_none());
-        assert!(dis.get_segment_containing_key("b").is_none());
+        assert!(dis.get_segment_containing_key(b"a").is_none());
+        assert!(dis.get_segment_containing_key(b"b").is_none());
         for k in 'c'..'k' {
-            assert!(dis.get_segment_containing_key([k as u8]).is_some());
+            assert!(dis.get_segment_containing_key(&[k as u8]).is_some());
         }
-        assert!(dis.get_segment_containing_key("l").is_none());
+        assert!(dis.get_segment_containing_key(b"l").is_none());
 
         Ok(())
     }

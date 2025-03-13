@@ -102,8 +102,8 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
-fn create_compaction_stream<'a, P: AsRef<Path>>(
-    segment_base_folder: P,
+fn create_compaction_stream<'a>(
+    segment_base_folder: &Path,
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
@@ -140,7 +140,7 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
             };
 
             readers.push(Box::new(LevelScanner::from_indexes(
-                segment_base_folder.as_ref().to_owned(),
+                segment_base_folder.to_owned(),
                 level.clone(),
                 (Some(lo), Some(hi)),
             )?));
@@ -150,7 +150,7 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
             for &id in to_compact {
                 if let Some(segment) = level.segments.iter().find(|x| x.id() == id) {
                     found += 1;
-                    readers.push(Box::new(segment.scan(&segment_base_folder)?));
+                    readers.push(Box::new(segment.scan(segment_base_folder)?));
                 }
             }
         }
@@ -212,6 +212,14 @@ fn merge_segments(
     }
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+
+    log::debug!(
+        "Compacting segments {:?} into L{}, compression={}, mvcc_gc_watermark={}",
+        payload.segment_ids,
+        payload.dest_level,
+        opts.config.compression,
+        opts.eviction_seqno,
+    );
 
     let Some(merge_iter) = create_compaction_stream(
         &segments_base_folder,
@@ -316,7 +324,7 @@ fn merge_segments(
             return Ok(());
         };
 
-        if idx % 100_000 == 0 && opts.stop_signal.is_stopped() {
+        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
             return Ok(());
         }

@@ -12,9 +12,7 @@ pub const LEVELS_MANIFEST_FILE: &str = "levels";
 pub const BLOBS_FOLDER: &str = "blobs";
 
 /// Atomically rewrites a file
-pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Result<()> {
-    let path = path.as_ref();
-
+pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     // NOTE: Nothing we can do
     #[allow(clippy::expect_used)]
     let folder = path.parent().expect("should have a parent");
@@ -34,14 +32,14 @@ pub fn rewrite_atomic<P: AsRef<Path>>(path: P, content: &[u8]) -> std::io::Resul
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn fsync_directory<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
     let file = std::fs::File::open(path)?;
     debug_assert!(file.metadata()?.is_dir());
     file.sync_all()
 }
 
 #[cfg(target_os = "windows")]
-pub fn fsync_directory<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
     // Cannot fsync directory on Windows
     Ok(())
 }

@@ -38,7 +38,7 @@ fn tli_find_item(c: &mut Criterion) {
                             .get_lowest_block_containing_key(&key, CachePolicy::Read)
                             .unwrap()
                             .unwrap()
-                            .end_key
+                            .end_key,
                     );
                 })
             },

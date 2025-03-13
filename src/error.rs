@@ -27,7 +27,7 @@ pub enum Error {
     /// Invalid or unparsable data format version
     InvalidVersion(Version),
 
-    /// Some required segments could not be required from disk
+    /// Some required segments could not be recovered from disk
     Unrecoverable,
 
     /// Invalid checksum value (got, expected)
@@ -43,7 +43,20 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Encode(e) => Some(e),
+            Self::Decode(e) => Some(e),
+            Self::ValueLog(e) => Some(e),
+            Self::Decompress(_)
+            | Self::InvalidVersion(_)
+            | Self::Unrecoverable
+            | Self::InvalidChecksum(_) => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
