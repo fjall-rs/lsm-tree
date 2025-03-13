@@ -92,6 +92,8 @@ impl IterGuard for Guard<'_> {
         let mut cursor = Cursor::new(value);
 
         Ok(match MaybeInlineValue::decode_from(&mut cursor)? {
+            // NOTE: We know LSM-tree values are 32 bits in length max
+            #[allow(clippy::cast_possible_truncation)]
             Inline(bytes) => bytes.len() as u32,
 
             // NOTE: No need to resolve vHandle, because the size is already stored
