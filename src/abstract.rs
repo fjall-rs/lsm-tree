@@ -19,6 +19,15 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Returns an iterator that scans through the entire tree.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
     #[doc(hidden)]
     fn guarded_iter(
         &self,
@@ -28,6 +37,15 @@ pub trait AbstractTree {
         self.guarded_range::<&[u8], _>(.., seqno, index)
     }
 
+    /// Returns an iterator over a prefixed set of items.
+    ///
+    /// Avoid using an empty prefix as it may scan a lot of items (unless limited).
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
     #[doc(hidden)]
     fn guarded_prefix<K: AsRef<[u8]>>(
         &self,
@@ -36,6 +54,15 @@ pub trait AbstractTree {
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_>;
 
+    /// Returns an iterator over a range of items.
+    ///
+    /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
     #[doc(hidden)]
     fn guarded_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
