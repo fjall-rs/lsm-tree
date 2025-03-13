@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
+    compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl,
+    tree::inner::MemtableId, AnyTree, BlobTree, Config, KvPair, Memtable, Segment, SegmentId,
+    SeqNo, Snapshot, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -18,6 +19,31 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    #[doc(hidden)]
+    fn guarded_iter(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        self.guarded_range::<&[u8], _>(.., seqno, index)
+    }
+
+    #[doc(hidden)]
+    fn guarded_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_>;
+
+    #[doc(hidden)]
+    fn guarded_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_>;
+
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 

@@ -194,6 +194,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
+    iter_guard::IterGuard as Guard,
     merge::BoxedIterator,
     segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
