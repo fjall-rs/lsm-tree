@@ -9,6 +9,7 @@ use crate::{
     compaction::{stream::CompactionStream, CompactionStrategy},
     config::Config,
     descriptor_table::FileDescriptorTable,
+    iter_guard::{IterGuard, IterGuardImpl},
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
@@ -51,7 +52,49 @@ impl std::ops::Deref for Tree {
     }
 }
 
+pub struct Guard(crate::Result<(UserKey, UserValue)>);
+
+impl IterGuard for Guard {
+    fn key(self) -> crate::Result<UserKey> {
+        self.0.map(|(k, _)| k)
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        // NOTE: We know LSM-tree values are 32 bits in length max
+        #[allow(clippy::cast_possible_truncation)]
+        self.into_inner().map(|(_, v)| v.len() as u32)
+    }
+
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
+        self.0
+    }
+}
+
 impl AbstractTree for Tree {
+    fn guarded_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        Box::new(
+            self.create_prefix(&prefix, seqno, index)
+                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+        )
+    }
+
+    fn guarded_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        Box::new(
+            self.create_range(&range, seqno, index)
+                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+        )
+    }
+
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
@@ -391,6 +434,14 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    fn new_iter(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> impl Iterator<Item = impl IterGuard> {
+        self.iter(seqno, index).map(Guard)
+    }
+
     /// Opens an LSM-tree in the given directory.
     ///
     /// Will recover previous state if the folder was previously

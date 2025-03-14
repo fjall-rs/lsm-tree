@@ -11,6 +11,7 @@ use crate::{
     coding::{Decode, Encode},
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
+    iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
     tree::inner::MemtableId,
     value::InternalValue,
@@ -72,6 +73,37 @@ pub struct BlobTree {
     // TODO: maybe replace this with a nonce system
     #[doc(hidden)]
     pub pending_segments: Arc<AtomicUsize>,
+}
+
+pub struct Guard<'a>(
+    &'a ValueLog<MyCompressor>,
+    crate::Result<(UserKey, UserValue)>,
+);
+
+impl IterGuard for Guard<'_> {
+    fn key(self) -> crate::Result<UserKey> {
+        self.1.map(|(k, _)| k)
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        use MaybeInlineValue::{Indirect, Inline};
+
+        let value = self.1?.1;
+        let mut cursor = Cursor::new(value);
+
+        Ok(match MaybeInlineValue::decode_from(&mut cursor)? {
+            // NOTE: We know LSM-tree values are 32 bits in length max
+            #[allow(clippy::cast_possible_truncation)]
+            Inline(bytes) => bytes.len() as u32,
+
+            // NOTE: No need to resolve vHandle, because the size is already stored
+            Indirect { size, .. } => size,
+        })
+    }
+
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
+        resolve_value_handle(self.0, self.1)
+    }
 }
 
 impl BlobTree {
@@ -230,6 +262,34 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn guarded_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        Box::new(
+            self.index
+                .0
+                .create_prefix(&prefix, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
+        )
+    }
+
+    fn guarded_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        Box::new(
+            self.index
+                .0
+                .create_range(&range, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
+        )
+    }
+
     fn blob_file_count(&self) -> usize {
         self.blobs.segment_count()
     }

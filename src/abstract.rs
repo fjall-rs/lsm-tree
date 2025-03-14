@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
+    compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl,
+    tree::inner::MemtableId, AnyTree, BlobTree, Config, KvPair, Memtable, Segment, SegmentId,
+    SeqNo, Snapshot, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -18,6 +19,58 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Returns an iterator that scans through the entire tree.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
+    #[doc(hidden)]
+    fn guarded_iter(
+        &self,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_> {
+        self.guarded_range::<&[u8], _>(.., seqno, index)
+    }
+
+    /// Returns an iterator over a prefixed set of items.
+    ///
+    /// Avoid using an empty prefix as it may scan a lot of items (unless limited).
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
+    #[doc(hidden)]
+    fn guarded_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_>;
+
+    /// Returns an iterator over a range of items.
+    ///
+    /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).
+    ///
+    /// # Experimental
+    ///
+    /// This API is experimental and will 100% be renamed.
+    ///
+    /// https://github.com/fjall-rs/lsm-tree/issues/110
+    #[doc(hidden)]
+    fn guarded_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: Option<SeqNo>,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn Iterator<Item = IterGuardImpl> + '_>;
+
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 

@@ -147,6 +147,8 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+mod iter_guard;
+
 mod key;
 mod key_range;
 
@@ -192,6 +194,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
+    iter_guard::IterGuard as Guard,
     merge::BoxedIterator,
     segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
