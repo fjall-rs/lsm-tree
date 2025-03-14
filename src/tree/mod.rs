@@ -271,9 +271,6 @@ impl AbstractTree for Tree {
         self.levels.read().expect("lock is poisoned").len()
     }
 
-    /// Returns the amount of segments in levels[idx].
-    ///
-    /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize> {
         self.levels
             .read()
