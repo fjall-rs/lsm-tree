@@ -519,6 +519,10 @@ impl AbstractTree for BlobTree {
         self.index.segment_count()
     }
 
+    fn level_segment_count(&self, idx: usize) -> Option<usize> {
+        self.index.level_segment_count(idx)
+    }
+
     fn first_level_segment_count(&self) -> usize {
         self.index.first_level_segment_count()
     }
