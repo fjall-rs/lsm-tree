@@ -26,6 +26,9 @@ pub struct Range {
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
     pub(crate) reader: Reader,
+
+    has_entered_lo: bool,
+    has_entered_hi: bool,
 }
 
 impl Range {
@@ -54,6 +57,9 @@ impl Range {
 
             reader,
             range,
+
+            has_entered_lo: false,
+            has_entered_hi: false,
         }
     }
 
@@ -137,20 +143,28 @@ impl Iterator for Range {
 
             match entry_result {
                 Ok(entry) => {
-                    match self.range.start_bound() {
-                        Bound::Included(start) => {
-                            if entry.key.user_key < *start {
-                                // Before min key
-                                continue;
+                    if !self.has_entered_lo {
+                        match self.range.start_bound() {
+                            Bound::Included(start) => {
+                                // eprintln!("  CMP LO KEY");
+
+                                if entry.key.user_key < *start {
+                                    // Before min key
+                                    continue;
+                                }
+                                self.has_entered_lo = true;
                             }
-                        }
-                        Bound::Excluded(start) => {
-                            if entry.key.user_key <= *start {
-                                // Before or equal min key
-                                continue;
+                            Bound::Excluded(start) => {
+                                // eprintln!("  CMP LO KEY");
+
+                                if entry.key.user_key <= *start {
+                                    // Before or equal min key
+                                    continue;
+                                }
+                                self.has_entered_lo = true;
                             }
+                            Bound::Unbounded => {}
                         }
-                        Bound::Unbounded => {}
                     }
 
                     match self.range.end_bound() {
@@ -204,20 +218,24 @@ impl DoubleEndedIterator for Range {
                         Bound::Unbounded => {}
                     }
 
-                    match self.range.end_bound() {
-                        Bound::Included(end) => {
-                            if entry.key.user_key > *end {
-                                // After max key
-                                continue;
+                    if !self.has_entered_hi {
+                        match self.range.end_bound() {
+                            Bound::Included(end) => {
+                                if entry.key.user_key > *end {
+                                    // After max key
+                                    continue;
+                                }
+                                self.has_entered_hi = true;
                             }
-                        }
-                        Bound::Excluded(end) => {
-                            if entry.key.user_key >= *end {
-                                // After or equal max key
-                                continue;
+                            Bound::Excluded(end) => {
+                                if entry.key.user_key >= *end {
+                                    // After or equal max key
+                                    continue;
+                                }
+                                self.has_entered_hi = true;
                             }
+                            Bound::Unbounded => {}
                         }
-                        Bound::Unbounded => {}
                     }
 
                     return Some(Ok(entry));
