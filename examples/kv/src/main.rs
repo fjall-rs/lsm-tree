@@ -138,12 +138,12 @@ impl KvStore {
             self.wal.truncate()?;
         }
 
-        if self.tree.first_level_segment_count() > 16 {
+        if self.tree.level_segment_count(0).unwrap_or_default() > 16 {
             eprintln!("Stalling writes...");
             std::thread::sleep(Duration::from_millis(100));
         }
 
-        while self.tree.first_level_segment_count() > 20 {
+        while self.tree.level_segment_count(0).unwrap_or_default() > 20 {
             eprintln!("Halting writes until L0 is cleared up...");
         }
 
