@@ -19,7 +19,7 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 This is the most feature-rich LSM-tree implementation in Rust! It features:
 
 - Thread-safe BTreeMap-like API
-- 100% safe & stable Rust
+- [99.9% safe](./UNSAFE.md) & stable Rust
 - Block-based tables with compression support
 - Range & prefix searching with forward and reverse iteration
 - Size-tiered, (concurrent) Leveled and FIFO compaction 

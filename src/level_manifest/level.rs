@@ -2,7 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
+use crate::{
+    binary_search::partition_point, key_range::KeyRange, segment::meta::SegmentId, HashSet,
+    Segment, UserKey,
+};
 use std::ops::Bound;
 
 /// Level of an LSM-tree
@@ -175,16 +178,14 @@ pub struct DisjointLevel<'a>(&'a Level);
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
     pub fn get_segment_containing_key(&self, key: &[u8]) -> Option<Segment> {
-        let level = &self.0;
+        let idx = partition_point(&self.0.segments, |segment| {
+            segment.metadata.key_range.max() < &key
+        });
 
-        let idx = level
-            .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key);
-
-        level
+        self.0
             .segments
             .get(idx)
-            .filter(|x| x.is_key_in_key_range(key))
+            .filter(|x| x.metadata.key_range.min() <= &key)
             .cloned()
     }
 
@@ -198,10 +199,10 @@ impl<'a> DisjointLevel<'a> {
         let lo = match &key_range.0 {
             Bound::Unbounded => 0,
             Bound::Included(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 < start_key)
+                partition_point(level, |segment| segment.metadata.key_range.1 < start_key)
             }
             Bound::Excluded(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 <= start_key)
+                partition_point(level, |segment| segment.metadata.key_range.1 <= start_key)
             }
         };
 
@@ -212,7 +213,7 @@ impl<'a> DisjointLevel<'a> {
         let hi = match &key_range.1 {
             Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 <= end_key);
+                let idx = partition_point(level, |segment| segment.metadata.key_range.0 <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -221,7 +222,7 @@ impl<'a> DisjointLevel<'a> {
                 idx.saturating_sub(1) // To avoid underflow
             }
             Bound::Excluded(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 < end_key);
+                let idx = partition_point(level, |segment| segment.metadata.key_range.0 < end_key);
 
                 if idx == 0 {
                     return None;
