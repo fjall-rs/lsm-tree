@@ -93,7 +93,7 @@ impl KeyRange {
             return match lo {
                 Bound::Included(key) => key <= my_hi,
                 Bound::Excluded(key) => key < my_hi,
-                Bound::Unbounded => panic!("Invalid key range check"),
+                Bound::Unbounded => unreachable!(),
             };
         }
 
@@ -101,20 +101,20 @@ impl KeyRange {
             return match hi {
                 Bound::Included(key) => key >= my_lo,
                 Bound::Excluded(key) => key > my_lo,
-                Bound::Unbounded => panic!("Invalid key range check"),
+                Bound::Unbounded => unreachable!(),
             };
         }
 
         let lo_included = match lo {
             Bound::Included(key) => key <= my_hi,
             Bound::Excluded(key) => key < my_hi,
-            Bound::Unbounded => panic!("Invalid key range check"),
+            Bound::Unbounded => unreachable!(),
         };
 
         let hi_included = match hi {
             Bound::Included(key) => key >= my_lo,
             Bound::Excluded(key) => key > my_lo,
-            Bound::Unbounded => panic!("Invalid key range check"),
+            Bound::Unbounded => unreachable!(),
         };
 
         lo_included && hi_included
