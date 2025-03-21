@@ -9,7 +9,7 @@ use crate::{
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     io::{Read, Write},
-    ops::{Bound, Deref},
+    ops::Bound,
 };
 
 /// A key range in the format of [min, max] (inclusive on both sides)
@@ -24,14 +24,6 @@ impl std::fmt::Display for KeyRange {
             String::from_utf8_lossy(&self.0 .0),
             String::from_utf8_lossy(&self.0 .1)
         )
-    }
-}
-
-impl std::ops::Deref for KeyRange {
-    type Target = (UserKey, UserKey);
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -151,15 +143,18 @@ impl KeyRange {
 
 impl Encode for KeyRange {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // NOTE: Max key size = u16
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.deref().0.len() as u16)?;
-        writer.write_all(&self.deref().0)?;
+        let min = self.min();
+        let max = self.max();
 
         // NOTE: Max key size = u16
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(self.deref().1.len() as u16)?;
-        writer.write_all(&self.deref().1)?;
+        writer.write_u16::<BigEndian>(min.len() as u16)?;
+        writer.write_all(min)?;
+
+        // NOTE: Max key size = u16
+        #[allow(clippy::cast_possible_truncation)]
+        writer.write_u16::<BigEndian>(max.len() as u16)?;
+        writer.write_all(max)?;
 
         Ok(())
     }

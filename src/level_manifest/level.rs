@@ -86,7 +86,7 @@ impl Level {
     /// [key:a]     [key:c]     [key:z]
     pub(crate) fn sort_by_key_range(&mut self) {
         self.segments
-            .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+            .sort_by(|a, b| a.metadata.key_range.min().cmp(b.metadata.key_range.min()));
     }
 
     /// Sorts the level from newest to oldest.
@@ -179,7 +179,7 @@ impl<'a> DisjointLevel<'a> {
 
         let idx = level
             .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key);
+            .partition_point(|x| x.metadata.key_range.max() < &key);
 
         level
             .segments
@@ -198,10 +198,10 @@ impl<'a> DisjointLevel<'a> {
         let lo = match &key_range.0 {
             Bound::Unbounded => 0,
             Bound::Included(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 < start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() < start_key)
             }
             Bound::Excluded(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 <= start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() <= start_key)
             }
         };
 
@@ -212,7 +212,8 @@ impl<'a> DisjointLevel<'a> {
         let hi = match &key_range.1 {
             Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 <= end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -221,7 +222,8 @@ impl<'a> DisjointLevel<'a> {
                 idx.saturating_sub(1) // To avoid underflow
             }
             Bound::Excluded(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 < end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() < end_key);
 
                 if idx == 0 {
                     return None;
