@@ -146,8 +146,6 @@ impl Iterator for Range {
                     if !self.has_entered_lo {
                         match self.range.start_bound() {
                             Bound::Included(start) => {
-                                // eprintln!("  CMP LO KEY");
-
                                 if entry.key.user_key < *start {
                                     // Before min key
                                     continue;
@@ -155,8 +153,6 @@ impl Iterator for Range {
                                 self.has_entered_lo = true;
                             }
                             Bound::Excluded(start) => {
-                                // eprintln!("  CMP LO KEY");
-
                                 if entry.key.user_key <= *start {
                                     // Before or equal min key
                                     continue;
