@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{file_offsets::FileOffsets, meta::Metadata};
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    file::MAGIC_BYTES,
-};
+use crate::{file::MAGIC_BYTES, Decode, DecodeError, Encode, EncodeError};
 use std::{
     fs::File,
     io::{BufReader, Read, Seek, Write},

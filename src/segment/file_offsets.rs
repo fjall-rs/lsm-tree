@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::value_block::BlockOffset;
-use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 

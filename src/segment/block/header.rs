@@ -4,9 +4,9 @@
 
 use super::checksum::Checksum;
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
     segment::{meta::CompressionType, value_block::BlockOffset},
+    Decode, DecodeError, Encode, EncodeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};

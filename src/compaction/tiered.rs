@@ -136,7 +136,6 @@ mod tests {
         config::Config,
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
-        key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
@@ -145,7 +144,7 @@ mod tests {
             value_block::BlockOffset,
             Segment, SegmentInner,
         },
-        HashSet, SeqNo,
+        HashSet, KeyRange, SeqNo,
     };
     use std::sync::Arc;
     use test_log::test;

@@ -132,8 +132,6 @@ mod block_cache;
 #[doc(hidden)]
 pub mod bloom;
 
-#[doc(hidden)]
-pub mod coding;
 pub mod compaction;
 mod config;
 
@@ -148,7 +146,6 @@ mod error;
 pub mod file;
 
 mod key;
-mod key_range;
 
 #[doc(hidden)]
 pub mod level_manifest;
@@ -190,6 +187,11 @@ mod version;
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
 
+pub(crate) use value_log::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    KeyRange,
+};
+
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
@@ -200,7 +202,6 @@ pub use {
 
 pub use {
     block_cache::BlockCache,
-    coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,

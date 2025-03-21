@@ -4,11 +4,11 @@
 
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
-    coding::Encode,
     segment::{
         block::header::Header as BlockHeader, meta::CompressionType, value_block::BlockOffset,
     },
     value::UserKey,
+    Encode,
 };
 use std::{
     fs::File,

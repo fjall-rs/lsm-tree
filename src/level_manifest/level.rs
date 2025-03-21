@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
+use crate::{segment::meta::SegmentId, HashSet, KeyRange, Segment, UserKey};
 use std::ops::Bound;
 
 /// Level of an LSM-tree
@@ -248,7 +248,6 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
         segment::{
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
@@ -256,7 +255,7 @@ mod tests {
             value_block::BlockOffset,
             Segment, SegmentInner,
         },
-        AbstractTree, Slice,
+        AbstractTree, KeyRange, Slice,
     };
     use std::sync::Arc;
     use test_log::test;

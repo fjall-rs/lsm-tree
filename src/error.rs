@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{DecodeError, EncodeError},
-    version::Version,
-    Checksum, CompressionType,
-};
+use crate::{version::Version, Checksum, CompressionType, DecodeError, EncodeError};
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]

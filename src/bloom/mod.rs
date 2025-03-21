@@ -4,10 +4,7 @@
 
 mod bit_array;
 
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    file::MAGIC_BYTES,
-};
+use crate::{file::MAGIC_BYTES, Decode, DecodeError, Encode, EncodeError};
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};

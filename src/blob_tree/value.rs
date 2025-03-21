@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 use value_log::{Slice, UserValue, ValueHandle};
@@ -20,22 +20,6 @@ pub enum MaybeInlineValue {
 
     /// The value is a handle (pointer) into the value log
     Indirect { vhandle: ValueHandle, size: u32 },
-}
-
-impl Encode for ValueHandle {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64_varint(self.offset)?;
-        writer.write_u64_varint(self.segment_id)?;
-        Ok(())
-    }
-}
-
-impl Decode for ValueHandle {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let offset = reader.read_u64_varint()?;
-        let segment_id = reader.read_u64_varint()?;
-        Ok(Self { segment_id, offset })
-    }
 }
 
 const TAG_INLINE: u8 = 0;

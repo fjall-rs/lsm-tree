@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    key::InternalKey,
-    segment::block::ItemSize,
-    Slice,
+    key::InternalKey, segment::block::ItemSize, Decode, DecodeError, Encode, EncodeError, Slice,
 };
 use std::io::{Read, Write};
 use varint_rs::{VarintReader, VarintWriter};

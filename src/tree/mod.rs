@@ -5,7 +5,6 @@
 pub mod inner;
 
 use crate::{
-    coding::{Decode, Encode},
     compaction::{stream::CompactionStream, CompactionStrategy},
     config::Config,
     descriptor_table::FileDescriptorTable,
@@ -21,7 +20,8 @@ use crate::{
     stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, BlockCache, Decode, Encode, KvPair, SegmentId, SeqNo, Snapshot, UserKey,
+    UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
