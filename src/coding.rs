@@ -4,6 +4,8 @@
 
 use std::io::{Read, Write};
 
+// TODO: use value_log::coding instead
+
 /// Error during serialization
 #[derive(Debug)]
 pub enum EncodeError {

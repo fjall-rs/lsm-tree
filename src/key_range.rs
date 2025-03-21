@@ -12,6 +12,8 @@ use std::{
     ops::Bound,
 };
 
+// TODO: use value_log::KeyRange instead
+
 /// A key range in the format of [min, max] (inclusive on both sides)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange(UserKey, UserKey);
