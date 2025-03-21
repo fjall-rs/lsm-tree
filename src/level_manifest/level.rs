@@ -249,10 +249,10 @@ mod tests {
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
         AbstractTree, KeyRange, Slice,

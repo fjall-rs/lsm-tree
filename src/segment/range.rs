@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use super::block::offset::BlockOffset;
 use super::block_index::BlockIndex;
 use super::block_index::BlockIndexImpl;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
-use super::value_block::BlockOffset;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;

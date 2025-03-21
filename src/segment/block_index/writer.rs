@@ -5,7 +5,8 @@
 use super::{IndexBlock, KeyedBlockHandle};
 use crate::{
     segment::{
-        block::header::Header as BlockHeader, meta::CompressionType, value_block::BlockOffset,
+        block::{header::Header as BlockHeader, offset::BlockOffset},
+        meta::CompressionType,
     },
     value::UserKey,
     Encode,

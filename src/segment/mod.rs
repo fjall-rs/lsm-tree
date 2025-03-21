@@ -215,7 +215,7 @@ impl Segment {
 
     pub(crate) fn load_bloom(
         path: &Path,
-        ptr: value_block::BlockOffset,
+        ptr: block::offset::BlockOffset,
     ) -> crate::Result<Option<BloomFilter>> {
         Ok(if *ptr > 0 {
             use crate::Decode;

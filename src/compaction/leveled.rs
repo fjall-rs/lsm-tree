@@ -388,10 +388,10 @@ mod tests {
         descriptor_table::FileDescriptorTable,
         level_manifest::LevelManifest,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
         time::unix_timestamp,

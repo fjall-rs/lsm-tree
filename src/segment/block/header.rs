@@ -2,11 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::checksum::Checksum;
+use super::{checksum::Checksum, offset::BlockOffset};
 use crate::{
-    file::MAGIC_BYTES,
-    segment::{meta::CompressionType, value_block::BlockOffset},
-    Decode, DecodeError, Encode, EncodeError,
+    file::MAGIC_BYTES, segment::meta::CompressionType, Decode, DecodeError, Encode, EncodeError,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};

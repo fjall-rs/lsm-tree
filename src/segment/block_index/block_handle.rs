@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    segment::{block::ItemSize, value_block::BlockOffset},
+    segment::block::{offset::BlockOffset, ItemSize},
     value::UserKey,
     Decode, DecodeError, Encode, EncodeError, Slice,
 };

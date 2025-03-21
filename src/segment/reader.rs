@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{
-    value_block::{BlockOffset, CachePolicy, ValueBlock},
+    block::offset::BlockOffset,
+    value_block::{CachePolicy, ValueBlock},
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
