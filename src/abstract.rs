@@ -111,9 +111,6 @@ pub trait AbstractTree {
         0
     }
 
-    /// Returns the amount of disk segments in the first level.
-    fn first_level_segment_count(&self) -> usize;
-
     /// Returns `true` if the first level is disjoint.
     fn is_first_level_disjoint(&self) -> bool;
 

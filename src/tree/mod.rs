@@ -280,13 +280,6 @@ impl AbstractTree for Tree {
             .map(|x| x.len())
     }
 
-    fn first_level_segment_count(&self) -> usize {
-        self.levels
-            .read()
-            .expect("lock is poisoned")
-            .first_level_segment_count()
-    }
-
     #[allow(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
         // NOTE: Mind lock order L -> M -> S
