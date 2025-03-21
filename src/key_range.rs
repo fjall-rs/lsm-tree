@@ -14,34 +14,38 @@ use std::{
 
 /// A key range in the format of [min, max] (inclusive on both sides)
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct KeyRange((UserKey, UserKey));
+pub struct KeyRange(UserKey, UserKey);
 
 impl std::fmt::Display for KeyRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "[{}<=>{}]",
-            String::from_utf8_lossy(&self.0 .0),
-            String::from_utf8_lossy(&self.0 .1)
+            String::from_utf8_lossy(self.min()),
+            String::from_utf8_lossy(self.max())
         )
     }
 }
 
 impl KeyRange {
-    pub fn new(range: (UserKey, UserKey)) -> Self {
-        Self(range)
+    pub fn new((min, max): (UserKey, UserKey)) -> Self {
+        Self(min, max)
     }
 
     pub fn empty() -> Self {
-        Self((Slice::new(b""), Slice::new(b"")))
+        Self(Slice::new(b""), Slice::new(b""))
     }
 
     pub fn min(&self) -> &UserKey {
-        &self.0 .0
+        &self.0
     }
 
     pub fn max(&self) -> &UserKey {
-        &self.0 .1
+        &self.1
+    }
+
+    fn as_tuple(&self) -> (&UserKey, &UserKey) {
+        (self.min(), self.max())
     }
 
     /// Returns `true` if the list of key ranges is disjoint
@@ -59,27 +63,27 @@ impl KeyRange {
 
     /// Returns `true` if the key falls within this key range.
     pub fn contains_key(&self, key: &[u8]) -> bool {
-        let (start, end) = &self.0;
+        let (start, end) = self.as_tuple();
         key >= *start && key <= *end
     }
 
     /// Returns `true` if the `other` is fully contained in this range.
     pub fn contains_range(&self, other: &Self) -> bool {
-        let (start1, end1) = &self.0;
-        let (start2, end2) = &other.0;
+        let (start1, end1) = self.as_tuple();
+        let (start2, end2) = other.as_tuple();
         start1 <= start2 && end1 >= end2
     }
 
     /// Returns `true` if the `other` overlaps at least partially with this range.
     pub fn overlaps_with_key_range(&self, other: &Self) -> bool {
-        let (start1, end1) = &self.0;
-        let (start2, end2) = &other.0;
+        let (start1, end1) = self.as_tuple();
+        let (start2, end2) = other.as_tuple();
         end1 >= start2 && start1 <= end2
     }
 
     pub fn overlaps_with_bounds(&self, bounds: &(Bound<UserKey>, Bound<UserKey>)) -> bool {
         let (lo, hi) = bounds;
-        let (my_lo, my_hi) = &self.0;
+        let (my_lo, my_hi) = self.as_tuple();
 
         if *lo == Bound::Unbounded && *hi == Bound::Unbounded {
             return true;
@@ -137,7 +141,7 @@ impl KeyRange {
             }
         }
 
-        Self((min.clone(), max.clone()))
+        Self(min.clone(), max.clone())
     }
 }
 
@@ -193,9 +197,9 @@ mod tests {
             int_key_range(7, 10),
         ];
         let aggregated = KeyRange::aggregate(ranges.iter());
-        let (min, max) = aggregated.0;
-        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &*min);
-        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &*max);
+        let (min, max) = aggregated.as_tuple();
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &**min);
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &**max);
     }
 
     #[test]
@@ -206,9 +210,9 @@ mod tests {
             int_key_range(0, 10),
         ];
         let aggregated = KeyRange::aggregate(ranges.iter());
-        let (min, max) = aggregated.0;
-        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &*min);
-        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &*max);
+        let (min, max) = aggregated.as_tuple();
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 0], &**min);
+        assert_eq!([0, 0, 0, 0, 0, 0, 0, 10], &**max);
     }
 
     mod is_disjoint {
@@ -274,7 +278,7 @@ mod tests {
 
         #[test]
         fn inclusive() {
-            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
             let bounds = (
                 Included(UserKey::from("key1")),
                 Included(UserKey::from("key5")),
@@ -284,7 +288,7 @@ mod tests {
 
         #[test]
         fn exclusive() {
-            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
             let bounds = (
                 Excluded(UserKey::from("key0")),
                 Excluded(UserKey::from("key6")),
@@ -294,7 +298,7 @@ mod tests {
 
         #[test]
         fn no_overlap() {
-            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
             let bounds = (
                 Excluded(UserKey::from("key5")),
                 Excluded(UserKey::from("key6")),
@@ -304,7 +308,7 @@ mod tests {
 
         #[test]
         fn unbounded() {
-            let key_range = KeyRange((UserKey::from("key1"), UserKey::from("key5")));
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
             let bounds = (Unbounded, Unbounded);
             assert!(key_range.overlaps_with_bounds(&bounds));
         }
