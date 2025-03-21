@@ -569,9 +569,7 @@ impl Tree {
             if level.len() >= 4 {
                 if let Some(level) = level.as_disjoint() {
                     if let Some(segment) = level.get_segment_containing_key(key) {
-                        let maybe_item = segment.get(key, seqno, key_hash)?;
-
-                        if let Some(item) = maybe_item {
+                        if let Some(item) = segment.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
@@ -583,9 +581,11 @@ impl Tree {
 
             // NOTE: Fallback to linear search
             for segment in &level.segments {
-                let maybe_item = segment.get(key, seqno, key_hash)?;
+                if !segment.is_key_in_key_range(key) {
+                    continue;
+                }
 
-                if let Some(item) = maybe_item {
+                if let Some(item) = segment.get(key, seqno, key_hash)? {
                     return Ok(ignore_tombstone_value(item));
                 }
             }

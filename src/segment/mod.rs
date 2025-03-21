@@ -310,10 +310,6 @@ impl Segment {
             }
         }
 
-        if !self.metadata.key_range.contains_key(key) {
-            return Ok(None);
-        }
-
         if let Some(bf) = &self.bloom_filter {
             if !bf.contains_hash(hash) {
                 return Ok(None);

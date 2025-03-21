@@ -184,7 +184,7 @@ impl<'a> DisjointLevel<'a> {
         level
             .segments
             .get(idx)
-            .filter(|x| x.is_key_in_key_range(key))
+            .filter(|x| x.metadata.key_range.min() <= &key)
             .cloned()
     }
 
