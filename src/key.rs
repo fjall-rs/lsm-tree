@@ -19,6 +19,13 @@ pub struct InternalKey {
     pub value_type: ValueType,
 }
 
+impl std::hash::Hash for InternalKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.user_key);
+        state.write_u64(self.seqno);
+    }
+}
+
 impl std::fmt::Debug for InternalKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

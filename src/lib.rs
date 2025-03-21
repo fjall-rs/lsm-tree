@@ -184,6 +184,8 @@ mod tree;
 mod value;
 mod version;
 
+mod super_segment;
+
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
 
