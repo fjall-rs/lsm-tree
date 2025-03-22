@@ -25,6 +25,14 @@ pub struct Block {
     pub data: Slice,
 }
 
+impl Block {
+    /// Returns the uncompressed block size in bytes
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.data.len()
+    }
+}
+
 /* impl Decode for Block {
     fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, DecodeError>
     where
@@ -73,9 +81,13 @@ pub struct DataBlock {
 }
 
 impl DataBlock {
-    pub fn get_key_at(&self, pos: usize) -> (&[u8], Reverse<SeqNo>) {
-        eprintln!("get key at {pos}");
+    /// Returns the uncompressed block size in bytes.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.inner.size()
+    }
 
+    pub fn get_key_at(&self, pos: usize) -> (&[u8], Reverse<SeqNo>) {
         let bytes = &self.inner.data;
         let mut cursor = Cursor::new(&bytes[pos..]);
 
@@ -93,8 +105,6 @@ impl DataBlock {
         let key_offset = pos + cursor.position() as usize;
         let key = &bytes[key_offset..(key_offset + key_len)];
 
-        eprintln!("candidate key: {:?}", String::from_utf8_lossy(key));
-
         (key, Reverse(seqno))
     }
 
@@ -105,15 +115,13 @@ impl DataBlock {
         pos: usize,
         restart_interval: usize,
     ) -> crate::Result<Option<InternalValue>> {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+
         let bytes = &self.inner.data;
         let mut cursor = Cursor::new(&bytes[pos..]);
 
-        // eprintln!("cursor initial pos: {:?}", cursor.position());
-
         // NOTE: Check the full item
         let base_key = {
-            // eprintln!("-- full item");
-
             let value_type = cursor.read_u8().expect("should read");
 
             if value_type == TERMINATOR_MARKER {
@@ -136,34 +144,34 @@ impl DataBlock {
             let val_len: usize = cursor.read_u32_varint().expect("should read") as usize;
             let val_offset = pos + cursor.position() as usize;
 
-            eprintln!("maybe it is {:?}", String::from_utf8_lossy(key));
+            match key.cmp(needle) {
+                Equal => {
+                    let should_skip = seqno_watermark
+                        .map(|watermark| seqno >= watermark)
+                        .unwrap_or(false);
 
-            if key == needle {
-                let should_skip = seqno_watermark
-                    .map(|watermark| seqno >= watermark)
-                    .unwrap_or(false);
+                    if !should_skip {
+                        let key = bytes.slice(key_offset..(key_offset + key_len));
+                        let value = bytes.slice(val_offset..(val_offset + val_len));
 
-                if !should_skip {
-                    let key = bytes.slice(key_offset..(key_offset + key_len));
-                    let value = bytes.slice(val_offset..(val_offset + val_len));
-
-                    return Ok(Some(InternalValue::from_components(
-                        key, value, seqno, value_type,
-                    )));
+                        return Ok(Some(InternalValue::from_components(
+                            key, value, seqno, value_type,
+                        )));
+                    }
+                }
+                Greater => {
+                    // NOTE: Already passed searched key
+                    return Ok(None);
+                }
+                Less => {
+                    // NOTE: Continue
                 }
             }
-
-            // TODO: return None if needle < current key
 
             cursor.seek_relative(val_len as i64).expect("should read");
 
             key
         };
-
-        /* eprintln!(
-            "damn, we did not find the item, but the base key is {:?}",
-            String::from_utf8_lossy(base_key),
-        ); */
 
         // NOTE: Check the rest items
         for _idx in 1..restart_interval {
@@ -176,8 +184,6 @@ impl DataBlock {
             let value_type: ValueType = value_type
                 .try_into()
                 .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
-
-            eprintln!("type: {value_type:?}");
 
             let seqno = cursor.read_u64_varint()?;
 
@@ -198,12 +204,7 @@ impl DataBlock {
 
             let val_offset = pos + cursor.position() as usize;
 
-            eprintln!(
-                "maybeee it is \"{}{}\"",
-                String::from_utf8_lossy(prefix_part),
-                String::from_utf8_lossy(rest_key),
-            );
-
+            // TODO: need cmp result
             if compare_slices(prefix_part, rest_key, needle) {
                 let should_skip = seqno_watermark
                     .map(|watermark| seqno >= watermark)
@@ -233,14 +234,10 @@ impl DataBlock {
             }
         }
 
-        // eprintln!("damn we found nothing");
-
         Ok(None)
     }
 
     pub fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
-        eprintln!("searching for {:?}", String::from_utf8_lossy(key));
-
         let bytes = &self.inner.data;
 
         let mut reader = &bytes[bytes.len()
@@ -261,12 +258,6 @@ impl DataBlock {
                 ..binary_index_offset + binary_index_len * std::mem::size_of::<u32>()],
         );
 
-        /* eprintln!(
-            "binary index @ {}:{}",
-            binary_index_offset, binary_index_len,
-        ); */
-        // eprintln!("{:?}", &bytes[binary_index_offset..]);
-
         // TODO: if the binary index is really dense, don't look into hash index, or maybe don't even build
         // TODO: it in the first place
 
@@ -274,8 +265,6 @@ impl DataBlock {
 
         if hash_index_offset > 0 {
             let hash_bucket_count = reader.read_u8().expect("should read") as usize;
-
-            // eprintln!("hash index @ {}:{}", hash_index_offset, hash_bucket_count);
 
             let hash_index_bytes = &bytes[hash_index_offset..hash_index_offset + hash_bucket_count];
             let hash_index = HashIndexReader::new(hash_index_bytes);
@@ -290,7 +279,6 @@ impl DataBlock {
         }
 
         // NOTE: Fallback to binary search
-        eprintln!("fallback to binary search");
 
         let mut left = 0;
         let mut right = binary_index.len();
@@ -299,17 +287,32 @@ impl DataBlock {
             return None;
         }
 
-        let seqno_cmp = Reverse(seqno.map(|x| x - 1).unwrap_or_default());
+        // TODO: try to refactor this somehow
+        if let Some(seqno) = seqno {
+            let seqno_cmp = Reverse(seqno - 1);
 
-        while left < right {
-            let mid = (left + right) / 2;
+            while left < right {
+                let mid = (left + right) / 2;
 
-            let offset = binary_index.get(mid);
+                let offset = binary_index.get(mid);
 
-            if (key, seqno_cmp) >= self.get_key_at(offset as usize) {
-                left = mid + 1;
-            } else {
-                right = mid;
+                if (key, seqno_cmp) >= self.get_key_at(offset as usize) {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
+            }
+        } else {
+            while left < right {
+                let mid = (left + right) / 2;
+
+                let offset = binary_index.get(mid);
+
+                if key >= self.get_key_at(offset as usize).0 {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
             }
         }
 
@@ -323,15 +326,18 @@ impl DataBlock {
             .expect("OH NO")
     }
 
-    pub fn encode_items(items: &[InternalValue], restart_interval: u8) -> crate::Result<Vec<u8>> {
+    pub fn encode_items(
+        items: &[InternalValue],
+        restart_interval: u8,
+        hash_index_ratio: f32,
+    ) -> crate::Result<Vec<u8>> {
         let mut writer = Vec::with_capacity(u16::MAX.into());
-
-        eprintln!("encoding {} items", items.len());
 
         let mut binary_index_builder =
             BinaryIndexBuilder::new(items.len() / usize::from(restart_interval));
 
-        let mut hash_index_builder = HashIndexBuilder::new((items.len() as f32 * 0.75) as u8);
+        let bucket_count = (items.len() as f32 * hash_index_ratio) as u8;
+        let mut hash_index_builder = HashIndexBuilder::new(bucket_count);
 
         let mut base_key: &Slice = &items
             .first()
@@ -341,15 +347,11 @@ impl DataBlock {
 
         let mut restart_count: u32 = 0;
 
-        #[cfg(debug_assertions)]
-        let mut hash_conflicts = 0;
-
         // Serialize each value
         for (idx, kv) in items.iter().enumerate() {
             // We encode restart markers as
             // [value type] [seqno] [user key len] [user key] [value len] [value]
             if idx % usize::from(restart_interval) == 0 {
-                eprintln!("restart!");
                 restart_count += 1;
 
                 binary_index_builder.insert(writer.len() as u32);
@@ -360,9 +362,6 @@ impl DataBlock {
             } else {
                 // We encode truncated values as
                 // [value type] [seqno] [shared prefix len] [rest key len] [rest key] [value len] [value]
-
-                eprintln!("encode with prefix truncation");
-                eprintln!("base key is {:?}", String::from_utf8_lossy(base_key));
 
                 writer.write_u8(u8::from(kv.key.value_type))?;
 
@@ -379,18 +378,10 @@ impl DataBlock {
                 let truncated_user_key: &[u8] = &kv.key.user_key;
                 let truncated_user_key = &truncated_user_key[shared_prefix_len as usize..];
                 writer.write_all(truncated_user_key)?;
-
-                eprintln!(
-                    "shared prefix is {:?}",
-                    String::from_utf8_lossy(&base_key[0..shared_prefix_len as usize]),
-                );
             }
 
-            if !hash_index_builder.set(&kv.key.user_key, (restart_count - 1) as u8) {
-                #[cfg(debug_assertions)]
-                {
-                    hash_conflicts += 1;
-                }
+            if bucket_count > 0 {
+                hash_index_builder.set(&kv.key.user_key, (restart_count - 1) as u8);
             }
 
             // NOTE: Only write value len + value if we are actually a value
@@ -406,24 +397,20 @@ impl DataBlock {
         writer.write_u8(TERMINATOR_MARKER)?;
 
         let binary_index_offset = writer.len() as u32;
-        eprintln!("binary index @ {binary_index_offset}: {binary_index_builder:?}");
         let binary_index_len = binary_index_builder.write(&mut writer)?;
 
         let mut hash_index_offset = 0u32;
         let mut hash_index_len = 0u8;
 
         // TODO: unit test when binary index is too long
-
         // NOTE: We can only use a hash index when there are 254 buckets or less
         // Because 254 and 255 are reserved marker values
         //
         // With the default restart interval of 16, that still gives us support
         // for up to ~4000 KVs
-        if binary_index_len <= (u8::MAX - 2).into() {
+        if bucket_count > 0 && binary_index_len <= (u8::MAX - 2).into() {
             hash_index_offset = writer.len() as u32;
             hash_index_len = hash_index_builder.len();
-
-            eprintln!("hash index @ {hash_index_offset}: {hash_index_builder:?}");
 
             hash_index_builder.write(&mut writer)?;
         }
@@ -439,12 +426,6 @@ impl DataBlock {
         } else {
             0
         })?;
-
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "hash index had {hash_conflicts} conflicts (rate={}%)",
-            (hash_conflicts as f32 / hash_index_len as f32) * 100.0
-        );
 
         Ok(writer)
     }
@@ -504,7 +485,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, crate::ValueType::Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16)?;
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
         eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
@@ -565,7 +546,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, crate::ValueType::Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16)?;
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
         eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
@@ -636,7 +617,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, crate::ValueType::Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1)?;
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
         eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());

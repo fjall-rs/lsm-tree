@@ -33,13 +33,6 @@ impl Builder {
                     *self.0.get_unchecked_mut(bucket_pos) = binary_index_pos;
                 }
 
-                eprintln!(
-                    "hash ref for {:?} => bucket={}->{}",
-                    String::from_utf8_lossy(key),
-                    bucket_pos,
-                    binary_index_pos,
-                );
-
                 true
             }
             x if x == binary_index_pos => {
@@ -55,13 +48,6 @@ impl Builder {
                 unsafe {
                     *self.0.get_unchecked_mut(bucket_pos) = MARKER_CONFLICT;
                 }
-
-                eprintln!(
-                    "hash conflict for {:?} => bucket={}->{}",
-                    String::from_utf8_lossy(key),
-                    bucket_pos,
-                    binary_index_pos,
-                );
 
                 false
             }

@@ -67,7 +67,7 @@ impl From<ValueType> for u8 {
 
 /// Internal representation of KV pairs
 #[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq)]
 pub struct InternalValue {
     /// Internal key
     pub key: InternalKey,
@@ -135,6 +135,27 @@ impl InternalValue {
     #[must_use]
     pub fn is_tombstone(&self) -> bool {
         self.key.is_tombstone()
+    }
+}
+
+impl PartialEq for InternalValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl PartialOrd for InternalValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.key.cmp(&other.key))
+    }
+}
+
+// Order by user key, THEN by sequence number
+// This is one of the most important functions
+// Otherwise queries will not match expected behaviour
+impl Ord for InternalValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key.cmp(&other.key)
     }
 }
 

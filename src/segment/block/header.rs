@@ -27,7 +27,7 @@ pub struct Header {
     pub data_length: u32,
 
     /// Uncompressed size of data segment
-    pub uncompressed_length: u32,
+    pub uncompressed_length: u32, // TODO: v3: can remove this, because every block stores its allocation anyway
 }
 
 impl Header {
