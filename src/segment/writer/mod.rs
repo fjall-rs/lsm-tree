@@ -14,10 +14,11 @@ use super::{
 };
 use crate::{
     bloom::BloomFilter,
+    coding::Encode,
     file::fsync_directory,
     segment::block::ItemSize,
     value::{InternalValue, UserKey},
-    Encode, SegmentId,
+    SegmentId,
 };
 use std::{
     fs::File,

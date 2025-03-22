@@ -6,9 +6,10 @@ pub(crate) mod hidden_set;
 pub(crate) mod level;
 
 use crate::{
+    coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
     segment::{meta::SegmentId, Segment},
-    DecodeError, Encode, EncodeError, HashMap, HashSet, KeyRange,
+    HashMap, HashSet, KeyRange,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
@@ -237,7 +238,7 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    pub(crate) fn write_to_disk(path: &Path, levels: &Vec<Level>) -> crate::Result<()> {
+    pub(crate) fn write_to_disk(path: &Path, levels: &[Level]) -> crate::Result<()> {
         log::trace!("Writing level manifest to {path:?}");
 
         let serialized = Runs(levels).encode_into_vec();
@@ -419,10 +420,10 @@ impl LevelManifest {
     }
 }
 
-struct Runs<'a>(&'a Vec<Level>);
+struct Runs<'a>(&'a [Level]);
 
 impl<'a> std::ops::Deref for Runs<'a> {
-    type Target = Vec<Level>;
+    type Target = [Level];
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -457,8 +458,9 @@ impl<'a> Encode for Runs<'a> {
 mod tests {
     use super::Runs;
     use crate::{
+        coding::Encode,
         level_manifest::{hidden_set::HiddenSet, LevelManifest},
-        AbstractTree, Encode,
+        AbstractTree,
     };
     use test_log::test;
 
@@ -505,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn level_manifest_raw_empty() {
+    fn level_manifest_raw_empty() -> crate::Result<()> {
         let manifest = LevelManifest {
             hidden_set: HiddenSet::default(),
             levels: Vec::default(),
@@ -525,5 +527,7 @@ mod tests {
         ];
 
         assert_eq!(bytes, raw);
+
+        Ok(())
     }
 }

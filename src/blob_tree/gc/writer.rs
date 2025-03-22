@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::value::MaybeInlineValue, value::InternalValue, Encode, Memtable, SeqNo, UserKey,
+    blob_tree::value::MaybeInlineValue, coding::Encode, value::InternalValue, Memtable, SeqNo,
+    UserKey,
 };
 use std::sync::RwLockWriteGuard;
 use value_log::ValueHandle;

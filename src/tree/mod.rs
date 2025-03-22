@@ -5,6 +5,7 @@
 pub mod inner;
 
 use crate::{
+    coding::{Decode, Encode},
     compaction::{stream::CompactionStream, CompactionStrategy},
     config::Config,
     descriptor_table::FileDescriptorTable,
@@ -20,8 +21,7 @@ use crate::{
     stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, Decode, Encode, KvPair, SegmentId, SeqNo, Snapshot, UserKey,
-    UserValue, ValueType,
+    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -52,6 +52,24 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn l0_run_count(&self) -> usize {
+        let lock = self.levels.read().expect("lock is poisoned");
+
+        let first_level = lock
+            .levels
+            .first()
+            .expect("first level should always exist");
+
+        if first_level.is_disjoint {
+            1
+        } else {
+            // TODO: in the future, there will be a Vec<Run> per Level
+            // TODO: so this will need to change,
+            // TODO: but then we also don't need the manual is_disjoint check
+            first_level.segments.len()
+        }
+    }
+
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
@@ -70,16 +88,6 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .len()
-    }
-
-    fn is_first_level_disjoint(&self) -> bool {
-        self.levels
-            .read()
-            .expect("lock is poisoned")
-            .levels
-            .first()
-            .expect("first level should exist")
-            .is_disjoint
     }
 
     fn verify(&self) -> crate::Result<usize> {

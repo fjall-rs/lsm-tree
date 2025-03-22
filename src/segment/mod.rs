@@ -218,7 +218,7 @@ impl Segment {
         ptr: block::offset::BlockOffset,
     ) -> crate::Result<Option<BloomFilter>> {
         Ok(if *ptr > 0 {
-            use crate::Decode;
+            use crate::coding::Decode;
             use std::{
                 fs::File,
                 io::{Seek, SeekFrom},

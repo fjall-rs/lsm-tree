@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{Decode, DecodeError, Encode, EncodeError};
+use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 use value_log::{Slice, UserValue, ValueHandle};
 use varint_rs::{VarintReader, VarintWriter};
 
@@ -27,25 +27,20 @@ const TAG_INDIRECT: u8 = 1;
 
 impl MaybeInlineValue {
     pub fn from_slice(bytes: &Slice) -> Result<Self, DecodeError> {
-        let tag = *bytes.first().expect("vhandle bytes should not be empty");
+        let mut cursor = Cursor::new(&**bytes);
 
-        match tag {
+        match cursor.read_u8()? {
             TAG_INLINE => {
-                // TODO: 3.0.0 because the length field is varint encoded
-                // TODO: we need to get the amount of bytes the integer needs
-                // TODO: maybe not use varint encoding here... (breaking)
-                let len_size = {
-                    let mut reader = bytes.get(1..).expect("see above");
-                    let len = reader.read_u32_varint()?;
-                    match len {
-                        0..=0x7F => 1,                  // Fits in 7 bits
-                        0x80..=0x3FFF => 2,             // Fits in 14 bits
-                        0x4000..=0x001F_FFFF => 3,      // Fits in 21 bits
-                        0x0020_0000..=0x0FFF_FFFF => 4, // Fits in 28 bits
-                        _ => 5,                         // Fits in 35 bits
-                    }
+                // NOTE: Truncation is OK because we are only at the first couple
+                // of bytes of the slice
+                #[allow(clippy::cast_possible_truncation)]
+                let size_len = {
+                    let pos_before = cursor.position() as usize;
+                    let _ = cursor.read_u32_varint()?;
+                    let pos_after = cursor.position() as usize;
+                    pos_after - pos_before
                 };
-                let slice = bytes.slice((1 + len_size)..);
+                let slice = bytes.slice((1 + size_len)..);
                 Ok(Self::Inline(slice))
             }
             TAG_INDIRECT => {
