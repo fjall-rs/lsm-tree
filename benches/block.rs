@@ -2,9 +2,9 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
     coding::Encode,
     segment::{
-        block::{header::Header as BlockHeader, ItemSize},
+        block::{header::Header as BlockHeader, offset::BlockOffset, ItemSize},
         meta::CompressionType,
-        value_block::{BlockOffset, ValueBlock},
+        value_block::ValueBlock,
     },
     Checksum, InternalValue,
 };

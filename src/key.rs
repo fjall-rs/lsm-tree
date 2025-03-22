@@ -68,9 +68,9 @@ impl InternalKey {
 
 impl Encode for InternalKey {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64_varint(self.seqno)?;
-
         writer.write_u8(u8::from(self.value_type))?;
+
+        writer.write_u64_varint(self.seqno)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
@@ -83,12 +83,12 @@ impl Encode for InternalKey {
 
 impl Decode for InternalKey {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let seqno = reader.read_u64_varint()?;
-
         let value_type = reader.read_u8()?;
         let value_type = value_type
             .try_into()
             .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
+
+        let seqno = reader.read_u64_varint()?;
 
         let key_len = reader.read_u16_varint()?;
         let key = Slice::from_reader(reader, key_len.into())?;
