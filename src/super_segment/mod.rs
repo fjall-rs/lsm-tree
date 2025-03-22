@@ -10,7 +10,7 @@ use binary_index::{Builder as BinaryIndexBuilder, Reader as BinaryIndexReader};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hash_index::{Builder as HashIndexBuilder, Reader as HashIndexReader};
 use std::{
-    cmp::Reverse,
+    cmp::{Ordering, Reverse},
     io::{Cursor, Seek, Write},
 };
 use varint_rs::{VarintReader, VarintWriter};
@@ -65,14 +65,26 @@ fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
         .count()
 }
 
-fn compare_slices<T: Eq>(prefix_part: &[T], rest_key: &[T], needle: &[T]) -> bool {
-    let full_len = prefix_part.len() + rest_key.len();
+fn compare_slices<T: Ord>(prefix_part: &[T], key: &[T], needle: &[T]) -> Ordering {
+    let combined = prefix_part.iter().chain(key.iter());
+    let mut needle_iter = needle.iter();
 
-    if full_len != needle.len() {
-        return false;
+    for (a, b) in combined.zip(needle_iter.by_ref()) {
+        match a.cmp(b) {
+            Ordering::Equal => continue,
+            other => return other,
+        }
     }
 
-    needle.ends_with(rest_key) && needle.starts_with(prefix_part)
+    if needle_iter.next().is_some() {
+        return Ordering::Less;
+    }
+
+    if prefix_part.len() + key.len() > needle.len() {
+        return Ordering::Greater;
+    }
+
+    Ordering::Equal
 }
 
 /// Block that contains key-value pairs (user data)
@@ -204,30 +216,36 @@ impl DataBlock {
 
             let val_offset = pos + cursor.position() as usize;
 
-            // TODO: need cmp result
-            if compare_slices(prefix_part, rest_key, needle) {
-                let should_skip = seqno_watermark
-                    .map(|watermark| seqno >= watermark)
-                    .unwrap_or(false);
+            match compare_slices(prefix_part, rest_key, needle) {
+                Equal => {
+                    let should_skip = seqno_watermark
+                        .map(|watermark| seqno >= watermark)
+                        .unwrap_or(false);
 
-                if !should_skip {
-                    let key = if shared_prefix_len == 0 {
-                        bytes.slice(key_offset..(key_offset + rest_key_len))
-                    } else {
-                        // Stitch key
-                        Slice::fuse(prefix_part, rest_key)
-                    };
+                    if !should_skip {
+                        let key = if shared_prefix_len == 0 {
+                            bytes.slice(key_offset..(key_offset + rest_key_len))
+                        } else {
+                            // Stitch key
+                            Slice::fuse(prefix_part, rest_key)
+                        };
 
-                    return Ok(Some(if value_type == ValueType::Value {
-                        let value = bytes.slice(val_offset..(val_offset + val_len));
-                        InternalValue::from_components(key, value, seqno, value_type)
-                    } else {
-                        InternalValue::from_components(key, b"", seqno, value_type)
-                    }));
+                        return Ok(Some(if value_type == ValueType::Value {
+                            let value = bytes.slice(val_offset..(val_offset + val_len));
+                            InternalValue::from_components(key, value, seqno, value_type)
+                        } else {
+                            InternalValue::from_components(key, b"", seqno, value_type)
+                        }));
+                    }
+                }
+                Greater => {
+                    // NOTE: Already passed searched key
+                    return Ok(None);
+                }
+                Less => {
+                    // NOTE: Continue
                 }
             }
-
-            // TODO: return None, if needle is < current key
 
             if value_type == ValueType::Value {
                 cursor.seek_relative(val_len as i64)?;
@@ -258,8 +276,8 @@ impl DataBlock {
                 ..binary_index_offset + binary_index_len * std::mem::size_of::<u32>()],
         );
 
-        // TODO: if the binary index is really dense, don't look into hash index, or maybe don't even build
-        // TODO: it in the first place
+        // TODO: if the binary index is really dense, don't look into hash index, or
+        // maybe don't even build it in the first place
 
         let hash_index_offset = reader.read_u32::<BigEndian>().expect("should read") as usize;
 
