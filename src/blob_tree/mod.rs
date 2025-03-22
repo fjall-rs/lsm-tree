@@ -8,13 +8,13 @@ pub mod index;
 pub mod value;
 
 use crate::{
+    coding::{Decode, Encode},
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, Decode, Encode, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey,
-    UserValue,
+    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};

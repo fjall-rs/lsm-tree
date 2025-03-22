@@ -7,8 +7,11 @@ mod table_type;
 
 use super::writer::Writer;
 use crate::{
-    file::MAGIC_BYTES, time::unix_timestamp, value::SeqNo, Decode, DecodeError, Encode,
-    EncodeError, KeyRange,
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    file::MAGIC_BYTES,
+    time::unix_timestamp,
+    value::SeqNo,
+    KeyRange,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{

@@ -7,7 +7,7 @@ pub mod header;
 pub mod offset;
 
 use super::meta::CompressionType;
-use crate::{Decode, Encode};
+use crate::coding::{Decode, Encode};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checksum::Checksum;
 use header::Header as BlockHeader;

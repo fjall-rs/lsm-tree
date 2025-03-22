@@ -2,7 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{Decode, DecodeError, Encode, EncodeError, SeqNo, UserKey, ValueType};
+use crate::{
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    SeqNo, UserKey, ValueType,
+};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{
     cmp::Reverse,

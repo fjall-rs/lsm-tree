@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    file::MAGIC_BYTES, segment::meta::TableType, Decode, DecodeError, Encode, EncodeError,
+    coding::{Decode, DecodeError, Encode, EncodeError},
+    file::MAGIC_BYTES,
+    segment::meta::TableType,
     TreeType, Version,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};

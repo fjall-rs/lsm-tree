@@ -188,11 +188,11 @@ mod version;
 pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
+pub use value_log::KeyRange;
+
+#[doc(hidden)]
 pub mod coding {
-    pub use value_log::{
-        coding::{Decode, DecodeError, Encode, EncodeError},
-        KeyRange,
-    };
+    pub use value_log::coding::{Decode, DecodeError, Encode, EncodeError};
 }
 
 #[doc(hidden)]
@@ -205,6 +205,7 @@ pub use {
 
 pub use {
     block_cache::BlockCache,
+    coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
