@@ -230,6 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn l0_run_count(&self) -> usize {
+        self.index.l0_run_count()
+    }
+
     fn blob_file_count(&self) -> usize {
         self.blobs.segment_count()
     }

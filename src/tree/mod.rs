@@ -52,6 +52,21 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn l0_run_count(&self) -> usize {
+        let lock = self.levels.read().expect("lock is poisoned");
+
+        let first_level = lock
+            .levels
+            .first()
+            .expect("first level should always exist");
+
+        if first_level.is_disjoint {
+            1
+        } else {
+            first_level.segments.len()
+        }
+    }
+
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
