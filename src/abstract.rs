@@ -116,9 +116,6 @@ pub trait AbstractTree {
         0
     }
 
-    /// Returns `true` if the first level is disjoint.
-    fn is_first_level_disjoint(&self) -> bool;
-
     /// Approximates the amount of items in the tree.
     fn approximate_len(&self) -> usize;
 

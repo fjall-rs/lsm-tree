@@ -90,16 +90,6 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn is_first_level_disjoint(&self) -> bool {
-        self.levels
-            .read()
-            .expect("lock is poisoned")
-            .levels
-            .first()
-            .expect("first level should exist")
-            .is_disjoint
-    }
-
     fn verify(&self) -> crate::Result<usize> {
         // NOTE: Lock memtable to prevent any tampering with disk segments
         let _lock = self.lock_active_memtable();

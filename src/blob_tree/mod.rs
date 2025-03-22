@@ -260,10 +260,6 @@ impl AbstractTree for BlobTree {
         self.index.sealed_memtable_count()
     }
 
-    fn is_first_level_disjoint(&self) -> bool {
-        self.index.is_first_level_disjoint()
-    }
-
     #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
