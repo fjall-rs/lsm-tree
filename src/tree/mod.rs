@@ -63,6 +63,9 @@ impl AbstractTree for Tree {
         if first_level.is_disjoint {
             1
         } else {
+            // TODO: in the future, there will be a Vec<Run> per Level
+            // TODO: so this will need to change,
+            // TODO: but then we also don't need the manual is_disjoint check
             first_level.segments.len()
         }
     }
