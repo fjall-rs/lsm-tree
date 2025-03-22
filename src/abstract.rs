@@ -106,13 +106,15 @@ pub trait AbstractTree {
     /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize>;
 
+    /// Returns the amount of disjoint runs in L0.
+    ///
+    /// Can be used to determine whether to write stall.
+    fn l0_run_count(&self) -> usize;
+
     /// Returns the amount of blob files currently in the tree.
     fn blob_file_count(&self) -> usize {
         0
     }
-
-    /// Returns `true` if the first level is disjoint.
-    fn is_first_level_disjoint(&self) -> bool;
 
     /// Approximates the amount of items in the tree.
     fn approximate_len(&self) -> usize;

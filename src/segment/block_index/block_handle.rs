@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
-    segment::{block::ItemSize, value_block::BlockOffset},
+    segment::block::{offset::BlockOffset, ItemSize},
     value::UserKey,
     Slice,
 };

@@ -215,7 +215,7 @@ impl Segment {
 
     pub(crate) fn load_bloom(
         path: &Path,
-        ptr: value_block::BlockOffset,
+        ptr: block::offset::BlockOffset,
     ) -> crate::Result<Option<BloomFilter>> {
         Ok(if *ptr > 0 {
             use crate::coding::Decode;
@@ -308,10 +308,6 @@ impl Segment {
             if self.metadata.seqnos.0 >= seqno {
                 return Ok(None);
             }
-        }
-
-        if !self.metadata.key_range.contains_key(key) {
-            return Ok(None);
         }
 
         if let Some(bf) = &self.bloom_filter {

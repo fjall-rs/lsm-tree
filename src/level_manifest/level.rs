@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
+use crate::{segment::meta::SegmentId, HashSet, KeyRange, Segment, UserKey};
 use std::ops::Bound;
 
 /// Level of an LSM-tree
@@ -86,7 +86,7 @@ impl Level {
     /// [key:a]     [key:c]     [key:z]
     pub(crate) fn sort_by_key_range(&mut self) {
         self.segments
-            .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+            .sort_by(|a, b| a.metadata.key_range.min().cmp(b.metadata.key_range.min()));
     }
 
     /// Sorts the level from newest to oldest.
@@ -179,12 +179,12 @@ impl<'a> DisjointLevel<'a> {
 
         let idx = level
             .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key);
+            .partition_point(|x| x.metadata.key_range.max() < &key);
 
         level
             .segments
             .get(idx)
-            .filter(|x| x.is_key_in_key_range(key))
+            .filter(|x| x.metadata.key_range.min() <= &key)
             .cloned()
     }
 
@@ -198,10 +198,10 @@ impl<'a> DisjointLevel<'a> {
         let lo = match &key_range.0 {
             Bound::Unbounded => 0,
             Bound::Included(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 < start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() < start_key)
             }
             Bound::Excluded(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 <= start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() <= start_key)
             }
         };
 
@@ -212,7 +212,8 @@ impl<'a> DisjointLevel<'a> {
         let hi = match &key_range.1 {
             Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 <= end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -221,7 +222,8 @@ impl<'a> DisjointLevel<'a> {
                 idx.saturating_sub(1) // To avoid underflow
             }
             Bound::Excluded(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 < end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() < end_key);
 
                 if idx == 0 {
                     return None;
@@ -246,15 +248,14 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
-        AbstractTree, Slice,
+        AbstractTree, KeyRange, Slice,
     };
     use std::sync::Arc;
     use test_log::test;

@@ -10,7 +10,7 @@ use super::{
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::{meta::Metadata, value_block::BlockOffset},
+    segment::{block::offset::BlockOffset, meta::Metadata},
 };
 use std::{path::Path, sync::Arc};
 

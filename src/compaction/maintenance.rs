@@ -87,15 +87,15 @@ mod tests {
         config::Config,
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
-        key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::Metadata,
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
+        KeyRange,
     };
     use std::sync::Arc;
     use test_log::test;
