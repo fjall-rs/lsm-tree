@@ -187,10 +187,13 @@ mod version;
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
 
-pub(crate) use value_log::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    KeyRange,
-};
+#[doc(hidden)]
+pub mod coding {
+    pub use value_log::{
+        coding::{Decode, DecodeError, Encode, EncodeError},
+        KeyRange,
+    };
+}
 
 #[doc(hidden)]
 pub use {
