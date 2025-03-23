@@ -5,18 +5,19 @@ use byteorder::WriteBytesExt;
 pub struct Builder(Vec<u8>);
 
 impl Builder {
-    pub fn new(bucket_count: u8) -> Self {
+    pub fn new(bucket_count: u32) -> Self {
         Self(vec![MARKER_FREE; bucket_count as usize])
     }
 
     // NOTE: We know the hash index has a bucket count <= u8
     #[allow(clippy::cast_possible_truncation)]
-    pub fn len(&self) -> u8 {
-        self.0.len() as u8
+    /// Returns the number of buckets
+    pub fn bucket_count(&self) -> u32 {
+        self.0.len() as u32
     }
 
     pub fn set(&mut self, key: &[u8], binary_index_pos: u8) -> bool {
-        let bucket_pos = calculate_bucket_position(key, self.len());
+        let bucket_pos = calculate_bucket_position(key, self.bucket_count());
 
         // SAFETY: We used modulo
         #[allow(unsafe_code)]
