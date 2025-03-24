@@ -9,6 +9,7 @@ pub use data_block::DataBlock;
 /// A block on disk.
 ///
 /// Consists of a header and some bytes (the data/payload)
+#[derive(Clone)]
 pub struct Block {
     pub header: Header,
     pub data: Slice,
