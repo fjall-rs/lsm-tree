@@ -5,7 +5,7 @@
 /// Returns the index of the partition point according to the given predicate
 /// (the index of the first element of the second partition).
 ///
-/// This is a monkey patch for a compiler regression in rustc: https://github.com/rust-lang/rust/issues/138796
+/// This seems to be faster than std's partition_point: https://github.com/rust-lang/rust/issues/138796
 pub fn partition_point<T, F>(slice: &[T], pred: F) -> usize
 where
     F: Fn(&T) -> bool,

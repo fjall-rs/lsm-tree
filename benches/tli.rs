@@ -1,7 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::segment::{
-    block_index::KeyedBlockIndex, value_block::BlockOffset, value_block::CachePolicy,
+    block::offset::BlockOffset, block_index::KeyedBlockIndex, value_block::CachePolicy,
 };
+use rand::Rng;
 
 fn tli_find_item(c: &mut Criterion) {
     use lsm_tree::segment::block_index::{
@@ -26,16 +27,18 @@ fn tli_find_item(c: &mut Criterion) {
 
         let index = TopLevelIndex::from_boxed_slice(items.into());
 
+        let mut rng = rand::rng();
+
         group.bench_function(
             format!("TLI get_block_containing_item ({item_count} items)"),
             |b| {
-                let key = (item_count / 10 * 6).to_be_bytes();
-
                 b.iter(|| {
+                    let needle = rng.random_range(0..item_count).to_be_bytes();
+
                     assert_eq!(
-                        key,
+                        needle,
                         &*index
-                            .get_lowest_block_containing_key(&key, CachePolicy::Read)
+                            .get_lowest_block_containing_key(&needle, CachePolicy::Read)
                             .unwrap()
                             .unwrap()
                             .end_key,

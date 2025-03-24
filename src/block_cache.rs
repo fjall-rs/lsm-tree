@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::either::Either::{self, Left, Right};
+use crate::segment::block::offset::BlockOffset;
 use crate::segment::id::GlobalSegmentId;
-use crate::segment::value_block::BlockOffset;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};

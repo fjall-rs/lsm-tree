@@ -5,11 +5,10 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
-    key_range::KeyRange,
     level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
     segment::Segment,
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
-    HashSet, SegmentId,
+    HashSet, KeyRange, SegmentId,
 };
 
 // TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
@@ -387,17 +386,16 @@ mod tests {
         block_cache::BlockCache,
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
         time::unix_timestamp,
-        Config, HashSet,
+        Config, HashSet, KeyRange,
     };
     use std::{path::Path, sync::Arc};
     use test_log::test;

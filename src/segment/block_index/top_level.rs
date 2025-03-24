@@ -4,8 +4,7 @@
 
 use super::{block_handle::KeyedBlockHandle, KeyedBlockIndex};
 use crate::segment::{
-    block_index::IndexBlock,
-    value_block::{BlockOffset, CachePolicy},
+    block::offset::BlockOffset, block_index::IndexBlock, value_block::CachePolicy,
 };
 use std::{fs::File, path::Path};
 

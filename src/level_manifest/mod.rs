@@ -8,9 +8,8 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
-    key_range::KeyRange,
     segment::{meta::SegmentId, Segment},
-    HashMap, HashSet,
+    HashMap, HashSet, KeyRange,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
@@ -239,10 +238,10 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    pub(crate) fn write_to_disk(path: &Path, levels: &Vec<Level>) -> crate::Result<()> {
+    pub(crate) fn write_to_disk(path: &Path, levels: &[Level]) -> crate::Result<()> {
         log::trace!("Writing level manifest to {path:?}");
 
-        let serialized = levels.encode_into_vec();
+        let serialized = Runs(levels).encode_into_vec();
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -421,7 +420,17 @@ impl LevelManifest {
     }
 }
 
-impl Encode for Vec<Level> {
+struct Runs<'a>(&'a [Level]);
+
+impl<'a> std::ops::Deref for Runs<'a> {
+    type Target = [Level];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> Encode for Runs<'a> {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
@@ -430,7 +439,7 @@ impl Encode for Vec<Level> {
         #[allow(clippy::cast_possible_truncation)]
         writer.write_u8(self.len() as u8)?;
 
-        for level in self {
+        for level in self.iter() {
             // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
             #[allow(clippy::cast_possible_truncation)]
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
@@ -447,6 +456,7 @@ impl Encode for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    use super::Runs;
     use crate::{
         coding::Encode,
         level_manifest::{hidden_set::HiddenSet, LevelManifest},
@@ -505,7 +515,7 @@ mod tests {
             is_disjoint: false,
         };
 
-        let bytes = manifest.deep_clone().encode_into_vec();
+        let bytes = Runs(&manifest.deep_clone()).encode_into_vec();
 
         #[rustfmt::skip]
         let raw = &[

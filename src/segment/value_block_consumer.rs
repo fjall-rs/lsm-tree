@@ -90,10 +90,7 @@ impl DoubleEndedIterator for ValueBlockConsumer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::segment::{
-        block::{checksum::Checksum, header::Header},
-        value_block::BlockOffset,
-    };
+    use crate::segment::block::{checksum::Checksum, header::Header, offset::BlockOffset};
     use test_log::test;
 
     macro_rules! iter_closed {

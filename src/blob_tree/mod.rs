@@ -230,6 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn l0_run_count(&self) -> usize {
+        self.index.l0_run_count()
+    }
+
     fn blob_file_count(&self) -> usize {
         self.blobs.segment_count()
     }
@@ -254,10 +258,6 @@ impl AbstractTree for BlobTree {
 
     fn sealed_memtable_count(&self) -> usize {
         self.index.sealed_memtable_count()
-    }
-
-    fn is_first_level_disjoint(&self) -> bool {
-        self.index.is_first_level_disjoint()
     }
 
     #[doc(hidden)]

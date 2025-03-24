@@ -1,7 +1,6 @@
 use super::{block_handle::KeyedBlockHandle, BlockIndex};
 use crate::segment::{
-    block_index::IndexBlock,
-    value_block::{BlockOffset, CachePolicy},
+    block::offset::BlockOffset, block_index::IndexBlock, value_block::CachePolicy,
 };
 use std::{fs::File, io::Seek, path::Path};
 

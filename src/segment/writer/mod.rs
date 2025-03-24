@@ -5,7 +5,7 @@
 mod meta;
 
 use super::{
-    block::header::Header as BlockHeader,
+    block::{header::Header as BlockHeader, offset::BlockOffset},
     block_index::writer::Writer as IndexWriter,
     file_offsets::FileOffsets,
     meta::{CompressionType, Metadata},
@@ -16,7 +16,7 @@ use crate::{
     bloom::BloomFilter,
     coding::Encode,
     file::fsync_directory,
-    segment::{block::ItemSize, value_block::BlockOffset},
+    segment::block::ItemSize,
     value::{InternalValue, UserKey},
     SegmentId,
 };

@@ -107,14 +107,14 @@ fn collect_disjoint_tree_with_range(
             .expect("level should not be empty")
             .metadata
             .key_range
-            .0
+            .min()
             .cmp(
-                &b.segments
+                b.segments
                     .first()
                     .expect("level should not be empty")
                     .metadata
                     .key_range
-                    .0,
+                    .min(),
             )
     });
 
