@@ -12,7 +12,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 /// Header of a disk-based block
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Header {
     /// Compression type used
     pub compression: CompressionType,
