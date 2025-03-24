@@ -8,6 +8,7 @@ use lsm_tree::{
     },
     Checksum, InternalValue,
 };
+use rand::Rng;
 use std::io::Write;
 
 /* fn value_block_size(c: &mut Criterion) {
@@ -50,19 +51,11 @@ fn value_block_find(c: &mut Criterion) {
     for item_count in [10, 100, 1_000, 10_000] {
         let mut items = vec![];
 
-        for seqno in (0..(item_count - 2)).rev() {
+        for item in 0u64..item_count {
             items.push(InternalValue::from_components(
-                *b"a",
-                *b"a",
-                seqno,
-                lsm_tree::ValueType::Value,
-            ));
-        }
-        for seqno in (0..2).rev() {
-            items.push(InternalValue::from_components(
-                *b"b",
-                *b"b",
-                seqno,
+                item.to_be_bytes(),
+                b"",
+                0,
                 lsm_tree::ValueType::Value,
             ));
         }
@@ -78,22 +71,29 @@ fn value_block_find(c: &mut Criterion) {
             },
         };
 
+        let mut rng = rand::rng();
+
         group.bench_function(format!("{item_count} items (linear)"), |b| {
             b.iter(|| {
+                let needle = rng.random_range(0..item_count).to_be_bytes();
+
                 let item = block
                     .items
                     .iter()
-                    .find(|item| &*item.key.user_key == b"b")
+                    .find(|item| &*item.key.user_key == needle)
                     .cloned()
                     .unwrap();
-                assert_eq!(item.key.seqno, 1);
+
+                assert_eq!(item.key.user_key, needle);
             })
         });
 
         group.bench_function(format!("{item_count} items (binary search)"), |b| {
             b.iter(|| {
-                let item = block.get_latest(b"b").unwrap();
-                assert_eq!(item.key.seqno, 1);
+                let needle = rng.random_range(0..item_count).to_be_bytes();
+
+                let item = block.get_latest(&needle).unwrap();
+                assert_eq!(item.key.user_key, needle);
             })
         });
     }
