@@ -1,13 +1,27 @@
 #![no_main]
-use libfuzzer_sys::{
-    arbitrary::{Arbitrary, Result, Unstructured},
-    fuzz_target,
-};
+use arbitrary::{Arbitrary, Result, Unstructured};
+use libfuzzer_sys::fuzz_target;
 use lsm_tree::{
     segment::block::offset::BlockOffset,
     super_segment::{Block, DataBlock},
     InternalValue, SeqNo, ValueType,
 };
+
+#[derive(Arbitrary, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
+enum FuzzyValueType {
+    Value,
+    Tombstone,
+    // TODO: single delete
+}
+
+impl Into<ValueType> for FuzzyValueType {
+    fn into(self) -> ValueType {
+        match self {
+            Self::Value => ValueType::Value,
+            Self::Tombstone => ValueType::Tombstone,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 struct FuzzyValue(InternalValue);
@@ -17,6 +31,7 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
         let key = Vec::<u8>::arbitrary(u)?;
         let value = Vec::<u8>::arbitrary(u)?;
         let seqno = u64::arbitrary(u)?;
+        let vtype = FuzzyValueType::arbitrary(u)?;
 
         let key = if key.is_empty() { vec![0] } else { key };
 
@@ -24,7 +39,7 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
             key,
             value,
             seqno,
-            ValueType::Value,
+            vtype.into(),
         )))
     }
 }
@@ -33,7 +48,8 @@ fuzz_target!(|data: &[u8]| {
     let mut unstructured = Unstructured::new(data);
 
     let restart_interval = u8::arbitrary(&mut unstructured).unwrap().max(1);
-    let hash_ratio = (f32::arbitrary(&mut unstructured).unwrap() / f32::MAX)
+
+    let hash_ratio = ((u16::arbitrary(&mut unstructured).unwrap() / u16::MAX) as f32)
         .min(1.0)
         .max(0.0);
 
@@ -59,10 +75,14 @@ fuzz_target!(|data: &[u8]| {
                 },
             };
 
+            // eprintln!("{items:?}");
+
             for needle in items {
                 if needle.key.seqno == SeqNo::MAX {
                     continue;
                 }
+
+                // eprintln!("needle: {:?}", needle.key);
 
                 assert_eq!(
                     Some(needle.clone()),
