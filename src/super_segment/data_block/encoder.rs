@@ -7,7 +7,7 @@ use varint_rs::VarintWriter;
 
 pub const TERMINATOR_MARKER: u8 = 255;
 
-pub const TRAILER_SIZE: usize = (std::mem::size_of::<u32>() * 5) + std::mem::size_of::<u8>();
+pub const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>();
 
 fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
     s1.iter()
@@ -183,7 +183,7 @@ impl<'a> Encoder<'a> {
         assert_eq!(
             TRAILER_SIZE,
             self.writer.len() - bytes_before,
-            "footer size does not match",
+            "trailer size does not match",
         );
 
         Ok(self.writer)
