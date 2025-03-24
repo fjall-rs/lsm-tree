@@ -14,12 +14,18 @@ use std::{
 use value_log::Slice;
 use varint_rs::{VarintReader, VarintWriter};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 #[allow(clippy::module_name_repetitions)]
 pub struct InternalKey {
     pub user_key: UserKey,
     pub seqno: SeqNo,
     pub value_type: ValueType,
+}
+
+impl PartialEq for InternalKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
 }
 
 impl std::hash::Hash for InternalKey {

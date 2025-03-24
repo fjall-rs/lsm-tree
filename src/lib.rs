@@ -115,7 +115,7 @@ macro_rules! fail_iter {
     ($e:expr) => {
         match $e {
             Ok(v) => v,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Some(Err(e.into())),
         }
     };
 }

@@ -53,10 +53,22 @@ fuzz_target!(|data: &[u8]| {
         .min(1.0)
         .max(0.0);
 
+    // eprintln!("restart_interval={restart_interval}, hash_ratio={hash_ratio}");
+
     if let Ok(mut items) = <Vec<FuzzyValue> as Arbitrary>::arbitrary(&mut unstructured) {
+        // let mut items = items.to_vec();
+
         if !items.is_empty() {
             items.sort();
             items.dedup();
+
+            /* eprintln!("-- items --");
+            for item in items.iter().map(|value| &value.0) {
+                eprintln!(
+                    r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
+                    item.key.user_key, item.value, item.key.seqno, item.key.value_type,
+                );
+            } */
 
             let items = items.into_iter().map(|value| value.0).collect::<Vec<_>>();
             let bytes =
@@ -86,7 +98,9 @@ fuzz_target!(|data: &[u8]| {
 
                 assert_eq!(
                     Some(needle.clone()),
-                    data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                    data_block
+                        .point_read(&needle.key.user_key, Some(needle.key.seqno + 1))
+                        .unwrap(),
                 );
             }
         }
