@@ -146,7 +146,7 @@ mod tests {
         },
         HashSet, KeyRange, SeqNo,
     };
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicBool, Arc};
     use test_log::test;
 
     #[allow(clippy::expect_used)]
@@ -192,6 +192,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }

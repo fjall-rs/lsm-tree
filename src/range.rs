@@ -11,7 +11,6 @@ use crate::{
     multi_reader::MultiReader,
     mvcc_stream::MvccStream,
     segment::value_block::CachePolicy,
-    tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
     InternalValue,
 };
@@ -50,8 +49,8 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 }
 
 pub struct MemtableLockGuard {
-    pub(crate) active: ArcRwLockReadGuardian<Memtable>,
-    pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
+    pub(crate) active: Arc<Memtable>,
+    pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 }
 
@@ -234,7 +233,7 @@ impl TreeIter {
             drop(level_manifest);
 
             // Sealed memtables
-            for (_, memtable) in lock.sealed.iter() {
+            for memtable in lock.sealed.iter() {
                 let iter = memtable.range(range.clone());
 
                 if let Some(seqno) = seqno {

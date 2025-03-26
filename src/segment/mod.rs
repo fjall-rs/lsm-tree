@@ -33,7 +33,11 @@ use inner::Inner;
 use meta::SegmentId;
 use range::Range;
 use scanner::Scanner;
-use std::{ops::Bound, path::Path, sync::Arc};
+use std::{
+    ops::Bound,
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
@@ -276,6 +280,8 @@ impl Segment {
         let bloom_ptr = trailer.offsets.bloom_ptr;
 
         Ok(Self(Arc::new(Inner {
+            path: file_path.into(),
+
             tree_id,
 
             descriptor_table,
@@ -286,7 +292,15 @@ impl Segment {
             block_cache,
 
             bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
+
+            is_deleted: AtomicBool::default(),
         })))
+    }
+
+    pub(crate) fn mark_as_deleted(&self) {
+        self.0
+            .is_deleted
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     #[must_use]

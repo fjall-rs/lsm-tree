@@ -24,7 +24,10 @@ use crate::{
 };
 use std::{
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
+    sync::{
+        atomic::{AtomicBool, AtomicU64},
+        Arc, RwLock, RwLockWriteGuard,
+    },
     time::Instant,
 };
 
@@ -211,6 +214,19 @@ fn merge_segments(
         return Ok(());
     }
 
+    let Some(segments) = payload
+        .segment_ids
+        .iter()
+        .map(|&id| levels.get_segment(id))
+        .collect::<Option<Vec<_>>>()
+    else {
+        log::warn!(
+            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            opts.strategy.get_name(),
+        );
+        return Ok(());
+    };
+
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     log::debug!(
@@ -381,6 +397,8 @@ fn merge_segments(
             let block_index = Arc::new(block_index);
 
             Ok(SegmentInner {
+                path: segment_file_path.to_path_buf(),
+
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
@@ -393,6 +411,8 @@ fn merge_segments(
                 block_index,
 
                 bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+
+                is_deleted: AtomicBool::default(),
             }
             .into())
         })
@@ -412,11 +432,7 @@ fn merge_segments(
     // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring levels manifest write lock");
     let mut levels = opts.levels.write().expect("lock is poisoned");
-
-    // IMPORTANT: Write lock memtable(s), otherwise segments may get deleted while a range read is happening
-    // NOTE: Mind lock order L -> M -> S
-    log::trace!("compactor: acquiring sealed memtables write lock");
-    let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
+    log::trace!("compactor: acquired levels manifest write lock");
 
     let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
@@ -451,19 +467,11 @@ fn merge_segments(
             .insert(&segment_file_path, segment.global_id());
     }
 
-    // NOTE: Segments are registered, we can unlock the memtable(s) safely
-    drop(sealed_memtables_guard);
-
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
     // cleaned up upon recovery
-    for segment_id in &payload.segment_ids {
-        let segment_file_path = segments_base_folder.join(segment_id.to_string());
-        log::trace!("Removing old segment at {segment_file_path:?}");
-
-        if let Err(e) = std::fs::remove_file(segment_file_path) {
-            log::error!("Failed to cleanup file of deleted segment: {e:?}");
-        }
+    for segment in segments {
+        segment.mark_as_deleted();
     }
 
     // NOTE: Unlock level manifest before clearing old file descriptors
@@ -506,11 +514,17 @@ fn drop_segments(
         return Ok(());
     }
 
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
-
-    // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
-    log::trace!("Acquiring sealed memtables write lock");
-    let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
+    let Some(segments) = segment_ids
+        .iter()
+        .map(|id| levels.get_segment(id.segment_id()))
+        .collect::<Option<Vec<_>>>()
+    else {
+        log::warn!(
+        "Compaction task created by {:?} contained segments not referenced in the level manifest",
+        opts.strategy.get_name(),
+    );
+        return Ok(());
+    };
 
     // IMPORTANT: Write the segment with the removed segments first
     // Otherwise the folder is deleted, but the segment is still referenced!
@@ -525,21 +539,13 @@ fn drop_segments(
         }
     })?;
 
-    drop(memtable_lock);
     drop(levels);
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
     // cleaned up upon recovery
-    for key in segment_ids {
-        let segment_id = key.segment_id();
-
-        let segment_file_path = segments_base_folder.join(segment_id.to_string());
-        log::trace!("Removing old segment at {segment_file_path:?}");
-
-        if let Err(e) = std::fs::remove_file(segment_file_path) {
-            log::error!("Failed to cleanup file of deleted segment: {e:?}");
-        }
+    for segment in segments {
+        segment.mark_as_deleted();
     }
 
     for key in segment_ids {

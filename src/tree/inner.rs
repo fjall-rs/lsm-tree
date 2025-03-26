@@ -59,7 +59,7 @@ pub struct TreeInner {
     pub segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<RwLock<Memtable>>,
+    pub(crate) active_memtable: Arc<RwLock<Arc<Memtable>>>,
 
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
