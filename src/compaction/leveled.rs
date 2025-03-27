@@ -397,7 +397,10 @@ mod tests {
         time::unix_timestamp,
         Config, HashSet, KeyRange,
     };
-    use std::{path::Path, sync::Arc};
+    use std::{
+        path::Path,
+        sync::{atomic::AtomicBool, Arc},
+    };
     use test_log::test;
 
     fn string_key_range(a: &str, b: &str) -> KeyRange {
@@ -456,6 +459,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }
