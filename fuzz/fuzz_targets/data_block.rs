@@ -70,6 +70,10 @@ fuzz_target!(|data: &[u8]| {
                 );
             } */
 
+            /* if items.len() > 100 {
+                eprintln!("================== {}. ", items.len());
+            } */
+
             let items = items.into_iter().map(|value| value.0).collect::<Vec<_>>();
             let bytes =
                 DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
@@ -87,9 +91,15 @@ fuzz_target!(|data: &[u8]| {
                 },
             };
 
+            if data_block.binary_index_pointer_count() > 254 {
+                assert!(data_block.hash_bucket_count() == 0);
+            } else if hash_ratio > 0.0 {
+                assert!(data_block.hash_bucket_count() > 0);
+            }
+
             // eprintln!("{items:?}");
 
-            for needle in items {
+            for needle in &items {
                 if needle.key.seqno == SeqNo::MAX {
                     continue;
                 }
@@ -103,6 +113,13 @@ fuzz_target!(|data: &[u8]| {
                         .unwrap(),
                 );
             }
+
+            assert_eq!(
+                items,
+                data_block.iter().map(|x| x.unwrap()).collect::<Vec<_>>(),
+            );
+
+            // TODO: add rev and ping-pong iters
         }
     }
 });

@@ -2,9 +2,9 @@ pub(crate) mod binary_index;
 pub(crate) mod data_block;
 pub(crate) mod hash_index;
 
-use crate::{segment::block::header::Header, Slice};
-
 pub use data_block::DataBlock;
+
+use crate::{segment::block::header::Header, Slice};
 
 /// A block on disk.
 ///

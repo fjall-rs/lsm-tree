@@ -15,7 +15,7 @@ impl<'a> Reader<'a> {
         let bucket_pos = calculate_bucket_position(key, bucket_count);
 
         // SAFETY: We used modulo
-        #[allow(unsafe_code)]
+        #[warn(unsafe_code)]
         let marker = unsafe { *self.0.get_unchecked(bucket_pos) };
 
         match marker {

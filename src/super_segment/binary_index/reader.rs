@@ -1,28 +1,34 @@
-use byteorder::{BigEndian, ReadBytesExt};
-
-type FencePtr = u32;
-
-const FENCE_PTR_SIZE: usize = std::mem::size_of::<FencePtr>();
+use byteorder::{LittleEndian, ReadBytesExt};
 
 pub struct Reader<'a> {
     bytes: &'a [u8],
+    step_size: usize,
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(bytes: &'a [u8], offset: usize, len: usize) -> Self {
+    pub fn new(bytes: &'a [u8], offset: usize, len: usize, step_size: usize) -> Self {
         Self {
-            bytes: &bytes[offset..(offset + len * FENCE_PTR_SIZE)],
+            bytes: &bytes[offset..(offset + len * step_size)],
+            step_size,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.bytes.len() / FENCE_PTR_SIZE
+        self.bytes.len() / self.step_size
     }
 
-    pub fn get(&self, idx: usize) -> FencePtr {
-        let offset = idx * FENCE_PTR_SIZE;
+    pub(crate) fn get(&self, idx: usize) -> usize {
+        let offset = idx * self.step_size;
 
         let mut bytes = self.bytes.get(offset..).expect("should be in array");
-        bytes.read_u32::<BigEndian>().expect("should read")
+
+        if self.step_size == 2 {
+            bytes
+                .read_u16::<LittleEndian>()
+                .expect("should read")
+                .into()
+        } else {
+            bytes.read_u32::<LittleEndian>().expect("should read") as usize
+        }
     }
 }

@@ -1,13 +1,15 @@
 use super::super::binary_index::Builder as BinaryIndexBuilder;
 use super::super::hash_index::Builder as HashIndexBuilder;
-use crate::{coding::Encode, InternalValue};
-use byteorder::{BigEndian, WriteBytesExt};
+use crate::{
+    coding::Encode, super_segment::hash_index::MAX_POINTERS_FOR_HASH_INDEX, InternalValue,
+};
+use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 use varint_rs::VarintWriter;
 
 pub const TERMINATOR_MARKER: u8 = 255;
 
-pub const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>() + std::mem::size_of::<u8>();
+pub const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>() + (2 * std::mem::size_of::<u8>());
 
 fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
     s1.iter()
@@ -120,18 +122,23 @@ impl<'a> Encoder<'a> {
         Ok(())
     }
 
+    // TODO: maybe change the order of trailer items a bit so we can get to the binary index first
     pub fn finish(mut self) -> crate::Result<Vec<u8>> {
         // IMPORTANT: Terminator marker
         self.writer.write_u8(TERMINATOR_MARKER)?;
+
+        // TODO: version u8? -> add to segment metadata instead
 
         // NOTE: We know that data blocks will never even approach 4 GB in size
         #[allow(clippy::cast_possible_truncation)]
         let binary_index_offset = self.writer.len() as u32;
 
-        let binary_index_len = self.binary_index_builder.write(&mut self.writer)?;
+        // Write binary index
+        let (binary_index_step_size, binary_index_len) =
+            self.binary_index_builder.write(&mut self.writer)?;
 
         let mut hash_index_offset = 0u32;
-        let mut hash_index_len = 0u32;
+        let hash_index_len = self.hash_index_builder.bucket_count();
 
         // TODO: unit test when binary index is too long
         // NOTE: We can only use a hash index when there are 254 buckets or less
@@ -139,52 +146,57 @@ impl<'a> Encoder<'a> {
         //
         // With the default restart interval of 16, that still gives us support
         // for up to ~4000 KVs
-        if self.hash_index_builder.bucket_count() > 0 && binary_index_len <= (u8::MAX - 2).into() {
+        if self.hash_index_builder.bucket_count() > 0
+            && binary_index_len <= MAX_POINTERS_FOR_HASH_INDEX.into()
+        {
             // NOTE: We know that data blocks will never even approach 4 GB in size
             #[allow(clippy::cast_possible_truncation)]
             {
                 hash_index_offset = self.writer.len() as u32;
             }
 
-            hash_index_len = self.hash_index_builder.bucket_count();
-
+            // Write hash index
             self.hash_index_builder.write(&mut self.writer)?;
         }
 
-        #[cfg(debug_assertions)]
-        let bytes_before = self.writer.len();
-
         // Trailer:
         // [item_count] [restart_interval] [binary_index_offset] [binary_index_len] [hash_index_offset] [hash_index_len]
+        {
+            #[cfg(debug_assertions)]
+            let bytes_before = self.writer.len();
 
-        // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
-        #[allow(clippy::cast_possible_truncation)]
-        self.writer.write_u32::<BigEndian>(self.item_count as u32)?;
+            // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
+            #[allow(clippy::cast_possible_truncation)]
+            self.writer
+                .write_u32::<LittleEndian>(self.item_count as u32)?;
 
-        self.writer.write_u8(self.restart_interval)?;
+            self.writer.write_u8(self.restart_interval)?;
 
-        self.writer.write_u32::<BigEndian>(binary_index_offset)?;
+            self.writer.write_u8(binary_index_step_size)?;
 
-        // NOTE: Even with a dense index, there can't be more index pointers than items
-        #[allow(clippy::cast_possible_truncation)]
-        self.writer
-            .write_u32::<BigEndian>(binary_index_len as u32)?;
+            self.writer.write_u32::<LittleEndian>(binary_index_offset)?;
 
-        self.writer.write_u32::<BigEndian>(hash_index_offset)?;
+            // NOTE: Even with a dense index, there can't be more index pointers than items
+            #[allow(clippy::cast_possible_truncation)]
+            self.writer
+                .write_u32::<LittleEndian>(binary_index_len as u32)?;
 
-        self.writer
-            .write_u32::<BigEndian>(if hash_index_offset > 0 {
-                hash_index_len
-            } else {
-                0
-            })?;
+            self.writer.write_u32::<LittleEndian>(hash_index_offset)?;
 
-        #[cfg(debug_assertions)]
-        assert_eq!(
-            TRAILER_SIZE,
-            self.writer.len() - bytes_before,
-            "trailer size does not match",
-        );
+            self.writer
+                .write_u32::<LittleEndian>(if hash_index_offset > 0 {
+                    hash_index_len
+                } else {
+                    0
+                })?;
+
+            #[cfg(debug_assertions)]
+            assert_eq!(
+                TRAILER_SIZE,
+                self.writer.len() - bytes_before,
+                "trailer size does not match",
+            );
+        }
 
         Ok(self.writer)
     }

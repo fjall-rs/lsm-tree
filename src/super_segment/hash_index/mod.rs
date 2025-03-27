@@ -13,5 +13,5 @@ fn calculate_bucket_position(key: &[u8], bucket_count: u32) -> usize {
     (hash % u64::from(bucket_count)) as usize
 }
 
-pub use builder::Builder;
+pub use builder::{Builder, MAX_POINTERS_FOR_HASH_INDEX};
 pub use reader::Reader;

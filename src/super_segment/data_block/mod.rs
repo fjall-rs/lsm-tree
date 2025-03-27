@@ -4,7 +4,7 @@ mod iter;
 use super::hash_index::Reader as HashIndexReader;
 use super::{binary_index::Reader as BinaryIndexReader, Block};
 use crate::{coding::DecodeError, InternalValue, SeqNo, Slice, ValueType};
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use encoder::{TERMINATOR_MARKER, TRAILER_SIZE};
 use std::cmp::Ordering;
 use std::{
@@ -69,7 +69,7 @@ pub struct DataBlock {
 }
 
 struct RestartHead {
-    value_type: ValueType,
+    value_type: u8,
     seqno: SeqNo,
     key_start: usize,
     key_len: usize,
@@ -104,10 +104,6 @@ impl DataBlock {
     fn parse_restart_item(cursor: &mut Cursor<&[u8]>) -> crate::Result<RestartHead> {
         let value_type = cursor.read_u8()?;
 
-        let value_type: ValueType = value_type
-            .try_into()
-            .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
-
         let seqno = cursor.read_u64_varint()?;
 
         let key_len: usize = cursor.read_u16_varint()?.into();
@@ -139,7 +135,12 @@ impl DataBlock {
         // NOTE: Check the full item
         let base_key = {
             let parsed = Self::parse_restart_item(&mut cursor)?;
-            let value_type = parsed.value_type;
+
+            let value_type: ValueType = parsed
+                .value_type
+                .try_into()
+                .map_err(|()| DecodeError::InvalidTag(("ValueType", parsed.value_type)))?;
+
             let seqno = parsed.seqno;
 
             let key_start = pos + parsed.key_start;
@@ -236,7 +237,7 @@ impl DataBlock {
                             bytes.slice(base_key_pos..(base_key_pos + shared_prefix_len))
                         } else {
                             // Stitch key
-                            Slice::fused(&[prefix_part, rest_key])
+                            Slice::fused(prefix_part, rest_key)
                         };
 
                         return Ok(Some(if value_type == ValueType::Value {
@@ -265,6 +266,68 @@ impl DataBlock {
         Ok(None)
     }
 
+    pub fn binary_index_pointer_count(&self) -> usize {
+        let bytes = &self.inner.data;
+
+        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
+        #[warn(unsafe_code)]
+        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
+
+        let _item_count = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+        let _restart_interval = reader.read_u8().expect("should read") as usize;
+
+        let _binary_index_step_size = reader.read_u8().expect("should read") as usize;
+
+        let _binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+
+        reader.read_u32::<LittleEndian>().expect("should read") as usize
+    }
+
+    pub fn hash_bucket_count(&self) -> usize {
+        let bytes = &self.inner.data;
+
+        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
+        #[warn(unsafe_code)]
+        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
+
+        let _item_count = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+        let _restart_interval = reader.read_u8().expect("should read") as usize;
+
+        let _binary_index_step_size = reader.read_u8().expect("should read") as usize;
+        let _binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+        let _binary_index_len = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+
+        let hash_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+
+        if hash_index_offset > 0 {
+            reader.read_u32::<LittleEndian>().expect("should read") as usize
+        } else {
+            0
+        }
+    }
+
+    fn trailer_offset(&self) -> usize {
+        self.inner.data.len() - TRAILER_SIZE
+    }
+
+    /// Returns the amount of items in the block
+    #[must_use]
+    pub fn len(&self) -> usize {
+        let bytes = &self.inner.data;
+
+        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
+        #[warn(unsafe_code)]
+        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
+
+        reader.read_u32::<LittleEndian>().expect("should read") as usize
+    }
+
+    /// Always returns false: a block is never empty
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+
     pub fn point_read(
         &self,
         key: &[u8],
@@ -272,29 +335,48 @@ impl DataBlock {
     ) -> crate::Result<Option<InternalValue>> {
         let bytes = &self.inner.data;
 
-        let mut reader = &bytes[bytes.len() - TRAILER_SIZE..];
+        let start_pos = self.trailer_offset()
+            + /* skip item count */ std::mem::size_of::<u32>();
 
-        let _item_count = reader.read_u32::<BigEndian>().expect("should read") as usize;
+        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
+        #[warn(unsafe_code)]
+        let mut reader = unsafe { bytes.get_unchecked(start_pos..) };
+
         let restart_interval = reader.read_u8().expect("should read") as usize;
 
-        let binary_index_offset = reader.read_u32::<BigEndian>().expect("should read") as usize;
-        let binary_index_len = reader.read_u32::<BigEndian>().expect("should read") as usize;
-        let binary_index = BinaryIndexReader::new(bytes, binary_index_offset, binary_index_len);
+        let binary_index_step_size = reader.read_u8().expect("should read") as usize;
+
+        debug_assert!(
+            binary_index_step_size == 2 || binary_index_step_size == 4,
+            "invalid binary index step size",
+        );
+
+        // eprintln!("binary index step size={binary_index_step_size}");
+
+        let binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+        let binary_index_len = reader.read_u32::<LittleEndian>().expect("should read") as usize;
+        let binary_index = BinaryIndexReader::new(
+            bytes,
+            binary_index_offset,
+            binary_index_len,
+            binary_index_step_size,
+        );
 
         // TODO: if the binary index is really dense, don't look into hash index, or
         // maybe don't even build it in the first place
 
-        let hash_index_offset = reader.read_u32::<BigEndian>().expect("should read") as usize;
+        let hash_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
 
         if hash_index_offset > 0 {
-            let hash_bucket_count = reader.read_u32::<BigEndian>().expect("should read") as usize;
+            let hash_bucket_count =
+                reader.read_u32::<LittleEndian>().expect("should read") as usize;
 
             let hash_index = HashIndexReader::new(bytes, hash_index_offset, hash_bucket_count);
 
             if let Some(bucket_value) = hash_index.get(key) {
                 let restart_entry_pos = binary_index.get(usize::from(bucket_value));
 
-                return self.walk(key, seqno, restart_entry_pos as usize, restart_interval);
+                return self.walk(key, seqno, restart_entry_pos, restart_interval);
             }
         }
 
@@ -316,7 +398,7 @@ impl DataBlock {
 
                 let offset = binary_index.get(mid);
 
-                if (key, seqno_cmp) >= self.get_key_at(offset as usize)? {
+                if (key, seqno_cmp) >= self.get_key_at(offset)? {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -328,7 +410,7 @@ impl DataBlock {
 
                 let offset = binary_index.get(mid);
 
-                if key >= self.get_key_at(offset as usize)?.0 {
+                if key >= self.get_key_at(offset)?.0 {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -342,7 +424,7 @@ impl DataBlock {
 
         let offset = binary_index.get(left - 1);
 
-        self.walk(key, seqno, offset as usize, restart_interval)
+        self.walk(key, seqno, offset, restart_interval)
     }
 
     // TODO: blocks are often <64K in size, so maybe we can selectively fall back to a
@@ -371,6 +453,7 @@ impl DataBlock {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{
@@ -462,6 +545,8 @@ mod tests {
             },
         };
 
+        assert!(data_block.hash_bucket_count() > 0);
+
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
@@ -498,6 +583,8 @@ mod tests {
                 },
             },
         };
+
+        assert!(data_block.hash_bucket_count() > 0);
 
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
@@ -540,6 +627,8 @@ mod tests {
             },
         };
 
+        assert!(data_block.hash_bucket_count() == 0);
+
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
 
@@ -555,7 +644,103 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_dense_mvcc() -> crate::Result<()> {
+    fn v3_data_block_fuzz_3() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(
+                Slice::from([
+                    255, 255, 255, 255, 5, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                    255, 255, 255, 255, 255,
+                ]),
+                Slice::from([0, 0, 192]),
+                18_446_744_073_701_163_007,
+                Tombstone,
+            ),
+            InternalValue::from_components(
+                Slice::from([255, 255, 255, 255, 255, 255, 0]),
+                Slice::from([]),
+                0,
+                Value,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 5, 1.0)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert!(data_block.hash_bucket_count() > 0);
+
+        assert_eq!(
+            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            items.len(),
+        );
+
+        assert_eq!(
+            items,
+            *data_block
+                .iter()
+                .map(|x| x.expect("should be ok"))
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_dense_mvcc_with_hash() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(b"a", b"a", 3, Value),
+            InternalValue::from_components(b"a", b"a", 2, Value),
+            InternalValue::from_components(b"a", b"a", 1, Value),
+            InternalValue::from_components(b"b", b"b", 65, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        eprintln!("{bytes:?}");
+        eprintln!("{}", String::from_utf8_lossy(&bytes));
+        eprintln!("encoded into {} bytes", bytes.len());
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert!(data_block.hash_bucket_count() > 0);
+
+        for needle in items {
+            eprintln!("NEEDLE {needle:?}");
+
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
+        }
+
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_dense_mvcc_no_hash() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(b"a", b"a", 3, Value),
             InternalValue::from_components(b"a", b"a", 2, Value),
@@ -580,6 +765,8 @@ mod tests {
                 },
             },
         };
+
+        assert!(data_block.hash_bucket_count() == 0);
 
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
@@ -623,9 +810,11 @@ mod tests {
             },
         };
 
+        assert!(data_block.hash_bucket_count() > 0);
+
         assert!(data_block
             .point_read(b"pla:venus:fact", None)?
-            .unwrap()
+            .expect("should exist")
             .is_tombstone());
 
         Ok(())
@@ -664,6 +853,8 @@ mod tests {
             },
         };
 
+        assert!(data_block.hash_bucket_count() > 0);
+
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
@@ -672,6 +863,40 @@ mod tests {
         }
 
         assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_one_time() -> crate::Result<()> {
+        let items = [InternalValue::from_components(
+            "pla:saturn:fact",
+            "Saturn is pretty big",
+            0,
+            Value,
+        )];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert_eq!(
+            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            items.len()
+        );
+
+        assert_eq!(data_block.iter().flatten().collect::<Vec<_>>(), items);
 
         Ok(())
     }
@@ -701,11 +926,207 @@ mod tests {
             },
         };
 
-        for item in data_block.iter() {
-            eprintln!("{item:?}");
+        assert!(data_block.hash_bucket_count() > 0);
+
+        assert_eq!(
+            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            items.len(),
+        );
+
+        assert_eq!(
+            items,
+            *data_block
+                .iter()
+                .map(|x| x.expect("should be ok"))
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_dense() -> crate::Result<()> {
+        let items = [InternalValue::from_components(
+            "pla:saturn:fact",
+            "Saturn is pretty big",
+            0,
+            Value,
+        )];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert_eq!(
+            items.len(),
+            data_block.iter().map(|x| x.expect("should be ok")).count(),
+        );
+
+        assert_eq!(
+            items,
+            *data_block
+                .iter()
+                .map(|x| x.expect("should be ok"))
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_rev() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:saturn:fact", "Saturn is pretty big", 0, Value),
+            InternalValue::from_components("pla:saturn:name", "Saturn", 0, Value),
+            InternalValue::from_components("pla:venus:fact", "", 1, Tombstone),
+            InternalValue::from_components("pla:venus:fact", "Venus exists", 0, Value),
+            InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert!(data_block.hash_bucket_count() > 0);
+
+        assert_eq!(
+            items.len(),
+            data_block
+                .iter()
+                .rev()
+                .map(|x| x.expect("should be ok"))
+                .count(),
+        );
+
+        assert_eq!(
+            items.into_iter().rev().collect::<Vec<_>>(),
+            data_block
+                .iter()
+                .rev()
+                .map(|x| x.expect("should be ok"))
+                .collect::<Vec<_>>(),
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_just_enough_pointers_for_hash_bucket() -> crate::Result<()> {
+        let items = (0u64..254)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
+            .collect::<Vec<_>>();
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert_eq!(0, data_block.hash_bucket_count());
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
         }
 
-        assert_eq!(data_block.iter().count(), items.len());
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_too_many_pointers_for_hash_bucket() -> crate::Result<()> {
+        let items = (0u64..255)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
+            .collect::<Vec<_>>();
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert_eq!(0, data_block.hash_bucket_count());
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_no_hash_index() -> crate::Result<()> {
+        let items = (0u64..1)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
+            .collect::<Vec<_>>();
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock {
+            inner: Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    compression: crate::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            },
+        };
+
+        assert_eq!(0, data_block.hash_bucket_count());
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
+        }
 
         Ok(())
     }

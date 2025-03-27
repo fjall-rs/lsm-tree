@@ -1,6 +1,8 @@
 use super::{calculate_bucket_position, MARKER_CONFLICT, MARKER_FREE};
 use byteorder::WriteBytesExt;
 
+pub const MAX_POINTERS_FOR_HASH_INDEX: u8 = u8::MAX - 2;
+
 #[derive(Debug)]
 pub struct Builder(Vec<u8>);
 
@@ -20,7 +22,7 @@ impl Builder {
         let bucket_pos = calculate_bucket_position(key, self.bucket_count());
 
         // SAFETY: We used modulo
-        #[allow(unsafe_code)]
+        #[warn(unsafe_code)]
         let curr_marker = unsafe { *self.0.get_unchecked(bucket_pos) };
 
         match curr_marker {
@@ -29,7 +31,7 @@ impl Builder {
                 // NOTE: Free slot
 
                 // SAFETY: We previously asserted that the slot exists
-                #[allow(unsafe_code)]
+                #[warn(unsafe_code)]
                 unsafe {
                     *self.0.get_unchecked_mut(bucket_pos) = binary_index_pos;
                 }
@@ -45,7 +47,7 @@ impl Builder {
                 // NOTE: Mark as conflicted
 
                 // SAFETY: We previously asserted that the slot exists
-                #[allow(unsafe_code)]
+                #[warn(unsafe_code)]
                 unsafe {
                     *self.0.get_unchecked_mut(bucket_pos) = MARKER_CONFLICT;
                 }
