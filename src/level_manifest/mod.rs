@@ -378,6 +378,15 @@ impl LevelManifest {
         output
     }
 
+    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<Segment> {
+        for level in &self.levels {
+            if let Some(segment) = level.segments.iter().find(|x| x.id() == id).cloned() {
+                return Some(segment);
+            }
+        }
+        None
+    }
+
     /// Returns a view into the levels, hiding all segments that currently are being compacted
     #[must_use]
     pub fn resolved_view(&self) -> Vec<Level> {

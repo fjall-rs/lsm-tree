@@ -3,24 +3,24 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{blob_tree::value::MaybeInlineValue, coding::Decode, Memtable};
-use std::{io::Cursor, sync::RwLockWriteGuard};
+use std::io::Cursor;
 use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcReader<'a> {
     tree: &'a crate::Tree,
-    memtable: &'a RwLockWriteGuard<'a, Memtable>,
+    memtable: &'a Memtable,
 }
 
 impl<'a> GcReader<'a> {
-    pub fn new(tree: &'a crate::Tree, memtable: &'a RwLockWriteGuard<'a, Memtable>) -> Self {
+    pub fn new(tree: &'a crate::Tree, memtable: &'a Memtable) -> Self {
         Self { tree, memtable }
     }
 
     fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
         let Some(item) = self
             .tree
-            .get_internal_entry_with_lock(self.memtable, key, None)?
+            .get_internal_entry_with_memtable(self.memtable, key, None)?
             .map(|x| x.value)
         else {
             return Ok(None);
