@@ -484,17 +484,6 @@ fn merge_segments(
     levels.show_segments(payload.segment_ids.iter().copied());
     drop(levels);
 
-    log::trace!(
-        "Closing file handles for old segment files: {:?}",
-        payload.segment_ids
-    );
-
-    for segment_id in &payload.segment_ids {
-        opts.config
-            .descriptor_table
-            .remove((opts.tree_id, *segment_id).into());
-    }
-
     log::trace!("Compaction successful");
 
     Ok(())
@@ -546,11 +535,6 @@ fn drop_segments(
     // cleaned up upon recovery
     for segment in segments {
         segment.mark_as_deleted();
-    }
-
-    for key in segment_ids {
-        log::trace!("Closing file handles for segment data file");
-        opts.config.descriptor_table.remove(*key);
     }
 
     log::trace!("Dropped {} segments", segment_ids.len());

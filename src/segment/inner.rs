@@ -42,14 +42,18 @@ pub struct Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        let global_id = (self.tree_id, self.metadata.id).into();
+
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             if let Err(e) = std::fs::remove_file(&self.path) {
                 log::warn!(
-                    "Failed to cleanup deleted segment {} at {:?}: {e:?}",
-                    self.metadata.id,
+                    "Failed to cleanup deleted segment {global_id:?} at {:?}: {e:?}",
                     self.path,
                 );
             }
         }
+
+        log::trace!("Closing file handles for old segment file {global_id:?}",);
+        self.descriptor_table.remove(global_id);
     }
 }
