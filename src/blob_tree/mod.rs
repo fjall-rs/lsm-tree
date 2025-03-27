@@ -230,6 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn clear_active_memtable(&self) {
+        self.index.clear_active_memtable();
+    }
+
     fn l0_run_count(&self) -> usize {
         self.index.l0_run_count()
     }
@@ -411,7 +415,7 @@ impl AbstractTree for BlobTree {
         Ok(())
     }
 
-    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Memtable> {
+    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Arc<Memtable>> {
         self.index.lock_active_memtable()
     }
 

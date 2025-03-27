@@ -47,7 +47,10 @@ pub trait AbstractTree {
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable>;
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
+
+    /// Clears the active memtable atomically.
+    fn clear_active_memtable(&self);
 
     /// Sets the active memtable.
     ///

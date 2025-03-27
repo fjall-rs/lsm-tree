@@ -12,7 +12,7 @@ use crate::{
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    range::{prefix_to_range, MemtableLockGuard, TreeIter},
+    range::{prefix_to_range, IterState, TreeIter},
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
@@ -28,7 +28,10 @@ use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{
+        atomic::{AtomicBool, AtomicU64},
+        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    },
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -175,12 +178,14 @@ impl AbstractTree for Tree {
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("Acquiring levels manifest write lock");
+        log::trace!("register: Acquiring levels manifest write lock");
         let mut original_levels = self.levels.write().expect("lock is poisoned");
+        log::trace!("register: Acquired levels manifest write lock");
 
         // NOTE: Mind lock order L -> M -> S
-        log::trace!("Acquiring sealed memtables write lock");
+        log::trace!("register: Acquiring sealed memtables write lock");
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
+        log::trace!("register: Acquired sealed memtables write lock");
 
         original_levels.atomic_swap(|recipe| {
             for segment in segments.iter().cloned() {
@@ -201,13 +206,17 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable> {
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>> {
         self.active_memtable.write().expect("lock is poisoned")
+    }
+
+    fn clear_active_memtable(&self) {
+        *self.active_memtable.write().expect("lock is poisoned") = Arc::new(Memtable::default());
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
         let mut memtable_lock = self.active_memtable.write().expect("lock is poisoned");
-        *memtable_lock = memtable;
+        *memtable_lock = Arc::new(memtable);
     }
 
     fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
@@ -265,7 +274,7 @@ impl AbstractTree for Tree {
         }
 
         let yanked_memtable = std::mem::take(&mut *active_memtable);
-        let yanked_memtable = Arc::new(yanked_memtable);
+        let yanked_memtable = yanked_memtable;
 
         let tmp_memtable_id = self.get_next_segment_id();
         sealed_memtables.add(tmp_memtable_id, yanked_memtable.clone());
@@ -423,7 +432,7 @@ impl Tree {
         Ok(tree)
     }
 
-    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, Memtable> {
+    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, Arc<Memtable>> {
         self.active_memtable.read().expect("lock is poisoned")
     }
 
@@ -464,6 +473,8 @@ impl Tree {
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
         let created_segment: Segment = SegmentInner {
+            path: segment_file_path.to_path_buf(),
+
             tree_id: self.id,
 
             metadata: trailer.metadata,
@@ -474,6 +485,8 @@ impl Tree {
             block_cache: self.config.block_cache.clone(),
 
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+
+            is_deleted: AtomicBool::default(),
         }
         .into();
 
@@ -526,10 +539,11 @@ impl Tree {
         self.sealed_memtables.write().expect("lock is poisoned")
     }
 
+    // TODO: maybe not needed anyway
     /// Used for [`BlobTree`] lookup
-    pub(crate) fn get_internal_entry_with_lock(
+    pub(crate) fn get_internal_entry_with_memtable(
         &self,
-        memtable_lock: &RwLockWriteGuard<'_, Memtable>,
+        memtable_lock: &Memtable,
         key: &[u8],
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<InternalValue>> {
@@ -660,26 +674,30 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
+        log::trace!("range read: acquiring levels manifest read lock");
         // NOTE: Mind lock order L -> M -> S
-        let level_manifest_lock =
+        let levels =
             guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
+        log::trace!("range read: acquired level manifest read lock");
 
+        log::trace!("range read: acquiring active memtable read lock");
         let active = guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
             .expect("lock is poisoned");
+        log::trace!("range read: acquired active memtable read lock");
 
+        log::trace!("range read: acquiring sealed memtable read lock");
         let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
             .expect("lock is poisoned");
 
-        TreeIter::create_range(
-            MemtableLockGuard {
-                active,
-                sealed,
-                ephemeral,
-            },
-            bounds,
-            seqno,
-            level_manifest_lock,
-        )
+        log::trace!("range read: acquired sealed memtable read lock");
+
+        let iter_state = IterState {
+            active: active.clone(),
+            sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
+            ephemeral,
+        };
+
+        TreeIter::create_range(iter_state, bounds, seqno, levels)
     }
 
     #[doc(hidden)]

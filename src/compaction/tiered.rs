@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{level_manifest::LevelManifest, Config, Segment};
+use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
@@ -102,7 +102,29 @@ impl CompactionStrategy for Strategy {
                     segments_to_compact.push(segment);
                 }
 
-                let segment_ids = segments_to_compact.iter().map(Segment::id).collect();
+                let mut segment_ids: HashSet<_> =
+                    segments_to_compact.iter().map(Segment::id).collect();
+
+                // NOTE: If dest level is the last level, just overwrite it
+                //
+                // If we didn't overwrite Lmax, it would end up amassing more and more
+                // segments
+                // Also, because it's the last level, the frequency of overwiting it is
+                // amortized because of the LSM-tree's level structure
+                if next_level_index == 6 {
+                    // Wait for L6 to be non-busy
+                    if levels.busy_levels().contains(&next_level_index) {
+                        continue;
+                    }
+
+                    segment_ids.extend(
+                        levels
+                            .levels
+                            .last()
+                            .expect("last level should always exist")
+                            .list_ids(),
+                    );
+                }
 
                 return Choice::Merge(CompactionInput {
                     segment_ids,
@@ -146,7 +168,7 @@ mod tests {
         },
         HashSet, KeyRange, SeqNo,
     };
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicBool, Arc};
     use test_log::test;
 
     #[allow(clippy::expect_used)]
@@ -192,6 +214,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }

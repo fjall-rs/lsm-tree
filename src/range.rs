@@ -11,7 +11,6 @@ use crate::{
     multi_reader::MultiReader,
     mvcc_stream::MvccStream,
     segment::value_block::CachePolicy,
-    tree::inner::SealedMemtables,
     value::{SeqNo, UserKey},
     InternalValue,
 };
@@ -49,9 +48,12 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
     (Included(prefix.into()), Unbounded)
 }
 
-pub struct MemtableLockGuard {
-    pub(crate) active: ArcRwLockReadGuardian<Memtable>,
-    pub(crate) sealed: ArcRwLockReadGuardian<SealedMemtables>,
+/// The iter state references the memtables used while the range is open
+///
+/// Because of Rust rules, the state is referenced using `self_cell`, see below.
+pub struct IterState {
+    pub(crate) active: Arc<Memtable>,
+    pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 }
 
@@ -59,7 +61,7 @@ type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalV
 
 self_cell!(
     pub struct TreeIter {
-        owner: MemtableLockGuard,
+        owner: IterState,
 
         #[covariant]
         dependent: BoxedMerge,
@@ -130,7 +132,7 @@ impl TreeIter {
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn create_range(
-        guard: MemtableLockGuard,
+        guard: IterState,
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
         level_manifest: ArcRwLockReadGuardian<LevelManifest>,
@@ -234,7 +236,7 @@ impl TreeIter {
             drop(level_manifest);
 
             // Sealed memtables
-            for (_, memtable) in lock.sealed.iter() {
+            for memtable in lock.sealed.iter() {
                 let iter = memtable.range(range.clone());
 
                 if let Some(seqno) = seqno {
