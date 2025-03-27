@@ -12,7 +12,7 @@ use crate::{
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    range::{prefix_to_range, MemtableLockGuard, TreeIter},
+    range::{prefix_to_range, IterState, TreeIter},
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
@@ -691,14 +691,13 @@ impl Tree {
 
         log::trace!("range read: acquired sealed memtable read lock");
 
-        // TODO: rename because it's not a lock guard anymore
-        let lock_guard = MemtableLockGuard {
+        let iter_state = IterState {
             active: active.clone(),
             sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
             ephemeral,
         };
 
-        TreeIter::create_range(lock_guard, bounds, seqno, levels)
+        TreeIter::create_range(iter_state, bounds, seqno, levels)
     }
 
     #[doc(hidden)]
