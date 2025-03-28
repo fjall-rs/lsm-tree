@@ -54,7 +54,7 @@ impl std::ops::Deref for Tree {
 impl AbstractTree for Tree {
     fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
         use crate::{
-            compaction::PullDown, file::SEGMENTS_FOLDER,
+            compaction::MoveDown, file::SEGMENTS_FOLDER,
             segment::block_index::two_level_index::TwoLevelBlockIndex,
             segment::multi_writer::MultiWriter,
         };
@@ -88,7 +88,9 @@ impl AbstractTree for Tree {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
-                writer = writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
+                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(
+                    self.config.bloom_bits_per_key.unsigned_abs(),
+                ));
             } else {
                 writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
             }
@@ -161,8 +163,7 @@ impl AbstractTree for Tree {
 
         self.register_segments(&created_segments)?;
 
-        // TODO: need to make sure, PullDown does NOT rewrite data again
-        self.compact(Arc::new(PullDown(0, 6)), 0)?;
+        self.compact(Arc::new(MoveDown(0, 6)), 0)?;
 
         for segment in &created_segments {
             let segment_file_path = folder.join(segment.id().to_string());

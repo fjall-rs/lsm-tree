@@ -5,14 +5,12 @@
 use super::{Choice, CompactionStrategy, Input};
 use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
 
-/// Pulls down and merges a level into the destination level.
-///
-/// Used for unit tests.
+/// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "PullDownCompaction"
+        "MoveDownCompaction"
     }
 
     #[allow(clippy::expect_used)]
@@ -27,14 +25,16 @@ impl CompactionStrategy for Strategy {
             .get(usize::from(self.1))
             .expect("next level should exist");
 
-        let mut segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
+        if next_level.is_empty() {
+            let segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
 
-        segment_ids.extend(next_level.segments.iter().map(Segment::id));
-
-        Choice::Move(Input {
-            segment_ids,
-            dest_level: self.1,
-            target_size: 64_000_000,
-        })
+            Choice::Move(Input {
+                segment_ids,
+                dest_level: self.1,
+                target_size: 64_000_000,
+            })
+        } else {
+            Choice::DoNothing
+        }
     }
 }
