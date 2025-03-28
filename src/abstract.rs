@@ -29,6 +29,8 @@ pub trait AbstractTree {
     /// # Panics
     ///
     /// Panics if the tree is **not** initially empty.
+    ///
+    /// Will panic if the input iterator is not sorted in ascending order.
     #[doc(hidden)]
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
