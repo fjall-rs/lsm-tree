@@ -230,6 +230,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+        self.index.major_compact(target_size, seqno_threshold)
+    }
+
     fn clear_active_memtable(&self) {
         self.index.clear_active_memtable();
     }

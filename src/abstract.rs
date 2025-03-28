@@ -18,6 +18,13 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Performs major compaction, blocking the caller until it's done.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
+
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 

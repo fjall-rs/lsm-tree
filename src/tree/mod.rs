@@ -6,19 +6,17 @@ pub mod inner;
 
 use crate::{
     coding::{Decode, Encode},
-    compaction::{stream::CompactionStream, CompactionStrategy},
+    compaction::CompactionStrategy,
     config::Config,
     descriptor_table::FileDescriptorTable,
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    range::{prefix_to_range, IterState, TreeIter},
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
         Segment, SegmentInner,
     },
-    stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
     AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
@@ -55,6 +53,21 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    #[doc(hidden)]
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+        let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
+
+        // IMPORTANT: Write lock so we can be the only compaction going on
+        let _lock = self
+            .0
+            .major_compaction_lock
+            .write()
+            .expect("lock is poisoned");
+
+        log::info!("Starting major compaction");
+        self.inner_compact(strategy, seqno_threshold)
+    }
+
     fn l0_run_count(&self) -> usize {
         let lock = self.levels.read().expect("lock is poisoned");
 
@@ -133,6 +146,7 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>> {
         use crate::{
+            compaction::stream::CompactionStream,
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
@@ -196,7 +210,7 @@ impl AbstractTree for Tree {
             }
         })?;
 
-        // eprintln!("{original_levels}");
+        eprintln!("{original_levels}");
 
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
@@ -229,15 +243,16 @@ impl AbstractTree for Tree {
         strategy: Arc<dyn CompactionStrategy>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
-        use crate::compaction::worker::{do_compaction, Options};
+        // NOTE: Read lock major compaction lock
+        // That way, if a major compaction is running, we cannot proceed
+        // But in general, parallel (non-major) compactions can occur
+        let _lock = self
+            .0
+            .major_compaction_lock
+            .read()
+            .expect("lock is poisoned");
 
-        let mut opts = Options::from_tree(self, strategy);
-        opts.eviction_seqno = seqno_threshold;
-        do_compaction(&opts)?;
-
-        log::debug!("lsm-tree: compaction run over");
-
-        Ok(())
+        self.inner_compact(strategy, seqno_threshold)
     }
 
     fn get_next_segment_id(&self) -> SegmentId {
@@ -436,24 +451,6 @@ impl Tree {
         self.active_memtable.read().expect("lock is poisoned")
     }
 
-    // TODO: Expose as public function, however:
-    // TODO: Right now this is somewhat unsafe to expose as
-    // major compaction needs ALL segments, right now it just takes as many
-    // as it can, which may make the LSM inconsistent.
-    // TODO: There should also be a function to partially compact levels and individual segments
-
-    /// Performs major compaction, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    #[doc(hidden)]
-    pub fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
-        log::info!("Starting major compaction");
-        let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
-        self.compact(strategy, seqno_threshold)
-    }
-
     pub(crate) fn consume_writer(
         &self,
         segment_id: SegmentId,
@@ -641,6 +638,23 @@ impl Tree {
         self.get_internal_entry_from_segments(key, seqno)
     }
 
+    fn inner_compact(
+        &self,
+        strategy: Arc<dyn CompactionStrategy>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()> {
+        use crate::compaction::worker::{do_compaction, Options};
+
+        let mut opts = Options::from_tree(self, strategy);
+        opts.eviction_seqno = seqno_threshold;
+
+        do_compaction(&opts)?;
+
+        log::debug!("Compaction run over");
+
+        Ok(())
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn create_iter(
@@ -658,6 +672,7 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+        use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -721,6 +736,8 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+        use crate::range::prefix_to_range;
+
         let range = prefix_to_range(prefix.as_ref());
         self.create_range(&range, seqno, ephemeral)
     }
@@ -741,7 +758,7 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::file::MANIFEST_FILE;
+        use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {:?}", config.path);
@@ -779,6 +796,7 @@ impl Tree {
             levels: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
             config,
+            major_compaction_lock: RwLock::default(),
         };
 
         Ok(Self(Arc::new(inner)))
