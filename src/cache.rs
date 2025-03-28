@@ -2,28 +2,38 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::either::Either::{self, Left, Right};
 use crate::segment::block::offset::BlockOffset;
 use crate::segment::id::GlobalSegmentId;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
+use crate::UserValue;
 use quick_cache::Weighter;
-use quick_cache::{sync::Cache, Equivalent};
+use quick_cache::{sync::Cache as QuickCache, Equivalent};
 use std::sync::Arc;
 
-type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
+// type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
+
+const TAG_BLOCK: u8 = 0;
+const TAG_BLOB: u8 = 1;
+
+#[derive(Clone)]
+enum Item {
+    DataBlock(Arc<ValueBlock>),
+    IndexBlock(Arc<IndexBlock>),
+    Blob(Arc<UserValue>),
+}
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
-struct CacheKey(GlobalSegmentId, BlockOffset);
+struct CacheKey(u8, u64, u64, u64);
 
-impl Equivalent<CacheKey> for (GlobalSegmentId, BlockOffset) {
+impl Equivalent<CacheKey> for (u8, u64, u64, u64) {
     fn equivalent(&self, key: &CacheKey) -> bool {
-        self.0 == key.0 && self.1 == key.1
+        self.0 == key.0 && self.1 == key.1 && self.2 == key.2 && self.3 == key.3
     }
 }
 
-impl From<(GlobalSegmentId, BlockOffset)> for CacheKey {
-    fn from((gid, bid): (GlobalSegmentId, BlockOffset)) -> Self {
-        Self(gid, bid)
+impl From<(u8, u64, u64, u64)> for CacheKey {
+    fn from((tag, root_id, segment_id, offset): (u8, u64, u64, u64)) -> Self {
+        Self(tag, root_id, segment_id, offset)
     }
 }
 
@@ -34,13 +44,14 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
     fn weight(&self, _: &CacheKey, block: &Item) -> u64 {
         #[allow(clippy::cast_possible_truncation)]
         match block {
-            Either::Left(block) => block.header.uncompressed_length.into(),
-            Either::Right(block) => block.header.uncompressed_length.into(),
+            Item::DataBlock(block) => block.header.uncompressed_length.into(),
+            Item::IndexBlock(block) => block.header.uncompressed_length.into(),
+            Item::Blob(blob) => blob.len() as u64,
         }
     }
 }
 
-/// Block cache, in which blocks are cached in-memory
+/// Cache, in which blocks or blobs are cached in-memory
 /// after being retrieved from disk
 ///
 /// This speeds up consecutive queries to nearby data, improving
@@ -48,39 +59,39 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 ///
 /// # Examples
 ///
-/// Sharing block cache between multiple trees
+/// Sharing cache between multiple trees
 ///
 /// ```
-/// # use lsm_tree::{Tree, Config, BlockCache};
+/// # use lsm_tree::{Tree, Config, Cache};
 /// # use std::sync::Arc;
 /// #
 /// // Provide 40 MB of cache capacity
-/// let block_cache = Arc::new(BlockCache::with_capacity_bytes(40 * 1_000 * 1_000));
+/// let cache = Arc::new(Cache::with_capacity_bytes(40 * 1_000 * 1_000));
 ///
 /// # let folder = tempfile::tempdir()?;
-/// let tree1 = Config::new(folder).block_cache(block_cache.clone()).open()?;
+/// let tree1 = Config::new(folder).use_cache(cache.clone()).open()?;
 /// # let folder = tempfile::tempdir()?;
-/// let tree2 = Config::new(folder).block_cache(block_cache.clone()).open()?;
+/// let tree2 = Config::new(folder).use_cache(cache.clone()).open()?;
 /// #
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
-pub struct BlockCache {
+pub struct Cache {
     // NOTE: rustc_hash performed best: https://fjall-rs.github.io/post/fjall-2-1
     /// Concurrent cache implementation
-    data: Cache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
+    data: QuickCache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
 
     /// Capacity in bytes
     capacity: u64,
 }
 
-impl BlockCache {
+impl Cache {
     /// Creates a new block cache with roughly `n` bytes of capacity.
     #[must_use]
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
         #[allow(clippy::default_trait_access)]
-        let quick_cache = Cache::with(
+        let quick_cache = QuickCache::with(
             1_000_000,
             bytes,
             BlockWeighter,
@@ -119,50 +130,68 @@ impl BlockCache {
     }
 
     #[doc(hidden)]
-    pub fn insert_disk_block(
+    pub fn insert_data_block(
         &self,
-        segment_id: GlobalSegmentId,
+        id: GlobalSegmentId,
         offset: BlockOffset,
         value: Arc<ValueBlock>,
     ) {
         if self.capacity > 0 {
-            self.data.insert((segment_id, offset).into(), Left(value));
+            self.data.insert(
+                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
+                Item::DataBlock(value),
+            );
         }
     }
 
     #[doc(hidden)]
     pub fn insert_index_block(
         &self,
-        segment_id: GlobalSegmentId,
+        id: GlobalSegmentId,
         offset: BlockOffset,
         value: Arc<IndexBlock>,
     ) {
         if self.capacity > 0 {
-            self.data.insert((segment_id, offset).into(), Right(value));
+            self.data.insert(
+                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
+                Item::IndexBlock(value),
+            );
         }
     }
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_disk_block(
+    pub fn get_data_block(
         &self,
-        segment_id: GlobalSegmentId,
+        id: GlobalSegmentId,
         offset: BlockOffset,
     ) -> Option<Arc<ValueBlock>> {
-        let key = (segment_id, offset);
-        let item = self.data.get(&key)?;
-        Some(item.left())
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+
+        match self.data.get(&key)? {
+            Item::DataBlock(block) => Some(block),
+            _ => {
+                log::warn!("cache item type was unexpected - this is a bug");
+                None
+            }
+        }
     }
 
     #[doc(hidden)]
     #[must_use]
     pub fn get_index_block(
         &self,
-        segment_id: GlobalSegmentId,
+        id: GlobalSegmentId,
         offset: BlockOffset,
     ) -> Option<Arc<IndexBlock>> {
-        let key = (segment_id, offset);
-        let item = self.data.get(&key)?;
-        Some(item.right())
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+
+        match self.data.get(&key)? {
+            Item::IndexBlock(block) => Some(block),
+            _ => {
+                log::warn!("cache item type was unexpected - this is a bug");
+                None
+            }
+        }
     }
 }

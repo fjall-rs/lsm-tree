@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+mod cache;
 mod compression;
 mod gc;
 pub mod index;
@@ -16,6 +17,7 @@ use crate::{
     value::InternalValue,
     Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
+use cache::MyBlobCache;
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
@@ -27,7 +29,7 @@ use std::{
 use value::MaybeInlineValue;
 use value_log::ValueLog;
 
-fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {
+fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeItem) -> RangeItem {
     use MaybeInlineValue::{Indirect, Inline};
 
     match item {
@@ -67,7 +69,7 @@ pub struct BlobTree {
 
     /// Log-structured value-log that stores large values
     #[doc(hidden)]
-    pub blobs: ValueLog<MyCompressor>,
+    pub blobs: ValueLog<MyBlobCache, MyCompressor>,
 
     // TODO: maybe replace this with a nonce system
     #[doc(hidden)]
@@ -79,10 +81,10 @@ impl BlobTree {
         let path = &config.path;
 
         let vlog_path = path.join(BLOBS_FOLDER);
-        let vlog_cfg = value_log::Config::<MyCompressor>::default()
-            .blob_cache(config.blob_cache.clone())
-            .segment_size_bytes(config.blob_file_target_size)
-            .compression(MyCompressor(config.blob_compression));
+        let vlog_cfg =
+            value_log::Config::<MyBlobCache, MyCompressor>::new(MyBlobCache(config.cache.clone()))
+                .segment_size_bytes(config.blob_file_target_size)
+                .compression(MyCompressor(config.blob_compression));
 
         let index: IndexTree = config.open()?.into();
 
@@ -188,7 +190,7 @@ impl BlobTree {
 
     pub fn apply_gc_strategy(
         &self,
-        strategy: &impl value_log::GcStrategy<MyCompressor>,
+        strategy: &impl value_log::GcStrategy<MyBlobCache, MyCompressor>,
         seqno: SeqNo,
     ) -> crate::Result<u64> {
         // IMPORTANT: Write lock memtable to avoid read skew

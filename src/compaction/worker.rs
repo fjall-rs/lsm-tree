@@ -389,7 +389,7 @@ fn merge_segments(
                         trailer.offsets.tli_ptr,
                         (opts.tree_id, segment_id).into(),
                         opts.config.descriptor_table.clone(),
-                        opts.config.block_cache.clone(),
+                        opts.config.cache.clone(),
                     )?;
                     BlockIndexImpl::TwoLevel(block_index)
                 }
@@ -402,7 +402,7 @@ fn merge_segments(
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
-                block_cache: opts.config.block_cache.clone(),
+                cache: opts.config.cache.clone(),
 
                 metadata: trailer.metadata,
                 offsets: trailer.offsets,
