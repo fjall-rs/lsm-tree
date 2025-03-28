@@ -64,6 +64,9 @@ impl AbstractTree for Tree {
             "can only perform bulk_ingest on empty trees",
         );
 
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let _lock = self.lock_active_memtable();
+
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("Ingesting into disk segments in {folder:?}");
 
