@@ -89,7 +89,7 @@ impl Decode for KeyedBlockHandle {
 
         Ok(Self {
             offset: BlockOffset(offset),
-            end_key: Slice::from(key),
+            end_key: UserKey::from(key),
         })
     }
 }

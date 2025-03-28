@@ -81,7 +81,7 @@ impl Decode for MaybeInlineValue {
         match tag {
             TAG_INLINE => {
                 let len = reader.read_u32_varint()? as usize;
-                let slice = Slice::from_reader(reader, len)?;
+                let slice = UserValue::from_reader(reader, len)?;
                 Ok(Self::Inline(slice))
             }
             TAG_INDIRECT => {

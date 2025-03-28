@@ -329,8 +329,7 @@ impl AbstractTree for BlobTree {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
 
-                // TODO: Slice::empty
-                segment_writer.write(InternalValue::new(item.key, vec![]))?;
+                segment_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
                 continue;
             }
 
