@@ -84,7 +84,7 @@ impl Decode for InternalKey {
             .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
 
         let key_len = reader.read_u16_varint()?;
-        let key = Slice::from_reader(reader, key_len.into())?;
+        let key = UserKey::from_reader(reader, key_len.into())?;
 
         Ok(Self::new(key, seqno, value_type))
     }
