@@ -59,7 +59,7 @@ pub struct TreeInner {
     pub segment_id_counter: Arc<AtomicU64>,
 
     /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<RwLock<Memtable>>,
+    pub(crate) active_memtable: Arc<RwLock<Arc<Memtable>>>,
 
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
@@ -74,6 +74,8 @@ pub struct TreeInner {
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
+
+    pub(crate) major_compaction_lock: RwLock<()>,
 }
 
 impl TreeInner {
@@ -89,6 +91,7 @@ impl TreeInner {
             sealed_memtables: Arc::default(),
             levels: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
+            major_compaction_lock: RwLock::default(),
         })
     }
 

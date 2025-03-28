@@ -122,19 +122,18 @@ mod tests {
         config::Config,
         descriptor_table::FileDescriptorTable,
         file::LEVELS_MANIFEST_FILE,
-        key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
         time::unix_timestamp,
-        HashSet,
+        HashSet, KeyRange,
     };
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicBool, Arc};
     use test_log::test;
 
     #[allow(clippy::expect_used)]
@@ -181,6 +180,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }

@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use super::block::offset::BlockOffset;
 use super::block_index::BlockIndex;
 use super::block_index::BlockIndexImpl;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
-use super::value_block::BlockOffset;
 use super::value_block::CachePolicy;
 use crate::block_cache::BlockCache;
 use crate::descriptor_table::FileDescriptorTable;
@@ -26,6 +26,9 @@ pub struct Range {
     pub(crate) range: (Bound<UserKey>, Bound<UserKey>),
 
     pub(crate) reader: Reader,
+
+    has_entered_lo: bool,
+    has_entered_hi: bool,
 }
 
 impl Range {
@@ -54,6 +57,9 @@ impl Range {
 
             reader,
             range,
+
+            has_entered_lo: false,
+            has_entered_hi: false,
         }
     }
 
@@ -137,20 +143,24 @@ impl Iterator for Range {
 
             match entry_result {
                 Ok(entry) => {
-                    match self.range.start_bound() {
-                        Bound::Included(start) => {
-                            if entry.key.user_key < *start {
-                                // Before min key
-                                continue;
+                    if !self.has_entered_lo {
+                        match self.range.start_bound() {
+                            Bound::Included(start) => {
+                                if entry.key.user_key < *start {
+                                    // Before min key
+                                    continue;
+                                }
+                                self.has_entered_lo = true;
                             }
-                        }
-                        Bound::Excluded(start) => {
-                            if entry.key.user_key <= *start {
-                                // Before or equal min key
-                                continue;
+                            Bound::Excluded(start) => {
+                                if entry.key.user_key <= *start {
+                                    // Before or equal min key
+                                    continue;
+                                }
+                                self.has_entered_lo = true;
                             }
+                            Bound::Unbounded => {}
                         }
-                        Bound::Unbounded => {}
                     }
 
                     match self.range.end_bound() {
@@ -204,20 +214,24 @@ impl DoubleEndedIterator for Range {
                         Bound::Unbounded => {}
                     }
 
-                    match self.range.end_bound() {
-                        Bound::Included(end) => {
-                            if entry.key.user_key > *end {
-                                // After max key
-                                continue;
+                    if !self.has_entered_hi {
+                        match self.range.end_bound() {
+                            Bound::Included(end) => {
+                                if entry.key.user_key > *end {
+                                    // After max key
+                                    continue;
+                                }
+                                self.has_entered_hi = true;
                             }
-                        }
-                        Bound::Excluded(end) => {
-                            if entry.key.user_key >= *end {
-                                // After or equal max key
-                                continue;
+                            Bound::Excluded(end) => {
+                                if entry.key.user_key >= *end {
+                                    // After or equal max key
+                                    continue;
+                                }
+                                self.has_entered_hi = true;
                             }
+                            Bound::Unbounded => {}
                         }
-                        Bound::Unbounded => {}
                     }
 
                     return Some(Ok(entry));
@@ -287,7 +301,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -387,7 +401,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),
@@ -588,7 +602,7 @@ mod tests {
 
             let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
             let block_index = TwoLevelBlockIndex::from_file(
-                segment_file_path,
+                &segment_file_path,
                 &trailer.metadata,
                 trailer.offsets.tli_ptr,
                 (0, 0).into(),
@@ -692,7 +706,7 @@ mod tests {
 
         let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
-            segment_file_path,
+            &segment_file_path,
             &trailer.metadata,
             trailer.offsets.tli_ptr,
             (0, 0).into(),

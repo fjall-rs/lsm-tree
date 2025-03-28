@@ -185,14 +185,13 @@ impl Decode for InternalValue {
         if key.is_tombstone() {
             Ok(Self {
                 key,
-                // TODO: Slice::empty()
-                value: vec![].into(),
+                value: UserValue::empty(),
             })
         } else {
             // NOTE: Only read value if we are actually a value
 
             let value_len = reader.read_u32_varint()?;
-            let value = Slice::from_reader(reader, value_len as usize)?;
+            let value = UserValue::from_reader(reader, value_len as usize)?;
 
             Ok(Self { key, value })
         }

@@ -14,7 +14,6 @@ pub struct LevelScanner {
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
-    hi_reader: Option<Scanner>,
 }
 
 impl LevelScanner {
@@ -30,21 +29,12 @@ impl LevelScanner {
 
         let lo_reader = lo_segment.scan(&base_folder)?;
 
-        let hi_reader = if hi > lo {
-            let hi_segment = level.segments.get(hi).expect("should exist");
-
-            Some(hi_segment.scan(&base_folder)?)
-        } else {
-            None
-        };
-
         Ok(Self {
             base_folder,
             segments: level,
             lo,
             hi,
             lo_reader: Some(lo_reader),
-            hi_reader,
         })
     }
 }
@@ -63,7 +53,7 @@ impl Iterator for LevelScanner {
                 self.lo_reader = None;
                 self.lo += 1;
 
-                if self.lo < self.hi {
+                if self.lo <= self.hi {
                     let scanner = fail_iter!(self
                         .segments
                         .get(self.lo)
@@ -72,11 +62,6 @@ impl Iterator for LevelScanner {
 
                     self.lo_reader = Some(scanner);
                 }
-            } else if let Some(hi_reader) = &mut self.hi_reader {
-                // NOTE: We reached the hi marker, so consume from it instead
-                //
-                // If it returns nothing, it is empty, so we are done
-                return hi_reader.next();
             } else {
                 return None;
             }
@@ -146,6 +131,7 @@ mod tests {
             assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
+
         #[allow(clippy::unwrap_used)]
         {
             let multi_reader = LevelScanner::from_indexes(

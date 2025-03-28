@@ -237,6 +237,22 @@ impl AbstractTree for BlobTree {
         todo!()
     }
 
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+        self.index.major_compact(target_size, seqno_threshold)
+    }
+
+    fn clear_active_memtable(&self) {
+        self.index.clear_active_memtable();
+    }
+
+    fn l0_run_count(&self) -> usize {
+        self.index.l0_run_count()
+    }
+
+    fn blob_file_count(&self) -> usize {
+        self.blobs.segment_count()
+    }
+
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
@@ -257,10 +273,6 @@ impl AbstractTree for BlobTree {
 
     fn sealed_memtable_count(&self) -> usize {
         self.index.sealed_memtable_count()
-    }
-
-    fn is_first_level_disjoint(&self) -> bool {
-        self.index.is_first_level_disjoint()
     }
 
     #[doc(hidden)]
@@ -328,8 +340,7 @@ impl AbstractTree for BlobTree {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
 
-                // TODO: Slice::empty
-                segment_writer.write(InternalValue::new(item.key, vec![]))?;
+                segment_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
                 continue;
             }
 
@@ -414,7 +425,7 @@ impl AbstractTree for BlobTree {
         Ok(())
     }
 
-    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Memtable> {
+    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Arc<Memtable>> {
         self.index.lock_active_memtable()
     }
 
@@ -462,8 +473,8 @@ impl AbstractTree for BlobTree {
         self.index.segment_count()
     }
 
-    fn first_level_segment_count(&self) -> usize {
-        self.index.first_level_segment_count()
+    fn level_segment_count(&self, idx: usize) -> Option<usize> {
+        self.index.level_segment_count(idx)
     }
 
     fn approximate_len(&self) -> usize {

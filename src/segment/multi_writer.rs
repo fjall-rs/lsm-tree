@@ -6,7 +6,7 @@ use super::{
     trailer::SegmentFileTrailer,
     writer::{BloomConstructionPolicy, Options, Writer},
 };
-use crate::{value::InternalValue, CompressionType};
+use crate::{value::InternalValue, CompressionType, UserKey};
 use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
@@ -31,6 +31,8 @@ pub struct MultiWriter {
     pub compression: CompressionType,
 
     bloom_policy: BloomConstructionPolicy,
+
+    current_key: Option<UserKey>,
 }
 
 impl MultiWriter {
@@ -61,6 +63,8 @@ impl MultiWriter {
             compression: CompressionType::None,
 
             bloom_policy: BloomConstructionPolicy::default(),
+
+            current_key: None,
         })
     }
 
@@ -115,11 +119,17 @@ impl MultiWriter {
 
     /// Writes an item
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
-        self.writer.write(item)?;
+        let is_next_key = self.current_key.as_ref() < Some(&item.key.user_key);
 
-        if *self.writer.meta.file_pos >= self.target_size && self.writer.can_rotate() {
-            self.rotate()?;
+        if is_next_key {
+            self.current_key = Some(item.key.user_key.clone());
+
+            if *self.writer.meta.file_pos >= self.target_size {
+                self.rotate()?;
+            }
         }
+
+        self.writer.write(item)?;
 
         Ok(())
     }
@@ -157,9 +167,34 @@ mod tests {
         tree.insert("a", "a5".repeat(4_000), 4);
         tree.flush_active_memtable(0)?;
         assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.len(None, None)?);
 
         tree.major_compact(1_024, 0)?;
         assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.len(None, None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_multi_writer_same_key_norotate_2() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = Config::new(&folder).open()?;
+
+        tree.insert("a", "a1".repeat(4_000), 0);
+        tree.insert("a", "a1".repeat(4_000), 1);
+        tree.insert("a", "a1".repeat(4_000), 2);
+        tree.insert("b", "a1".repeat(4_000), 0);
+        tree.insert("c", "a1".repeat(4_000), 0);
+        tree.insert("c", "a1".repeat(4_000), 1);
+        tree.flush_active_memtable(0)?;
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(3, tree.len(None, None)?);
+
+        tree.major_compact(1_024, 0)?;
+        assert_eq!(3, tree.segment_count());
+        assert_eq!(3, tree.len(None, None)?);
 
         Ok(())
     }

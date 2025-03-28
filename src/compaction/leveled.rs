@@ -5,13 +5,13 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
-    key_range::KeyRange,
     level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
     segment::Segment,
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
-    HashSet, SegmentId,
+    HashSet, KeyRange, SegmentId,
 };
 
+// TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
 /// Aggregates the key range of a list of segments.
 fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
     KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
@@ -174,13 +174,6 @@ pub struct Strategy {
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
     #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
-
-    /// The target size of L1.
-    ///
-    /// Currently hard coded to 256 MiB.
-    ///
-    /// Default = 256 MiB
-    pub level_base_size: u32,
 }
 
 impl Default for Strategy {
@@ -189,7 +182,6 @@ impl Default for Strategy {
             l0_threshold: 4,
             target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
             level_ratio: 10,
-            level_base_size:/* 256 MiB */ 256 * 1_024 * 1_024,
         }
     }
 }
@@ -208,7 +200,11 @@ impl Strategy {
 
         let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
 
-        (power * (self.level_base_size as usize)) as u64
+        (power * (self.level_base_size() as usize)) as u64
+    }
+
+    fn level_base_size(&self) -> u64 {
+        u64::from(self.target_size) * u64::from(self.l0_threshold)
     }
 }
 
@@ -220,6 +216,12 @@ impl CompactionStrategy for Strategy {
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let view = &levels.levels;
+
+        // TODO: look at L1+, if not disjoint
+        // TODO: try to repairing level by rewriting
+        // TODO: abort if any segment is hidden
+        // TODO: then make sure, non-disjoint levels cannot be used in subsequent code below
+        // TODO: add tests
 
         // L1+ compactions
         for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2).rev()
@@ -373,25 +375,6 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        // eprintln!("{levels}");
-
-        // NOTE: Look at tombstone ratios
-        {
-            for (idx, level) in view.iter().enumerate().skip(1) {
-                for segment in &level.segments {
-                    let ratio = segment.tombstone_count();
-
-                    if ratio > 0 {
-                        eprintln!(
-                            "#{} in L{idx} has a lot of tombstones: {ratio} in {} items",
-                            segment.id(),
-                            segment.metadata.key_count,
-                        );
-                    }
-                }
-            }
-        }
-
         Choice::DoNothing
     }
 }
@@ -403,19 +386,21 @@ mod tests {
         block_cache::BlockCache,
         compaction::{CompactionStrategy, Input as CompactionInput},
         descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
         level_manifest::LevelManifest,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
         time::unix_timestamp,
-        Config, HashSet,
+        Config, HashSet, KeyRange,
     };
-    use std::{path::Path, sync::Arc};
+    use std::{
+        path::Path,
+        sync::{atomic::AtomicBool, Arc},
+    };
     use test_log::test;
 
     fn string_key_range(a: &str, b: &str) -> KeyRange {
@@ -474,6 +459,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }

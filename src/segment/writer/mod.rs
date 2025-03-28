@@ -5,7 +5,7 @@
 mod meta;
 
 use super::{
-    block::header::Header as BlockHeader,
+    block::{header::Header as BlockHeader, offset::BlockOffset},
     block_index::writer::Writer as IndexWriter,
     file_offsets::FileOffsets,
     meta::{CompressionType, Metadata},
@@ -16,7 +16,7 @@ use crate::{
     bloom::BloomFilter,
     coding::Encode,
     file::fsync_directory,
-    segment::{block::ItemSize, value_block::BlockOffset},
+    segment::block::ItemSize,
     value::{InternalValue, UserKey},
     SegmentId,
 };
@@ -52,8 +52,6 @@ pub struct Writer {
     prev_pos: (BlockOffset, BlockOffset),
 
     current_key: Option<UserKey>,
-
-    can_rotate: bool,
 
     bloom_policy: BloomConstructionPolicy,
 
@@ -130,17 +128,10 @@ impl Writer {
 
             current_key: None,
 
-            can_rotate: false,
-
             bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
         })
-    }
-
-    #[must_use]
-    pub fn can_rotate(&self) -> bool {
-        self.can_rotate
     }
 
     #[must_use]
@@ -226,11 +217,6 @@ impl Writer {
 
         // NOTE: Check if we visit a new key
         if Some(&item.key.user_key) != self.current_key.as_ref() {
-            // IMPORTANT: Check that we are not at the first key
-            if self.current_key.is_some() {
-                self.can_rotate = true;
-            }
-
             self.meta.key_count += 1;
             self.current_key = Some(item.key.user_key.clone());
 
@@ -289,18 +275,22 @@ impl Writer {
                 BlockOffset(0)
             } else {
                 let bloom_ptr = self.block_writer.stream_position()?;
-
                 let n = self.bloom_hash_buffer.len();
+
                 log::trace!(
-                    "Writing bloom filter with {n} hashes: {:?}",
-                    self.bloom_policy
+                    "Constructing Bloom filter with {n} entries: {:?}",
+                    self.bloom_policy,
                 );
+
+                let start = std::time::Instant::now();
 
                 let mut filter = self.bloom_policy.build(n);
 
                 for hash in std::mem::take(&mut self.bloom_hash_buffer) {
                     filter.set_with_hash(hash);
                 }
+
+                log::trace!("Built Bloom filter in {:?}", start.elapsed());
 
                 filter.encode_into(&mut self.block_writer)?;
 
@@ -350,7 +340,7 @@ impl Writer {
         fsync_directory(&self.opts.folder)?;
 
         log::debug!(
-            "Written {} items in {} blocks into new segment file, written {} MB of data blocks",
+            "Written {} items in {} blocks into new segment file, written {} MiB",
             self.meta.item_count,
             self.meta.data_block_count,
             *self.meta.file_pos / 1_024 / 1_024

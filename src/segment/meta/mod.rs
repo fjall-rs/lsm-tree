@@ -9,9 +9,9 @@ use super::writer::Writer;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    key_range::KeyRange,
     time::unix_timestamp,
     value::SeqNo,
+    KeyRange,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
@@ -236,7 +236,7 @@ impl Metadata {
     }
 
     /// Reads and parses a Segment metadata file
-    pub fn from_disk<P: AsRef<Path>>(path: P) -> crate::Result<Self> {
+    pub fn from_disk(path: &Path) -> crate::Result<Self> {
         let file_content = std::fs::read(path)?;
         let mut cursor = Cursor::new(file_content);
         let meta = Self::decode_from(&mut cursor)?;

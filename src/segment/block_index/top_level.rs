@@ -4,8 +4,7 @@
 
 use super::{block_handle::KeyedBlockHandle, KeyedBlockIndex};
 use crate::segment::{
-    block_index::IndexBlock,
-    value_block::{BlockOffset, CachePolicy},
+    block::offset::BlockOffset, block_index::IndexBlock, value_block::CachePolicy,
 };
 use std::{fs::File, path::Path};
 
@@ -17,13 +16,11 @@ use std::{fs::File, path::Path};
 pub struct TopLevelIndex(Box<[KeyedBlockHandle]>);
 
 impl TopLevelIndex {
-    pub fn from_file<P: AsRef<Path>>(
-        path: P,
+    pub fn from_file(
+        path: &Path,
         _: &crate::segment::meta::Metadata,
         tli_ptr: BlockOffset,
     ) -> crate::Result<Self> {
-        let path = path.as_ref();
-
         log::trace!("reading TLI from {path:?} at tli_ptr={tli_ptr}");
 
         let mut file = File::open(path)?;

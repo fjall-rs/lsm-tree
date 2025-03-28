@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{
-    value_block::{BlockOffset, CachePolicy, ValueBlock},
+    block::offset::BlockOffset,
+    value_block::{CachePolicy, ValueBlock},
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
@@ -98,6 +99,9 @@ impl Reader {
             offset,
             self.cache_policy,
         )?;
+
+        // TODO: we only need to truncate items from blocks that are not the first and last block
+        // TODO: because any block inbetween must (trivially) only contain relevant items
 
         // Truncate as many items as possible
         block.map_or(Ok(None), |block| {

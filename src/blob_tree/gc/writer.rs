@@ -6,18 +6,17 @@ use crate::{
     blob_tree::value::MaybeInlineValue, coding::Encode, value::InternalValue, Memtable, SeqNo,
     UserKey,
 };
-use std::sync::RwLockWriteGuard;
 use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcWriter<'a> {
     seqno: SeqNo,
     buffer: Vec<(UserKey, ValueHandle, u32)>,
-    memtable: &'a RwLockWriteGuard<'a, Memtable>,
+    memtable: &'a Memtable,
 }
 
 impl<'a> GcWriter<'a> {
-    pub fn new(seqno: SeqNo, memtable: &'a RwLockWriteGuard<'a, Memtable>) -> Self {
+    pub fn new(seqno: SeqNo, memtable: &'a Memtable) -> Self {
         Self {
             seqno,
             memtable,
@@ -42,7 +41,6 @@ impl<'a> value_log::IndexWriter for GcWriter<'a> {
 
         #[allow(clippy::significant_drop_in_scrutinee)]
         for (key, vhandle, size) in self.buffer.drain(..) {
-            // TODO: encode into slice using Slice::with_size...
             let buf = MaybeInlineValue::Indirect { vhandle, size }.encode_into_vec();
 
             self.memtable.insert(InternalValue::from_components(

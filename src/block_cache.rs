@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::either::Either::{self, Left, Right};
+use crate::segment::block::offset::BlockOffset;
 use crate::segment::id::GlobalSegmentId;
-use crate::segment::value_block::BlockOffset;
 use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache, Equivalent};
@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
 
-// (Type (disk or index), Segment ID, Block offset)
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(GlobalSegmentId, BlockOffset);
 

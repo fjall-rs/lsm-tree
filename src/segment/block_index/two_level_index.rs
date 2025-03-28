@@ -10,7 +10,7 @@ use super::{
 use crate::{
     block_cache::BlockCache,
     descriptor_table::FileDescriptorTable,
-    segment::{meta::Metadata, value_block::BlockOffset},
+    segment::{block::offset::BlockOffset, meta::Metadata},
 };
 use std::{path::Path, sync::Arc};
 
@@ -217,15 +217,14 @@ impl TwoLevelBlockIndex {
         }
     }
 
-    pub fn from_file<P: AsRef<Path>>(
-        path: P,
+    pub fn from_file(
+        file_path: &Path,
         metadata: &Metadata,
         tli_ptr: BlockOffset,
         segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
         block_cache: Arc<BlockCache>,
     ) -> crate::Result<Self> {
-        let file_path = path.as_ref();
         log::trace!("Reading block index from {file_path:?}");
 
         let top_level_index = TopLevelIndex::from_file(file_path, metadata, tli_ptr)?;

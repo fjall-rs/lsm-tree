@@ -22,6 +22,13 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
+    /// Performs major compaction, blocking the caller until it's done.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
+
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 
@@ -51,7 +58,10 @@ pub trait AbstractTree {
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Memtable>;
+    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
+
+    /// Clears the active memtable atomically.
+    fn clear_active_memtable(&self);
 
     /// Sets the active memtable.
     ///
@@ -105,11 +115,20 @@ pub trait AbstractTree {
     /// Returns the amount of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
 
-    /// Returns the amount of disk segments in the first level.
-    fn first_level_segment_count(&self) -> usize;
+    /// Returns the amount of segments in levels[idx].
+    ///
+    /// Returns `None` if the level does not exist (if idx >= 7).
+    fn level_segment_count(&self, idx: usize) -> Option<usize>;
 
-    /// Returns `true` if the first level is disjoint.
-    fn is_first_level_disjoint(&self) -> bool;
+    /// Returns the amount of disjoint runs in L0.
+    ///
+    /// Can be used to determine whether to write stall.
+    fn l0_run_count(&self) -> usize;
+
+    /// Returns the amount of blob files currently in the tree.
+    fn blob_file_count(&self) -> usize {
+        0
+    }
 
     /// Approximates the amount of items in the tree.
     fn approximate_len(&self) -> usize;

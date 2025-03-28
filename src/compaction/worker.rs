@@ -24,7 +24,10 @@ use crate::{
 };
 use std::{
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
+    sync::{
+        atomic::{AtomicBool, AtomicU64},
+        Arc, RwLock, RwLockWriteGuard,
+    },
     time::Instant,
 };
 
@@ -102,8 +105,8 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
-fn create_compaction_stream<'a, P: AsRef<Path>>(
-    segment_base_folder: P,
+fn create_compaction_stream<'a>(
+    segment_base_folder: &Path,
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
@@ -140,7 +143,7 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
             };
 
             readers.push(Box::new(LevelScanner::from_indexes(
-                segment_base_folder.as_ref().to_owned(),
+                segment_base_folder.to_owned(),
                 level.clone(),
                 (Some(lo), Some(hi)),
             )?));
@@ -150,7 +153,7 @@ fn create_compaction_stream<'a, P: AsRef<Path>>(
             for &id in to_compact {
                 if let Some(segment) = level.segments.iter().find(|x| x.id() == id) {
                     found += 1;
-                    readers.push(Box::new(segment.scan(&segment_base_folder)?));
+                    readers.push(Box::new(segment.scan(segment_base_folder)?));
                 }
             }
         }
@@ -198,7 +201,7 @@ fn merge_segments(
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
     if opts.stop_signal.is_stopped() {
-        log::debug!("compactor: stopping before compaction because of stop signal");
+        log::debug!("Stopping before compaction because of stop signal");
         return Ok(());
     }
 
@@ -211,7 +214,28 @@ fn merge_segments(
         return Ok(());
     }
 
+    let Some(segments) = payload
+        .segment_ids
+        .iter()
+        .map(|&id| levels.get_segment(id))
+        .collect::<Option<Vec<_>>>()
+    else {
+        log::warn!(
+            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            opts.strategy.get_name(),
+        );
+        return Ok(());
+    };
+
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+
+    log::debug!(
+        "Compacting segments {:?} into L{}, compression={}, mvcc_gc_watermark={}",
+        payload.segment_ids,
+        payload.dest_level,
+        opts.config.compression,
+        opts.eviction_seqno,
+    );
 
     let Some(merge_iter) = create_compaction_stream(
         &segments_base_folder,
@@ -316,7 +340,7 @@ fn merge_segments(
             return Ok(());
         };
 
-        if idx % 100_000 == 0 && opts.stop_signal.is_stopped() {
+        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
             return Ok(());
         }
@@ -373,6 +397,8 @@ fn merge_segments(
             let block_index = Arc::new(block_index);
 
             Ok(SegmentInner {
+                path: segment_file_path.to_path_buf(),
+
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
@@ -385,6 +411,8 @@ fn merge_segments(
                 block_index,
 
                 bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+
+                is_deleted: AtomicBool::default(),
             }
             .into())
         })
@@ -404,11 +432,7 @@ fn merge_segments(
     // NOTE: Mind lock order L -> M -> S
     log::trace!("compactor: acquiring levels manifest write lock");
     let mut levels = opts.levels.write().expect("lock is poisoned");
-
-    // IMPORTANT: Write lock memtable(s), otherwise segments may get deleted while a range read is happening
-    // NOTE: Mind lock order L -> M -> S
-    log::trace!("compactor: acquiring sealed memtables write lock");
-    let sealed_memtables_guard = opts.sealed_memtables.write().expect("lock is poisoned");
+    log::trace!("compactor: acquired levels manifest write lock");
 
     let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
@@ -433,7 +457,7 @@ fn merge_segments(
         // IMPORTANT: Show the segments again, because compaction failed
         levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
-    };
+    }
 
     for segment in &created_segments {
         let segment_file_path = segments_base_folder.join(segment.id().to_string());
@@ -443,34 +467,24 @@ fn merge_segments(
             .insert(&segment_file_path, segment.global_id());
     }
 
-    // NOTE: Segments are registered, we can unlock the memtable(s) safely
-    drop(sealed_memtables_guard);
-
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
     // cleaned up upon recovery
-    for segment_id in &payload.segment_ids {
-        let segment_file_path = segments_base_folder.join(segment_id.to_string());
-        log::trace!("Removing old segment at {segment_file_path:?}");
-
-        if let Err(e) = std::fs::remove_file(segment_file_path) {
-            log::error!("Failed to cleanup file of deleted segment: {e:?}");
-        }
+    for segment in segments {
+        segment.mark_as_deleted();
     }
 
-    for segment_id in &payload.segment_ids {
-        log::trace!("Closing file handles for old segment file");
-
-        opts.config
-            .descriptor_table
-            .remove((opts.tree_id, *segment_id).into());
-    }
-
+    // NOTE: Unlock level manifest before clearing old file descriptors
+    // Holding onto some file descriptors shortly is fine and has no
+    // effect on future compactions
+    //
+    // Benchmarks showed that clearing the file descriptors can take quite
+    // some time even on fast SSDs (more than 100ms for a realistic compaction)
+    // so we unnecessarily hide the segments for e.g. 100ms more than we need to
     levels.show_segments(payload.segment_ids.iter().copied());
-
     drop(levels);
 
-    log::debug!("compactor: done");
+    log::trace!("Compaction successful");
 
     Ok(())
 }
@@ -489,11 +503,17 @@ fn drop_segments(
         return Ok(());
     }
 
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
-
-    // IMPORTANT: Write lock memtable, otherwise segments may get deleted while a range read is happening
-    log::trace!("compaction: acquiring sealed memtables write lock");
-    let memtable_lock = opts.sealed_memtables.write().expect("lock is poisoned");
+    let Some(segments) = segment_ids
+        .iter()
+        .map(|id| levels.get_segment(id.segment_id()))
+        .collect::<Option<Vec<_>>>()
+    else {
+        log::warn!(
+        "Compaction task created by {:?} contained segments not referenced in the level manifest",
+        opts.strategy.get_name(),
+    );
+        return Ok(());
+    };
 
     // IMPORTANT: Write the segment with the removed segments first
     // Otherwise the folder is deleted, but the segment is still referenced!
@@ -508,26 +528,13 @@ fn drop_segments(
         }
     })?;
 
-    drop(memtable_lock);
     drop(levels);
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
     // cleaned up upon recovery
-    for key in segment_ids {
-        let segment_id = key.segment_id();
-
-        let segment_file_path = segments_base_folder.join(segment_id.to_string());
-        log::trace!("Removing old segment at {segment_file_path:?}");
-
-        if let Err(e) = std::fs::remove_file(segment_file_path) {
-            log::error!("Failed to cleanup file of deleted segment: {e:?}");
-        }
-    }
-
-    for key in segment_ids {
-        log::trace!("Closing file handles for segment data file");
-        opts.config.descriptor_table.remove(*key);
+    for segment in segments {
+        segment.mark_as_deleted();
     }
 
     log::trace!("Dropped {} segments", segment_ids.len());

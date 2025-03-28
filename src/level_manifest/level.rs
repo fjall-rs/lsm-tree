@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key_range::KeyRange, segment::meta::SegmentId, HashSet, Segment, UserKey};
+use crate::{segment::meta::SegmentId, HashSet, KeyRange, Segment, UserKey};
 use std::ops::Bound;
 
 /// Level of an LSM-tree
@@ -86,7 +86,7 @@ impl Level {
     /// [key:a]     [key:c]     [key:z]
     pub(crate) fn sort_by_key_range(&mut self) {
         self.segments
-            .sort_by(|a, b| a.metadata.key_range.0.cmp(&b.metadata.key_range.0));
+            .sort_by(|a, b| a.metadata.key_range.min().cmp(b.metadata.key_range.min()));
     }
 
     /// Sorts the level from newest to oldest.
@@ -174,20 +174,21 @@ pub struct DisjointLevel<'a>(&'a Level);
 
 impl<'a> DisjointLevel<'a> {
     /// Returns the segment that possibly contains the key.
-    pub fn get_segment_containing_key<K: AsRef<[u8]>>(&self, key: K) -> Option<Segment> {
+    pub fn get_segment_containing_key(&self, key: &[u8]) -> Option<Segment> {
         let level = &self.0;
 
         let idx = level
             .segments
-            .partition_point(|x| &*x.metadata.key_range.1 < key.as_ref());
+            .partition_point(|x| x.metadata.key_range.max() < &key);
 
         level
             .segments
             .get(idx)
-            .filter(|x| x.is_key_in_key_range(key))
+            .filter(|x| x.metadata.key_range.min() <= &key)
             .cloned()
     }
 
+    // TODO: use a single custom binary search instead of partition_point... benchmark it and add some unit tests before
     pub fn range_indexes(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
@@ -197,10 +198,10 @@ impl<'a> DisjointLevel<'a> {
         let lo = match &key_range.0 {
             Bound::Unbounded => 0,
             Bound::Included(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 < start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() < start_key)
             }
             Bound::Excluded(start_key) => {
-                level.partition_point(|segment| segment.metadata.key_range.1 <= start_key)
+                level.partition_point(|segment| segment.metadata.key_range.max() <= start_key)
             }
         };
 
@@ -211,7 +212,8 @@ impl<'a> DisjointLevel<'a> {
         let hi = match &key_range.1 {
             Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 <= end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -220,7 +222,8 @@ impl<'a> DisjointLevel<'a> {
                 idx.saturating_sub(1) // To avoid underflow
             }
             Bound::Excluded(end_key) => {
-                let idx = level.partition_point(|segment| segment.metadata.key_range.0 < end_key);
+                let idx =
+                    level.partition_point(|segment| segment.metadata.key_range.min() < end_key);
 
                 if idx == 0 {
                     return None;
@@ -245,17 +248,16 @@ mod tests {
     use crate::{
         block_cache::BlockCache,
         descriptor_table::FileDescriptorTable,
-        key_range::KeyRange,
         segment::{
+            block::offset::BlockOffset,
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            value_block::BlockOffset,
             Segment, SegmentInner,
         },
-        AbstractTree, Slice,
+        AbstractTree, KeyRange, Slice,
     };
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicBool, Arc};
     use test_log::test;
 
     #[allow(clippy::expect_used)]
@@ -301,6 +303,9 @@ mod tests {
             block_cache,
 
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
+
+            path: "a".into(),
+            is_deleted: AtomicBool::default(),
         }
         .into()
     }
@@ -450,12 +455,12 @@ mod tests {
             .clone();
 
         let dis = first.as_disjoint().unwrap();
-        assert!(dis.get_segment_containing_key("a").is_none());
-        assert!(dis.get_segment_containing_key("b").is_none());
+        assert!(dis.get_segment_containing_key(b"a").is_none());
+        assert!(dis.get_segment_containing_key(b"b").is_none());
         for k in 'c'..'k' {
-            assert!(dis.get_segment_containing_key([k as u8]).is_some());
+            assert!(dis.get_segment_containing_key(&[k as u8]).is_some());
         }
-        assert!(dis.get_segment_containing_key("l").is_none());
+        assert!(dis.get_segment_containing_key(b"l").is_none());
 
         Ok(())
     }

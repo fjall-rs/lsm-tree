@@ -4,12 +4,14 @@
 
 pub mod checksum;
 pub mod header;
+pub mod offset;
 
-use super::{meta::CompressionType, value_block::BlockOffset};
+use super::meta::CompressionType;
 use crate::coding::{Decode, Encode};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use checksum::Checksum;
 use header::Header as BlockHeader;
+use offset::BlockOffset;
 use std::io::{Cursor, Read};
 
 // TODO: better name

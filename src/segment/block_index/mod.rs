@@ -9,8 +9,8 @@ pub mod two_level_index;
 pub mod writer;
 
 use super::{
-    block::Block,
-    value_block::{BlockOffset, CachePolicy},
+    block::{offset::BlockOffset, Block},
+    value_block::CachePolicy,
 };
 use block_handle::KeyedBlockHandle;
 use full_index::FullBlockIndex;
@@ -129,7 +129,7 @@ pub enum BlockIndexImpl {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{segment::value_block::BlockOffset, Slice};
+    use crate::Slice;
     use test_log::test;
 
     fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {

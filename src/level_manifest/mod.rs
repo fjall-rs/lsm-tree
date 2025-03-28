@@ -8,9 +8,8 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
-    key_range::KeyRange,
     segment::{meta::SegmentId, Segment},
-    HashMap, HashSet,
+    HashMap, HashSet, KeyRange,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
@@ -115,19 +114,19 @@ impl LevelManifest {
         !self.hidden_set.is_empty()
     }
 
-    pub(crate) fn create_new<P: AsRef<Path>>(level_count: u8, path: P) -> crate::Result<Self> {
+    pub(crate) fn create_new<P: Into<PathBuf>>(level_count: u8, path: P) -> crate::Result<Self> {
         assert!(level_count > 0, "level_count should be >= 1");
 
         let levels = (0..level_count).map(|_| Arc::default()).collect::<Vec<_>>();
 
         #[allow(unused_mut)]
         let mut manifest = Self {
-            path: path.as_ref().to_path_buf(),
+            path: path.into(),
             levels,
-            hidden_set: Default::default(),
+            hidden_set: HiddenSet::default(),
             is_disjoint: true,
         };
-        Self::write_to_disk(path, &manifest.deep_clone())?;
+        Self::write_to_disk(&manifest.path, &manifest.deep_clone())?;
 
         Ok(manifest)
     }
@@ -144,10 +143,8 @@ impl LevelManifest {
         self.is_disjoint = KeyRange::is_disjoint(&key_ranges.iter().collect::<Vec<_>>());
     }
 
-    pub(crate) fn load_level_manifest<P: AsRef<Path>>(
-        path: P,
-    ) -> crate::Result<Vec<Vec<SegmentId>>> {
-        let mut level_manifest = Cursor::new(std::fs::read(&path)?);
+    pub(crate) fn load_level_manifest(path: &Path) -> crate::Result<Vec<Vec<SegmentId>>> {
+        let mut level_manifest = Cursor::new(std::fs::read(path)?);
 
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
@@ -178,8 +175,8 @@ impl LevelManifest {
         Ok(levels)
     }
 
-    pub(crate) fn recover_ids<P: AsRef<Path>>(
-        path: P,
+    pub(crate) fn recover_ids(
+        path: &Path,
     ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
         let manifest = Self::load_level_manifest(path)?;
         let mut result = crate::HashMap::default();
@@ -218,7 +215,12 @@ impl LevelManifest {
         levels
     }
 
-    pub(crate) fn recover<P: AsRef<Path>>(path: P, segments: Vec<Segment>) -> crate::Result<Self> {
+    pub(crate) fn recover<P: Into<PathBuf>>(
+        path: P,
+        segments: Vec<Segment>,
+    ) -> crate::Result<Self> {
+        let path = path.into();
+
         let level_manifest = Self::load_level_manifest(&path)?;
 
         let segments: HashMap<_, _> = segments.into_iter().map(|seg| (seg.id(), seg)).collect();
@@ -228,7 +230,7 @@ impl LevelManifest {
         let mut manifest = Self {
             levels,
             hidden_set: HiddenSet::default(),
-            path: path.as_ref().to_path_buf(),
+            path,
             is_disjoint: false,
         };
         manifest.set_disjoint_flag();
@@ -236,12 +238,10 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    pub(crate) fn write_to_disk<P: AsRef<Path>>(path: P, levels: &Vec<Level>) -> crate::Result<()> {
-        let path = path.as_ref();
+    pub(crate) fn write_to_disk(path: &Path, levels: &[Level]) -> crate::Result<()> {
+        log::trace!("Writing level manifest to {path:?}");
 
-        log::trace!("Writing level manifest to {path:?}",);
-
-        let serialized = levels.encode_into_vec();
+        let serialized = Runs(levels).encode_into_vec();
 
         // NOTE: Compaction threads don't have concurrent access to the level manifest
         // because it is behind a mutex
@@ -378,6 +378,15 @@ impl LevelManifest {
         output
     }
 
+    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<Segment> {
+        for level in &self.levels {
+            if let Some(segment) = level.segments.iter().find(|x| x.id() == id).cloned() {
+                return Some(segment);
+            }
+        }
+        None
+    }
+
     /// Returns a view into the levels, hiding all segments that currently are being compacted
     #[must_use]
     pub fn resolved_view(&self) -> Vec<Level> {
@@ -420,7 +429,17 @@ impl LevelManifest {
     }
 }
 
-impl Encode for Vec<Level> {
+struct Runs<'a>(&'a [Level]);
+
+impl<'a> std::ops::Deref for Runs<'a> {
+    type Target = [Level];
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> Encode for Runs<'a> {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
@@ -429,7 +448,7 @@ impl Encode for Vec<Level> {
         #[allow(clippy::cast_possible_truncation)]
         writer.write_u8(self.len() as u8)?;
 
-        for level in self {
+        for level in self.iter() {
             // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
             #[allow(clippy::cast_possible_truncation)]
             writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
@@ -446,6 +465,7 @@ impl Encode for Vec<Level> {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    use super::Runs;
     use crate::{
         coding::Encode,
         level_manifest::{hidden_set::HiddenSet, LevelManifest},
@@ -504,7 +524,7 @@ mod tests {
             is_disjoint: false,
         };
 
-        let bytes = manifest.deep_clone().encode_into_vec();
+        let bytes = Runs(&manifest.deep_clone()).encode_into_vec();
 
         #[rustfmt::skip]
         let raw = &[

@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
-    segment::{block::ItemSize, value_block::BlockOffset},
+    segment::block::{offset::BlockOffset, ItemSize},
     value::UserKey,
     Slice,
 };
@@ -89,7 +89,7 @@ impl Decode for KeyedBlockHandle {
 
         Ok(Self {
             offset: BlockOffset(offset),
-            end_key: Slice::from(key),
+            end_key: UserKey::from(key),
         })
     }
 }

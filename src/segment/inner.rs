@@ -4,9 +4,14 @@
 
 use super::{block_index::BlockIndexImpl, file_offsets::FileOffsets, meta::Metadata};
 use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
-use std::sync::Arc;
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 pub struct Inner {
+    pub path: PathBuf,
+
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
@@ -31,4 +36,24 @@ pub struct Inner {
     /// Bloom filter
     #[doc(hidden)]
     pub bloom_filter: Option<crate::bloom::BloomFilter>,
+
+    pub is_deleted: AtomicBool,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let global_id = (self.tree_id, self.metadata.id).into();
+
+        if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
+            if let Err(e) = std::fs::remove_file(&self.path) {
+                log::warn!(
+                    "Failed to cleanup deleted segment {global_id:?} at {:?}: {e:?}",
+                    self.path,
+                );
+            }
+        }
+
+        log::trace!("Closing file handles for old segment file {global_id:?}",);
+        self.descriptor_table.remove(global_id);
+    }
 }
