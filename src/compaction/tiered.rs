@@ -134,6 +134,9 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // TODO: after major compaction, SizeTiered may behave weirdly
+        // if major compaction is not outputting into Lmax
+
         // TODO: if level.size >= base_size and there are enough
         // segments with size < base_size, compact them together
         // no matter the amount of segments in L0 -> should reduce
