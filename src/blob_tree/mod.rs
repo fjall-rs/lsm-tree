@@ -230,11 +230,69 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
-    fn bulk_ingest(
-        &self,
-        iterator: impl Iterator<Item = (UserKey, UserValue)>,
-    ) -> crate::Result<()> {
-        todo!()
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
+
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
+        assert!(
+            lock.is_empty(),
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let mut segment_writer = Ingestion::new(&self.index)?;
+        let mut blob_writer = self.blobs.get_writer()?;
+
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            // NOTE: Values are 32-bit max
+            #[allow(clippy::cast_possible_truncation)]
+            let value_size = value.len() as u32;
+
+            if value_size >= self.index.config.blob_file_separation_threshold {
+                let vhandle = blob_writer.get_next_value_handle();
+
+                let indirection = MaybeInlineValue::Indirect {
+                    vhandle,
+                    size: value_size,
+                };
+                // TODO: use Slice::with_size
+                let mut serialized_indirection = vec![];
+                indirection.encode_into(&mut serialized_indirection)?;
+
+                segment_writer.write(key.clone(), serialized_indirection.into())?;
+
+                blob_writer.write(&key, value)?;
+            } else {
+                // TODO: use Slice::with_size
+                let direct = MaybeInlineValue::Inline(value);
+                let serialized_direct = direct.encode_into_vec();
+                segment_writer.write(key, serialized_direct.into())?;
+            }
+
+            count += 1;
+        }
+
+        self.blobs.register_writer(blob_writer)?;
+        segment_writer.finish()?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        todo!();
+
+        Ok(())
     }
 
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
@@ -374,6 +432,7 @@ impl AbstractTree for BlobTree {
                     vhandle,
                     size: value_size,
                 };
+                // TODO: use Slice::with_size
                 let mut serialized_indirection = vec![];
                 indirection.encode_into(&mut serialized_indirection)?;
 
@@ -382,6 +441,7 @@ impl AbstractTree for BlobTree {
 
                 blob_writer.write(&item.key.user_key, value)?;
             } else {
+                // TODO: use Slice::with_size
                 let direct = MaybeInlineValue::Inline(value);
                 let serialized_direct = direct.encode_into_vec();
                 segment_writer.write(InternalValue::new(item.key, serialized_direct))?;

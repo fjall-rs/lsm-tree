@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
@@ -28,7 +29,6 @@ use std::{
     path::Path,
     sync::atomic::AtomicBool,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    time::Instant,
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -52,50 +52,20 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
-        use crate::{
-            compaction::MoveDown, file::SEGMENTS_FOLDER,
-            segment::block_index::two_level_index::TwoLevelBlockIndex,
-            segment::multi_writer::MultiWriter,
-        };
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
 
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
         assert!(
-            self.is_empty(None, None)?,
+            lock.is_empty(),
             "can only perform bulk_ingest on empty trees",
         );
 
-        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
-        let _lock = self.lock_active_memtable();
-
-        let folder = self.config.path.join(SEGMENTS_FOLDER);
-        log::debug!("Ingesting into disk segments in {folder:?}");
+        let mut writer = Ingestion::new(self)?;
 
         let start = Instant::now();
-
-        let mut writer = MultiWriter::new(
-            self.segment_id_counter.clone(),
-            128 * 1_024 * 1_024,
-            crate::segment::writer::Options {
-                folder: folder.clone(),
-                data_block_size: self.config.data_block_size,
-                index_block_size: self.config.index_block_size,
-                segment_id: 0, /* TODO: unused */
-            },
-        )?
-        .use_compression(self.config.compression);
-
-        {
-            use crate::segment::writer::BloomConstructionPolicy;
-
-            if self.config.bloom_bits_per_key >= 0 {
-                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(
-                    self.config.bloom_bits_per_key.unsigned_abs(),
-                ));
-            } else {
-                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
-            }
-        }
-
         let mut count = 0;
         let mut last_key = None;
 
@@ -108,70 +78,12 @@ impl AbstractTree for Tree {
             }
             last_key = Some(key.clone());
 
-            writer.write(InternalValue::from_components(
-                key,
-                value,
-                0,
-                ValueType::Value,
-            ))?;
+            writer.write(key, value)?;
 
             count += 1;
         }
 
-        let results = writer.finish()?;
-
-        let created_segments = results
-            .into_iter()
-            .map(|trailer| -> crate::Result<Segment> {
-                let segment_id = trailer.metadata.id;
-                let segment_file_path = folder.join(segment_id.to_string());
-
-                let block_index = TwoLevelBlockIndex::from_file(
-                    &segment_file_path,
-                    &trailer.metadata,
-                    trailer.offsets.tli_ptr,
-                    (self.id, segment_id).into(),
-                    self.config.descriptor_table.clone(),
-                    self.config.block_cache.clone(),
-                )?;
-                let block_index = BlockIndexImpl::TwoLevel(block_index);
-                let block_index = Arc::new(block_index);
-
-                Ok(SegmentInner {
-                    tree_id: self.id,
-
-                    descriptor_table: self.config.descriptor_table.clone(),
-                    block_cache: self.config.block_cache.clone(),
-
-                    metadata: trailer.metadata,
-                    offsets: trailer.offsets,
-
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    block_index,
-
-                    bloom_filter: Segment::load_bloom(
-                        &segment_file_path,
-                        trailer.offsets.bloom_ptr,
-                    )?,
-
-                    path: segment_file_path,
-                    is_deleted: AtomicBool::default(),
-                }
-                .into())
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        self.register_segments(&created_segments)?;
-
-        self.compact(Arc::new(MoveDown(0, 6)), 0)?;
-
-        for segment in &created_segments {
-            let segment_file_path = folder.join(segment.id().to_string());
-
-            self.config
-                .descriptor_table
-                .insert(&segment_file_path, segment.global_id());
-        }
+        writer.finish()?;
 
         log::info!("Ingested {count} items in {:?}", start.elapsed());
 
@@ -275,6 +187,7 @@ impl AbstractTree for Tree {
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
+        use std::time::Instant;
 
         let start = Instant::now();
 

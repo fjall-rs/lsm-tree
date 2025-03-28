@@ -30,7 +30,7 @@ pub trait AbstractTree {
     ///
     /// Panics if the tree is **not** initially empty.
     #[doc(hidden)]
-    fn bulk_ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
     /// Performs major compaction, blocking the caller until it's done.
     ///

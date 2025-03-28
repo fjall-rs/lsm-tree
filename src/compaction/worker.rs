@@ -43,9 +43,6 @@ pub struct Options {
     /// Levels manifest.
     pub levels: Arc<RwLock<LevelManifest>>,
 
-    /// Sealed memtables (required for temporarily locking).
-    pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
-
     /// Compaction strategy to use.
     pub strategy: Arc<dyn CompactionStrategy>,
 
@@ -63,7 +60,6 @@ impl Options {
             tree_id: tree.id,
             segment_id_generator: tree.segment_id_counter.clone(),
             config: tree.config.clone(),
-            sealed_memtables: tree.sealed_memtables.clone(),
             levels: tree.levels.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,

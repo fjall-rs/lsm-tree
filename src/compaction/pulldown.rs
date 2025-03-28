@@ -31,7 +31,7 @@ impl CompactionStrategy for Strategy {
 
         segment_ids.extend(next_level.segments.iter().map(Segment::id));
 
-        Choice::Move(Input {
+        Choice::Merge(Input {
             segment_ids,
             dest_level: self.1,
             target_size: 64_000_000,
