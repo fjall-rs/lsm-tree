@@ -26,12 +26,9 @@ use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
+    sync::atomic::AtomicBool,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Instant,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -151,6 +148,9 @@ impl AbstractTree for Tree {
                         &segment_file_path,
                         trailer.offsets.bloom_ptr,
                     )?,
+
+                    path: segment_file_path,
+                    is_deleted: AtomicBool::default(),
                 }
                 .into())
             })
