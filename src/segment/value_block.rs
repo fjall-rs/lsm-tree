@@ -5,9 +5,8 @@
 use super::{block::Block, id::GlobalSegmentId};
 use crate::{
     binary_search::partition_point, descriptor_table::FileDescriptorTable,
-    segment::block::offset::BlockOffset, value::InternalValue, BlockCache,
+    segment::block::offset::BlockOffset, value::InternalValue, Cache,
 };
-use crate::{cache::Cache, descriptor_table::FileDescriptorTable, value::InternalValue};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
