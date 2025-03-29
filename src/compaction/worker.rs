@@ -19,7 +19,7 @@ use crate::{
         Segment, SegmentInner,
     },
     stop_signal::StopSignal,
-    tree::inner::{SealedMemtables, TreeId},
+    tree::inner::TreeId,
     Config, SegmentId, SeqNo,
 };
 use std::{
