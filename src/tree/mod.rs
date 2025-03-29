@@ -6,6 +6,7 @@ pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
+    cache::Cache,
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
@@ -20,7 +21,7 @@ use crate::{
     },
     value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -517,7 +518,7 @@ impl Tree {
 
             descriptor_table: self.config.descriptor_table.clone(),
             block_index,
-            block_cache: self.config.block_cache.clone(),
+            cache: self.config.cache.clone(),
 
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
 
@@ -819,7 +820,7 @@ impl Tree {
         let mut levels = Self::recover_levels(
             &config.path,
             tree_id,
-            &config.block_cache,
+            &config.cache,
             &config.descriptor_table,
         )?;
         levels.update_metadata();
@@ -880,7 +881,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        block_cache: &Arc<BlockCache>,
+        cache: &Arc<Cache>,
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
@@ -948,7 +949,7 @@ impl Tree {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
-                    block_cache.clone(),
+                    cache.clone(),
                     descriptor_table.clone(),
                     level_idx == 0 || level_idx == 1,
                 )?;

@@ -89,7 +89,7 @@ impl<'a> Ingestion<'a> {
                     trailer.offsets.tli_ptr,
                     (self.tree.id, segment_id).into(),
                     self.tree.config.descriptor_table.clone(),
-                    self.tree.config.block_cache.clone(),
+                    self.tree.config.cache.clone(),
                 )?;
                 let block_index = BlockIndexImpl::TwoLevel(block_index);
                 let block_index = Arc::new(block_index);
@@ -98,7 +98,7 @@ impl<'a> Ingestion<'a> {
                     tree_id: self.tree.id,
 
                     descriptor_table: self.tree.config.descriptor_table.clone(),
-                    block_cache: self.tree.config.block_cache.clone(),
+                    cache: self.tree.config.cache.clone(),
 
                     metadata: trailer.metadata,
                     offsets: trailer.offsets,

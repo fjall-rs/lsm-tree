@@ -130,7 +130,7 @@ pub mod binary_search;
 #[doc(hidden)]
 pub mod blob_tree;
 
-mod block_cache;
+mod cache;
 
 #[doc(hidden)]
 pub mod bloom;
@@ -141,7 +141,6 @@ mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
-mod either;
 mod error;
 // mod export;
 
@@ -207,7 +206,7 @@ pub use {
 };
 
 pub use {
-    block_cache::BlockCache,
+    cache::Cache,
     coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},

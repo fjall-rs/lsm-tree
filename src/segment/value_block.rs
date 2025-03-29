@@ -7,6 +7,7 @@ use crate::{
     binary_search::partition_point, descriptor_table::FileDescriptorTable,
     segment::block::offset::BlockOffset, value::InternalValue, BlockCache,
 };
+use crate::{cache::Cache, descriptor_table::FileDescriptorTable, value::InternalValue};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -37,13 +38,13 @@ impl ValueBlock {
 
     pub fn load_by_block_handle(
         descriptor_table: &FileDescriptorTable,
-        block_cache: &BlockCache,
+        block_cache: &Cache,
         segment_id: GlobalSegmentId,
         offset: BlockOffset,
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<Arc<Self>>> {
         Ok(
-            if let Some(block) = block_cache.get_disk_block(segment_id, offset) {
+            if let Some(block) = block_cache.get_data_block(segment_id, offset) {
                 // Cache hit: Copy from block
 
                 Some(block)
@@ -76,7 +77,7 @@ impl ValueBlock {
                 let block = Arc::new(block);
 
                 if cache_policy == CachePolicy::Write {
-                    block_cache.insert_disk_block(segment_id, offset, block.clone());
+                    block_cache.insert_data_block(segment_id, offset, block.clone());
                 }
 
                 Some(block)
