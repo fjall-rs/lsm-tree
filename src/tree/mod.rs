@@ -730,7 +730,7 @@ impl Tree {
 
         log::trace!("range read: acquiring levels manifest read lock");
         // NOTE: Mind lock order L -> M -> S
-        let levels =
+        let level_manifest =
             guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
         log::trace!("range read: acquired level manifest read lock");
 
@@ -742,16 +742,16 @@ impl Tree {
         log::trace!("range read: acquiring sealed memtable read lock");
         let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
             .expect("lock is poisoned");
-
         log::trace!("range read: acquired sealed memtable read lock");
 
         let iter_state = IterState {
             active: active.clone(),
             sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
             ephemeral,
+            levels: level_manifest.levels.clone(),
         };
 
-        TreeIter::create_range(iter_state, bounds, seqno, levels)
+        TreeIter::create_range(iter_state, bounds, seqno, level_manifest)
     }
 
     #[doc(hidden)]

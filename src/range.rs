@@ -4,7 +4,7 @@
 
 use crate::{
     key::InternalKey,
-    level_manifest::LevelManifest,
+    level_manifest::{level::Level, LevelManifest},
     level_reader::LevelReader,
     memtable::Memtable,
     merge::{BoxedIterator, Merger},
@@ -55,6 +55,13 @@ pub struct IterState {
     pub(crate) active: Arc<Memtable>,
     pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
+
+    // NOTE: Monkey patch to keep segments referenced until range read drops
+    // Otherwise segment files can get deleted too early
+    // (because once we create the range iterator, it does not hold onto segments normally)
+    // TODO: we need a Version system
+    #[allow(unused)]
+    pub(crate) levels: Vec<Arc<Level>>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
