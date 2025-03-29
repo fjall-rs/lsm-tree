@@ -290,8 +290,6 @@ impl AbstractTree for BlobTree {
 
         log::info!("Ingested {count} items in {:?}", start.elapsed());
 
-        todo!();
-
         Ok(())
     }
 
