@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{
-    block::{offset::BlockOffset, Block},
-    id::GlobalSegmentId,
+use super::{block::Block, id::GlobalSegmentId};
+use crate::{
+    binary_search::partition_point, descriptor_table::FileDescriptorTable,
+    segment::block::offset::BlockOffset, value::InternalValue, Cache,
 };
-use crate::{cache::Cache, descriptor_table::FileDescriptorTable, value::InternalValue};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub type ValueBlock = Block<InternalValue>;
 impl ValueBlock {
     #[must_use]
     pub fn get_latest(&self, key: &[u8]) -> Option<&InternalValue> {
-        let idx = self.items.partition_point(|item| &*item.key.user_key < key);
+        let idx = partition_point(&self.items, |item| &*item.key.user_key < key);
 
         self.items
             .get(idx)
