@@ -72,7 +72,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-/* #[test]
+#[test]
 fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -148,4 +148,4 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(1, dest.blob_file_count());
 
     Ok(())
-} */
+}
