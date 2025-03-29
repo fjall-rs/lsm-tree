@@ -78,7 +78,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .blob_file_separation_threshold(1)
-        .open()?;
+        .open_as_blob_tree()?;
 
     tree.ingest((0..ITEM_COUNT as u64).map(|x| {
         let k = x.to_be_bytes();
