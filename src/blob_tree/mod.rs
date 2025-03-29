@@ -553,7 +553,6 @@ impl AbstractTree for BlobTree {
         self.index.len(seqno, index)
     }
 
-    #[must_use]
     fn disk_space(&self) -> u64 {
         self.index.disk_space() + self.blobs.manifest.disk_space_used()
     }

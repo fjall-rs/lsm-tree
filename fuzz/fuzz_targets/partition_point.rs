@@ -12,8 +12,10 @@ fuzz_target!(|data: &[u8]| {
         items.sort();
         items.dedup();
 
-        let idx = partition_point(&items, |&x| x < 128);
-        let std_pp_idx = items.partition_point(|&x| x < 128);
+        let mut index = <u8 as Arbitrary>::arbitrary(&mut unstructured).unwrap();
+
+        let idx = partition_point(&items, |&x| x < index);
+        let std_pp_idx = items.partition_point(|&x| x < index);
         assert_eq!(std_pp_idx, idx);
     }
 });

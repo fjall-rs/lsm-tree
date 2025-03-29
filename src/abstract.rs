@@ -494,7 +494,6 @@ pub trait AbstractTree {
     fn snapshot(&self, seqno: SeqNo) -> Snapshot;
 
     /// Opens a snapshot of this partition with a given sequence number
-    #[must_use]
     fn snapshot_at(&self, seqno: SeqNo) -> Snapshot {
         self.snapshot(seqno)
     }
