@@ -8,7 +8,7 @@ use super::{
     BlockIndex, IndexBlock,
 };
 use crate::{
-    block_cache::BlockCache,
+    cache::Cache,
     descriptor_table::FileDescriptorTable,
     segment::{block::offset::BlockOffset, meta::Metadata},
 };
@@ -16,7 +16,7 @@ use std::{path::Path, sync::Arc};
 
 /// Allows reading index blocks - just a wrapper around a block cache
 #[allow(clippy::module_name_repetitions)]
-pub struct IndexBlockFetcher(Arc<BlockCache>);
+pub struct IndexBlockFetcher(Arc<Cache>);
 
 impl IndexBlockFetcher {
     pub fn insert(&self, segment_id: GlobalSegmentId, offset: BlockOffset, value: Arc<IndexBlock>) {
@@ -206,7 +206,7 @@ impl TwoLevelBlockIndex {
 
     #[cfg(test)]
     #[allow(dead_code, clippy::expect_used)]
-    pub(crate) fn new(segment_id: GlobalSegmentId, block_cache: Arc<BlockCache>) -> Self {
+    pub(crate) fn new(segment_id: GlobalSegmentId, block_cache: Arc<Cache>) -> Self {
         let index_block_index = IndexBlockFetcher(block_cache);
 
         Self {
@@ -223,7 +223,7 @@ impl TwoLevelBlockIndex {
         tli_ptr: BlockOffset,
         segment_id: GlobalSegmentId,
         descriptor_table: Arc<FileDescriptorTable>,
-        block_cache: Arc<BlockCache>,
+        block_cache: Arc<Cache>,
     ) -> crate::Result<Self> {
         log::trace!("Reading block index from {file_path:?}");
 

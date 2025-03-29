@@ -354,7 +354,7 @@ impl Writer {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::block_cache::BlockCache;
+    use crate::cache::Cache;
     use crate::descriptor_table::FileDescriptorTable;
     use crate::segment::block_index::top_level::TopLevelIndex;
     use crate::segment::reader::Reader;
@@ -499,7 +499,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(segment_file_path, (0, segment_id).into());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let iter = Reader::new(
             trailer.offsets.index_block_ptr,
@@ -556,7 +556,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(segment_file_path, (0, segment_id).into());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let iter = Reader::new(
             trailer.offsets.index_block_ptr,

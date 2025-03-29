@@ -246,7 +246,7 @@ impl<'a> DisjointLevel<'a> {
 mod tests {
     use super::*;
     use crate::{
-        block_cache::BlockCache,
+        cache::Cache,
         descriptor_table::FileDescriptorTable,
         segment::{
             block::offset::BlockOffset,
@@ -262,9 +262,9 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Segment {
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         SegmentInner {
@@ -300,7 +300,7 @@ mod tests {
                 uncompressed_size: 0,
                 seqnos: (0, 0),
             },
-            block_cache,
+            cache,
 
             bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
 

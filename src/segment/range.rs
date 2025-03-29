@@ -8,7 +8,7 @@ use super::block_index::BlockIndexImpl;
 use super::id::GlobalSegmentId;
 use super::reader::Reader;
 use super::value_block::CachePolicy;
-use crate::block_cache::BlockCache;
+use crate::cache::Cache;
 use crate::descriptor_table::FileDescriptorTable;
 use crate::value::InternalValue;
 use crate::value::UserKey;
@@ -36,7 +36,7 @@ impl Range {
         data_block_boundary: BlockOffset,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
-        block_cache: Arc<BlockCache>,
+        cache: Arc<Cache>,
         block_index: Arc<BlockIndexImpl>,
         range: (Bound<UserKey>, Bound<UserKey>),
     ) -> Self {
@@ -44,7 +44,7 @@ impl Range {
             data_block_boundary,
             descriptor_table,
             segment_id,
-            block_cache,
+            cache,
             BlockOffset(0),
             None,
         );
@@ -246,7 +246,7 @@ impl DoubleEndedIterator for Range {
 #[allow(clippy::expect_used)]
 mod tests {
     use crate::{
-        block_cache::BlockCache,
+        cache::Cache,
         descriptor_table::FileDescriptorTable,
         segment::{
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
@@ -299,7 +299,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(&segment_file_path, (0, 0).into());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
             &segment_file_path,
             &trailer.metadata,
@@ -399,7 +399,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(&segment_file_path, (0, 0).into());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
             &segment_file_path,
             &trailer.metadata,
@@ -600,7 +600,7 @@ mod tests {
             let table = Arc::new(FileDescriptorTable::new(512, 1));
             table.insert(&segment_file_path, (0, 0).into());
 
-            let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+            let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
             let block_index = TwoLevelBlockIndex::from_file(
                 &segment_file_path,
                 &trailer.metadata,
@@ -704,7 +704,7 @@ mod tests {
         let table = Arc::new(FileDescriptorTable::new(512, 1));
         table.insert(&segment_file_path, (0, 0).into());
 
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
         let block_index = TwoLevelBlockIndex::from_file(
             &segment_file_path,
             &trailer.metadata,
