@@ -8,6 +8,7 @@ pub(crate) mod fifo;
 pub(crate) mod leveled;
 pub(crate) mod maintenance;
 pub(crate) mod major;
+pub(crate) mod movedown;
 pub(crate) mod pulldown;
 pub(crate) mod stream;
 pub(crate) mod tiered;
@@ -21,6 +22,9 @@ use crate::{config::Config, level_manifest::LevelManifest, segment::meta::Segmen
 
 /// Alias for `Leveled`
 pub type Levelled = Leveled;
+
+#[doc(hidden)]
+pub use movedown::Strategy as MoveDown;
 
 #[doc(hidden)]
 pub use pulldown::Strategy as PullDown;

@@ -18,6 +18,22 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Ingests a sorted stream of key-value pairs into the tree.
+    ///
+    /// Can only be called on a new fresh, empty tree.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tree is **not** initially empty.
+    ///
+    /// Will panic if the input iterator is not sorted in ascending order.
+    #[doc(hidden)]
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
+
     /// Performs major compaction, blocking the caller until it's done.
     ///
     /// # Errors
