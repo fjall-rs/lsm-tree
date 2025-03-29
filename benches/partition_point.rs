@@ -7,6 +7,8 @@ fn bench_partition_point(c: &mut Criterion) {
     for item_count in [10, 100, 1_000, 10_000, 100_000, 1_000_000] {
         let items = (0..item_count).collect::<Vec<_>>();
 
+        // TODO: replace search key with random integer
+
         group.bench_function(format!("native {item_count}"), |b| {
             b.iter(|| items.partition_point(|&x| x <= 5_000))
         });
