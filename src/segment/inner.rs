@@ -52,7 +52,7 @@ impl Drop for Inner {
                 );
             }
 
-            log::trace!("Closing file handles for old segment file {global_id:?}",);
+            log::warn!("Closing file handles for old segment file {global_id:?}",);
             self.descriptor_table.remove(global_id);
         }
     }
