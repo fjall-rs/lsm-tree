@@ -210,7 +210,7 @@ impl AbstractTree for Tree {
             }
         })?;
 
-        eprintln!("{original_levels}");
+        // eprintln!("{original_levels}");
 
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
