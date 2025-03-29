@@ -107,7 +107,7 @@ impl Default for Config {
             descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
 
             cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
-            
+
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
