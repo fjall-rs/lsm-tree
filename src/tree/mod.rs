@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
@@ -27,10 +28,8 @@ use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
+    sync::atomic::AtomicBool,
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -54,6 +53,44 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
+
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
+        assert!(
+            lock.is_empty(),
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let mut writer = Ingestion::new(self)?;
+
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            writer.write(key, value)?;
+
+            count += 1;
+        }
+
+        writer.finish()?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        Ok(())
+    }
+
     #[doc(hidden)]
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
@@ -151,8 +188,9 @@ impl AbstractTree for Tree {
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
+        use std::time::Instant;
 
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
