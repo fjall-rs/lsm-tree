@@ -19,7 +19,7 @@ const TAG_BLOB: u8 = 1;
 enum Item {
     DataBlock(Arc<ValueBlock>),
     IndexBlock(Arc<IndexBlock>),
-    Blob(Arc<UserValue>),
+    Blob(UserValue),
 }
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
@@ -168,12 +168,11 @@ impl Cache {
     ) -> Option<Arc<ValueBlock>> {
         let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
 
-        match self.data.get(&key)? {
-            Item::DataBlock(block) => Some(block),
-            _ => {
-                log::warn!("cache item type was unexpected - this is a bug");
-                None
-            }
+        if let Item::DataBlock(block) = self.data.get(&key)? {
+            Some(block)
+        } else {
+            log::warn!("cache item type was unexpected - this is a bug");
+            None
         }
     }
 
@@ -186,12 +185,43 @@ impl Cache {
     ) -> Option<Arc<IndexBlock>> {
         let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
 
-        match self.data.get(&key)? {
-            Item::IndexBlock(block) => Some(block),
-            _ => {
-                log::warn!("cache item type was unexpected - this is a bug");
-                None
-            }
+        if let Item::IndexBlock(block) = self.data.get(&key)? {
+            Some(block)
+        } else {
+            log::warn!("cache item type was unexpected - this is a bug");
+            None
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn insert_blob(
+        &self,
+        vlog_id: value_log::ValueLogId,
+        vhandle: &value_log::ValueHandle,
+        value: UserValue,
+    ) {
+        if self.capacity > 0 {
+            self.data.insert(
+                (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
+                Item::Blob(value),
+            );
+        }
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn get_blob(
+        &self,
+        vlog_id: value_log::ValueLogId,
+        vhandle: &value_log::ValueHandle,
+    ) -> Option<UserValue> {
+        let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into();
+
+        if let Item::Blob(blob) = self.data.get(&key)? {
+            Some(blob)
+        } else {
+            log::warn!("cache item type was unexpected - this is a bug");
+            None
         }
     }
 }
