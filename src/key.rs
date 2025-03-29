@@ -11,7 +11,6 @@ use std::{
     cmp::Reverse,
     io::{Read, Write},
 };
-use value_log::Slice;
 use varint_rs::{VarintReader, VarintWriter};
 
 #[derive(Clone, PartialEq, Eq)]

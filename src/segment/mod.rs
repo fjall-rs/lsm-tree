@@ -19,8 +19,8 @@ pub mod value_block_consumer;
 pub mod writer;
 
 use crate::{
-    block_cache::BlockCache,
     bloom::{BloomFilter, CompositeHash},
+    cache::Cache,
     descriptor_table::FileDescriptorTable,
     time::unix_timestamp,
     tree::inner::TreeId,
@@ -240,7 +240,7 @@ impl Segment {
     pub(crate) fn recover(
         file_path: &Path,
         tree_id: TreeId,
-        block_cache: Arc<BlockCache>,
+        cache: Arc<Cache>,
         descriptor_table: Arc<FileDescriptorTable>,
         use_full_block_index: bool,
     ) -> crate::Result<Self> {
@@ -272,7 +272,7 @@ impl Segment {
                 trailer.offsets.tli_ptr,
                 (tree_id, trailer.metadata.id).into(),
                 descriptor_table.clone(),
-                block_cache.clone(),
+                cache.clone(),
             )?;
             BlockIndexImpl::TwoLevel(block_index)
         };
@@ -289,7 +289,7 @@ impl Segment {
             offsets: trailer.offsets,
 
             block_index: Arc::new(block_index),
-            block_cache,
+            cache,
 
             bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
 
@@ -347,7 +347,7 @@ impl Segment {
 
         let Some(block) = ValueBlock::load_by_block_handle(
             &self.descriptor_table,
-            &self.block_cache,
+            &self.cache,
             self.global_id(),
             first_block_handle,
             CachePolicy::Write,
@@ -369,7 +369,7 @@ impl Segment {
             self.offsets.index_block_ptr,
             &self.descriptor_table,
             self.global_id(),
-            &self.block_cache,
+            &self.cache,
             first_block_handle,
         );
         reader.lo_block_size = block.header.data_length.into();
@@ -454,7 +454,7 @@ impl Segment {
             self.offsets.index_block_ptr,
             self.descriptor_table.clone(),
             self.global_id(),
-            self.block_cache.clone(),
+            self.cache.clone(),
             self.block_index.clone(),
             range,
         )

@@ -8,8 +8,8 @@ use super::{
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
-    descriptor_table::FileDescriptorTable, segment::block::header::Header, value::InternalValue,
-    BlockCache, GlobalSegmentId,
+    cache::Cache, descriptor_table::FileDescriptorTable, segment::block::header::Header,
+    value::InternalValue, GlobalSegmentId,
 };
 
 /// Segment forward reader specialized for point reads
@@ -17,7 +17,7 @@ pub struct ForwardReader<'a> {
     segment_id: GlobalSegmentId,
 
     descriptor_table: &'a FileDescriptorTable,
-    block_cache: &'a BlockCache,
+    block_cache: &'a Cache,
 
     data_block_boundary: BlockOffset,
 
@@ -35,7 +35,7 @@ impl<'a> ForwardReader<'a> {
         data_block_boundary: BlockOffset,
         descriptor_table: &'a FileDescriptorTable,
         segment_id: GlobalSegmentId,
-        block_cache: &'a BlockCache,
+        block_cache: &'a Cache,
         lo_block_offset: BlockOffset,
     ) -> Self {
         Self {

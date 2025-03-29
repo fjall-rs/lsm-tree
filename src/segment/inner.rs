@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{block_index::BlockIndexImpl, file_offsets::FileOffsets, meta::Metadata};
-use crate::{block_cache::BlockCache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
+use crate::{cache::Cache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
 use std::{
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
@@ -31,7 +31,7 @@ pub struct Inner {
     ///
     /// Stores index and data blocks
     #[doc(hidden)]
-    pub block_cache: Arc<BlockCache>,
+    pub cache: Arc<Cache>,
 
     /// Bloom filter
     #[doc(hidden)]

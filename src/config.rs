@@ -3,16 +3,16 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    cache::Cache,
     descriptor_table::FileDescriptorTable,
     path::absolute_path,
     segment::meta::{CompressionType, TableType},
-    BlobTree, BlockCache, Tree,
+    BlobTree, Tree,
 };
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use value_log::BlobCache;
 
 /// LSM-tree type
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -85,11 +85,7 @@ pub struct Config {
 
     /// Block cache to use
     #[doc(hidden)]
-    pub block_cache: Arc<BlockCache>,
-
-    /// Blob cache to use
-    #[doc(hidden)]
-    pub blob_cache: Arc<BlobCache>,
+    pub cache: Arc<Cache>,
 
     /// Blob file (value log segment) target size in bytes
     #[doc(hidden)]
@@ -110,7 +106,8 @@ impl Default for Config {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
 
-            block_cache: Arc::new(BlockCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
@@ -120,7 +117,6 @@ impl Default for Config {
             blob_compression: CompressionType::None,
             bloom_bits_per_key: 10,
 
-            blob_cache: Arc::new(BlobCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
             blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
         }
@@ -239,29 +235,15 @@ impl Config {
         self
     }
 
-    /// Sets the block cache.
+    /// Sets the global cache.
     ///
-    /// You can create a global [`BlockCache`] and share it between multiple
+    /// You can create a global [`Cache`] and share it between multiple
     /// trees to cap global cache memory usage.
     ///
-    /// Defaults to a block cache with 8 MiB of capacity *per tree*.
+    /// Defaults to a cache with 8 MiB of capacity *per tree*.
     #[must_use]
-    pub fn block_cache(mut self, block_cache: Arc<BlockCache>) -> Self {
-        self.block_cache = block_cache;
-        self
-    }
-
-    /// Sets the block cache.
-    ///
-    /// You can create a global [`BlobCache`] and share it between multiple
-    /// trees and their value logs to cap global cache memory usage.
-    ///
-    /// Defaults to a block cache with 8 MiB of capacity *per tree*.
-    ///
-    /// This option has no effect when not used for opening a blob tree.
-    #[must_use]
-    pub fn blob_cache(mut self, blob_cache: Arc<BlobCache>) -> Self {
-        self.blob_cache = blob_cache;
+    pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
+        self.cache = cache;
         self
     }
 

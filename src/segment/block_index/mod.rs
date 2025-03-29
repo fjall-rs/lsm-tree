@@ -12,6 +12,7 @@ use super::{
     block::{offset::BlockOffset, Block},
     value_block::CachePolicy,
 };
+use crate::binary_search::partition_point;
 use block_handle::KeyedBlockHandle;
 use full_index::FullBlockIndex;
 use two_level_index::TwoLevelBlockIndex;
@@ -44,7 +45,7 @@ impl KeyedBlockIndex for [KeyedBlockHandle] {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<&KeyedBlockHandle>> {
-        let idx = self.partition_point(|x| &*x.end_key < key);
+        let idx = partition_point(self, |item| item.end_key < key);
         Ok(self.get(idx))
     }
 
@@ -53,7 +54,7 @@ impl KeyedBlockIndex for [KeyedBlockHandle] {
         key: &[u8],
         _: CachePolicy,
     ) -> crate::Result<Option<&KeyedBlockHandle>> {
-        let idx = self.partition_point(|x| &*x.end_key <= key);
+        let idx = partition_point(self, |x| &*x.end_key <= key);
 
         if idx == 0 {
             return Ok(self.first());
@@ -129,10 +130,10 @@ pub enum BlockIndexImpl {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::Slice;
+    use crate::{segment::block::offset::BlockOffset, UserKey};
     use test_log::test;
 
-    fn bh<K: Into<Slice>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {
+    fn bh<K: Into<UserKey>>(end_key: K, offset: BlockOffset) -> KeyedBlockHandle {
         KeyedBlockHandle {
             end_key: end_key.into(),
             offset,

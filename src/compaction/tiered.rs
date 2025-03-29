@@ -155,8 +155,8 @@ impl CompactionStrategy for Strategy {
 mod tests {
     use super::Strategy;
     use crate::{
-        block_cache::BlockCache,
         bloom::BloomFilter,
+        cache::Cache,
         compaction::{Choice, CompactionStrategy, Input as CompactionInput},
         config::Config,
         descriptor_table::FileDescriptorTable,
@@ -176,9 +176,9 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Segment {
-        let block_cache = Arc::new(BlockCache::with_capacity_bytes(10 * 1_024 * 1_024));
+        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
-        let block_index = TwoLevelBlockIndex::new((0, id).into(), block_cache.clone());
+        let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
 
         SegmentInner {
@@ -214,7 +214,7 @@ mod tests {
                 uncompressed_size: size_mib * 1_024 * 1_024,
                 seqnos: (0, max_seqno),
             },
-            block_cache,
+            cache,
 
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
 

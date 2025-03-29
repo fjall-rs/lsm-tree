@@ -8,8 +8,8 @@ use super::{
     value_block_consumer::ValueBlockConsumer,
 };
 use crate::{
-    descriptor_table::FileDescriptorTable, segment::block::header::Header, value::InternalValue,
-    BlockCache, GlobalSegmentId, UserKey,
+    cache::Cache, descriptor_table::FileDescriptorTable, segment::block::header::Header,
+    value::InternalValue, GlobalSegmentId, UserKey,
 };
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub struct Reader {
     segment_id: GlobalSegmentId,
 
     descriptor_table: Arc<FileDescriptorTable>,
-    block_cache: Arc<BlockCache>,
+    block_cache: Arc<Cache>,
 
     data_block_boundary: BlockOffset,
 
@@ -43,7 +43,7 @@ impl Reader {
         data_block_boundary: BlockOffset,
         descriptor_table: Arc<FileDescriptorTable>,
         segment_id: GlobalSegmentId,
-        block_cache: Arc<BlockCache>,
+        block_cache: Arc<Cache>,
         lo_block_offset: BlockOffset,
         hi_block_offset: Option<BlockOffset>,
     ) -> Self {

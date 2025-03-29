@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{
-    block::{offset::BlockOffset, Block},
-    id::GlobalSegmentId,
+use super::{block::Block, id::GlobalSegmentId};
+use crate::{
+    binary_search::partition_point, descriptor_table::FileDescriptorTable,
+    segment::block::offset::BlockOffset, value::InternalValue, Cache,
 };
-use crate::{descriptor_table::FileDescriptorTable, value::InternalValue, BlockCache};
 use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -28,7 +28,7 @@ pub type ValueBlock = Block<InternalValue>;
 impl ValueBlock {
     #[must_use]
     pub fn get_latest(&self, key: &[u8]) -> Option<&InternalValue> {
-        let idx = self.items.partition_point(|item| &*item.key.user_key < key);
+        let idx = partition_point(&self.items, |item| &*item.key.user_key < key);
 
         self.items
             .get(idx)
@@ -37,13 +37,13 @@ impl ValueBlock {
 
     pub fn load_by_block_handle(
         descriptor_table: &FileDescriptorTable,
-        block_cache: &BlockCache,
+        block_cache: &Cache,
         segment_id: GlobalSegmentId,
         offset: BlockOffset,
         cache_policy: CachePolicy,
     ) -> crate::Result<Option<Arc<Self>>> {
         Ok(
-            if let Some(block) = block_cache.get_disk_block(segment_id, offset) {
+            if let Some(block) = block_cache.get_data_block(segment_id, offset) {
                 // Cache hit: Copy from block
 
                 Some(block)
@@ -76,7 +76,7 @@ impl ValueBlock {
                 let block = Arc::new(block);
 
                 if cache_policy == CachePolicy::Write {
-                    block_cache.insert_disk_block(segment_id, offset, block.clone());
+                    block_cache.insert_data_block(segment_id, offset, block.clone());
                 }
 
                 Some(block)
