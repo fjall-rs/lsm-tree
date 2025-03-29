@@ -10,8 +10,6 @@ use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
 use std::sync::Arc;
 
-// type Item = Either<Arc<ValueBlock>, Arc<IndexBlock>>;
-
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
 
