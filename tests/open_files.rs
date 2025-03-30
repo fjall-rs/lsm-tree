@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, BlockCache, Config};
+use lsm_tree::{AbstractTree, Cache, Config};
 use std::sync::Arc;
 use test_log::test;
 
@@ -9,7 +9,7 @@ fn open_file_limit() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir_in(".test_open_files")?;
 
     let tree = Config::new(folder)
-        .block_cache(Arc::new(BlockCache::with_capacity_bytes(0)))
+        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
         .open()?;
 
     for _ in 0..2_048 {

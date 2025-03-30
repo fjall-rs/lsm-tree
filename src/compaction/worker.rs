@@ -19,7 +19,7 @@ use crate::{
         Segment, SegmentInner,
     },
     stop_signal::StopSignal,
-    tree::inner::{SealedMemtables, TreeId},
+    tree::inner::TreeId,
     Config, SegmentId, SeqNo,
 };
 use std::{
@@ -43,9 +43,6 @@ pub struct Options {
     /// Levels manifest.
     pub levels: Arc<RwLock<LevelManifest>>,
 
-    /// Sealed memtables (required for temporarily locking).
-    pub sealed_memtables: Arc<RwLock<SealedMemtables>>,
-
     /// Compaction strategy to use.
     pub strategy: Arc<dyn CompactionStrategy>,
 
@@ -63,7 +60,6 @@ impl Options {
             tree_id: tree.id,
             segment_id_generator: tree.segment_id_counter.clone(),
             config: tree.config.clone(),
-            sealed_memtables: tree.sealed_memtables.clone(),
             levels: tree.levels.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
@@ -389,7 +385,7 @@ fn merge_segments(
                         trailer.offsets.tli_ptr,
                         (opts.tree_id, segment_id).into(),
                         opts.config.descriptor_table.clone(),
-                        opts.config.block_cache.clone(),
+                        opts.config.cache.clone(),
                     )?;
                     BlockIndexImpl::TwoLevel(block_index)
                 }
@@ -402,7 +398,7 @@ fn merge_segments(
                 tree_id: opts.tree_id,
 
                 descriptor_table: opts.config.descriptor_table.clone(),
-                block_cache: opts.config.block_cache.clone(),
+                cache: opts.config.cache.clone(),
 
                 metadata: trailer.metadata,
                 offsets: trailer.offsets,

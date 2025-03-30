@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, level_manifest::LevelManifest, Segment};
+use crate::{config::Config, level_manifest::LevelManifest, HashSet, Segment};
 
 /// Major compaction
 ///
@@ -40,12 +40,23 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let segment_ids = levels.iter().map(Segment::id).collect();
+        let segment_ids: HashSet<_> = levels.iter().map(Segment::id).collect();
 
-        Choice::Merge(CompactionInput {
-            segment_ids,
-            dest_level: levels.last_level_index(),
-            target_size: self.target_size,
-        })
+        // NOTE: This should generally not occur because of the
+        // tree-level major compaction lock
+        // But just as a fail-safe...
+        let some_hidden = segment_ids
+            .iter()
+            .any(|&id| levels.hidden_set().is_hidden(id));
+
+        if some_hidden {
+            Choice::DoNothing
+        } else {
+            Choice::Merge(CompactionInput {
+                segment_ids,
+                dest_level: levels.last_level_index(),
+                target_size: self.target_size,
+            })
+        }
     }
 }

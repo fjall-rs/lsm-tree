@@ -2,36 +2,34 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
+    cache::Cache,
     coding::{Decode, Encode},
-    compaction::{stream::CompactionStream, CompactionStrategy},
+    compaction::CompactionStrategy,
     config::Config,
     descriptor_table::FileDescriptorTable,
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    range::{prefix_to_range, IterState, TreeIter},
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
         Segment, SegmentInner,
     },
-    stop_signal::StopSignal,
     value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
+    sync::atomic::AtomicBool,
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -55,6 +53,59 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
+
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
+        assert!(
+            lock.is_empty(),
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let mut writer = Ingestion::new(self)?;
+
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            writer.write(key, value)?;
+
+            count += 1;
+        }
+
+        writer.finish()?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
+        let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
+
+        // IMPORTANT: Write lock so we can be the only compaction going on
+        let _lock = self
+            .0
+            .major_compaction_lock
+            .write()
+            .expect("lock is poisoned");
+
+        log::info!("Starting major compaction");
+        self.inner_compact(strategy, seqno_threshold)
+    }
+
     fn l0_run_count(&self) -> usize {
         let lock = self.levels.read().expect("lock is poisoned");
 
@@ -133,11 +184,13 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>> {
         use crate::{
+            compaction::stream::CompactionStream,
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
+        use std::time::Instant;
 
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
@@ -229,15 +282,16 @@ impl AbstractTree for Tree {
         strategy: Arc<dyn CompactionStrategy>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
-        use crate::compaction::worker::{do_compaction, Options};
+        // NOTE: Read lock major compaction lock
+        // That way, if a major compaction is running, we cannot proceed
+        // But in general, parallel (non-major) compactions can occur
+        let _lock = self
+            .0
+            .major_compaction_lock
+            .read()
+            .expect("lock is poisoned");
 
-        let mut opts = Options::from_tree(self, strategy);
-        opts.eviction_seqno = seqno_threshold;
-        do_compaction(&opts)?;
-
-        log::debug!("lsm-tree: compaction run over");
-
-        Ok(())
+        self.inner_compact(strategy, seqno_threshold)
     }
 
     fn get_next_segment_id(&self) -> SegmentId {
@@ -436,24 +490,6 @@ impl Tree {
         self.active_memtable.read().expect("lock is poisoned")
     }
 
-    // TODO: Expose as public function, however:
-    // TODO: Right now this is somewhat unsafe to expose as
-    // major compaction needs ALL segments, right now it just takes as many
-    // as it can, which may make the LSM inconsistent.
-    // TODO: There should also be a function to partially compact levels and individual segments
-
-    /// Performs major compaction, blocking the caller until it's done.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    #[doc(hidden)]
-    pub fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
-        log::info!("Starting major compaction");
-        let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
-        self.compact(strategy, seqno_threshold)
-    }
-
     pub(crate) fn consume_writer(
         &self,
         segment_id: SegmentId,
@@ -482,7 +518,7 @@ impl Tree {
 
             descriptor_table: self.config.descriptor_table.clone(),
             block_index,
-            block_cache: self.config.block_cache.clone(),
+            cache: self.config.cache.clone(),
 
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
 
@@ -641,6 +677,23 @@ impl Tree {
         self.get_internal_entry_from_segments(key, seqno)
     }
 
+    fn inner_compact(
+        &self,
+        strategy: Arc<dyn CompactionStrategy>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()> {
+        use crate::compaction::worker::{do_compaction, Options};
+
+        let mut opts = Options::from_tree(self, strategy);
+        opts.eviction_seqno = seqno_threshold;
+
+        do_compaction(&opts)?;
+
+        log::debug!("Compaction run over");
+
+        Ok(())
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn create_iter(
@@ -658,6 +711,7 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+        use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
         let lo: Bound<UserKey> = match range.start_bound() {
@@ -676,7 +730,7 @@ impl Tree {
 
         log::trace!("range read: acquiring levels manifest read lock");
         // NOTE: Mind lock order L -> M -> S
-        let levels =
+        let level_manifest =
             guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
         log::trace!("range read: acquired level manifest read lock");
 
@@ -688,16 +742,16 @@ impl Tree {
         log::trace!("range read: acquiring sealed memtable read lock");
         let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
             .expect("lock is poisoned");
-
         log::trace!("range read: acquired sealed memtable read lock");
 
         let iter_state = IterState {
             active: active.clone(),
             sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
             ephemeral,
+            levels: level_manifest.levels.clone(),
         };
 
-        TreeIter::create_range(iter_state, bounds, seqno, levels)
+        TreeIter::create_range(iter_state, bounds, seqno, level_manifest)
     }
 
     #[doc(hidden)]
@@ -721,6 +775,8 @@ impl Tree {
         seqno: Option<SeqNo>,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+        use crate::range::prefix_to_range;
+
         let range = prefix_to_range(prefix.as_ref());
         self.create_range(&range, seqno, ephemeral)
     }
@@ -741,7 +797,7 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::file::MANIFEST_FILE;
+        use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {:?}", config.path);
@@ -764,7 +820,7 @@ impl Tree {
         let mut levels = Self::recover_levels(
             &config.path,
             tree_id,
-            &config.block_cache,
+            &config.cache,
             &config.descriptor_table,
         )?;
         levels.update_metadata();
@@ -779,6 +835,7 @@ impl Tree {
             levels: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
             config,
+            major_compaction_lock: RwLock::default(),
         };
 
         Ok(Self(Arc::new(inner)))
@@ -824,7 +881,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        block_cache: &Arc<BlockCache>,
+        cache: &Arc<Cache>,
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
@@ -892,7 +949,7 @@ impl Tree {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
-                    block_cache.clone(),
+                    cache.clone(),
                     descriptor_table.clone(),
                     level_idx == 0 || level_idx == 1,
                 )?;

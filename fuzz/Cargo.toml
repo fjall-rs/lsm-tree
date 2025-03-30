@@ -18,3 +18,10 @@ path = "fuzz_targets/data_block.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "partition_point"
+path = "fuzz_targets/partition_point.rs"
+test = false
+doc = false
+bench = false
