@@ -90,7 +90,7 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
@@ -125,9 +125,12 @@ mod any_tree;
 mod r#abstract;
 
 #[doc(hidden)]
+pub mod binary_search;
+
+#[doc(hidden)]
 pub mod blob_tree;
 
-mod block_cache;
+mod cache;
 
 #[doc(hidden)]
 pub mod bloom;
@@ -138,7 +141,6 @@ mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
-mod either;
 mod error;
 // mod export;
 
@@ -204,7 +206,7 @@ pub use {
 };
 
 pub use {
-    block_cache::BlockCache,
+    cache::Cache,
     coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},

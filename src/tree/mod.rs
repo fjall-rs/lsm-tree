@@ -2,9 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
+    cache::Cache,
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
@@ -19,17 +21,15 @@ use crate::{
     },
     value::InternalValue,
     version::Version,
-    AbstractTree, BlockCache, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    },
+    sync::atomic::AtomicBool,
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
@@ -53,6 +53,44 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
+
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
+        assert!(
+            lock.is_empty(),
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let mut writer = Ingestion::new(self)?;
+
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            writer.write(key, value)?;
+
+            count += 1;
+        }
+
+        writer.finish()?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        Ok(())
+    }
+
     #[doc(hidden)]
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
@@ -150,8 +188,9 @@ impl AbstractTree for Tree {
             file::SEGMENTS_FOLDER,
             segment::writer::{Options, Writer},
         };
+        use std::time::Instant;
 
-        let start = std::time::Instant::now();
+        let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
@@ -479,7 +518,7 @@ impl Tree {
 
             descriptor_table: self.config.descriptor_table.clone(),
             block_index,
-            block_cache: self.config.block_cache.clone(),
+            cache: self.config.cache.clone(),
 
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
 
@@ -781,7 +820,7 @@ impl Tree {
         let mut levels = Self::recover_levels(
             &config.path,
             tree_id,
-            &config.block_cache,
+            &config.cache,
             &config.descriptor_table,
         )?;
         levels.update_metadata();
@@ -842,7 +881,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        block_cache: &Arc<BlockCache>,
+        cache: &Arc<Cache>,
         descriptor_table: &Arc<FileDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
@@ -910,7 +949,7 @@ impl Tree {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
-                    block_cache.clone(),
+                    cache.clone(),
                     descriptor_table.clone(),
                     level_idx == 0 || level_idx == 1,
                 )?;

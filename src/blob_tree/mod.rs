@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+mod cache;
 mod compression;
 mod gc;
 pub mod index;
@@ -16,6 +17,7 @@ use crate::{
     value::InternalValue,
     Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
+use cache::MyBlobCache;
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
@@ -27,7 +29,7 @@ use std::{
 use value::MaybeInlineValue;
 use value_log::ValueLog;
 
-fn resolve_value_handle(vlog: &ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {
+fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeItem) -> RangeItem {
     use MaybeInlineValue::{Indirect, Inline};
 
     match item {
@@ -67,7 +69,7 @@ pub struct BlobTree {
 
     /// Log-structured value-log that stores large values
     #[doc(hidden)]
-    pub blobs: ValueLog<MyCompressor>,
+    pub blobs: ValueLog<MyBlobCache, MyCompressor>,
 
     // TODO: maybe replace this with a nonce system
     #[doc(hidden)]
@@ -79,10 +81,10 @@ impl BlobTree {
         let path = &config.path;
 
         let vlog_path = path.join(BLOBS_FOLDER);
-        let vlog_cfg = value_log::Config::<MyCompressor>::default()
-            .blob_cache(config.blob_cache.clone())
-            .segment_size_bytes(config.blob_file_target_size)
-            .compression(MyCompressor(config.blob_compression));
+        let vlog_cfg =
+            value_log::Config::<MyBlobCache, MyCompressor>::new(MyBlobCache(config.cache.clone()))
+                .segment_size_bytes(config.blob_file_target_size)
+                .compression(MyCompressor(config.blob_compression));
 
         let index: IndexTree = config.open()?.into();
 
@@ -188,7 +190,7 @@ impl BlobTree {
 
     pub fn apply_gc_strategy(
         &self,
-        strategy: &impl value_log::GcStrategy<MyCompressor>,
+        strategy: &impl value_log::GcStrategy<MyBlobCache, MyCompressor>,
         seqno: SeqNo,
     ) -> crate::Result<u64> {
         // IMPORTANT: Write lock memtable to avoid read skew
@@ -230,6 +232,69 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+        use crate::tree::ingest::Ingestion;
+        use std::time::Instant;
+
+        // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
+        let lock = self.lock_active_memtable();
+        assert!(
+            lock.is_empty(),
+            "can only perform bulk_ingest on empty trees",
+        );
+
+        let mut segment_writer = Ingestion::new(&self.index)?;
+        let mut blob_writer = self.blobs.get_writer()?;
+
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
+
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
+
+            // NOTE: Values are 32-bit max
+            #[allow(clippy::cast_possible_truncation)]
+            let value_size = value.len() as u32;
+
+            if value_size >= self.index.config.blob_file_separation_threshold {
+                let vhandle = blob_writer.get_next_value_handle();
+
+                let indirection = MaybeInlineValue::Indirect {
+                    vhandle,
+                    size: value_size,
+                };
+                // TODO: use Slice::with_size
+                let mut serialized_indirection = vec![];
+                indirection.encode_into(&mut serialized_indirection)?;
+
+                segment_writer.write(key.clone(), serialized_indirection.into())?;
+
+                blob_writer.write(&key, value)?;
+            } else {
+                // TODO: use Slice::with_size
+                let direct = MaybeInlineValue::Inline(value);
+                let serialized_direct = direct.encode_into_vec();
+                segment_writer.write(key, serialized_direct.into())?;
+            }
+
+            count += 1;
+        }
+
+        self.blobs.register_writer(blob_writer)?;
+        segment_writer.finish()?;
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
+
+        Ok(())
+    }
+
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         self.index.major_compact(target_size, seqno_threshold)
     }
@@ -367,6 +432,7 @@ impl AbstractTree for BlobTree {
                     vhandle,
                     size: value_size,
                 };
+                // TODO: use Slice::with_size
                 let mut serialized_indirection = vec![];
                 indirection.encode_into(&mut serialized_indirection)?;
 
@@ -375,6 +441,7 @@ impl AbstractTree for BlobTree {
 
                 blob_writer.write(&item.key.user_key, value)?;
             } else {
+                // TODO: use Slice::with_size
                 let direct = MaybeInlineValue::Inline(value);
                 let serialized_direct = direct.encode_into_vec();
                 segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
@@ -486,7 +553,6 @@ impl AbstractTree for BlobTree {
         self.index.len(seqno, index)
     }
 
-    #[must_use]
     fn disk_space(&self) -> u64 {
         self.index.disk_space() + self.blobs.manifest.disk_space_used()
     }
