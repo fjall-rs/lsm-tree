@@ -78,18 +78,16 @@ fuzz_target!(|data: &[u8]| {
             let bytes =
                 DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
 
-            let data_block = DataBlock {
-                inner: Block {
-                    data: bytes.into(),
-                    header: lsm_tree::segment::block::header::Header {
-                        checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
-                        compression: lsm_tree::CompressionType::None,
-                        data_length: 0,
-                        uncompressed_length: 0,
-                        previous_block_offset: BlockOffset(0),
-                    },
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: lsm_tree::segment::block::header::Header {
+                    checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
+                    compression: lsm_tree::CompressionType::None,
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
                 },
-            };
+            });
 
             if data_block.binary_index_pointer_count() > 254 {
                 assert!(data_block.hash_bucket_count() == 0);

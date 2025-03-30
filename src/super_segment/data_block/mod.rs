@@ -76,6 +76,12 @@ struct RestartHead {
 }
 
 impl DataBlock {
+    #[must_use]
+    pub fn new(inner: Block) -> Self {
+        let bytes = &inner.data;
+        Self { inner }
+    }
+
     /// Returns the uncompressed block size in bytes.
     #[must_use]
     pub fn size(&self) -> usize {
@@ -147,11 +153,7 @@ impl DataBlock {
             let key_end = key_start + parsed.key_len;
             let key = &bytes[key_start..key_end];
 
-            // eprintln!("walk start at {key:?} : {seqno}");
-
             base_key_pos = key_start;
-
-            // TODO: TEST TOMBSTONES + shadowing with tombstone at restart interval etc.!!!
 
             let val_len: usize = if value_type == ValueType::Value {
                 cursor.read_u32_varint().expect("should read") as usize
@@ -167,8 +169,6 @@ impl DataBlock {
 
                     if !should_skip {
                         let key = bytes.slice(key_start..key_end);
-
-                        // TODO: TEST TOMBSTONES
 
                         return Ok(Some(if value_type == ValueType::Value {
                             let val_offset = pos + cursor.position() as usize;
@@ -215,8 +215,6 @@ impl DataBlock {
             let prefix_part = &base_key[0..shared_prefix_len];
             let rest_key = &bytes[key_offset..(key_offset + rest_key_len)];
             cursor.seek_relative(rest_key_len as i64)?;
-
-            // eprintln!("  maybe it is {:?}+{:?} : {seqno}", prefix_part, rest_key);
 
             let val_len: usize = if value_type == ValueType::Value {
                 cursor.read_u32_varint().expect("should read") as usize
@@ -389,32 +387,17 @@ impl DataBlock {
             return Ok(None);
         }
 
-        // TODO: try to refactor this somehow
-        if let Some(seqno) = seqno {
-            let seqno_cmp = Reverse(seqno - 1);
+        let seqno_cmp = Reverse(seqno.unwrap_or(u64::MAX) - 1);
 
-            while left < right {
-                let mid = (left + right) / 2;
+        while left < right {
+            let mid = (left + right) / 2;
 
                 let offset = binary_index.get(mid);
 
                 if (key, seqno_cmp) >= self.get_key_at(offset)? {
-                    left = mid + 1;
-                } else {
-                    right = mid;
-                }
-            }
-        } else {
-            while left < right {
-                let mid = (left + right) / 2;
-
-                let offset = binary_index.get(mid);
-
-                if key >= self.get_key_at(offset)?.0 {
-                    left = mid + 1;
-                } else {
-                    right = mid;
-                }
+                left = mid + 1;
+            } else {
+                right = mid;
             }
         }
 
@@ -427,9 +410,6 @@ impl DataBlock {
         self.walk(key, seqno, offset, restart_interval)
     }
 
-    // TODO: blocks are often <64K in size, so maybe we can selectively fall back to a
-    // BinaryIndex<u16> to save some space - would need a flag that determines
-    // what "type" the binary index is
     pub fn encode_items(
         items: &[InternalValue],
         restart_interval: u8,
@@ -532,18 +512,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -571,18 +549,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -614,18 +590,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() == 0);
 
@@ -665,18 +639,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 5, 1.0)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -710,18 +682,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -753,18 +723,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() == 0);
 
@@ -797,18 +765,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -840,18 +806,16 @@ mod tests {
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len());
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -878,18 +842,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert_eq!(
             data_block.iter().map(|x| x.expect("should be ok")).count(),
@@ -913,18 +875,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -955,18 +915,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert_eq!(
             items.len(),
@@ -996,18 +954,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert!(data_block.hash_bucket_count() > 0);
 
@@ -1040,18 +996,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert_eq!(0, data_block.hash_bucket_count());
 
@@ -1073,18 +1027,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert_eq!(0, data_block.hash_bucket_count());
 
@@ -1106,18 +1058,16 @@ mod tests {
 
         let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
 
-        let data_block = DataBlock {
-            inner: Block {
-                data: bytes.into(),
-                header: Header {
-                    checksum: Checksum::from_raw(0),
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
                     compression: crate::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
             },
-        };
+        });
 
         assert_eq!(0, data_block.hash_bucket_count());
 
