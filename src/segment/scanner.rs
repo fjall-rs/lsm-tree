@@ -41,9 +41,7 @@ impl Iterator for Scanner {
 
             let block = ValueBlock::from_reader(&mut self.reader);
             let block = fail_iter!(block);
-
-            // TODO: 1.80? IntoIter impl for Box<[T]>
-            self.buffer.extend(block.items.into_vec());
+            self.buffer.extend(block.items);
 
             self.read_count += 1;
         }

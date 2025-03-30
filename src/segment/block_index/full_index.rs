@@ -39,8 +39,7 @@ impl FullBlockIndex {
 
         for _ in 0..cnt {
             let idx_block = IndexBlock::from_reader(&mut file)?.items;
-            // TODO: 1.80? IntoIter impl for Box<[T]>
-            block_handles.extend(idx_block.into_vec());
+            block_handles.extend(idx_block);
         }
 
         debug_assert!(!block_handles.is_empty());
