@@ -349,6 +349,7 @@ impl CompactionStrategy for Strategy {
                         return Choice::DoNothing;
                     };
 
+                    // TODO: list_ids()
                     let mut segment_ids: HashSet<u64> = level.iter().map(Segment::id).collect();
 
                     // Get overlapping segments in next level
