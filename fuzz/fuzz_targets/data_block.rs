@@ -62,7 +62,7 @@ fuzz_target!(|data: &[u8]| {
             items.sort();
             items.dedup();
 
-            /* eprintln!("-- items --");
+            /*  eprintln!("-- items --");
             for item in items.iter().map(|value| &value.0) {
                 eprintln!(
                     r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
@@ -89,10 +89,12 @@ fuzz_target!(|data: &[u8]| {
                 },
             });
 
-            if data_block.binary_index_pointer_count() > 254 {
-                assert!(data_block.hash_bucket_count() == 0);
+            assert_eq!(data_block.item_count(), items.len());
+
+            if data_block.binary_index_len() > 254 {
+                assert!(data_block.hash_bucket_count().is_none());
             } else if hash_ratio > 0.0 {
-                assert!(data_block.hash_bucket_count() > 0);
+                assert!(data_block.hash_bucket_count().unwrap() > 0);
             }
 
             // eprintln!("{items:?}");
@@ -117,7 +119,18 @@ fuzz_target!(|data: &[u8]| {
                 data_block.iter().map(|x| x.unwrap()).collect::<Vec<_>>(),
             );
 
-            // TODO: add rev and ping-pong iters
+            assert_eq!(
+                items.iter().rev().cloned().collect::<Vec<_>>(),
+                data_block
+                    .iter()
+                    .rev()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>(),
+            );
+
+            // TODO: add ping-pong iters
+
+            // TODO: add range iter too
         }
     }
 });
