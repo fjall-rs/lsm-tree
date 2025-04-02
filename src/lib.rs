@@ -135,6 +135,7 @@ mod cache;
 #[doc(hidden)]
 pub mod bloom;
 
+mod clipping_iter;
 pub mod compaction;
 mod config;
 
