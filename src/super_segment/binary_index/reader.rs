@@ -18,9 +18,11 @@ impl<'a> Reader<'a> {
         let offset = offset as usize;
         let len = len as usize;
         let step_size = step_size as usize;
+        let size = len * step_size;
+        let end = offset + size;
 
         Self {
-            bytes: &bytes[offset..(offset + len * step_size)],
+            bytes: &bytes[offset..end],
             step_size,
         }
     }
