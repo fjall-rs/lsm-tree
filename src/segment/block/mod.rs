@@ -68,7 +68,6 @@ impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
         };
         let mut bytes = Cursor::new(bytes);
 
-        // TODO: 3.0.0 varint?
         // Read number of items
         let item_count = bytes.read_u32::<BigEndian>()? as usize;
 
