@@ -71,6 +71,7 @@ impl InternalKey {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Encode for InternalKey {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u8(u8::from(self.value_type))?;
@@ -86,6 +87,7 @@ impl Encode for InternalKey {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Decode for InternalKey {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let value_type = reader.read_u8()?;

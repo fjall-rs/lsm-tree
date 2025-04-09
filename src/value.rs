@@ -183,6 +183,7 @@ impl std::fmt::Debug for InternalValue {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Encode for InternalValue {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         self.key.encode_into(writer)?;
@@ -199,6 +200,7 @@ impl Encode for InternalValue {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Decode for InternalValue {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let key = InternalKey::decode_from(reader)?;
