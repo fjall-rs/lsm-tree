@@ -1,22 +1,13 @@
-use super::super::binary_index::Builder as BinaryIndexBuilder;
 use super::super::hash_index::Builder as HashIndexBuilder;
+use super::{super::binary_index::Builder as BinaryIndexBuilder, NewKeyedBlockHandle};
+use crate::super_segment::util::longest_shared_prefix_length;
 use crate::{
-    coding::Encode, super_segment::hash_index::MAX_POINTERS_FOR_HASH_INDEX, InternalValue,
+    segment::{block::offset::BlockOffset, trailer::TRAILER_SIZE},
+    super_segment::{block::TRAILER_START_MARKER, hash_index::MAX_POINTERS_FOR_HASH_INDEX},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 use varint_rs::VarintWriter;
-
-pub const TERMINATOR_MARKER: u8 = 255;
-
-pub const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>() + (2 * std::mem::size_of::<u8>());
-
-fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
-    s1.iter()
-        .zip(s2.iter())
-        .take_while(|(c1, c2)| c1 == c2)
-        .count()
-}
 
 pub struct Encoder<'a> {
     writer: Vec<u8>,
@@ -26,7 +17,10 @@ pub struct Encoder<'a> {
 
     restart_interval: u8,
 
+    use_prefix_truncation: bool,
     base_key: &'a [u8],
+
+    offset: BlockOffset,
 
     restart_count: usize,
     item_count: usize,
@@ -37,6 +31,7 @@ impl<'a> Encoder<'a> {
         item_count: usize,
         restart_interval: u8,
         hash_index_ratio: f32,
+        use_prefix_truncation: bool,
         first_key: &'a [u8],
     ) -> Self {
         let binary_index_len = item_count / usize::from(restart_interval);
@@ -50,18 +45,21 @@ impl<'a> Encoder<'a> {
 
             restart_interval,
 
+            use_prefix_truncation,
             base_key: first_key,
+
+            offset: BlockOffset(0),
 
             restart_count: 0,
             item_count: 0,
         }
     }
 
-    pub fn write(&mut self, kv: &'a InternalValue) -> crate::Result<()> {
+    pub fn write(&mut self, handle: &'a NewKeyedBlockHandle) -> crate::Result<()> {
         // NOTE: Check if we are a restart marker
         if self.item_count % usize::from(self.restart_interval) == 0 {
             // We encode restart markers as:
-            // [value type] [seqno] [user key len] [user key] [value len] [value]
+            // [offset] [size] [key len] [end key]
 
             self.restart_count += 1;
 
@@ -69,52 +67,55 @@ impl<'a> Encoder<'a> {
             #[allow(clippy::cast_possible_truncation)]
             self.binary_index_builder.insert(self.writer.len() as u32);
 
-            kv.key.encode_into(&mut self.writer)?;
+            self.writer.write_u64_varint(*handle.offset)?;
+            self.writer.write_u32_varint(handle.size)?;
+            self.writer.write_u16_varint(handle.end_key.len() as u16)?;
+            self.writer.write_all(&handle.end_key)?;
 
-            self.base_key = &kv.key.user_key;
+            self.base_key = &handle.end_key;
+            self.offset = BlockOffset(*handle.offset + u64::from(handle.size));
         } else {
-            // We encode truncated values as:
-            // [value type] [seqno] [shared prefix len] [rest key len] [rest key] [value len] [value]
+            // We encode truncated handles as:
+            // [size] [shared prefix len] [rest key len] [rest key]
 
-            self.writer.write_u8(u8::from(kv.key.value_type))?;
+            self.writer.write_u32_varint(handle.size)?;
 
-            self.writer.write_u64_varint(kv.key.seqno)?;
+            let shared_prefix_len = if self.use_prefix_truncation {
+                // NOTE: We can safely cast to u16, because keys are u16 long max
+                #[allow(clippy::cast_possible_truncation)]
+                let shared_prefix_len =
+                    longest_shared_prefix_length(self.base_key, &handle.end_key) as u16;
 
-            // NOTE: We can safely cast to u16, because keys are u16 long max
-            #[allow(clippy::cast_possible_truncation)]
-            let shared_prefix_len =
-                longest_shared_prefix_length(self.base_key, &kv.key.user_key) as u16;
+                shared_prefix_len
+            } else {
+                self.writer.write_u8(0)?;
+                0
+            };
 
+            // TODO: maybe we can skip this varint altogether if prefix truncation = false
             self.writer.write_u16_varint(shared_prefix_len)?;
 
             // NOTE: We can safely cast to u16, because keys are u16 long max
             #[allow(clippy::cast_possible_truncation)]
-            let rest_len = kv.key.user_key.len() as u16 - shared_prefix_len;
+            let rest_len = handle.end_key.len() as u16 - shared_prefix_len;
 
             self.writer.write_u16_varint(rest_len)?;
 
-            let truncated_user_key = &kv
-                .key
-                .user_key
+            let truncated_user_key = handle
+                .end_key
                 .get(shared_prefix_len as usize..)
                 .expect("should be in bounds");
 
             self.writer.write_all(truncated_user_key)?;
+
+            self.offset += u64::from(handle.size);
         }
 
         if self.hash_index_builder.bucket_count() > 0 {
             // NOTE: The max binary index is bound by u8 (technically u8::MAX - 2)
             #[allow(clippy::cast_possible_truncation)]
             self.hash_index_builder
-                .set(&kv.key.user_key, (self.restart_count - 1) as u8);
-        }
-
-        // NOTE: Only write value len + value if we are actually a value
-        if !kv.is_tombstone() {
-            // NOTE: We know values are limited to 32-bit length
-            #[allow(clippy::cast_possible_truncation)]
-            self.writer.write_u32_varint(kv.value.len() as u32)?;
-            self.writer.write_all(&kv.value)?;
+                .set(&handle.end_key, (self.restart_count - 1) as u8);
         }
 
         self.item_count += 1;
@@ -122,10 +123,11 @@ impl<'a> Encoder<'a> {
         Ok(())
     }
 
-    // TODO: maybe change the order of trailer items a bit so we can get to the binary index first
+    // TODO: trailer of data block and index block are the same... consolidate into some
+    // kind of TrailerWriter or whatever
     pub fn finish(mut self) -> crate::Result<Vec<u8>> {
         // IMPORTANT: Terminator marker
-        self.writer.write_u8(TERMINATOR_MARKER)?;
+        self.writer.write_u8(TRAILER_START_MARKER)?;
 
         // TODO: version u8? -> add to segment metadata instead
 
@@ -140,7 +142,6 @@ impl<'a> Encoder<'a> {
         let mut hash_index_offset = 0u32;
         let hash_index_len = self.hash_index_builder.bucket_count();
 
-        // TODO: unit test when binary index is too long
         // NOTE: We can only use a hash index when there are 254 buckets or less
         // Because 254 and 255 are reserved marker values
         //
