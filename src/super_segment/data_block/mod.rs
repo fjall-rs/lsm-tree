@@ -103,7 +103,7 @@ macro_rules! unwrappy {
 /// Block that contains key-value pairs (user data)
 #[derive(Clone)]
 pub struct DataBlock {
-    inner: Block,
+    pub inner: Block,
 
     // Cached metadata
     restart_interval: u8,
@@ -702,6 +702,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -738,6 +739,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -776,6 +778,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -824,6 +827,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -876,6 +880,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -917,6 +922,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -956,6 +962,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -996,6 +1003,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1037,6 +1045,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1077,6 +1086,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1112,6 +1122,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1148,6 +1159,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1184,6 +1196,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1217,6 +1230,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1254,6 +1268,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1319,6 +1334,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1357,6 +1373,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1392,6 +1409,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1422,6 +1440,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
@@ -1452,6 +1471,7 @@ mod tests {
             header: Header {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
+                uncompressed_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });

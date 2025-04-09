@@ -80,9 +80,10 @@ fuzz_target!(|data: &[u8]| {
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
-                header: lsm_tree::segment::block::header::Header {
+                header: lsm_tree::super_segment::block::Header {
                     checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
                     data_length: 0,
+                    uncompressed_length: 0,
                     previous_block_offset: BlockOffset(0),
                 },
             });
