@@ -88,10 +88,10 @@ impl<'a> Iter<'a> {
         }
     }
 
-    /* pub fn with_offset(mut self, offset: usize) -> Self {
-        self.lo_watermark = offset;
+    pub fn with_offset(mut self, offset: usize) -> Self {
+        self.lo_scanner.offset = offset;
         self
-    } */
+    }
 
     fn parse_restart_item(
         block: &DataBlock,

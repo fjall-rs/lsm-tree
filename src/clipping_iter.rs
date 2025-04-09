@@ -4,12 +4,15 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+/* crate::Result<InternalValue> */
+type Item = InternalValue;
+
 /// Clips an iterator to a key range
 pub struct ClippingIter<'a, K, R, I>
 where
     K: AsRef<[u8]>,
     R: RangeBounds<K>,
-    I: DoubleEndedIterator<Item = crate::Result<InternalValue>>,
+    I: DoubleEndedIterator<Item = Item>,
 {
     _phantom: std::marker::PhantomData<K>,
 
@@ -24,7 +27,7 @@ impl<'a, K, R, I> ClippingIter<'a, K, R, I>
 where
     K: AsRef<[u8]>,
     R: RangeBounds<K>,
-    I: DoubleEndedIterator<Item = crate::Result<InternalValue>>,
+    I: DoubleEndedIterator<Item = Item>,
 {
     pub fn new(iter: I, range: &'a R) -> Self {
         Self {
@@ -43,13 +46,13 @@ impl<K, R, I> Iterator for ClippingIter<'_, K, R, I>
 where
     K: AsRef<[u8]>,
     R: RangeBounds<K>,
-    I: DoubleEndedIterator<Item = crate::Result<InternalValue>>,
+    I: DoubleEndedIterator<Item = Item>,
 {
-    type Item = crate::Result<InternalValue>;
+    type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let item = fail_iter!(self.inner.next()?);
+            let item = self.inner.next()?;
 
             // NOTE: PERF: As soon as we enter ->[lo..]
             // we don't need to do key comparisons anymore which are
@@ -90,7 +93,7 @@ where
                 Bound::Unbounded => {}
             }
 
-            return Some(Ok(item));
+            return Some(item);
         }
     }
 }
@@ -99,11 +102,11 @@ impl<K, R, I> DoubleEndedIterator for ClippingIter<'_, K, R, I>
 where
     K: AsRef<[u8]>,
     R: RangeBounds<K>,
-    I: DoubleEndedIterator<Item = crate::Result<InternalValue>>,
+    I: DoubleEndedIterator<Item = Item>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
-            let item = fail_iter!(self.inner.next_back()?);
+            let item = self.inner.next_back()?;
 
             match self.range.start_bound() {
                 Bound::Included(start) => {
@@ -144,7 +147,7 @@ where
                 }
             }
 
-            return Some(Ok(item));
+            return Some(item);
         }
     }
 }
@@ -165,14 +168,14 @@ mod tests {
         ];
         let range = "c"..="d";
 
-        let mut iter = ClippingIter::new(items.into_iter().map(Ok), &range);
+        let mut iter = ClippingIter::new(items.into_iter(), &range);
         assert_eq!(
             Some(b"c" as &[u8]),
-            iter.next().transpose()?.map(|x| x.key.user_key).as_deref(),
+            iter.next().map(|x| x.key.user_key).as_deref(),
         );
         assert_eq!(
             Some(b"d" as &[u8]),
-            iter.next().transpose()?.map(|x| x.key.user_key).as_deref(),
+            iter.next().map(|x| x.key.user_key).as_deref(),
         );
         assert!(iter.next().is_none());
 
@@ -190,20 +193,14 @@ mod tests {
         ];
         let range = "c"..="d";
 
-        let mut iter = ClippingIter::new(items.into_iter().map(Ok), &range);
+        let mut iter = ClippingIter::new(items.into_iter(), &range);
         assert_eq!(
             Some(b"d" as &[u8]),
-            iter.next_back()
-                .transpose()?
-                .map(|x| x.key.user_key)
-                .as_deref(),
+            iter.next_back().map(|x| x.key.user_key).as_deref(),
         );
         assert_eq!(
             Some(b"c" as &[u8]),
-            iter.next_back()
-                .transpose()?
-                .map(|x| x.key.user_key)
-                .as_deref(),
+            iter.next_back().map(|x| x.key.user_key).as_deref(),
         );
         assert!(iter.next_back().is_none());
 
@@ -221,21 +218,18 @@ mod tests {
         ];
         let range = "b"..="d";
 
-        let mut iter = ClippingIter::new(items.into_iter().map(Ok), &range);
+        let mut iter = ClippingIter::new(items.into_iter(), &range);
         assert_eq!(
             Some(b"b" as &[u8]),
-            iter.next().transpose()?.map(|x| x.key.user_key).as_deref(),
+            iter.next().map(|x| x.key.user_key).as_deref(),
         );
         assert_eq!(
             Some(b"d" as &[u8]),
-            iter.next_back()
-                .transpose()?
-                .map(|x| x.key.user_key)
-                .as_deref(),
+            iter.next_back().map(|x| x.key.user_key).as_deref(),
         );
         assert_eq!(
             Some(b"c" as &[u8]),
-            iter.next().transpose()?.map(|x| x.key.user_key).as_deref(),
+            iter.next().map(|x| x.key.user_key).as_deref(),
         );
         assert!(iter.next_back().is_none());
         assert!(iter.next().is_none());

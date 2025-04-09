@@ -10,6 +10,7 @@ use super::block::Trailer;
 use super::block::{Encodable, Encoder};
 use super::hash_index::Reader as HashIndexReader;
 use super::{binary_index::Reader as BinaryIndexReader, Block};
+use crate::clipping_iter::ClippingIter;
 use crate::super_segment::block::TRAILER_START_MARKER;
 use crate::super_segment::util::compare_prefixed_slice;
 use crate::{InternalValue, SeqNo, ValueType};
@@ -17,6 +18,7 @@ use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
 use iter::{ParsedItem, ParsedSlice};
 use std::io::Seek;
+use std::ops::RangeBounds;
 use std::{cmp::Reverse, io::Cursor};
 use varint_rs::{VarintReader, VarintWriter};
 
@@ -174,15 +176,20 @@ impl DataBlock {
         Iter::new(self).map(|kv| kv.materialize(&self.inner.data))
     }
 
-    /*     pub fn range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+    pub fn range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
         range: &'a R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a {
+    ) -> impl DoubleEndedIterator<Item = InternalValue> + 'a {
         let offset = 0; // TODO: range & seek to range start using binary index/hash index (first matching restart interval)
                         // TODO: and if range end, seek to range end as well (last matching restart interval)
 
-        ClippingIter::new(self.iter().with_offset(offset), range)
-    } */
+        ClippingIter::new(
+            Iter::new(self)
+                .with_offset(offset)
+                .map(|kv| kv.materialize(&self.inner.data)),
+            range,
+        )
+    }
 
     fn get_key_at(&self, pos: usize) -> (&[u8], Reverse<SeqNo>) {
         let bytes = &self.inner.data;
@@ -1288,16 +1295,13 @@ mod tests {
         assert_eq!(data_block.len(), items.len());
         assert!(data_block.hash_bucket_count().unwrap() > 0);
 
-        /* assert_eq!(
+        assert_eq!(
             {
                 #[allow(clippy::suspicious_map)]
-                data_block
-                    .range(&((b"pla:venus:" as &[u8])..))
-                    .map(|x| x.unwrap())
-                    .count()
+                data_block.range(&((b"pla:venus:" as &[u8])..)).count()
             },
             3,
-        ); */
+        );
 
         Ok(())
     }
@@ -1327,17 +1331,16 @@ mod tests {
         assert_eq!(data_block.len(), items.len());
         assert!(data_block.hash_bucket_count().unwrap() > 0);
 
-        /*    assert_eq!(
+        assert_eq!(
             {
                 #[allow(clippy::suspicious_map)]
                 data_block
                     .range(&((b"pla:venus:" as &[u8])..))
                     .rev()
-                    .map(|x| x.unwrap())
                     .count()
             },
             3,
-        ); */
+        );
 
         Ok(())
     }

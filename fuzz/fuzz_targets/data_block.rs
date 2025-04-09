@@ -203,7 +203,35 @@ fuzz_target!(|data: &[u8]| {
                 assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
             }
 
-            // TODO: add range iter too
+            {
+                use rand::prelude::*;
+                use rand::SeedableRng;
+                use rand_chacha::ChaCha8Rng;
+
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+                let mut lo = rng.random_range(0..items.len());
+                let mut hi = rng.random_range(0..items.len());
+
+                if lo > hi {
+                    std::mem::swap(&mut lo, &mut hi);
+                }
+
+                let lo_key = &items[lo].key.user_key;
+                let hi_key = &items[hi].key.user_key;
+
+                let expected_range: Vec<_> = items
+                    .iter()
+                    .filter(|kv| kv.key.user_key >= lo_key && kv.key.user_key <= hi_key)
+                    .cloned()
+                    .collect();
+
+                assert_eq!(
+                    expected_range,
+                    data_block
+                        .range::<&[u8], _>(&(lo_key.as_ref()..=hi_key.as_ref()))
+                        .collect::<Vec<_>>(),
+                );
+            }
         }
     }
 });
