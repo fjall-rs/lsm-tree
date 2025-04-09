@@ -646,9 +646,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -683,9 +680,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -722,9 +716,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -866,9 +857,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -906,9 +894,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -947,9 +932,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -989,9 +971,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1030,9 +1009,6 @@ mod tests {
         ];
 
         let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len());
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
