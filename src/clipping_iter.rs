@@ -1,9 +1,8 @@
+use crate::InternalValue;
 use std::{
     marker::PhantomData,
     ops::{Bound, RangeBounds},
 };
-
-use crate::InternalValue;
 
 /// Clips an iterator to a key range
 pub struct ClippingIter<'a, K, R, I>
@@ -52,6 +51,9 @@ where
         loop {
             let item = fail_iter!(self.inner.next()?);
 
+            // NOTE: PERF: As soon as we enter ->[lo..]
+            // we don't need to do key comparisons anymore which are
+            // more expensive than a simple flag check, especially for long keys
             if !self.has_entered_lo {
                 match self.range.start_bound() {
                     Bound::Included(start) => {
@@ -119,6 +121,9 @@ where
                 Bound::Unbounded => {}
             }
 
+            // NOTE: PERF: As soon as we enter [..hi]<-
+            // we don't need to do key comparisons anymore which are
+            // more expensive than a simple flag check, especially for long keys
             if !self.has_entered_hi {
                 match self.range.end_bound() {
                     Bound::Included(end) => {
