@@ -1,143 +1,292 @@
-use super::{encoder::TRAILER_SIZE, DataBlock};
-use crate::{
-    coding::DecodeError, super_segment::data_block::encoder::TERMINATOR_MARKER, InternalValue,
-    Slice, ValueType,
-};
-use byteorder::{LittleEndian, ReadBytesExt};
-use std::io::{Cursor, Seek};
-use varint_rs::VarintReader;
+use super::DataBlock;
+use crate::{key::InternalKey, InternalValue, SeqNo, Slice};
+use std::io::Cursor;
 
 /// Double-ended iterator over data blocks
-pub struct Iter {
-    block: DataBlock,
+pub struct Iter<'a> {
+    block: &'a DataBlock,
 
     cursor: usize,
-    idx: usize,
+    remaining_in_interval: usize,
     restart_interval: usize,
 
-    base_key: Option<Slice>,
+    lo_watermark: usize,
+
+    // base_key: Option<&'a [u8]>,
+    base_key_offset: Option<usize>,
+
+    hi_ptr_idx: usize,
+    hi_stack: Vec<usize>,
+    // TODO: refactor into two members: LoScanner and HiScanner
 }
 
-impl Iter {
-    pub fn new(block: DataBlock) -> Self {
-        let bytes = &block.inner.data;
-        let mut reader = &bytes[bytes.len() - TRAILER_SIZE..];
+/// [start, end] slice indexes
+#[derive(Debug)]
+pub struct ParsedSlice(pub usize, pub usize);
 
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let restart_interval = reader.read_u8().expect("should read") as usize;
+#[derive(Debug)]
+pub struct ParsedItem {
+    pub value_type: u8,
+    pub seqno: SeqNo,
+    pub prefix: Option<ParsedSlice>,
+    pub key: ParsedSlice,
+    pub value: Option<ParsedSlice>,
+}
+
+impl ParsedItem {
+    pub fn materialize(&self, bytes: &Slice) -> InternalValue {
+        let key = if let Some(prefix) = &self.prefix {
+            let prefix_key = &bytes[prefix.0..prefix.1];
+            let rest_key = &bytes[self.key.0..self.key.1];
+            Slice::fused(prefix_key, rest_key)
+        } else {
+            bytes.slice(self.key.0..self.key.1)
+        };
+        let key = InternalKey::new(
+            key,
+            self.seqno,
+            self.value_type.try_into().expect("should work"),
+        );
+
+        let value = if let Some(value) = &self.value {
+            bytes.slice(value.0..value.1)
+        } else {
+            Slice::empty()
+        };
+
+        InternalValue { key, value }
+    }
+}
+
+impl<'a> Iter<'a> {
+    pub fn new(block: &'a DataBlock) -> Self {
+        let restart_interval = block.restart_interval.into();
+        let binary_index_len = block.binary_index_len as usize;
 
         Self {
             block,
+
             cursor: 0,
-            idx: 0,
+            remaining_in_interval: 0,
             restart_interval,
 
-            base_key: None,
+            lo_watermark: 0,
+
+            // base_key: None, //  TODO: remove
+            base_key_offset: None,
+
+            hi_ptr_idx: binary_index_len,
+            hi_stack: Vec::new(),
         }
     }
+
+    pub fn with_offset(mut self, offset: usize) -> Self {
+        self.lo_watermark = offset;
+        self
+    }
+
+    // TODO: refactor together with deserialize and point_read
+    // skip should return the basic info, and rename to deserialize
+    // rename deserialize to materialize by using the return type of deserialize
+    /*   fn skip_restart_item(&mut self) -> crate::Result<bool> {
+        let bytes = &self.block.inner.data;
+
+        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
+        // And the cursor starts at 0 - the slice is never empty
+        #[warn(unsafe_code)]
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(self.cursor..) });
+
+        let parsed = DataBlock::parse_restart_head(&mut reader)?;
+
+        if parsed.value_type == TRAILER_START_MARKER {
+            return Ok(false);
+        }
+
+        let value_type: ValueType = parsed
+            .value_type
+            .try_into()
+            .map_err(|()| DecodeError::InvalidTag(("ValueType", parsed.value_type)))?;
+
+        let key_start = self.cursor + parsed.key_start;
+        let key_end = key_start + parsed.key_len;
+        let key = bytes.slice(key_start..key_end);
+
+        let val_len: usize = if value_type == ValueType::Value {
+            reader.read_u32_varint()? as usize
+        } else {
+            0
+        };
+        reader.seek_relative(val_len as i64)?;
+
+        self.cursor += reader.position() as usize;
+        self.base_key = Some(key);
+
+        Ok(true)
+    } */
+
+    // TODO: refactor together with deserialize and point_read
+    // skip should return the basic info, and rename to deserialize
+    // rename deserialize to materialize by using the return type of deserialize
+    /*  fn skip_truncated_item(&mut self) -> crate::Result<bool> {
+        let bytes = &self.block.inner.data;
+
+        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
+        // And the cursor starts at 0 - the slice is never empty
+        #[warn(unsafe_code)]
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(self.cursor..) });
+
+        let value_type = reader.read_u8()?;
+
+        if value_type == TRAILER_START_MARKER {
+            return Ok(false);
+        }
+
+        let value_type: ValueType = value_type
+            .try_into()
+            .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
+
+        let _seqno = reader.read_u64_varint()?;
+
+        let _shared_prefix_len: usize = reader.read_u16_varint()?.into();
+        let rest_key_len: usize = reader.read_u16_varint()?.into();
+
+        reader.seek_relative(rest_key_len as i64)?;
+
+        let val_len: usize = if value_type == ValueType::Value {
+            reader.read_u32_varint()? as usize
+        } else {
+            0
+        };
+        reader.seek_relative(val_len as i64)?;
+
+        self.cursor += reader.position() as usize;
+
+        Ok(true)
+    } */
+
+    fn parse_restart_item(&mut self, offset: usize) -> Option<ParsedItem> {
+        let bytes = &self.block.inner.data;
+
+        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
+        // And the cursor starts at 0 - the slice is never empty
+        #[warn(unsafe_code)]
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
+
+        let Some(item) = DataBlock::parse_restart_item(&mut reader, offset) else {
+            return None;
+        };
+
+        self.cursor += reader.position() as usize;
+        self.base_key_offset = Some(item.key.0);
+
+        Some(item)
+    }
+
+    fn parse_truncated_item(&mut self, offset: usize) -> Option<ParsedItem> {
+        let bytes = &self.block.inner.data;
+
+        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
+        // And the cursor starts at 0 - the slice is never empty
+        #[warn(unsafe_code)]
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
+
+        let Some(item) = DataBlock::parse_truncated_item(
+            &mut reader,
+            offset,
+            self.base_key_offset.expect("should exist"),
+        ) else {
+            return None;
+        };
+
+        self.cursor += reader.position() as usize;
+
+        Some(item)
+    }
+
+    /* fn consume_stack_top(&mut self) -> crate::Result<Option<InternalValue>> {
+        if let Some(offset) = self.hi_stack.pop() {
+            if self.lo_watermark > 0 && offset <= self.lo_watermark {
+                return Ok(None);
+            }
+
+            self.cursor = offset;
+
+            // TODO: pop from stack, check if offset < self.cursor, then also make sure to terminate forwards iteration
+            // TODO: probably need a lo_cursor
+
+            let is_restart = self.hi_stack.is_empty();
+
+            if is_restart {
+                self.deserialize_restart_item()
+            } else {
+                self.deserialize_truncated_item()
+            }
+        } else {
+            Ok(None)
+        }
+    } */
 }
 
-impl Iterator for Iter {
-    type Item = crate::Result<InternalValue>;
+impl Iterator for Iter<'_> {
+    type Item = ParsedItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let is_restart = (self.idx % self.restart_interval) == 0;
+        let is_restart = self.remaining_in_interval == 0;
 
-        let bytes = &self.block.inner.data;
-        let mut cursor = Cursor::new(&bytes[self.cursor..]);
+        self.cursor = self.lo_watermark;
 
-        if is_restart {
-            let parsed = fail_iter!(DataBlock::parse_restart_item(&mut cursor));
-
-            if parsed.value_type == TERMINATOR_MARKER {
-                return None;
-            }
-
-            let value_type: ValueType = fail_iter!(parsed
-                .value_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("ValueType", parsed.value_type))));
-
-            let seqno = parsed.seqno;
-
-            let key_start = self.cursor + parsed.key_start;
-            let key_end = key_start + parsed.key_len;
-            let key = bytes.slice(key_start..key_end);
-
-            let val_len: usize = if value_type == ValueType::Value {
-                fail_iter!(cursor.read_u32_varint()) as usize
-            } else {
-                0
-            };
-            let val_offset = self.cursor + cursor.position() as usize;
-            fail_iter!(cursor.seek_relative(val_len as i64));
-
-            self.cursor += cursor.position() as usize;
-            self.idx += 1;
-            self.base_key = Some(key.clone());
-
-            Some(Ok(if value_type == ValueType::Value {
-                let value = bytes.slice(val_offset..(val_offset + val_len));
-                InternalValue::from_components(key, value, seqno, value_type)
-            } else {
-                InternalValue::from_components(key, b"", seqno, value_type)
-            }))
+        let item = if is_restart {
+            self.remaining_in_interval = self.restart_interval;
+            self.parse_restart_item(self.lo_watermark)
         } else {
-            let value_type = fail_iter!(cursor.read_u8());
+            self.parse_truncated_item(self.lo_watermark)
+        };
 
-            if value_type == TERMINATOR_MARKER {
-                return None;
-            }
+        self.lo_watermark = self.cursor;
+        self.remaining_in_interval -= 1;
 
-            let value_type: ValueType = fail_iter!(value_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type))));
-
-            let seqno = fail_iter!(cursor.read_u64_varint());
-
-            let shared_prefix_len: usize = fail_iter!(cursor.read_u16_varint()).into();
-            let rest_key_len: usize = fail_iter!(cursor.read_u16_varint()).into();
-
-            let key_offset = self.cursor + cursor.position() as usize;
-
-            // SAFETY: We always start with a restart item, so the base key is always set to Some(_)
-            #[warn(unsafe_code)]
-            let base_key = unsafe { self.base_key.as_ref().unwrap_unchecked() };
-
-            let prefix_part = &base_key[..shared_prefix_len];
-            let rest_key = &bytes[key_offset..(key_offset + rest_key_len)];
-            fail_iter!(cursor.seek_relative(rest_key_len as i64));
-
-            let val_len: usize = if value_type == ValueType::Value {
-                fail_iter!(cursor.read_u32_varint()) as usize
-            } else {
-                0
-            };
-            let val_offset = self.cursor + cursor.position() as usize;
-            fail_iter!(cursor.seek_relative(val_len as i64));
-
-            let key = if shared_prefix_len == 0 {
-                bytes.slice(key_offset..(key_offset + rest_key_len))
-            } else {
-                // Stitch key
-                Slice::fused(prefix_part, rest_key)
-            };
-
-            self.cursor += cursor.position() as usize;
-            self.idx += 1;
-
-            Some(Ok(if value_type == ValueType::Value {
-                let value = bytes.slice(val_offset..(val_offset + val_len));
-                InternalValue::from_components(key, value, seqno, value_type)
-            } else {
-                InternalValue::new_tombstone(key, seqno)
-            }))
-        }
+        item
     }
 }
 
-impl DoubleEndedIterator for Iter {
+impl DoubleEndedIterator for Iter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         todo!()
+        /* if let Some(top) = fail_iter!(self.consume_stack_top()) {
+            return Some(Ok(top));
+        }
+
+        self.hi_ptr_idx = self.hi_ptr_idx.wrapping_sub(1);
+
+        // NOTE: If we wrapped, we are at the end
+        // This is safe to do, because there cannot be that many restart intervals
+        if self.hi_ptr_idx == usize::MAX {
+            return None;
+        }
+
+        let binary_index = self.block.get_binary_index_reader();
+
+        {
+            let offset = binary_index.get(self.hi_ptr_idx);
+            self.cursor = offset;
+
+            if fail_iter!(self.skip_restart_item()) {
+                self.hi_stack.push(offset);
+            }
+        }
+
+        for _ in 1..self.restart_interval {
+            let cursor = self.cursor;
+
+            if fail_iter!(self.skip_truncated_item()) {
+                self.hi_stack.push(cursor);
+            }
+        }
+
+        if self.hi_stack.is_empty() {
+            return None;
+        }
+
+        self.consume_stack_top().transpose() */
     }
 }

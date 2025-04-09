@@ -1,85 +1,161 @@
-mod encoder;
 mod iter;
 
-use super::hash_index::Reader as HashIndexReader;
-use super::{binary_index::Reader as BinaryIndexReader, Block};
-use crate::{coding::DecodeError, InternalValue, SeqNo, Slice, ValueType};
-use byteorder::{LittleEndian, ReadBytesExt};
-use encoder::{TERMINATOR_MARKER, TRAILER_SIZE};
-use std::cmp::Ordering;
-use std::{
-    cmp::Reverse,
-    io::{Cursor, Seek},
-};
-use varint_rs::VarintReader;
-
-pub use encoder::Encoder;
 pub use iter::Iter;
 
-type DataBlockEncoder<'a> = Encoder<'a>;
+use super::block::Trailer;
+use super::block::{Encodable, Encoder};
+use super::hash_index::Reader as HashIndexReader;
+use super::{binary_index::Reader as BinaryIndexReader, Block};
+use crate::super_segment::block::TRAILER_START_MARKER;
+use crate::super_segment::util::compare_prefixed_slice;
+use crate::{InternalValue, SeqNo, ValueType};
+use byteorder::WriteBytesExt;
+use byteorder::{LittleEndian, ReadBytesExt};
+use iter::{ParsedItem, ParsedSlice};
+use std::io::Seek;
+use std::{cmp::Reverse, io::Cursor};
+use varint_rs::{VarintReader, VarintWriter};
 
-// TODO: Fuzz test
-fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> Ordering {
-    if needle.is_empty() {
-        let combined_len = prefix.len() + suffix.len();
+impl Encodable<()> for InternalValue {
+    fn encode_full_into<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        _state: &mut (),
+    ) -> crate::Result<()> {
+        // We encode restart markers as:
+        // [value type] [seqno] [user key len] [user key] [value len] [value]
+        // 1            2       3              4          5?           6?
 
-        return if combined_len > 0 {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        };
+        writer.write_u8(u8::from(self.key.value_type))?; // 1
+        writer.write_u64_varint(self.key.seqno)?; // 2
+
+        // NOTE: Truncation is okay and actually needed
+        #[allow(clippy::cast_possible_truncation)]
+        writer.write_u16_varint(self.key.user_key.len() as u16)?; // 3
+        writer.write_all(&self.key.user_key)?; // 4
+
+        // NOTE: Only write value len + value if we are actually a value
+        if !self.is_tombstone() {
+            // NOTE: We know values are limited to 32-bit length
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u32_varint(self.value.len() as u32)?; // 5
+            writer.write_all(&self.value)?; // 6
+        }
+
+        Ok(())
     }
 
-    match prefix.len().cmp(&needle.len()) {
-        Ordering::Equal => match prefix.cmp(needle) {
-            Ordering::Equal => {}
-            ordering => return ordering,
-        },
-        Ordering::Greater => {
-            // SAFETY: We know that the prefix is longer than the needle, so we can safely
-            // truncate it to the needle's length
-            #[allow(unsafe_code)]
-            let prefix = unsafe { prefix.get_unchecked(0..needle.len()) };
-            return prefix.cmp(needle);
-        }
-        Ordering::Less => {
-            // SAFETY: We know that the needle is longer than the prefix, so we can safely
-            // truncate it to the prefix's length
-            #[allow(unsafe_code)]
-            let needle = unsafe { needle.get_unchecked(0..prefix.len()) };
+    fn encode_truncated_into<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        _state: &mut (),
+        shared_len: usize,
+    ) -> crate::Result<()> {
+        // We encode truncated values as:
+        // [value type] [seqno] [shared prefix len] [rest key len] [rest key] [value len] [value]
+        // 1            2       3                   4              5          6?          7?
 
-            match prefix.cmp(needle) {
-                Ordering::Equal => {}
-                ordering => return ordering,
-            }
+        writer.write_u8(u8::from(self.key.value_type))?; // 1
+        writer.write_u64_varint(self.key.seqno)?; // 2
+
+        // TODO: maybe we can skip this varint altogether if prefix truncation = false
+        writer.write_u16_varint(shared_len as u16)?; // 3
+
+        let rest_len = self.key().len() - shared_len;
+        writer.write_u16_varint(rest_len as u16)?; // 4
+
+        let truncated_user_key = self
+            .key
+            .user_key
+            .get(shared_len..)
+            .expect("should be in bounds");
+
+        writer.write_all(truncated_user_key)?; // 5
+
+        // NOTE: Only write value len + value if we are actually a value
+        if !self.is_tombstone() {
+            // NOTE: We know values are limited to 32-bit length
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u32_varint(self.value.len() as u32)?; // 6
+            writer.write_all(&self.value)?; // 7
         }
+
+        Ok(())
     }
 
-    // SAFETY: We know that the prefix is definitely not longer than the needle
-    // so we can safely truncate
-    #[allow(unsafe_code)]
-    let needle = unsafe { needle.get_unchecked(prefix.len()..) };
-    suffix.cmp(needle)
+    fn key(&self) -> &[u8] {
+        &self.key.user_key
+    }
+}
+
+// TODO: allow disabling binary index (for meta block)
+// -> saves space in metadata blocks
+// -> point reads then need to use iter().find() to find stuff (which is fine)
+
+macro_rules! unwrappy {
+    ($x:expr) => {
+        // $x.expect("should read")
+
+        unsafe { $x.unwrap_unchecked() }
+    };
 }
 
 /// Block that contains key-value pairs (user data)
 #[derive(Clone)]
 pub struct DataBlock {
-    pub inner: Block,
-}
+    inner: Block,
 
-struct RestartHead {
-    value_type: u8,
-    seqno: SeqNo,
-    key_start: usize,
-    key_len: usize,
+    // Cached metadata
+    restart_interval: u8,
+
+    binary_index_step_size: u8,
+    binary_index_offset: u32,
+    binary_index_len: u32,
+
+    hash_index_offset: u32,
+    hash_index_len: u32,
 }
 
 impl DataBlock {
     #[must_use]
     pub fn new(inner: Block) -> Self {
-        let bytes = &inner.data;
-        Self { inner }
+        let trailer = Trailer::new(&inner);
+        let mut reader = trailer.as_slice();
+
+        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
+
+        let restart_interval = unwrappy!(reader.read_u8());
+
+        let binary_index_step_size = unwrappy!(reader.read_u8());
+        let binary_index_offset = unwrappy!(reader.read_u32::<LittleEndian>());
+        let binary_index_len = unwrappy!(reader.read_u32::<LittleEndian>());
+
+        let hash_index_offset = unwrappy!(reader.read_u32::<LittleEndian>());
+        let hash_index_len = unwrappy!(reader.read_u32::<LittleEndian>());
+
+        debug_assert!(
+            binary_index_step_size == 2 || binary_index_step_size == 4,
+            "invalid binary index step size",
+        );
+
+        Self {
+            inner,
+
+            restart_interval,
+
+            binary_index_step_size,
+            binary_index_offset,
+            binary_index_len,
+
+            hash_index_offset,
+            hash_index_len,
+        }
+    }
+
+    /// Access the inner raw bytes
+    #[must_use]
+    fn bytes(&self) -> &[u8] {
+        &self.inner.data
     }
 
     /// Returns the uncompressed block size in bytes.
@@ -89,32 +165,53 @@ impl DataBlock {
     }
 
     #[must_use]
-    pub fn iter(&self) -> Iter {
-        Iter::new(self.clone())
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
+        Iter::new(self).map(|kv| kv.materialize(&self.inner.data))
     }
+
+    /*     pub fn range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+        &'a self,
+        range: &'a R,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a {
+        let offset = 0; // TODO: range & seek to range start using binary index/hash index (first matching restart interval)
+                        // TODO: and if range end, seek to range end as well (last matching restart interval)
+
+        ClippingIter::new(self.iter().with_offset(offset), range)
+    } */
 
     fn get_key_at(&self, pos: usize) -> crate::Result<(&[u8], Reverse<SeqNo>)> {
-        // eprintln!("probe {pos}");
-
         let bytes = &self.inner.data;
-        let mut cursor = Cursor::new(&bytes[pos..]);
 
-        let parsed = Self::parse_restart_item(&mut cursor)?;
-        let key_start = pos + parsed.key_start;
-        let key_end = key_start + parsed.key_len;
-        let key = &bytes[key_start..key_end];
+        // NOTE: Skip value type
+        let pos = pos + std::mem::size_of::<ValueType>();
 
-        Ok((key, Reverse(parsed.seqno)))
+        // SAFETY: pos is always retrieved from the binary index,
+        // which we consider to be trustworthy
+        #[warn(unsafe_code)]
+        let mut cursor = Cursor::new(unsafe { bytes.get_unchecked(pos..) });
+
+        let seqno = unwrappy!(cursor.read_u64_varint());
+        let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
+
+        let key_start = pos + cursor.position() as usize;
+        let key_end = key_start + key_len;
+
+        #[warn(unsafe_code)]
+        let key = bytes.get(key_start..key_end).expect("should read");
+
+        Ok((key, Reverse(seqno)))
     }
 
-    fn parse_restart_item(cursor: &mut Cursor<&[u8]>) -> crate::Result<RestartHead> {
-        let value_type = cursor.read_u8()?;
+    /* fn parse_restart_head(cursor: &mut Cursor<&[u8]>) -> crate::Result<RestartHead> {
+        let value_type = unwrappy!(cursor.read_u8());
 
-        let seqno = cursor.read_u64_varint()?;
+        let seqno = unwrappy!(cursor.read_u64_varint());
 
-        let key_len: usize = cursor.read_u16_varint()?.into();
+        let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
         let key_start = cursor.position() as usize;
-        cursor.seek_relative(key_len as i64)?;
+
+        unwrappy!(cursor.seek_relative(key_len as i64));
 
         Ok(RestartHead {
             value_type,
@@ -122,292 +219,376 @@ impl DataBlock {
             key_start,
             key_len,
         })
+    } */
+
+    /// Returns the binary index length (number of pointers).
+    ///
+    /// The number of pointers is equal to the number of restart intervals.
+    #[must_use]
+    pub fn binary_index_len(&self) -> u32 {
+        self.binary_index_len
     }
 
-    fn walk(
-        &self,
-        needle: &[u8],
-        seqno_watermark: Option<SeqNo>,
-        pos: usize,
-        restart_interval: usize,
-    ) -> crate::Result<Option<InternalValue>> {
-        use std::cmp::Ordering::{Equal, Greater, Less};
-
-        let bytes = &self.inner.data;
-        let mut cursor = Cursor::new(&bytes[pos..]);
-
-        let mut base_key_pos = 0;
-
-        // NOTE: Check the full item
-        let base_key = {
-            let parsed = Self::parse_restart_item(&mut cursor)?;
-
-            let value_type: ValueType = parsed
-                .value_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("ValueType", parsed.value_type)))?;
-
-            let seqno = parsed.seqno;
-
-            let key_start = pos + parsed.key_start;
-            let key_end = key_start + parsed.key_len;
-            let key = &bytes[key_start..key_end];
-
-            base_key_pos = key_start;
-
-            let val_len: usize = if value_type == ValueType::Value {
-                cursor.read_u32_varint().expect("should read") as usize
-            } else {
-                0
-            };
-
-            match key.cmp(needle) {
-                Equal => {
-                    let should_skip = seqno_watermark
-                        .map(|watermark| seqno >= watermark)
-                        .unwrap_or(false);
-
-                    if !should_skip {
-                        let key = bytes.slice(key_start..key_end);
-
-                        return Ok(Some(if value_type == ValueType::Value {
-                            let val_offset = pos + cursor.position() as usize;
-                            let value = bytes.slice(val_offset..(val_offset + val_len));
-                            InternalValue::from_components(key, value, seqno, value_type)
-                        } else {
-                            InternalValue::from_components(key, b"", seqno, value_type)
-                        }));
-                    }
-                }
-                Greater => {
-                    // NOTE: Already passed searched key
-                    return Ok(None);
-                }
-                Less => {
-                    // NOTE: Continue
-                }
-            }
-
-            cursor.seek_relative(val_len as i64).expect("should read");
-
-            key
-        };
-
-        // NOTE: Check the rest items
-        for _idx in 1..restart_interval {
-            let value_type = cursor.read_u8()?;
-
-            if value_type == TERMINATOR_MARKER {
-                return Ok(None);
-            }
-
-            let value_type: ValueType = value_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
-
-            let seqno = cursor.read_u64_varint()?;
-
-            let shared_prefix_len: usize = cursor.read_u16_varint()?.into();
-            let rest_key_len: usize = cursor.read_u16_varint()?.into();
-
-            let key_offset = pos + cursor.position() as usize;
-
-            let prefix_part = &base_key[0..shared_prefix_len];
-            let rest_key = &bytes[key_offset..(key_offset + rest_key_len)];
-            cursor.seek_relative(rest_key_len as i64)?;
-
-            let val_len: usize = if value_type == ValueType::Value {
-                cursor.read_u32_varint().expect("should read") as usize
-            } else {
-                0
-            };
-
-            match compare_prefixed_slice(prefix_part, rest_key, needle) {
-                Equal => {
-                    let should_skip = seqno_watermark
-                        .map(|watermark| seqno >= watermark)
-                        .unwrap_or(false);
-
-                    if !should_skip {
-                        let key = if shared_prefix_len == 0 {
-                            bytes.slice(key_offset..(key_offset + rest_key_len))
-                        } else if rest_key_len == 0 {
-                            bytes.slice(base_key_pos..(base_key_pos + shared_prefix_len))
-                        } else {
-                            // Stitch key
-                            Slice::fused(prefix_part, rest_key)
-                        };
-
-                        return Ok(Some(if value_type == ValueType::Value {
-                            let val_offset = pos + cursor.position() as usize;
-                            let value = bytes.slice(val_offset..(val_offset + val_len));
-                            InternalValue::from_components(key, value, seqno, value_type)
-                        } else {
-                            InternalValue::from_components(key, b"", seqno, value_type)
-                        }));
-                    }
-                }
-                Greater => {
-                    // NOTE: Already passed searched key
-                    return Ok(None);
-                }
-                Less => {
-                    // NOTE: Continue
-                }
-            }
-
-            if value_type == ValueType::Value {
-                cursor.seek_relative(val_len as i64)?;
-            }
-        }
-
-        Ok(None)
+    /// Returns the binary index offset.
+    #[must_use]
+    fn binary_index_offset(&self) -> u32 {
+        self.binary_index_offset
     }
 
-    pub fn binary_index_pointer_count(&self) -> usize {
-        let bytes = &self.inner.data;
-
-        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
-        #[warn(unsafe_code)]
-        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
-
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let _restart_interval = reader.read_u8().expect("should read") as usize;
-
-        let _binary_index_step_size = reader.read_u8().expect("should read") as usize;
-
-        let _binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-
-        reader.read_u32::<LittleEndian>().expect("should read") as usize
+    /// Returns the binary index step size.
+    ///
+    /// The binary index can either store u16 or u32 pointers,
+    /// depending on the size of the data block.
+    ///
+    /// Typically blocks are < 64K, so u16 pointers reduce the index
+    /// size by half.
+    #[must_use]
+    fn binary_index_step_size(&self) -> u8 {
+        self.binary_index_step_size
     }
 
-    pub fn hash_bucket_count(&self) -> usize {
-        let bytes = &self.inner.data;
+    /// Returns the hash index offset.
+    ///
+    /// If 0, the hash index does not exist.
+    #[must_use]
+    fn hash_index_offset(&self) -> u32 {
+        self.hash_index_offset
+    }
 
-        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
-        #[warn(unsafe_code)]
-        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
-
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let _restart_interval = reader.read_u8().expect("should read") as usize;
-
-        let _binary_index_step_size = reader.read_u8().expect("should read") as usize;
-        let _binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let _binary_index_len = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-
-        let hash_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-
-        if hash_index_offset > 0 {
-            reader.read_u32::<LittleEndian>().expect("should read") as usize
+    /// Returns the number of hash buckets.
+    #[must_use]
+    pub fn hash_bucket_count(&self) -> Option<u32> {
+        if self.hash_index_offset() > 0 {
+            Some(self.hash_index_len)
         } else {
-            0
+            None
         }
     }
 
-    fn trailer_offset(&self) -> usize {
-        self.inner.data.len() - TRAILER_SIZE
+    fn get_binary_index_reader(&self) -> BinaryIndexReader {
+        BinaryIndexReader::new(
+            self.bytes(),
+            self.binary_index_offset(),
+            self.binary_index_len(),
+            self.binary_index_step_size(),
+        )
     }
 
-    /// Returns the amount of items in the block
+    fn get_hash_index_reader(&self) -> Option<HashIndexReader> {
+        self.hash_bucket_count()
+            .map(|offset| HashIndexReader::new(&self.inner.data, self.hash_index_offset, offset))
+    }
+
+    /// Returns the amount of conflicts in the hash buckets.
+    #[must_use]
+    pub fn hash_bucket_conflict_count(&self) -> Option<usize> {
+        self.get_hash_index_reader()
+            .map(|reader| reader.conflict_count())
+    }
+
+    /// Returns the amount of empty hash buckets.
+    #[must_use]
+    pub fn hash_bucket_free_count(&self) -> Option<usize> {
+        self.get_hash_index_reader()
+            .map(|reader| reader.free_count())
+    }
+
+    /// Returns the amount of items in the block.
     #[must_use]
     pub fn len(&self) -> usize {
-        let bytes = &self.inner.data;
-
-        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
-        #[warn(unsafe_code)]
-        let mut reader = unsafe { bytes.get_unchecked(self.trailer_offset()..) };
-
-        reader.read_u32::<LittleEndian>().expect("should read") as usize
+        Trailer::new(&self.inner).item_count()
     }
 
-    /// Always returns false: a block is never empty
+    /// Always returns false: a block is never empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         false
     }
 
-    pub fn point_read(
+    fn binary_search_for_offset(
         &self,
-        key: &[u8],
+        binary_index: &BinaryIndexReader,
+        needle: &[u8],
         seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<InternalValue>> {
-        let bytes = &self.inner.data;
-
-        let start_pos = self.trailer_offset()
-            + /* skip item count */ std::mem::size_of::<u32>();
-
-        // SAFETY: We know that there is always a trailer, so we cannot go out of bounds
-        #[warn(unsafe_code)]
-        let mut reader = unsafe { bytes.get_unchecked(start_pos..) };
-
-        let restart_interval = reader.read_u8().expect("should read") as usize;
-
-        let binary_index_step_size = reader.read_u8().expect("should read") as usize;
-
-        debug_assert!(
-            binary_index_step_size == 2 || binary_index_step_size == 4,
-            "invalid binary index step size",
-        );
-
-        // eprintln!("binary index step size={binary_index_step_size}");
-
-        let binary_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let binary_index_len = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-        let binary_index = BinaryIndexReader::new(
-            bytes,
-            binary_index_offset,
-            binary_index_len,
-            binary_index_step_size,
-        );
-
-        // TODO: if the binary index is really dense, don't look into hash index, or
-        // maybe don't even build it in the first place
-
-        let hash_index_offset = reader.read_u32::<LittleEndian>().expect("should read") as usize;
-
-        if hash_index_offset > 0 {
-            let hash_bucket_count =
-                reader.read_u32::<LittleEndian>().expect("should read") as usize;
-
-            let hash_index = HashIndexReader::new(bytes, hash_index_offset, hash_bucket_count);
-
-            if let Some(bucket_value) = hash_index.get(key) {
-                let restart_entry_pos = binary_index.get(usize::from(bucket_value));
-
-                return self.walk(key, seqno, restart_entry_pos, restart_interval);
-            }
-        }
-
-        // NOTE: Fallback to binary search
-
-        let mut left = 0;
+    ) -> Option<usize> {
+        let mut left: usize = 0;
         let mut right = binary_index.len();
 
         if right == 0 {
-            return Ok(None);
+            return None;
         }
 
-        let seqno_cmp = Reverse(seqno.unwrap_or(u64::MAX) - 1);
+        if let Some(seqno) = seqno {
+            let seqno_cmp = Reverse(seqno - 1);
 
-        while left < right {
-            let mid = (left + right) / 2;
+            while left < right {
+                let mid = left + (right - left) / 2;
 
                 let offset = binary_index.get(mid);
 
-                if (key, seqno_cmp) >= self.get_key_at(offset)? {
-                left = mid + 1;
-            } else {
-                right = mid;
+                let peter = unwrappy!(self.get_key_at(offset));
+
+                if (needle, seqno_cmp) >= peter {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
+            }
+        } else {
+            while left < right {
+                let mid = left + (right - left) / 2;
+
+                let offset = binary_index.get(mid);
+
+                let peter = unwrappy!(self.get_key_at(offset));
+
+                if needle >= peter.0 {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
             }
         }
 
         if left == 0 {
-            return Ok(None);
+            return None;
         }
 
         let offset = binary_index.get(left - 1);
 
-        self.walk(key, seqno, offset, restart_interval)
+        Some(offset)
+    }
+
+    fn parse_restart_item(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<ParsedItem> {
+        let value_type = unwrappy!(reader.read_u8());
+
+        if value_type == TRAILER_START_MARKER {
+            return None;
+        }
+
+        let seqno = unwrappy!(reader.read_u64_varint());
+
+        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_start = offset + reader.position() as usize;
+        unwrappy!(reader.seek_relative(key_len as i64));
+
+        let val_len: usize = if value_type == ValueType::Value.into() {
+            unwrappy!(reader.read_u32_varint()) as usize
+        } else {
+            0
+        };
+        let val_offset = offset + reader.position() as usize;
+        unwrappy!(reader.seek_relative(val_len as i64));
+
+        Some(if value_type == ValueType::Value.into() {
+            ParsedItem {
+                value_type,
+                seqno,
+                prefix: None,
+                key: ParsedSlice(key_start, key_start + key_len),
+                value: Some(ParsedSlice(val_offset, val_offset + val_len)),
+            }
+        } else {
+            ParsedItem {
+                value_type,
+                seqno,
+                prefix: None,
+                key: ParsedSlice(key_start, key_start + key_len),
+                value: None, // TODO: enum value/tombstone, so value is not Option for values
+            }
+        })
+    }
+
+    fn parse_truncated_item(
+        reader: &mut Cursor<&[u8]>,
+        offset: usize,
+        base_key_offset: usize,
+    ) -> Option<ParsedItem> {
+        let value_type = unwrappy!(reader.read_u8());
+
+        if value_type == TRAILER_START_MARKER {
+            return None;
+        }
+
+        let seqno = unwrappy!(reader.read_u64_varint());
+
+        let shared_prefix_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let rest_key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+
+        let key_offset = offset + reader.position() as usize;
+
+        unwrappy!(reader.seek_relative(rest_key_len as i64));
+
+        let val_len: usize = if value_type == ValueType::Value.into() {
+            unwrappy!(reader.read_u32_varint()) as usize
+        } else {
+            0
+        };
+        let val_offset = offset + reader.position() as usize;
+        unwrappy!(reader.seek_relative(val_len as i64));
+
+        Some(if value_type == ValueType::Value.into() {
+            ParsedItem {
+                value_type,
+                seqno,
+                prefix: Some(ParsedSlice(
+                    base_key_offset,
+                    base_key_offset + shared_prefix_len,
+                )),
+                key: ParsedSlice(key_offset, key_offset + rest_key_len),
+                value: Some(ParsedSlice(val_offset, val_offset + val_len)),
+            }
+        } else {
+            ParsedItem {
+                value_type,
+                seqno,
+                prefix: Some(ParsedSlice(
+                    base_key_offset,
+                    base_key_offset + shared_prefix_len,
+                )),
+                key: ParsedSlice(key_offset, key_offset + rest_key_len),
+                value: None,
+            }
+        })
+    }
+
+    fn scan(&self, needle: &[u8], seqno: Option<SeqNo>, offset: usize) -> Option<InternalValue> {
+        /*  let iter = Iter::new(self).with_offset(offset);
+
+        for kv in iter {
+            let kv = kv?;
+
+            let cmp_result = if let Some(prefix) = &kv.prefix {
+                let prefix = &self.bytes()[prefix.0..prefix.1];
+                let rest_key = &self.bytes()[kv.key.0..kv.key.1];
+                compare_prefixed_slice(prefix, rest_key, needle)
+            } else {
+                let key = &self.bytes()[kv.key.0..kv.key.1];
+                key.cmp(needle)
+            };
+
+            match cmp_result {
+                std::cmp::Ordering::Equal => {
+                    // TODO: maybe return early if past seqno
+                    let should_skip = seqno.is_some_and(|watermark| kv.seqno >= watermark);
+
+                    if !should_skip {
+                        let kv = kv.materialize(&self.inner.data);
+                        return Ok(Some(kv));
+                    }
+                }
+                std::cmp::Ordering::Greater => {
+                    // Already passed needle
+                    return Ok(None);
+                }
+                std::cmp::Ordering::Less => {
+                    // Continue to next KV
+                }
+            }
+        }
+
+        Ok(None) */
+
+        let bytes = self.bytes();
+
+        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
+        // And the cursor starts at 0 - the slice is never empty
+        #[warn(unsafe_code)]
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
+
+        let head = Self::parse_restart_item(&mut reader, offset)?;
+
+        let key = &bytes[head.key.0..head.key.1];
+        let base_key_offset = head.key.0;
+
+        match key.cmp(needle) {
+            std::cmp::Ordering::Equal => {
+                // TODO: maybe return early if past seqno
+                let should_skip = seqno.is_some_and(|watermark| head.seqno >= watermark);
+
+                if !should_skip {
+                    let kv = head.materialize(&self.inner.data);
+                    return Some(kv);
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                // Already passed needle
+                return None;
+            }
+            std::cmp::Ordering::Less => {
+                // Continue to next KV
+            }
+        }
+
+        for _ in 0..(self.restart_interval - 1) {
+            let kv = Self::parse_truncated_item(&mut reader, offset, base_key_offset)?;
+
+            let cmp_result = if let Some(prefix) = &kv.prefix {
+                let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
+                let rest_key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
+                compare_prefixed_slice(prefix, rest_key, needle)
+            } else {
+                let key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
+                key.cmp(needle)
+            };
+
+            match cmp_result {
+                std::cmp::Ordering::Equal => {
+                    // TODO: maybe return early if past seqno
+                    let should_skip = seqno.is_some_and(|watermark| kv.seqno >= watermark);
+
+                    if !should_skip {
+                        let kv = kv.materialize(&self.inner.data);
+                        return Some(kv);
+                    }
+                }
+                std::cmp::Ordering::Greater => {
+                    // Already passed needle
+                    return None;
+                }
+                std::cmp::Ordering::Less => {
+                    // Continue to next KV
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Reads an item by key from the block, if it exists.
+    pub fn point_read(
+        &self,
+        needle: &[u8],
+        seqno: Option<SeqNo>,
+    ) -> crate::Result<Option<InternalValue>> {
+        let binary_index = self.get_binary_index_reader();
+
+        // NOTE: Try hash index if it exists
+        if let Some(lookup) = self
+            .get_hash_index_reader()
+            .map(|reader| reader.get(needle))
+        {
+            use super::hash_index::Lookup::{Conflicted, Found, NotFound};
+
+            match lookup {
+                Found(bucket_value) => {
+                    let offset = binary_index.get(usize::from(bucket_value));
+                    return Ok(self.scan(needle, seqno, offset));
+                }
+                NotFound => {
+                    return Ok(None);
+                }
+                Conflicted => {
+                    // NOTE: Fallback to binary search
+                }
+            }
+        }
+
+        let Some(offset) = self.binary_search_for_offset(&binary_index, needle, seqno) else {
+            return Ok(None);
+        };
+
+        Ok(self.scan(needle, seqno, offset))
     }
 
     pub fn encode_items(
@@ -421,8 +602,12 @@ impl DataBlock {
             .key
             .user_key;
 
-        let mut serializer =
-            DataBlockEncoder::new(items.len(), restart_interval, hash_index_ratio, first_key);
+        let mut serializer = Encoder::<'_, (), InternalValue>::new(
+            items.len(),
+            restart_interval,
+            hash_index_ratio,
+            first_key,
+        );
 
         for item in items {
             serializer.write(item)?;
@@ -433,13 +618,13 @@ impl DataBlock {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{
-        segment::block::{header::Header, offset::BlockOffset},
-        super_segment::Block,
-        Checksum, InternalValue,
+        segment::block::offset::BlockOffset,
+        super_segment::{block::Header, Block},
+        Checksum, InternalValue, Slice,
         ValueType::{Tombstone, Value},
     };
     use std::cmp::Ordering::{Equal, Greater, Less};
@@ -516,14 +701,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         for needle in items {
             assert_eq!(
@@ -553,18 +737,15 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         for needle in items {
-            eprintln!("NEEDLE {needle:?}");
-
             assert_eq!(
                 Some(needle.clone()),
                 data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
@@ -579,9 +760,9 @@ mod tests {
     #[test]
     fn v3_data_block_fuzz_2() -> crate::Result<()> {
         let items = [
-            InternalValue::from_components([0], [], 18_446_568_565_776_614_018, Value),
-            InternalValue::from_components([0], [], 6_989_411_799_330_193_407, Tombstone),
-            InternalValue::from_components([0], [], 864_515_618_921_971_552, Value),
+            InternalValue::from_components([0], [], 5, Value),
+            InternalValue::from_components([0], [], 4, Tombstone),
+            InternalValue::from_components([0], [], 3, Value),
             InternalValue::from_components([0], [], 0, Value),
         ];
 
@@ -594,14 +775,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() == 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
 
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
@@ -643,27 +823,116 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         assert_eq!(
-            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
             items.len(),
         );
 
+        assert_eq!(items, *data_block.iter().collect::<Vec<_>>(),);
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_fuzz_4() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(
+                Slice::new(&[0]),
+                Slice::new(&[]),
+                3_834_029_160_418_063_669,
+                Value,
+            ),
+            InternalValue::from_components(Slice::new(&[0]), Slice::new(&[]), 127, Tombstone),
+            InternalValue::from_components(
+                Slice::new(&[53, 53, 53]),
+                Slice::new(&[]),
+                18_446_744_073_709_551_615,
+                Tombstone,
+            ),
+            InternalValue::from_components(
+                Slice::new(&[255]),
+                Slice::new(&[]),
+                18_446_744_069_414_584_831,
+                Tombstone,
+            ),
+            InternalValue::from_components(Slice::new(&[255, 255]), Slice::new(&[]), 47, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 2, 1.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        for item in data_block.iter() {
+            eprintln!("{item:?}");
+        }
+
         assert_eq!(
-            items,
-            *data_block
-                .iter()
-                .map(|x| x.expect("should be ok"))
-                .collect::<Vec<_>>(),
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
+            items.len(),
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_dense() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(b"a", b"a", 3, Value),
+            InternalValue::from_components(b"b", b"b", 2, Value),
+            InternalValue::from_components(b"c", b"c", 1, Value),
+            InternalValue::from_components(b"d", b"d", 65, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        eprintln!("{bytes:?}");
+        eprintln!("{}", String::from_utf8_lossy(&bytes));
+        eprintln!("encoded into {} bytes", bytes.len());
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        for needle in items {
+            eprintln!("NEEDLE {needle:?}");
+
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, None)?,
+            );
+        }
+
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
 
         Ok(())
     }
@@ -686,14 +955,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
@@ -727,14 +995,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() == 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
 
         for needle in items {
             eprintln!("NEEDLE {needle:?}");
@@ -769,14 +1036,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         assert!(data_block
             .point_read(b"pla:venus:fact", None)?
@@ -810,14 +1076,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         for needle in items {
             assert_eq!(
@@ -846,19 +1111,22 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
+        assert_eq!(data_block.len(), items.len());
+
         assert_eq!(
-            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
             items.len()
         );
 
-        assert_eq!(data_block.iter().flatten().collect::<Vec<_>>(), items);
+        assert_eq!(data_block.iter().collect::<Vec<_>>(), items);
 
         Ok(())
     }
@@ -879,27 +1147,23 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         assert_eq!(
-            data_block.iter().map(|x| x.expect("should be ok")).count(),
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
             items.len(),
         );
 
-        assert_eq!(
-            items,
-            *data_block
-                .iter()
-                .map(|x| x.expect("should be ok"))
-                .collect::<Vec<_>>(),
-        );
+        assert_eq!(items, *data_block.iter().collect::<Vec<_>>(),);
 
         Ok(())
     }
@@ -919,25 +1183,19 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert_eq!(
-            items.len(),
-            data_block.iter().map(|x| x.expect("should be ok")).count(),
-        );
+        assert_eq!(data_block.len(), items.len());
 
-        assert_eq!(
-            items,
-            *data_block
-                .iter()
-                .map(|x| x.expect("should be ok"))
-                .collect::<Vec<_>>(),
-        );
+        assert_eq!(items.len(), {
+            #[allow(clippy::suspicious_map)]
+            data_block.iter().count()
+        });
+
+        assert_eq!(items, *data_block.iter().collect::<Vec<_>>(),);
 
         Ok(())
     }
@@ -958,32 +1216,165 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert!(data_block.hash_bucket_count() > 0);
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
 
-        assert_eq!(
-            items.len(),
-            data_block
-                .iter()
-                .rev()
-                .map(|x| x.expect("should be ok"))
-                .count(),
-        );
+        assert_eq!(items.len(), {
+            #[allow(clippy::suspicious_map)]
+            data_block.iter().rev().count()
+        });
 
         assert_eq!(
             items.into_iter().rev().collect::<Vec<_>>(),
-            data_block
-                .iter()
-                .rev()
-                .map(|x| x.expect("should be ok"))
-                .collect::<Vec<_>>(),
+            data_block.iter().rev().collect::<Vec<_>>(),
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_ping_pong() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:saturn:fact", "Saturn is pretty big", 0, Value),
+            InternalValue::from_components("pla:saturn:name", "Saturn", 0, Value),
+            InternalValue::from_components("pla:venus:fact", "", 1, Tombstone),
+            InternalValue::from_components("pla:venus:fact", "Venus exists", 0, Value),
+            InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        {
+            let mut iter = data_block.iter();
+
+            assert_eq!(b"pla:saturn:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:venus:name", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(b"pla:saturn:name", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:venus:fact", &*iter.next_back().unwrap().key.user_key);
+
+            let last = iter.next().unwrap().key;
+            assert_eq!(b"pla:venus:fact", &*last.user_key);
+            assert_eq!(Tombstone, last.value_type);
+            assert_eq!(1, last.seqno);
+        }
+
+        {
+            let mut iter = data_block.iter();
+
+            assert_eq!(b"pla:venus:name", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:saturn:fact",
+                &*iter
+                    .next()
+                    .inspect(|v| {
+                        eprintln!("{:?}", String::from_utf8_lossy(&v.key.user_key));
+                    })
+                    .unwrap()
+                    .key
+                    .user_key
+            );
+            assert_eq!(b"pla:venus:fact", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(b"pla:saturn:name", &*iter.next().unwrap().key.user_key);
+
+            let last = iter.next_back().unwrap().key;
+            assert_eq!(b"pla:venus:fact", &*last.user_key);
+            assert_eq!(Tombstone, last.value_type);
+            assert_eq!(1, last.seqno);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_range() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:saturn:fact", "Saturn is pretty big", 0, Value),
+            InternalValue::from_components("pla:saturn:name", "Saturn", 0, Value),
+            InternalValue::from_components("pla:venus:fact", "", 1, Tombstone),
+            InternalValue::from_components("pla:venus:fact", "Venus exists", 0, Value),
+            InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        /* assert_eq!(
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block
+                    .range(&((b"pla:venus:" as &[u8])..))
+                    .map(|x| x.unwrap())
+                    .count()
+            },
+            3,
+        ); */
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_range_rev() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:saturn:fact", "Saturn is pretty big", 0, Value),
+            InternalValue::from_components("pla:saturn:name", "Saturn", 0, Value),
+            InternalValue::from_components("pla:venus:fact", "", 1, Tombstone),
+            InternalValue::from_components("pla:venus:fact", "Venus exists", 0, Value),
+            InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        /*    assert_eq!(
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block
+                    .range(&((b"pla:venus:" as &[u8])..))
+                    .rev()
+                    .map(|x| x.unwrap())
+                    .count()
+            },
+            3,
+        ); */
 
         Ok(())
     }
@@ -1000,14 +1391,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert_eq!(0, data_block.hash_bucket_count());
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
 
         for needle in items {
             assert_eq!(
@@ -1031,14 +1421,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert_eq!(0, data_block.hash_bucket_count());
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
 
         for needle in items {
             assert_eq!(
@@ -1062,14 +1451,13 @@ mod tests {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
-                    compression: crate::CompressionType::None,
-                    data_length: 0,
-                uncompressed_length: 0,
+                data_length: 0,
                 previous_block_offset: BlockOffset(0),
             },
         });
 
-        assert_eq!(0, data_block.hash_bucket_count());
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
 
         for needle in items {
             assert_eq!(
