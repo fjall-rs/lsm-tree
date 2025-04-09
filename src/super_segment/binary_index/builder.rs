@@ -12,7 +12,7 @@ impl Builder {
         self.0.push(pos);
     }
 
-    pub fn write<W: std::io::Write>(self, writer: &mut W) -> crate::Result<(u8, usize)> {
+    pub fn write<W: std::io::Write>(&self, writer: &mut W) -> crate::Result<(u8, usize)> {
         // NOTE: We check if the pointers may fit in 16-bits
         // If so, we halve the index size by storing u16 instead of u32
         let step_size = {
@@ -27,13 +27,13 @@ impl Builder {
 
         if step_size == 2 {
             // Write u16 index
-            for offset in self.0 {
+            for &offset in &self.0 {
                 let offset = offset as u16;
                 writer.write_u16::<LittleEndian>(offset)?;
             }
         } else {
             // Write u32 index
-            for offset in self.0 {
+            for &offset in &self.0 {
                 writer.write_u32::<LittleEndian>(offset)?;
             }
         }
