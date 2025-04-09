@@ -1,3 +1,7 @@
+// Copyright (c) 2025-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use super::super::hash_index::Builder as HashIndexBuilder;
 use super::{super::binary_index::Builder as BinaryIndexBuilder, Trailer};
 use crate::super_segment::util::longest_shared_prefix_length;

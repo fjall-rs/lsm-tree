@@ -1,9 +1,12 @@
-use crate::super_segment::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
+// Copyright (c) 2025-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
 
 use super::{
     encoder::{Encodable, Encoder},
     Block,
 };
+use crate::super_segment::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub const TRAILER_START_MARKER: u8 = 255;

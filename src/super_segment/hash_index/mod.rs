@@ -1,3 +1,7 @@
+// Copyright (c) 2025-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 //! The hash index is a lightweight (typically <=1 byte per KV) index
 //! embeddeded into a block to speed up point reads
 //!
