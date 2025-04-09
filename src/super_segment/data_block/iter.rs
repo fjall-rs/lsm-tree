@@ -2,22 +2,28 @@ use super::DataBlock;
 use crate::{key::InternalKey, InternalValue, SeqNo, Slice};
 use std::io::Cursor;
 
+#[derive(Default, Debug)]
+struct LoScanner {
+    offset: usize,
+    remaining_in_interval: usize,
+    base_key_offset: Option<usize>,
+}
+
+#[derive(Debug)]
+struct HiScanner {
+    offset: usize,
+    ptr_idx: usize,
+    stack: Vec<usize>,
+    base_key_offset: Option<usize>,
+}
+
 /// Double-ended iterator over data blocks
 pub struct Iter<'a> {
     block: &'a DataBlock,
-
-    cursor: usize,
-    remaining_in_interval: usize,
     restart_interval: usize,
 
-    lo_watermark: usize,
-
-    // base_key: Option<&'a [u8]>,
-    base_key_offset: Option<usize>,
-
-    hi_ptr_idx: usize,
-    hi_stack: Vec<usize>,
-    // TODO: refactor into two members: LoScanner and HiScanner
+    lo_scanner: LoScanner,
+    hi_scanner: HiScanner,
 }
 
 /// [start, end] slice indexes
@@ -48,11 +54,10 @@ impl ParsedItem {
             self.value_type.try_into().expect("should work"),
         );
 
-        let value = if let Some(value) = &self.value {
-            bytes.slice(value.0..value.1)
-        } else {
-            Slice::empty()
-        };
+        let value = self
+            .value
+            .as_ref()
+            .map_or_else(Slice::empty, |v| bytes.slice(v.0..v.1));
 
         InternalValue { key, value }
     }
@@ -66,184 +71,127 @@ impl<'a> Iter<'a> {
         Self {
             block,
 
-            cursor: 0,
-            remaining_in_interval: 0,
             restart_interval,
 
-            lo_watermark: 0,
+            lo_scanner: LoScanner::default(),
 
-            // base_key: None, //  TODO: remove
-            base_key_offset: None,
-
-            hi_ptr_idx: binary_index_len,
-            hi_stack: Vec::new(),
+            hi_scanner: HiScanner {
+                offset: 0,
+                ptr_idx: binary_index_len,
+                stack: Vec::new(),
+                base_key_offset: None,
+            },
         }
     }
 
-    pub fn with_offset(mut self, offset: usize) -> Self {
+    /* pub fn with_offset(mut self, offset: usize) -> Self {
         self.lo_watermark = offset;
         self
-    }
-
-    // TODO: refactor together with deserialize and point_read
-    // skip should return the basic info, and rename to deserialize
-    // rename deserialize to materialize by using the return type of deserialize
-    /*   fn skip_restart_item(&mut self) -> crate::Result<bool> {
-        let bytes = &self.block.inner.data;
-
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(self.cursor..) });
-
-        let parsed = DataBlock::parse_restart_head(&mut reader)?;
-
-        if parsed.value_type == TRAILER_START_MARKER {
-            return Ok(false);
-        }
-
-        let value_type: ValueType = parsed
-            .value_type
-            .try_into()
-            .map_err(|()| DecodeError::InvalidTag(("ValueType", parsed.value_type)))?;
-
-        let key_start = self.cursor + parsed.key_start;
-        let key_end = key_start + parsed.key_len;
-        let key = bytes.slice(key_start..key_end);
-
-        let val_len: usize = if value_type == ValueType::Value {
-            reader.read_u32_varint()? as usize
-        } else {
-            0
-        };
-        reader.seek_relative(val_len as i64)?;
-
-        self.cursor += reader.position() as usize;
-        self.base_key = Some(key);
-
-        Ok(true)
     } */
 
-    // TODO: refactor together with deserialize and point_read
-    // skip should return the basic info, and rename to deserialize
-    // rename deserialize to materialize by using the return type of deserialize
-    /*  fn skip_truncated_item(&mut self) -> crate::Result<bool> {
-        let bytes = &self.block.inner.data;
+    fn parse_restart_item(
+        block: &DataBlock,
+        offset: &mut usize,
+        base_key_offset: &mut Option<usize>,
+    ) -> Option<ParsedItem> {
+        let bytes = block.bytes();
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
         // And the cursor starts at 0 - the slice is never empty
         #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(self.cursor..) });
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(*offset..) });
 
-        let value_type = reader.read_u8()?;
+        let item = DataBlock::parse_restart_item(&mut reader, *offset)?;
 
-        if value_type == TRAILER_START_MARKER {
-            return Ok(false);
-        }
-
-        let value_type: ValueType = value_type
-            .try_into()
-            .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
-
-        let _seqno = reader.read_u64_varint()?;
-
-        let _shared_prefix_len: usize = reader.read_u16_varint()?.into();
-        let rest_key_len: usize = reader.read_u16_varint()?.into();
-
-        reader.seek_relative(rest_key_len as i64)?;
-
-        let val_len: usize = if value_type == ValueType::Value {
-            reader.read_u32_varint()? as usize
-        } else {
-            0
-        };
-        reader.seek_relative(val_len as i64)?;
-
-        self.cursor += reader.position() as usize;
-
-        Ok(true)
-    } */
-
-    fn parse_restart_item(&mut self, offset: usize) -> Option<ParsedItem> {
-        let bytes = &self.block.inner.data;
-
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
-
-        let Some(item) = DataBlock::parse_restart_item(&mut reader, offset) else {
-            return None;
-        };
-
-        self.cursor += reader.position() as usize;
-        self.base_key_offset = Some(item.key.0);
+        *offset += reader.position() as usize;
+        *base_key_offset = Some(item.key.0);
 
         Some(item)
     }
 
-    fn parse_truncated_item(&mut self, offset: usize) -> Option<ParsedItem> {
-        let bytes = &self.block.inner.data;
+    fn parse_truncated_item(
+        block: &DataBlock,
+        offset: &mut usize,
+        base_key_offset: usize,
+    ) -> Option<ParsedItem> {
+        let bytes = block.bytes();
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
         // And the cursor starts at 0 - the slice is never empty
         #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
+        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(*offset..) });
 
-        let Some(item) = DataBlock::parse_truncated_item(
-            &mut reader,
-            offset,
-            self.base_key_offset.expect("should exist"),
-        ) else {
-            return None;
-        };
+        let item = DataBlock::parse_truncated_item(&mut reader, *offset, base_key_offset)?;
 
-        self.cursor += reader.position() as usize;
+        *offset += reader.position() as usize;
 
         Some(item)
     }
 
-    /* fn consume_stack_top(&mut self) -> crate::Result<Option<InternalValue>> {
-        if let Some(offset) = self.hi_stack.pop() {
-            if self.lo_watermark > 0 && offset <= self.lo_watermark {
-                return Ok(None);
+    fn consume_stack_top(&mut self) -> Option<ParsedItem> {
+        if let Some(offset) = self.hi_scanner.stack.pop() {
+            if self.lo_scanner.offset > 0 && offset < self.lo_scanner.offset {
+                return None;
             }
 
-            self.cursor = offset;
+            self.hi_scanner.offset = offset;
 
-            // TODO: pop from stack, check if offset < self.cursor, then also make sure to terminate forwards iteration
-            // TODO: probably need a lo_cursor
-
-            let is_restart = self.hi_stack.is_empty();
+            let is_restart = self.hi_scanner.stack.is_empty();
 
             if is_restart {
-                self.deserialize_restart_item()
+                Self::parse_restart_item(
+                    self.block,
+                    &mut self.hi_scanner.offset,
+                    &mut self.hi_scanner.base_key_offset,
+                )
             } else {
-                self.deserialize_truncated_item()
+                Self::parse_truncated_item(
+                    self.block,
+                    &mut self.hi_scanner.offset,
+                    self.hi_scanner.base_key_offset.expect("should exist"),
+                )
             }
         } else {
-            Ok(None)
+            None
         }
-    } */
+    }
 }
 
 impl Iterator for Iter<'_> {
     type Item = ParsedItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let is_restart = self.remaining_in_interval == 0;
+        if self.hi_scanner.base_key_offset.is_some()
+            && self.lo_scanner.offset >= self.hi_scanner.offset
+        {
+            return None;
+        }
 
-        self.cursor = self.lo_watermark;
+        let is_restart = self.lo_scanner.remaining_in_interval == 0;
 
         let item = if is_restart {
-            self.remaining_in_interval = self.restart_interval;
-            self.parse_restart_item(self.lo_watermark)
+            self.lo_scanner.remaining_in_interval = self.restart_interval;
+
+            Self::parse_restart_item(
+                self.block,
+                &mut self.lo_scanner.offset,
+                &mut self.lo_scanner.base_key_offset,
+            )
         } else {
-            self.parse_truncated_item(self.lo_watermark)
+            Self::parse_truncated_item(
+                self.block,
+                &mut self.lo_scanner.offset,
+                self.lo_scanner.base_key_offset.expect("should exist"),
+            )
         };
 
-        self.lo_watermark = self.cursor;
-        self.remaining_in_interval -= 1;
+        self.lo_scanner.remaining_in_interval -= 1;
+
+        if self.hi_scanner.base_key_offset.is_some()
+            && self.lo_scanner.offset >= self.hi_scanner.offset
+        {
+            return None;
+        }
 
         item
     }
@@ -251,42 +199,53 @@ impl Iterator for Iter<'_> {
 
 impl DoubleEndedIterator for Iter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        todo!()
-        /* if let Some(top) = fail_iter!(self.consume_stack_top()) {
-            return Some(Ok(top));
+        if let Some(top) = self.consume_stack_top() {
+            return Some(top);
         }
 
-        self.hi_ptr_idx = self.hi_ptr_idx.wrapping_sub(1);
+        self.hi_scanner.ptr_idx = self.hi_scanner.ptr_idx.wrapping_sub(1);
 
         // NOTE: If we wrapped, we are at the end
         // This is safe to do, because there cannot be that many restart intervals
-        if self.hi_ptr_idx == usize::MAX {
+        if self.hi_scanner.ptr_idx == usize::MAX {
             return None;
         }
 
         let binary_index = self.block.get_binary_index_reader();
 
         {
-            let offset = binary_index.get(self.hi_ptr_idx);
-            self.cursor = offset;
+            self.hi_scanner.offset = binary_index.get(self.hi_scanner.ptr_idx);
+            let offset = self.hi_scanner.offset;
 
-            if fail_iter!(self.skip_restart_item()) {
-                self.hi_stack.push(offset);
+            if Self::parse_restart_item(
+                self.block,
+                &mut self.hi_scanner.offset,
+                &mut self.hi_scanner.base_key_offset,
+            )
+            .is_some()
+            {
+                self.hi_scanner.stack.push(offset);
             }
         }
 
         for _ in 1..self.restart_interval {
-            let cursor = self.cursor;
+            let offset = self.hi_scanner.offset;
 
-            if fail_iter!(self.skip_truncated_item()) {
-                self.hi_stack.push(cursor);
+            if Self::parse_truncated_item(
+                self.block,
+                &mut self.hi_scanner.offset,
+                self.hi_scanner.base_key_offset.expect("should exist"),
+            )
+            .is_some()
+            {
+                self.hi_scanner.stack.push(offset);
             }
         }
 
-        if self.hi_stack.is_empty() {
+        if self.hi_scanner.stack.is_empty() {
             return None;
         }
 
-        self.consume_stack_top().transpose() */
+        self.consume_stack_top()
     }
 }

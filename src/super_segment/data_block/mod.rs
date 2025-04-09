@@ -122,7 +122,7 @@ impl DataBlock {
         let trailer = Trailer::new(&inner);
         let mut reader = trailer.as_slice();
 
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
+        let _item_count = unwrappy!(reader.read_u32::<LittleEndian>());
 
         let restart_interval = unwrappy!(reader.read_u8());
 
@@ -180,7 +180,7 @@ impl DataBlock {
         ClippingIter::new(self.iter().with_offset(offset), range)
     } */
 
-    fn get_key_at(&self, pos: usize) -> crate::Result<(&[u8], Reverse<SeqNo>)> {
+    fn get_key_at(&self, pos: usize) -> (&[u8], Reverse<SeqNo>) {
         let bytes = &self.inner.data;
 
         // NOTE: Skip value type
@@ -200,26 +200,8 @@ impl DataBlock {
         #[warn(unsafe_code)]
         let key = bytes.get(key_start..key_end).expect("should read");
 
-        Ok((key, Reverse(seqno)))
+        (key, Reverse(seqno))
     }
-
-    /* fn parse_restart_head(cursor: &mut Cursor<&[u8]>) -> crate::Result<RestartHead> {
-        let value_type = unwrappy!(cursor.read_u8());
-
-        let seqno = unwrappy!(cursor.read_u64_varint());
-
-        let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
-        let key_start = cursor.position() as usize;
-
-        unwrappy!(cursor.seek_relative(key_len as i64));
-
-        Ok(RestartHead {
-            value_type,
-            seqno,
-            key_start,
-            key_len,
-        })
-    } */
 
     /// Returns the binary index length (number of pointers).
     ///
@@ -326,9 +308,7 @@ impl DataBlock {
 
                 let offset = binary_index.get(mid);
 
-                let peter = unwrappy!(self.get_key_at(offset));
-
-                if (needle, seqno_cmp) >= peter {
+                if (needle, seqno_cmp) >= self.get_key_at(offset) {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -340,9 +320,7 @@ impl DataBlock {
 
                 let offset = binary_index.get(mid);
 
-                let peter = unwrappy!(self.get_key_at(offset));
-
-                if needle >= peter.0 {
+                if needle >= self.get_key_at(offset).0 {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -453,42 +431,6 @@ impl DataBlock {
     }
 
     fn scan(&self, needle: &[u8], seqno: Option<SeqNo>, offset: usize) -> Option<InternalValue> {
-        /*  let iter = Iter::new(self).with_offset(offset);
-
-        for kv in iter {
-            let kv = kv?;
-
-            let cmp_result = if let Some(prefix) = &kv.prefix {
-                let prefix = &self.bytes()[prefix.0..prefix.1];
-                let rest_key = &self.bytes()[kv.key.0..kv.key.1];
-                compare_prefixed_slice(prefix, rest_key, needle)
-            } else {
-                let key = &self.bytes()[kv.key.0..kv.key.1];
-                key.cmp(needle)
-            };
-
-            match cmp_result {
-                std::cmp::Ordering::Equal => {
-                    // TODO: maybe return early if past seqno
-                    let should_skip = seqno.is_some_and(|watermark| kv.seqno >= watermark);
-
-                    if !should_skip {
-                        let kv = kv.materialize(&self.inner.data);
-                        return Ok(Some(kv));
-                    }
-                }
-                std::cmp::Ordering::Greater => {
-                    // Already passed needle
-                    return Ok(None);
-                }
-                std::cmp::Ordering::Less => {
-                    // Continue to next KV
-                }
-            }
-        }
-
-        Ok(None) */
-
         let bytes = self.bytes();
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
@@ -1484,6 +1426,130 @@ mod tests {
                 Some(needle.clone()),
                 data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
             );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_consume_last_back() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
+            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
+            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
+            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
+            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
+
+        {
+            let mut iter = data_block.iter();
+            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:radius",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert!(iter.next_back().is_none());
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let mut iter = data_block.iter();
+            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:radius",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert!(iter.next().is_none());
+            assert!(iter.next_back().is_none());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_consume_last_forwards() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
+            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
+            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
+            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
+            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
+
+        {
+            let mut iter = data_block.iter().rev();
+            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:fact",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:mass",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:name",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
+            assert!(iter.next_back().is_none());
+        }
+
+        {
+            let mut iter = data_block.iter().rev();
+            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:fact",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:mass",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:name",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+            assert!(iter.next_back().is_none());
+            assert!(iter.next().is_none());
         }
 
         Ok(())

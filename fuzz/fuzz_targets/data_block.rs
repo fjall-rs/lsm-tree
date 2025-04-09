@@ -44,6 +44,15 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
     }
 }
 
+fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
+    use rand::prelude::*;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    (0..len).map(|_| rng.random_range(0..=1)).collect()
+}
+
 fuzz_target!(|data: &[u8]| {
     let mut unstructured = Unstructured::new(data);
 
@@ -52,6 +61,8 @@ fuzz_target!(|data: &[u8]| {
     let hash_ratio = ((u16::arbitrary(&mut unstructured).unwrap() / u16::MAX) as f32)
         .min(1.0)
         .max(0.0);
+
+    let seed = u64::arbitrary(&mut unstructured).unwrap();
 
     // eprintln!("restart_interval={restart_interval}, hash_ratio={hash_ratio}");
 
@@ -113,17 +124,84 @@ fuzz_target!(|data: &[u8]| {
                 );
             }
 
-            assert_eq!(items, data_block.iter().collect::<Vec<_>>(),);
+            assert_eq!(items, data_block.iter().collect::<Vec<_>>());
 
-            /* assert_eq!(
+            assert_eq!(
                 items.iter().rev().cloned().collect::<Vec<_>>(),
-                data_block
-                    .iter()
-                    .rev()
-                    .collect::<Vec<_>>(),
-            ); */
+                data_block.iter().rev().collect::<Vec<_>>(),
+            );
 
-            // TODO: add ping-pong iters
+            {
+                let ping_pongs = generate_ping_pong_code(seed, items.len());
+
+                let expected_ping_ponged_items = {
+                    let mut iter = items.iter();
+                    let mut v = vec![];
+
+                    for &x in &ping_pongs {
+                        if x == 0 {
+                            v.push(iter.next().cloned().unwrap());
+                        } else {
+                            v.push(iter.next_back().cloned().unwrap());
+                        }
+                    }
+
+                    v
+                };
+
+                let real_ping_ponged_items = {
+                    let mut iter = data_block.iter();
+                    let mut v = vec![];
+
+                    for &x in &ping_pongs {
+                        if x == 0 {
+                            v.push(iter.next().unwrap());
+                        } else {
+                            v.push(iter.next_back().unwrap());
+                        }
+                    }
+
+                    v
+                };
+
+                assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
+            }
+
+            {
+                let ping_pongs = generate_ping_pong_code(seed, items.len());
+
+                let expected_ping_ponged_items = {
+                    let mut iter = items.iter().rev();
+                    let mut v = vec![];
+
+                    for &x in &ping_pongs {
+                        if x == 0 {
+                            v.push(iter.next().cloned().unwrap());
+                        } else {
+                            v.push(iter.next_back().cloned().unwrap());
+                        }
+                    }
+
+                    v
+                };
+
+                let real_ping_ponged_items = {
+                    let mut iter = data_block.iter().rev();
+                    let mut v = vec![];
+
+                    for &x in &ping_pongs {
+                        if x == 0 {
+                            v.push(iter.next().unwrap());
+                        } else {
+                            v.push(iter.next_back().unwrap());
+                        }
+                    }
+
+                    v
+                };
+
+                assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
+            }
 
             // TODO: add range iter too
         }
