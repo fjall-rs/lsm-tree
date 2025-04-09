@@ -10,7 +10,7 @@ use crate::Slice;
 
 /// A block on disk.
 ///
-/// Consists of a header and some bytes (the data/payload)
+/// Consists of a header and some bytes (the data/payload).
 #[derive(Clone)]
 pub struct Block {
     pub header: Header,
@@ -18,7 +18,7 @@ pub struct Block {
 }
 
 impl Block {
-    /// Returns the uncompressed block size in bytes
+    /// Returns the uncompressed block size in bytes.
     #[must_use]
     pub fn size(&self) -> usize {
         self.data.len()

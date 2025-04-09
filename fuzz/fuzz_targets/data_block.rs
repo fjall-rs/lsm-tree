@@ -82,9 +82,7 @@ fuzz_target!(|data: &[u8]| {
                 data: bytes.into(),
                 header: lsm_tree::segment::block::header::Header {
                     checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
-                    compression: lsm_tree::CompressionType::None,
                     data_length: 0,
-                    uncompressed_length: 0,
                     previous_block_offset: BlockOffset(0),
                 },
             });
