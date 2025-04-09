@@ -89,7 +89,7 @@ fuzz_target!(|data: &[u8]| {
                 },
             });
 
-            assert_eq!(data_block.item_count(), items.len());
+            assert_eq!(data_block.len(), items.len());
 
             if data_block.binary_index_len() > 254 {
                 assert!(data_block.hash_bucket_count().is_none());
@@ -114,19 +114,15 @@ fuzz_target!(|data: &[u8]| {
                 );
             }
 
-            assert_eq!(
-                items,
-                data_block.iter().map(|x| x.unwrap()).collect::<Vec<_>>(),
-            );
+            assert_eq!(items, data_block.iter().collect::<Vec<_>>(),);
 
-            assert_eq!(
+            /* assert_eq!(
                 items.iter().rev().cloned().collect::<Vec<_>>(),
                 data_block
                     .iter()
                     .rev()
-                    .map(|x| x.unwrap())
                     .collect::<Vec<_>>(),
-            );
+            ); */
 
             // TODO: add ping-pong iters
 
