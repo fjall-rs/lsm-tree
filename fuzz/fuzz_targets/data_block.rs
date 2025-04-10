@@ -58,180 +58,193 @@ fuzz_target!(|data: &[u8]| {
 
     let restart_interval = u8::arbitrary(&mut unstructured).unwrap().max(1);
 
-    let hash_ratio = ((u16::arbitrary(&mut unstructured).unwrap() / u16::MAX) as f32)
-        .min(1.0)
-        .max(0.0);
-
     let seed = u64::arbitrary(&mut unstructured).unwrap();
 
     // eprintln!("restart_interval={restart_interval}, hash_ratio={hash_ratio}");
 
-    if let Ok(mut items) = <Vec<FuzzyValue> as Arbitrary>::arbitrary(&mut unstructured) {
-        // let mut items = items.to_vec();
+    let item_count = {
+        use rand::prelude::*;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
 
-        if !items.is_empty() {
-            items.sort();
-            items.dedup();
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        rng.random_range(1..1_000)
+    };
 
-            /*  eprintln!("-- items --");
-            for item in items.iter().map(|value| &value.0) {
-                eprintln!(
-                    r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
-                    item.key.user_key, item.value, item.key.seqno, item.key.value_type,
-                );
-            } */
+    let hash_ratio = {
+        use rand::prelude::*;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
 
-            /* if items.len() > 100 {
-                eprintln!("================== {}. ", items.len());
-            } */
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        rng.random_range(0.0..4.0)
+    };
 
-            let items = items.into_iter().map(|value| value.0).collect::<Vec<_>>();
-            let bytes =
-                DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
+    let mut items = (0..item_count)
+        .map(|_| FuzzyValue::arbitrary(&mut unstructured).unwrap())
+        .collect::<Vec<_>>();
 
-            let data_block = DataBlock::new(Block {
-                data: bytes.into(),
-                header: lsm_tree::super_segment::block::Header {
-                    checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
-                    data_length: 0,
-                    uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
-                },
-            });
+    assert!(!items.is_empty());
 
-            assert_eq!(data_block.len(), items.len());
+    items.sort();
+    items.dedup();
 
-            if data_block.binary_index_len() > 254 {
-                assert!(data_block.hash_bucket_count().is_none());
-            } else if hash_ratio > 0.0 {
-                assert!(data_block.hash_bucket_count().unwrap() > 0);
-            }
+    /*  eprintln!("-- items --");
+    for item in items.iter().map(|value| &value.0) {
+        eprintln!(
+            r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
+            item.key.user_key, item.value, item.key.seqno, item.key.value_type,
+        );
+    } */
 
-            // eprintln!("{items:?}");
+    /* if items.len() > 100 {
+        eprintln!("================== {}. ", items.len());
+    } */
 
-            for needle in &items {
-                if needle.key.seqno == SeqNo::MAX {
-                    continue;
-                }
+    let items = items.into_iter().map(|value| value.0).collect::<Vec<_>>();
+    let bytes = DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
 
-                // eprintln!("needle: {:?}", needle.key);
+    let data_block = DataBlock::new(Block {
+        data: bytes.into(),
+        header: lsm_tree::super_segment::block::Header {
+            checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
+            data_length: 0,
+            uncompressed_length: 0,
+            previous_block_offset: BlockOffset(0),
+        },
+    });
 
-                assert_eq!(
-                    Some(needle.clone()),
-                    data_block
-                        .point_read(&needle.key.user_key, Some(needle.key.seqno + 1))
-                        .unwrap(),
-                );
-            }
+    assert_eq!(data_block.len(), items.len());
 
-            assert_eq!(items, data_block.iter().collect::<Vec<_>>());
+    if data_block.binary_index_len() > 254 {
+        assert!(data_block.hash_bucket_count().is_none());
+    } else if hash_ratio > 0.0 {
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+    }
 
-            assert_eq!(
-                items.iter().rev().cloned().collect::<Vec<_>>(),
-                data_block.iter().rev().collect::<Vec<_>>(),
-            );
+    // eprintln!("{items:?}");
 
-            {
-                let ping_pongs = generate_ping_pong_code(seed, items.len());
-
-                let expected_ping_ponged_items = {
-                    let mut iter = items.iter();
-                    let mut v = vec![];
-
-                    for &x in &ping_pongs {
-                        if x == 0 {
-                            v.push(iter.next().cloned().unwrap());
-                        } else {
-                            v.push(iter.next_back().cloned().unwrap());
-                        }
-                    }
-
-                    v
-                };
-
-                let real_ping_ponged_items = {
-                    let mut iter = data_block.iter();
-                    let mut v = vec![];
-
-                    for &x in &ping_pongs {
-                        if x == 0 {
-                            v.push(iter.next().unwrap());
-                        } else {
-                            v.push(iter.next_back().unwrap());
-                        }
-                    }
-
-                    v
-                };
-
-                assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
-            }
-
-            {
-                let ping_pongs = generate_ping_pong_code(seed, items.len());
-
-                let expected_ping_ponged_items = {
-                    let mut iter = items.iter().rev();
-                    let mut v = vec![];
-
-                    for &x in &ping_pongs {
-                        if x == 0 {
-                            v.push(iter.next().cloned().unwrap());
-                        } else {
-                            v.push(iter.next_back().cloned().unwrap());
-                        }
-                    }
-
-                    v
-                };
-
-                let real_ping_ponged_items = {
-                    let mut iter = data_block.iter().rev();
-                    let mut v = vec![];
-
-                    for &x in &ping_pongs {
-                        if x == 0 {
-                            v.push(iter.next().unwrap());
-                        } else {
-                            v.push(iter.next_back().unwrap());
-                        }
-                    }
-
-                    v
-                };
-
-                assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
-            }
-
-            {
-                use rand::prelude::*;
-                use rand::SeedableRng;
-                use rand_chacha::ChaCha8Rng;
-
-                let mut rng = ChaCha8Rng::seed_from_u64(seed);
-                let mut lo = rng.random_range(0..items.len());
-                let mut hi = rng.random_range(0..items.len());
-
-                if lo > hi {
-                    std::mem::swap(&mut lo, &mut hi);
-                }
-
-                let lo_key = &items[lo].key.user_key;
-                let hi_key = &items[hi].key.user_key;
-
-                let expected_range: Vec<_> = items
-                    .iter()
-                    .filter(|kv| kv.key.user_key >= lo_key && kv.key.user_key <= hi_key)
-                    .cloned()
-                    .collect();
-
-                assert_eq!(
-                    expected_range,
-                    data_block
-                        .range::<&[u8], _>(&(lo_key.as_ref()..=hi_key.as_ref()))
-                        .collect::<Vec<_>>(),
-                );
-            }
+    for needle in &items {
+        if needle.key.seqno == SeqNo::MAX {
+            continue;
         }
+
+        // eprintln!("needle: {:?}", needle.key);
+
+        assert_eq!(
+            Some(needle.clone()),
+            data_block
+                .point_read(&needle.key.user_key, Some(needle.key.seqno + 1))
+                .unwrap(),
+        );
+    }
+
+    assert_eq!(items, data_block.iter().collect::<Vec<_>>());
+
+    assert_eq!(
+        items.iter().rev().cloned().collect::<Vec<_>>(),
+        data_block.iter().rev().collect::<Vec<_>>(),
+    );
+
+    {
+        let ping_pongs = generate_ping_pong_code(seed, items.len());
+
+        let expected_ping_ponged_items = {
+            let mut iter = items.iter();
+            let mut v = vec![];
+
+            for &x in &ping_pongs {
+                if x == 0 {
+                    v.push(iter.next().cloned().unwrap());
+                } else {
+                    v.push(iter.next_back().cloned().unwrap());
+                }
+            }
+
+            v
+        };
+
+        let real_ping_ponged_items = {
+            let mut iter = data_block.iter();
+            let mut v = vec![];
+
+            for &x in &ping_pongs {
+                if x == 0 {
+                    v.push(iter.next().unwrap());
+                } else {
+                    v.push(iter.next_back().unwrap());
+                }
+            }
+
+            v
+        };
+
+        assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
+    }
+
+    {
+        let ping_pongs = generate_ping_pong_code(seed, items.len());
+
+        let expected_ping_ponged_items = {
+            let mut iter = items.iter().rev();
+            let mut v = vec![];
+
+            for &x in &ping_pongs {
+                if x == 0 {
+                    v.push(iter.next().cloned().unwrap());
+                } else {
+                    v.push(iter.next_back().cloned().unwrap());
+                }
+            }
+
+            v
+        };
+
+        let real_ping_ponged_items = {
+            let mut iter = data_block.iter().rev();
+            let mut v = vec![];
+
+            for &x in &ping_pongs {
+                if x == 0 {
+                    v.push(iter.next().unwrap());
+                } else {
+                    v.push(iter.next_back().unwrap());
+                }
+            }
+
+            v
+        };
+
+        assert_eq!(expected_ping_ponged_items, real_ping_ponged_items);
+    }
+
+    {
+        use rand::prelude::*;
+        use rand::SeedableRng;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let mut lo = rng.random_range(0..items.len());
+        let mut hi = rng.random_range(0..items.len());
+
+        if lo > hi {
+            std::mem::swap(&mut lo, &mut hi);
+        }
+
+        let lo_key = &items[lo].key.user_key;
+        let hi_key = &items[hi].key.user_key;
+
+        let expected_range: Vec<_> = items
+            .iter()
+            .filter(|kv| kv.key.user_key >= lo_key && kv.key.user_key <= hi_key)
+            .cloned()
+            .collect();
+
+        assert_eq!(
+            expected_range,
+            data_block
+                .range::<&[u8], _>(&(lo_key.as_ref()..=hi_key.as_ref()))
+                .collect::<Vec<_>>(),
+        );
     }
 });

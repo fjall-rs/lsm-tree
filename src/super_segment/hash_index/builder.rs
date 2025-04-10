@@ -14,7 +14,7 @@ pub struct Builder(Vec<u8>);
 impl Builder {
     /// Initializes a new builder with the given amount of buckets.
     pub fn new(bucket_count: u32) -> Self {
-        Self(vec![MARKER_FREE; bucket_count as usize])
+        Self(vec![MARKER_FREE; (bucket_count as usize).max(1)])
     }
 
     // NOTE: We know the hash index has a bucket count <= u8
