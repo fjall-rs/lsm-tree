@@ -6,12 +6,11 @@ mod iter;
 
 pub use iter::Iter;
 
-use super::block::Trailer;
-use super::block::{Encodable, Encoder};
-use super::hash_index::Reader as HashIndexReader;
-use super::{binary_index::Reader as BinaryIndexReader, Block};
+use super::block::{
+    binary_index::Reader as BinaryIndexReader, hash_index::Reader as HashIndexReader, Block,
+    Encodable, Encoder, Trailer, TRAILER_START_MARKER,
+};
 use crate::clipping_iter::ClippingIter;
-use crate::super_segment::block::TRAILER_START_MARKER;
 use crate::super_segment::util::compare_prefixed_slice;
 use crate::{InternalValue, SeqNo, ValueType};
 use byteorder::WriteBytesExt;
@@ -521,7 +520,7 @@ impl DataBlock {
             .get_hash_index_reader()
             .map(|reader| reader.get(needle))
         {
-            use super::hash_index::Lookup::{Conflicted, Found, NotFound};
+            use super::block::hash_index::Lookup::{Conflicted, Found, NotFound};
 
             match lookup {
                 Found(bucket_value) => {
@@ -575,9 +574,11 @@ impl DataBlock {
 mod tests {
     use super::*;
     use crate::{
-        segment::block::offset::BlockOffset,
-        super_segment::{block::Header, Block},
-        Checksum, InternalValue, Slice,
+        super_segment::{
+            block::{BlockOffset, Checksum, Header},
+            Block,
+        },
+        InternalValue, Slice,
         ValueType::{Tombstone, Value},
     };
     use std::cmp::Ordering::{Equal, Greater, Less};
@@ -1322,8 +1323,71 @@ mod tests {
     }
 
     #[test]
+    fn v3_data_block_small_hash_ratio() -> crate::Result<()> {
+        let items = (0u64..254)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
+            .collect::<Vec<_>>();
+
+        // NOTE: If >0.0, buckets are at least 1
+        let bytes = DataBlock::encode_items(&items, 1, 0.0001)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn v3_data_block_just_enough_pointers_for_hash_bucket() -> crate::Result<()> {
         let items = (0u64..254)
+            .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
+            .collect::<Vec<_>>();
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_too_many_pointers_for_hash_bucket() -> crate::Result<()> {
+        let items = (0u64..255)
             .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
             .collect::<Vec<_>>();
 
@@ -1353,8 +1417,8 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_too_many_pointers_for_hash_bucket() -> crate::Result<()> {
-        let items = (0u64..255)
+    fn v3_data_block_way_too_many_pointers_for_hash_bucket() -> crate::Result<()> {
+        let items = (0u64..1_000)
             .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
             .collect::<Vec<_>>();
 
