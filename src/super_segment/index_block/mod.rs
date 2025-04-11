@@ -4,12 +4,11 @@
 
 mod block_handle;
 
-pub use block_handle::NewKeyedBlockHandle;
+pub use block_handle::{NewBlockHandle, NewKeyedBlockHandle};
 
-use super::{binary_index::Reader as BinaryIndexReader, block::Encoder, Block};
-use crate::{
-    segment::{block::offset::BlockOffset, trailer::TRAILER_SIZE},
-    super_segment::block::Trailer,
+use super::{
+    block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
+    Block,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Seek};
@@ -83,11 +82,6 @@ impl IndexBlock {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         false
-    }
-
-    /// Returns the trailer position.
-    fn trailer_offset(data: &[u8]) -> usize {
-        data.len() - TRAILER_SIZE
     }
 
     /// Access the inner raw bytes
@@ -312,14 +306,12 @@ impl IndexBlock {
 
         let item = Self::parse_restart_head(&mut cursor);
 
-        Some(NewKeyedBlockHandle {
-            offset: item.offset,
-            size: item.size,
-            end_key: self
-                .inner
-                .data
-                .slice(item.key_start..(item.key_start + item.key_len)),
-        })
+        let end_key = self
+            .inner
+            .data
+            .slice(item.key_start..(item.key_start + item.key_len));
+
+        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
 
         /* let binary_index = self.get_binary_index_reader();
 
@@ -363,16 +355,13 @@ impl IndexBlock {
         self.walk(key, offset, self.restart_interval.into()) */
     }
 
-    pub fn encode_items(
-        items: &[NewKeyedBlockHandle],
-        hash_index_ratio: f32,
-    ) -> crate::Result<Vec<u8>> {
-        let first_key = &items.first().expect("chunk should not be empty").end_key;
+    pub fn encode_items(items: &[NewKeyedBlockHandle]) -> crate::Result<Vec<u8>> {
+        let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, NewKeyedBlockHandle>::new(
             items.len(),
-            1, // TODO: hard-coded for now
-            hash_index_ratio,
+            1,   // TODO: hard-coded for now
+            0.0, // TODO: hard-coded for now
             first_key,
         );
 
@@ -387,30 +376,18 @@ impl IndexBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{segment::block::offset::BlockOffset, super_segment::block::Header, Checksum};
+    use crate::super_segment::block::{Checksum, Header};
     use test_log::test;
 
     #[test]
     fn v3_index_block_simple() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle {
-                end_key: b"a".into(),
-                offset: BlockOffset(0),
-                size: 6_000,
-            },
-            NewKeyedBlockHandle {
-                end_key: b"abcdef".into(),
-                offset: BlockOffset(6_000),
-                size: 7_000,
-            },
-            NewKeyedBlockHandle {
-                end_key: b"def".into(),
-                offset: BlockOffset(13_000),
-                size: 5_000,
-            },
+            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
+            NewKeyedBlockHandle::new(b"abcdef".into(), BlockOffset(6_000), 7_000),
+            NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items, 0.0)?;
+        let bytes = IndexBlock::encode_items(&items)?;
         /*   eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         eprintln!("encoded into {} bytes", bytes.len()); */
@@ -432,16 +409,16 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.get_lowest_possible_block(&needle.end_key),
+                data_block.get_lowest_possible_block(needle.end_key()),
             );
         }
 
         assert_eq!(
-            Some(NewKeyedBlockHandle {
-                end_key: b"abcdef".into(),
-                offset: BlockOffset(6_000),
-                size: 7_000,
-            }),
+            Some(NewKeyedBlockHandle::new(
+                b"abcdef".into(),
+                BlockOffset(6_000),
+                7_000
+            )),
             data_block.get_lowest_possible_block(b"ccc"),
         );
 
