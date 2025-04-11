@@ -10,12 +10,18 @@ mod header;
 mod offset;
 mod trailer;
 
+pub use checksum::Checksum;
 pub(crate) use encoder::{Encodable, Encoder};
 pub use header::Header;
+pub use offset::BlockOffset;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
-use crate::{coding::Decode, segment::block::offset::BlockOffset, CompressionType, Slice};
+use crate::{
+    coding::{Decode, Encode},
+    CompressionType, Slice,
+};
 use std::fs::File;
+use xxhash_rust::xxh3::xxh3_64;
 
 /// A block on disk.
 ///
@@ -33,14 +39,49 @@ impl Block {
         self.data.len()
     }
 
+    pub fn to_writer<W: std::io::Write>(
+        mut writer: &mut W,
+        data: &[u8],
+        compression: CompressionType,
+    ) -> crate::Result<Header> {
+        let checksum = xxh3_64(data);
+
+        let mut header = Header {
+            checksum: Checksum::from_raw(checksum),
+            data_length: 0, // <-- NOTE: Is set later on
+            uncompressed_length: data.len() as u32,
+            previous_block_offset: BlockOffset(0), // <-- TODO:
+        };
+
+        let data = match compression {
+            CompressionType::None => data,
+            CompressionType::Lz4 => &lz4_flex::compress(data),
+            CompressionType::Miniz(level) => &miniz_oxide::deflate::compress_to_vec(data, level),
+        };
+        header.data_length = data.len() as u32;
+
+        debug_assert!(header.data_length > 0);
+
+        header.encode_into(&mut writer)?;
+        writer.write_all(data)?;
+
+        log::trace!(
+            "Writing block with size {}B (compressed: {}B)",
+            header.uncompressed_length,
+            header.data_length,
+        );
+
+        Ok(header)
+    }
+
     pub fn from_file(
         file: &File,
         offset: BlockOffset,
-        size: usize,
+        size: u32,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         // TODO: use a Slice::get_mut instead... needs value-log update
-        let mut buf = byteview::ByteView::with_size(size);
+        let mut buf = byteview::ByteView::with_size(size as usize);
 
         {
             let mut mutator = buf.get_mut().expect("should be the owner");
@@ -48,6 +89,7 @@ impl Block {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileExt;
+
                 file.read_at(&mut mutator, *offset)?;
             }
 
@@ -63,35 +105,29 @@ impl Block {
             }
         }
 
-        let header = Header::decode_from(&mut &*buf)?;
-
-        debug_assert_eq!(header.uncompressed_length, {
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-            {
-                buf.get(Header::serialized_len()..)
-                    .expect("should be in bounds")
-                    .len() as u32
-            }
-        });
+        let header = Header::decode_from(&mut &buf[..])?;
 
         let data = match compression {
             CompressionType::None => buf.slice(Header::serialized_len()..),
             CompressionType::Lz4 => {
-                // NOTE: We that a header always exists and data is never empty
+                // NOTE: We know that a header always exists and data is never empty
                 // So the slice is fine
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
                 let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
                 {
+                    // NOTE: We know that we are the owner
+                    #[allow(clippy::expect_used)]
                     let mut mutator = data.get_mut().expect("should be the owner");
+
                     lz4_flex::decompress_into(raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
                 data
             }
             CompressionType::Miniz(_) => {
-                // NOTE: We that a header always exists and data is never empty
+                // NOTE: We know that a header always exists and data is never empty
                 // So the slice is fine
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
@@ -101,6 +137,13 @@ impl Block {
                     .into()
             }
         };
+
+        debug_assert_eq!(header.uncompressed_length, {
+            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+            {
+                data.len() as u32
+            }
+        });
 
         Ok(Self {
             header,
