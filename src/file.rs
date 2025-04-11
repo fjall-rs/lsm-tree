@@ -4,7 +4,7 @@
 
 use std::{io::Write, path::Path};
 
-pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 2];
+pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const MANIFEST_FILE: &str = "manifest";
 pub const SEGMENTS_FOLDER: &str = "segments";

@@ -806,7 +806,7 @@ impl Tree {
         let mut bytes = Cursor::new(bytes);
         let manifest = Manifest::decode_from(&mut bytes)?;
 
-        if manifest.version != Version::V2 {
+        if manifest.version != Version::V3 {
             return Err(crate::Error::InvalidVersion(manifest.version));
         }
 
@@ -861,7 +861,7 @@ impl Tree {
         // -> the LSM is fully initialized
         let mut file = File::create(manifest_path)?;
         Manifest {
-            version: Version::V2,
+            version: Version::V3,
             level_count: config.level_count,
             tree_type: config.tree_type,
             table_type: TableType::Block,
