@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{segment::block::offset::BlockOffset, super_segment::block::Encodable};
+use crate::super_segment::block::{BlockOffset, Encodable};
 use value_log::UserKey;
 use varint_rs::VarintWriter;
 
