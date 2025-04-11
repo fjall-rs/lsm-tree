@@ -2,11 +2,13 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::coding::{Encode, EncodeError,Decode,DecodeError};
-use crate::{file::MAGIC_BYTES, segment::block::offset::BlockOffset, Checksum};
+use crate::coding::{Encode, EncodeError, Decode, DecodeError};
+use crate::file::MAGIC_BYTES;
 use byteorder::LittleEndian;
 use byteorder::{ReadBytesExt,WriteBytesExt};
 use std::io::{Read, Write};
+use super::offset::BlockOffset;
+use super::Checksum;
 
 /// Header of a disk-based block
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

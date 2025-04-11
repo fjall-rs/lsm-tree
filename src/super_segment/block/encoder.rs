@@ -2,9 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::super::hash_index::Builder as HashIndexBuilder;
-use super::{super::binary_index::Builder as BinaryIndexBuilder, Trailer};
-use crate::super_segment::util::longest_shared_prefix_length;
+use super::{
+    super::{
+        block::binary_index::Builder as BinaryIndexBuilder,
+        block::hash_index::{Builder as HashIndexBuilder, MAX_POINTERS_FOR_HASH_INDEX},
+        util::longest_shared_prefix_length,
+    },
+    Trailer,
+};
 use std::marker::PhantomData;
 
 pub trait Encodable<S: Default> {
@@ -57,7 +62,13 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
         first_key: &'a [u8],
     ) -> Self {
         let binary_index_len = item_count / usize::from(restart_interval);
-        let bucket_count = (item_count as f32 * hash_index_ratio) as u32; // TODO: verify
+
+        // TODO: verify
+        let bucket_count = if hash_index_ratio > 0.0 {
+            ((item_count as f32 * hash_index_ratio) as u32).max(1)
+        } else {
+            0
+        };
 
         Self {
             phantom: PhantomData,
@@ -107,11 +118,12 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
             item.encode_truncated_into(&mut self.writer, &mut self.state, shared_prefix_len)?;
         }
 
-        if self.hash_index_builder.bucket_count() > 0 {
-            // NOTE: The max binary index is bound by u8 (technically u8::MAX - 2)
+        let restart_idx = self.restart_count - 1;
+
+        if self.hash_index_builder.bucket_count() > 0 && restart_idx < MAX_POINTERS_FOR_HASH_INDEX {
+            // NOTE: The max binary index is bound to u8 by conditional
             #[allow(clippy::cast_possible_truncation)]
-            self.hash_index_builder
-                .set(item.key(), (self.restart_count - 1) as u8);
+            self.hash_index_builder.set(item.key(), restart_idx as u8);
         }
 
         self.item_count += 1;
