@@ -6,7 +6,7 @@ use super::{
     encoder::{Encodable, Encoder},
     Block,
 };
-use crate::super_segment::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
+use crate::super_segment::block::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub const TRAILER_START_MARKER: u8 = 255;
@@ -84,7 +84,7 @@ impl<'a> Trailer<'a> {
         // With the default restart interval of 16, that still gives us support
         // for up to ~4000 KVs
         if encoder.hash_index_builder.bucket_count() > 0
-            && binary_index_len <= MAX_POINTERS_FOR_HASH_INDEX.into()
+            && binary_index_len <= MAX_POINTERS_FOR_HASH_INDEX
         {
             // NOTE: We know that data blocks will never even approach 4 GB in size
             #[allow(clippy::cast_possible_truncation)]
