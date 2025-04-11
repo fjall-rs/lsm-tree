@@ -5,7 +5,8 @@
 use super::{calculate_bucket_position, MARKER_CONFLICT, MARKER_FREE};
 use byteorder::WriteBytesExt;
 
-pub const MAX_POINTERS_FOR_HASH_INDEX: u8 = u8::MAX - 2;
+/// With 254, pointers [0 - 253] can be indexed.
+pub const MAX_POINTERS_FOR_HASH_INDEX: usize = 254;
 
 /// Builds a block hash index
 #[derive(Debug)]
@@ -14,7 +15,7 @@ pub struct Builder(Vec<u8>);
 impl Builder {
     /// Initializes a new builder with the given amount of buckets.
     pub fn new(bucket_count: u32) -> Self {
-        Self(vec![MARKER_FREE; (bucket_count as usize).max(1)])
+        Self(vec![MARKER_FREE; bucket_count as usize])
     }
 
     // NOTE: We know the hash index has a bucket count <= u8
@@ -26,6 +27,13 @@ impl Builder {
 
     /// Tries to map the given key to the binary index position.
     pub fn set(&mut self, key: &[u8], binary_index_pos: u8) -> bool {
+        debug_assert!(
+            binary_index_pos <= 253,
+            "restart index too high for hash index"
+        );
+
+        assert!(self.bucket_count() > 0, "no buckets to insert into");
+
         let bucket_pos = calculate_bucket_position(key, self.bucket_count());
 
         // SAFETY: We use modulo in `calculate_bucket_position`

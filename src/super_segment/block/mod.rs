@@ -2,8 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod binary_index;
+mod checksum;
 mod encoder;
+pub(crate) mod hash_index;
 mod header;
+mod offset;
 mod trailer;
 
 pub(crate) use encoder::{Encodable, Encoder};

@@ -26,6 +26,8 @@ impl<'a> Reader<'a> {
         let end = offset + size;
 
         Self {
+            // NOTE: We consider the caller to be trustworthy
+            #[warn(clippy::indexing_slicing)]
             bytes: &bytes[offset..end],
             step_size,
         }
@@ -38,6 +40,8 @@ impl<'a> Reader<'a> {
     pub(crate) fn get(&self, idx: usize) -> usize {
         let offset = idx * self.step_size;
 
+        // NOTE: We consider the caller to be trustworthy
+        #[warn(clippy::indexing_slicing)]
         let mut bytes = &self.bytes[offset..];
 
         if self.step_size == 2 {
