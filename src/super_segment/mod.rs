@@ -12,3 +12,4 @@ mod writer;
 pub use block::Block;
 pub use data_block::DataBlock;
 pub use index_block::IndexBlock;
+pub use writer::Writer;
