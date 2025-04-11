@@ -2,8 +2,7 @@
 use arbitrary::{Arbitrary, Result, Unstructured};
 use libfuzzer_sys::fuzz_target;
 use lsm_tree::{
-    segment::block::offset::BlockOffset,
-    super_segment::{Block, DataBlock},
+    super_segment::{block::BlockOffset, Block, DataBlock},
     InternalValue, SeqNo, ValueType,
 };
 
@@ -107,7 +106,7 @@ fuzz_target!(|data: &[u8]| {
     let data_block = DataBlock::new(Block {
         data: bytes.into(),
         header: lsm_tree::super_segment::block::Header {
-            checksum: lsm_tree::segment::block::checksum::Checksum::from_raw(0),
+            checksum: lsm_tree::super_segment::Checksum::from_raw(0),
             data_length: 0,
             uncompressed_length: 0,
             previous_block_offset: BlockOffset(0),
