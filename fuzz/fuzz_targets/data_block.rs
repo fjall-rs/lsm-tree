@@ -136,6 +136,14 @@ fuzz_target!(|data: &[u8]| {
                 .point_read(&needle.key.user_key, Some(needle.key.seqno + 1))
                 .unwrap(),
         );
+
+        assert_eq!(
+            data_block.point_read(&needle.key.user_key, None).unwrap(),
+            items
+                .iter()
+                .find(|item| item.key.user_key == needle.key.user_key)
+                .cloned(),
+        );
     }
 
     assert_eq!(items, data_block.iter().collect::<Vec<_>>());

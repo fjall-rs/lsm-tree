@@ -324,27 +324,55 @@ impl DataBlock {
                     right = mid;
                 }
             }
+
+            if left == 0 {
+                return None;
+            }
+
+            let offset = binary_index.get(left - 1);
+
+            Some(offset)
+        } else if self.restart_interval == 1 {
+            while left < right {
+                let mid = (left + right) / 2;
+
+                let offset = binary_index.get(mid);
+
+                if self.get_key_at(offset).0 < needle {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
+            }
+
+            Some(if left == 0 {
+                binary_index.get(0)
+            } else if left < binary_index.len() {
+                binary_index.get(left)
+            } else {
+                binary_index.get(binary_index.len() - 1)
+            })
         } else {
             while left < right {
                 let mid = (left + right) / 2;
 
                 let offset = binary_index.get(mid);
 
-                if self.get_key_at(offset).0 <= needle {
+                if self.get_key_at(offset).0 < needle {
                     left = mid + 1;
                 } else {
                     right = mid;
                 }
             }
+
+            Some(if left == 0 {
+                binary_index.get(0)
+            } else if left < binary_index.len() {
+                binary_index.get(left - 1)
+            } else {
+                binary_index.get(binary_index.len() - 1)
+            })
         }
-
-        if left == 0 {
-            return None;
-        }
-
-        let offset = binary_index.get(left - 1);
-
-        Some(offset)
     }
 
     fn parse_restart_item(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<ParsedItem> {
@@ -448,49 +476,19 @@ impl DataBlock {
         #[warn(unsafe_code)]
         let mut reader = Cursor::new(unsafe { bytes.get_unchecked(offset..) });
 
-        let head = Self::parse_restart_item(&mut reader, offset)?;
+        loop {
+            let head = Self::parse_restart_item(&mut reader, offset)?;
 
-        let key = &bytes[head.key.0..head.key.1];
-        let base_key_offset = head.key.0;
+            let key = &bytes[head.key.0..head.key.1];
+            let base_key_offset = head.key.0;
 
-        match key.cmp(needle) {
-            std::cmp::Ordering::Equal => {
-                // TODO: maybe return early if past seqno
-                let should_skip = seqno.is_some_and(|watermark| head.seqno >= watermark);
-
-                if !should_skip {
-                    let kv = head.materialize(&self.inner.data);
-                    return Some(kv);
-                }
-            }
-            std::cmp::Ordering::Greater => {
-                // Already passed needle
-                return None;
-            }
-            std::cmp::Ordering::Less => {
-                // Continue to next KV
-            }
-        }
-
-        for _ in 0..(self.restart_interval - 1) {
-            let kv = Self::parse_truncated_item(&mut reader, offset, base_key_offset)?;
-
-            let cmp_result = if let Some(prefix) = &kv.prefix {
-                let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
-                let rest_key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
-                compare_prefixed_slice(prefix, rest_key, needle)
-            } else {
-                let key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
-                key.cmp(needle)
-            };
-
-            match cmp_result {
+            match key.cmp(needle) {
                 std::cmp::Ordering::Equal => {
                     // TODO: maybe return early if past seqno
-                    let should_skip = seqno.is_some_and(|watermark| kv.seqno >= watermark);
+                    let should_skip = seqno.is_some_and(|watermark| head.seqno >= watermark);
 
                     if !should_skip {
-                        let kv = kv.materialize(&self.inner.data);
+                        let kv = head.materialize(&self.inner.data);
                         return Some(kv);
                     }
                 }
@@ -502,9 +500,39 @@ impl DataBlock {
                     // Continue to next KV
                 }
             }
-        }
 
-        None
+            for _ in 0..(self.restart_interval - 1) {
+                let kv = Self::parse_truncated_item(&mut reader, offset, base_key_offset)?;
+
+                let cmp_result = if let Some(prefix) = &kv.prefix {
+                    let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
+                    let rest_key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
+                    compare_prefixed_slice(prefix, rest_key, needle)
+                } else {
+                    let key = unsafe { bytes.get_unchecked(kv.key.0..kv.key.1) };
+                    key.cmp(needle)
+                };
+
+                match cmp_result {
+                    std::cmp::Ordering::Equal => {
+                        // TODO: maybe return early if past seqno
+                        let should_skip = seqno.is_some_and(|watermark| kv.seqno >= watermark);
+
+                        if !should_skip {
+                            let kv = kv.materialize(&self.inner.data);
+                            return Some(kv);
+                        }
+                    }
+                    std::cmp::Ordering::Greater => {
+                        // Already passed needle
+                        return None;
+                    }
+                    std::cmp::Ordering::Less => {
+                        // Continue to next KV
+                    }
+                }
+            }
+        }
     }
 
     /// Reads an item by key from the block, if it exists.
@@ -953,6 +981,179 @@ mod tests {
             );
         }
 
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_mvcc_latest() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(b"a", b"a", 3, Value),
+            InternalValue::from_components(b"a", b"a", 2, Value),
+            InternalValue::from_components(b"a", b"a", 1, Value),
+            InternalValue::from_components(b"b", b"b", 65, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().unwrap() > 0);
+
+        assert_eq!(
+            Some(items.first().cloned().unwrap()),
+            data_block.point_read(b"a", None)?
+        );
+        assert_eq!(
+            Some(items.last().cloned().unwrap()),
+            data_block.point_read(b"b", None)?
+        );
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_mvcc_latest_fuzz_1() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
+            InternalValue::from_components(
+                Slice::from([255, 255, 0]),
+                Slice::from([]),
+                127_886_946_205_696,
+                Tombstone,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        assert_eq!(
+            Some(items.get(1).cloned().unwrap()),
+            data_block.point_read(&[233, 233], None)?
+        );
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_mvcc_latest_fuzz_2() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 7, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 6, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 5, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 4, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 3, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 2, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 1, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
+            InternalValue::from_components(
+                Slice::from([255, 255, 0]),
+                Slice::from([]),
+                127_886_946_205_696,
+                Tombstone,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        assert_eq!(
+            Some(items.get(1).cloned().unwrap()),
+            data_block.point_read(&[233, 233], None)?
+        );
+        assert_eq!(
+            Some(items.last().cloned().unwrap()),
+            data_block.point_read(&[255, 255, 0], None)?
+        );
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_mvcc_latest_fuzz_3() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 7, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 6, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 5, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 4, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 3, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 2, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 1, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
+            InternalValue::from_components(
+                Slice::from([255, 255, 0]),
+                Slice::from([]),
+                127_886_946_205_696,
+                Tombstone,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        assert_eq!(
+            Some(items.get(1).cloned().unwrap()),
+            data_block.point_read(&[233, 233], Some(SeqNo::MAX))?
+        );
+        assert_eq!(
+            Some(items.last().cloned().unwrap()),
+            data_block.point_read(&[255, 255, 0], Some(SeqNo::MAX))?
+        );
         assert_eq!(None, data_block.point_read(b"yyy", None)?);
 
         Ok(())
