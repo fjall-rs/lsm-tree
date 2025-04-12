@@ -21,7 +21,7 @@ where
         let mid = (left + right) / 2;
 
         // SAFETY: See https://github.com/rust-lang/rust/blob/ebf0cf75d368c035f4c7e7246d203bd469ee4a51/library/core/src/slice/mod.rs#L2834-L2836
-        #[warn(unsafe_code)]
+        #[allow(unsafe_code)]
         let item = unsafe { slice.get_unchecked(mid) };
 
         if pred(item) {
