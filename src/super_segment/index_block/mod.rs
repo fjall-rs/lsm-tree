@@ -125,12 +125,12 @@ impl IndexBlock {
         )
     }
 
-    fn parse_restart_head(cursor: &mut Cursor<&[u8]>) -> RestartHead {
+    fn parse_restart_head(cursor: &mut Cursor<&[u8]>, pos: usize) -> RestartHead {
         let offset = unwrappy!(cursor.read_u64_varint());
         let size = unwrappy!(cursor.read_u32_varint());
 
         let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
-        let key_start = cursor.position() as usize;
+        let key_start = pos + cursor.position() as usize;
 
         unwrappy!(cursor.seek_relative(key_len as i64));
 
@@ -260,11 +260,8 @@ impl IndexBlock {
         Ok(None)
     } */
 
-    fn binary_search_for_offset(
-        &self,
-        binary_index: &BinaryIndexReader,
-        needle: &[u8],
-    ) -> Option<usize> {
+    /// Search for the lowest block that may possibly contain the needle.
+    fn search_lowest(&self, binary_index: &BinaryIndexReader, needle: &[u8]) -> Option<usize> {
         let mut left: usize = 0;
         let mut right = binary_index.len();
 
@@ -273,65 +270,31 @@ impl IndexBlock {
         }
 
         while left < right {
-            let mid = left + (right - left) / 2;
+            let mid = (left + right) / 2;
 
             let offset = binary_index.get(mid);
 
-            if needle >= self.get_key_at(offset) {
+            if self.get_key_at(offset) < needle {
                 left = mid + 1;
             } else {
                 right = mid;
             }
         }
 
-        if left == 0 {
-            return None;
-        }
-
-        let offset = binary_index.get(left - 1);
-
-        Some(offset)
+        Some(if left < binary_index.len() {
+            binary_index.get(left)
+        } else {
+            binary_index.get(binary_index.len() - 1)
+        })
     }
 
-    #[must_use]
-    pub fn get_lowest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
-        let binary_index = self.get_binary_index_reader();
-
-        let offset = self.binary_search_for_offset(&binary_index, needle)?;
-
-        // SAFETY: pos is always retrieved from the binary index,
-        // which we consider to be trustworthy
-        #[warn(unsafe_code)]
-        let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
-
-        let item = Self::parse_restart_head(&mut cursor);
-
-        let end_key = self
-            .inner
-            .data
-            .slice(item.key_start..(item.key_start + item.key_len));
-
-        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
-
-        /* let binary_index = self.get_binary_index_reader();
-
-        // NOTE: Currently, the hash index is never initialized for index blocks
-        /*  // NOTE: Try hash index if it exists
-        if let Some(bucket_value) = self
-            .get_hash_index_reader()
-            .and_then(|reader| reader.get(key))
-        {
-            let restart_entry_pos = binary_index.get(usize::from(bucket_value));
-            return self.walk(key, seqno, restart_entry_pos, self.restart_interval.into());
-        } */
-
-        // NOTE: Fallback to binary search
-
-        let mut left = 0;
+    /// Search for the last block that may possibly contain the needle.
+    fn search_highest(&self, binary_index: &BinaryIndexReader, needle: &[u8]) -> Option<usize> {
+        let mut left: usize = 0;
         let mut right = binary_index.len();
 
         if right == 0 {
-            return Ok(None);
+            return None;
         }
 
         while left < right {
@@ -339,7 +302,7 @@ impl IndexBlock {
 
             let offset = binary_index.get(mid);
 
-            if key >= self.get_key_at(offset)? {
+            if self.get_key_at(offset) <= needle {
                 left = mid + 1;
             } else {
                 right = mid;
@@ -347,12 +310,86 @@ impl IndexBlock {
         }
 
         if left == 0 {
-            return Ok(None);
+            Some(binary_index.get(0))
+        } else if left == binary_index.len() {
+            Some(binary_index.get(binary_index.len() - 1))
+        } else {
+            Some(binary_index.get(left))
+        }
+    }
+
+    #[must_use]
+    pub fn get_lowest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
+        let binary_index = self.get_binary_index_reader();
+
+        /*
+         // NOTE: Currently, the hash index is never initialized for index blocks
+         /*  // NOTE: Try hash index if it exists
+         if let Some(bucket_value) = self
+             .get_hash_index_reader()
+             .and_then(|reader| reader.get(key))
+         {
+             let restart_entry_pos = binary_index.get(usize::from(bucket_value));
+             return self.walk(key, seqno, restart_entry_pos, self.restart_interval.into());
+         } */
+        ) */
+
+        let offset = self.search_lowest(&binary_index, needle)?;
+
+        // SAFETY: pos is always retrieved from the binary index,
+        // which we consider to be trustworthy
+        #[warn(unsafe_code)]
+        let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
+
+        let item = Self::parse_restart_head(&mut cursor, offset);
+
+        let end_key = self
+            .inner
+            .data
+            .slice(item.key_start..(item.key_start + item.key_len));
+
+        if needle > end_key {
+            return None;
         }
 
-        let offset = binary_index.get(left - 1);
+        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
+    }
 
-        self.walk(key, offset, self.restart_interval.into()) */
+    #[must_use]
+    pub fn get_highest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
+        let binary_index = self.get_binary_index_reader();
+
+        /*
+         // NOTE: Currently, the hash index is never initialized for index blocks
+         /*  // NOTE: Try hash index if it exists
+         if let Some(bucket_value) = self
+             .get_hash_index_reader()
+             .and_then(|reader| reader.get(key))
+         {
+             let restart_entry_pos = binary_index.get(usize::from(bucket_value));
+             return self.walk(key, seqno, restart_entry_pos, self.restart_interval.into());
+         } */
+        ) */
+
+        let offset = self.search_highest(&binary_index, needle)?;
+
+        // SAFETY: pos is always retrieved from the binary index,
+        // which we consider to be trustworthy
+        #[warn(unsafe_code)]
+        let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
+
+        let item = Self::parse_restart_head(&mut cursor, offset);
+
+        let end_key = self
+            .inner
+            .data
+            .slice(item.key_start..(item.key_start + item.key_len));
+
+        if needle > end_key {
+            return None;
+        }
+
+        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
     }
 
     pub fn encode_items(items: &[NewKeyedBlockHandle]) -> crate::Result<Vec<u8>> {
@@ -380,17 +417,18 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn v3_index_block_simple() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"abcdef".into(), BlockOffset(6_000), 7_000),
+            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            NewKeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
             NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items)?;
-        /*   eprintln!("{bytes:?}");
+        eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
-        eprintln!("encoded into {} bytes", bytes.len()); */
+        /* eprintln!("encoded into {} bytes", bytes.len()); */
 
         let data_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -404,23 +442,198 @@ mod tests {
 
         assert_eq!(data_block.item_count(), items.len());
 
-        for needle in items {
-            // eprintln!("NEEDLE {needle:?}");
+        assert_eq!(
+            Some(items.first().unwrap().clone()),
+            data_block.get_lowest_possible_block(b"a")
+        );
+        assert_eq!(
+            Some(items.first().unwrap().clone()),
+            data_block.get_lowest_possible_block(b"b")
+        );
+        assert_eq!(
+            Some(items.get(1).unwrap().clone()),
+            data_block.get_lowest_possible_block(b"ba")
+        );
+        assert_eq!(
+            Some(items.get(2).unwrap().clone()),
+            data_block.get_lowest_possible_block(b"d")
+        );
 
-            assert_eq!(
-                Some(needle.clone()),
-                data_block.get_lowest_possible_block(needle.end_key()),
-            );
-        }
+        // assert_eq!(None, data_block.get_lowest_possible_block(b"zzz"));
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_index_block_span() -> crate::Result<()> {
+        let items = [
+            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
+            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
+            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
+        ];
+
+        let bytes = IndexBlock::encode_items(&items)?;
+        // eprintln!("{bytes:?}");
+        // eprintln!("{}", String::from_utf8_lossy(&bytes));
+        /* eprintln!("encoded into {} bytes", bytes.len()); */
+
+        let data_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.item_count(), items.len());
 
         assert_eq!(
-            Some(NewKeyedBlockHandle::new(
-                b"abcdef".into(),
-                BlockOffset(6_000),
-                7_000
-            )),
-            data_block.get_lowest_possible_block(b"ccc"),
+            Some(items.first().unwrap().clone()),
+            data_block.get_lowest_possible_block(b"a")
         );
+        assert_eq!(
+            Some(items.last().unwrap().clone()),
+            data_block.get_lowest_possible_block(b"abc")
+        );
+        assert_eq!(
+            Some(items.last().unwrap().clone()),
+            data_block.get_lowest_possible_block(b"b")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_index_block_span_highest() -> crate::Result<()> {
+        let items = [
+            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000),
+            NewKeyedBlockHandle::new(b"c".into(), BlockOffset(6_000), 7_000),
+            NewKeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
+        ];
+
+        let bytes = IndexBlock::encode_items(&items)?;
+        // eprintln!("{bytes:?}");
+        // eprintln!("{}", String::from_utf8_lossy(&bytes));
+        /* eprintln!("encoded into {} bytes", bytes.len()); */
+
+        let data_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.item_count(), items.len());
+
+        assert_eq!(
+            Some(items.first().unwrap().clone()),
+            data_block.get_highest_possible_block(b"a")
+        );
+        assert_eq!(
+            Some(items.get(1).unwrap().clone()),
+            data_block.get_highest_possible_block(b"abc")
+        );
+        assert_eq!(
+            Some(items.last().unwrap().clone()),
+            data_block.get_highest_possible_block(b"c")
+        );
+        assert_eq!(
+            Some(items.last().unwrap().clone()),
+            data_block.get_highest_possible_block(b"cef")
+        );
+        assert_eq!(
+            Some(items.last().unwrap().clone()),
+            data_block.get_highest_possible_block(b"d")
+        );
+        assert_eq!(None, data_block.get_highest_possible_block(b"zzz"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_index_block_one() -> crate::Result<()> {
+        let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
+
+        let bytes = IndexBlock::encode_items(&[item.clone()])?;
+        // eprintln!("{bytes:?}");
+        // eprintln!("{}", String::from_utf8_lossy(&bytes));
+        /* eprintln!("encoded into {} bytes", bytes.len()); */
+
+        let data_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.item_count(), 1);
+
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"a")
+        );
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"asdasd")
+        );
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"b")
+        );
+        assert_eq!(Some(item), data_block.get_lowest_possible_block(b"c"));
+        assert_eq!(None, data_block.get_lowest_possible_block(b"d"));
+        assert_eq!(None, data_block.get_lowest_possible_block(b"z"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_index_block_one_highest() -> crate::Result<()> {
+        let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
+
+        let bytes = IndexBlock::encode_items(&[item.clone()])?;
+        // eprintln!("{bytes:?}");
+        // eprintln!("{}", String::from_utf8_lossy(&bytes));
+        /* eprintln!("encoded into {} bytes", bytes.len()); */
+
+        let data_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.item_count(), 1);
+
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"a")
+        );
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"asdasd")
+        );
+        assert_eq!(
+            Some(item.clone()),
+            data_block.get_lowest_possible_block(b"b")
+        );
+        assert_eq!(Some(item), data_block.get_lowest_possible_block(b"c"));
+        assert_eq!(None, data_block.get_lowest_possible_block(b"d"));
+        assert_eq!(None, data_block.get_lowest_possible_block(b"z"));
 
         Ok(())
     }

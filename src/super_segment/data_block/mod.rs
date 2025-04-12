@@ -314,11 +314,11 @@ impl DataBlock {
             let seqno_cmp = Reverse(seqno - 1);
 
             while left < right {
-                let mid = left + (right - left) / 2;
+                let mid = (left + right) / 2;
 
                 let offset = binary_index.get(mid);
 
-                if (needle, seqno_cmp) >= self.get_key_at(offset) {
+                if self.get_key_at(offset) <= (needle, seqno_cmp) {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -326,11 +326,11 @@ impl DataBlock {
             }
         } else {
             while left < right {
-                let mid = left + (right - left) / 2;
+                let mid = (left + right) / 2;
 
                 let offset = binary_index.get(mid);
 
-                if needle >= self.get_key_at(offset).0 {
+                if self.get_key_at(offset).0 <= needle {
                     left = mid + 1;
                 } else {
                     right = mid;
@@ -599,6 +599,41 @@ mod tests {
         assert_eq!(Less, compare_prefixed_slice(b"a", b"", b"yyy"));
         assert_eq!(Less, compare_prefixed_slice(b"yyyy", b"a", b"yyyyb"));
         assert_eq!(Less, compare_prefixed_slice(b"yyy", b"b", b"yyyyb"));
+    }
+
+    #[test]
+    fn v3_data_block_point_read_one() -> crate::Result<()> {
+        let items = [InternalValue::from_components(
+            "pla:earth:fact",
+            "eaaaaaaaaarth",
+            0,
+            crate::ValueType::Value,
+        )];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        for needle in items {
+            assert_eq!(
+                Some(needle.clone()),
+                data_block.point_read(&needle.key.user_key, None)?,
+            );
+        }
+
+        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+
+        Ok(())
     }
 
     #[test]
