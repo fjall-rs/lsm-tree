@@ -86,6 +86,13 @@ pub struct NewKeyedBlockHandle {
 }
 
 impl NewKeyedBlockHandle {
+    pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
+        Self {
+            end_key,
+            inner: NewBlockHandle::new(offset, size),
+        }
+    }
+
     pub fn shift(&mut self, delta: BlockOffset) {
         self.inner.offset += delta;
     }
@@ -104,13 +111,6 @@ impl NewKeyedBlockHandle {
 
     pub fn into_end_key(self) -> UserKey {
         self.end_key
-    }
-
-    pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
-        Self {
-            end_key,
-            inner: NewBlockHandle::new(offset, size),
-        }
     }
 }
 
