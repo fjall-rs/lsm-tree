@@ -469,7 +469,8 @@ fn merge_segments(
     for segment in segments {
         segment.mark_as_deleted();
     }
- levels.show_segments(payload.segment_ids.iter().copied());
+
+    levels.show_segments(payload.segment_ids.iter().copied());
     drop(levels);
 
     log::trace!("Compaction successful");
