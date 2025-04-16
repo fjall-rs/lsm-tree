@@ -430,6 +430,8 @@ fn merge_segments(
     let mut levels = opts.levels.write().expect("lock is poisoned");
     log::trace!("compactor: acquired levels manifest write lock");
 
+    // IMPORTANT: Write the manifest with the removed segments first
+    // Otherwise the segment files are deleted, but are still referenced!
     let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
             log::trace!("Persisting segment {}", segment.id());
@@ -504,8 +506,8 @@ fn drop_segments(
         return Ok(());
     };
 
-    // IMPORTANT: Write the segment with the removed segments first
-    // Otherwise the folder is deleted, but the segment is still referenced!
+    // IMPORTANT: Write the manifest with the removed segments first
+    // Otherwise the segment files are deleted, but are still referenced!
     levels.atomic_swap(|recipe| {
         for key in segment_ids {
             let segment_id = key.segment_id();
