@@ -469,15 +469,7 @@ fn merge_segments(
     for segment in segments {
         segment.mark_as_deleted();
     }
-
-    // NOTE: Unlock level manifest before clearing old file descriptors
-    // Holding onto some file descriptors shortly is fine and has no
-    // effect on future compactions
-    //
-    // Benchmarks showed that clearing the file descriptors can take quite
-    // some time even on fast SSDs (more than 100ms for a realistic compaction)
-    // so we unnecessarily hide the segments for e.g. 100ms more than we need to
-    levels.show_segments(payload.segment_ids.iter().copied());
+ levels.show_segments(payload.segment_ids.iter().copied());
     drop(levels);
 
     log::trace!("Compaction successful");
