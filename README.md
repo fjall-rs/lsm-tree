@@ -19,20 +19,21 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 This is the most feature-rich LSM-tree implementation in Rust! It features:
 
 - Thread-safe BTreeMap-like API
-- [99.9% safe](./UNSAFE.md) & stable Rust
+- Mostly [safe](./UNSAFE.md) & 100% stable Rust
 - Block-based tables with compression support
+  - Optional hash indexes in blocks for faster point lookups [[3]](#footnotes)
 - Range & prefix searching with forward and reverse iteration
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
-- Partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
+- Optionally partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
 - Block caching to keep hot data in memory
 - Bloom filters to increase point lookup performance
 - Snapshots (MVCC)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
 
-Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
-engine, larger keys and values have a bigger performance impact.
+Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
+As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
 
 ## Feature flags
 
@@ -79,3 +80,5 @@ All contributions are to be licensed as MIT OR Apache-2.0.
 [1] https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html
 
 [2] https://github.com/facebook/rocksdb/wiki/BlobDB
+
+[3] https://rocksdb.org/blog/2018/08/23/data-block-hash-index.html

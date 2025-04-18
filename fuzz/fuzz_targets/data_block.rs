@@ -114,6 +114,7 @@ fuzz_target!(|data: &[u8]| {
     });
 
     assert_eq!(data_block.len(), items.len());
+    assert!(!data_block.is_empty());
 
     if data_block.binary_index_len() > 254 {
         assert!(data_block.hash_bucket_count().is_none());
