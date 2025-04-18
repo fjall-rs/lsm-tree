@@ -26,6 +26,7 @@ impl CompactionStrategy for Strategy {
             .expect("next level should exist");
 
         if next_level.is_empty() {
+            // TODO: list_ids()
             let segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
 
             Choice::Move(Input {

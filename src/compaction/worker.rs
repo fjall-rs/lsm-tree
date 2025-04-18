@@ -432,6 +432,8 @@ fn merge_segments(
     let mut levels = opts.levels.write().expect("lock is poisoned");
     log::trace!("compactor: acquired levels manifest write lock");
 
+    // IMPORTANT: Write the manifest with the removed segments first
+    // Otherwise the segment files are deleted, but are still referenced!
     let swap_result = levels.atomic_swap(|recipe| {
         for segment in created_segments.iter().cloned() {
             log::trace!("Persisting segment {}", segment.id());
@@ -464,13 +466,6 @@ fn merge_segments(
         segment.mark_as_deleted();
     }
 
-    // NOTE: Unlock level manifest before clearing old file descriptors
-    // Holding onto some file descriptors shortly is fine and has no
-    // effect on future compactions
-    //
-    // Benchmarks showed that clearing the file descriptors can take quite
-    // some time even on fast SSDs (more than 100ms for a realistic compaction)
-    // so we unnecessarily hide the segments for e.g. 100ms more than we need to
     levels.show_segments(payload.segment_ids.iter().copied());
     drop(levels);
 
@@ -505,8 +500,8 @@ fn drop_segments(
         return Ok(());
     };
 
-    // IMPORTANT: Write the segment with the removed segments first
-    // Otherwise the folder is deleted, but the segment is still referenced!
+    // IMPORTANT: Write the manifest with the removed segments first
+    // Otherwise the segment files are deleted, but are still referenced!
     levels.atomic_swap(|recipe| {
         for key in segment_ids {
             let segment_id = key.segment_id();

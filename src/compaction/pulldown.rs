@@ -27,6 +27,7 @@ impl CompactionStrategy for Strategy {
             .get(usize::from(self.1))
             .expect("next level should exist");
 
+        // TODO: list_ids()
         let mut segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
 
         segment_ids.extend(next_level.segments.iter().map(Segment::id));

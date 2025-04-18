@@ -41,7 +41,7 @@ impl Encode for BloomFilter {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        // NOTE: Filter type (unused)
+        // NOTE: Filter type
         writer.write_u8(0)?;
 
         // NOTE: Hash type (unused)
@@ -65,7 +65,7 @@ impl Decode for BloomFilter {
             return Err(DecodeError::InvalidHeader("BloomFilter"));
         }
 
-        // NOTE: Filter type (unused)
+        // NOTE: Filter type
         let filter_type = reader.read_u8()?;
         assert_eq!(0, filter_type, "Invalid filter type");
 
@@ -85,10 +85,16 @@ impl Decode for BloomFilter {
 
 #[allow(clippy::len_without_is_empty)]
 impl BloomFilter {
-    /// Size of bloom filter in bytes.
+    /// Returns the size of the bloom filter in bytes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.bytes().len()
+    }
+
+    /// Returns the amount of hashes used per lookup.
+    #[must_use]
+    pub fn hash_fn_count(&self) -> usize {
+        self.k
     }
 
     fn from_raw(m: usize, k: usize, bytes: Box<[u8]>) -> Self {
@@ -164,9 +170,7 @@ impl BloomFilter {
     ///
     /// Will never have a false negative.
     #[must_use]
-    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
-        let (mut h1, mut h2) = hash;
-
+    pub fn contains_hash(&self, (mut h1, mut h2): CompositeHash) -> bool {
         for i in 0..(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
@@ -210,7 +214,7 @@ impl BloomFilter {
 
     /// Sets the bit at the given index to `true`.
     fn enable_bit(&mut self, idx: usize) {
-        self.inner.set(idx, true);
+        self.inner.enable(idx);
     }
 
     /// Gets the hash of a key.
