@@ -179,7 +179,7 @@ mod tests {
             },
             cache,
 
-            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(crate::bloom::StandardBloomFilter::with_fp_rate(1, 0.1)),
 
             path: "a".into(),
             is_deleted: AtomicBool::default(),
