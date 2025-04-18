@@ -47,7 +47,9 @@ impl LevelReader {
         (lo, hi): (Option<usize>, Option<usize>),
         cache_policy: CachePolicy,
     ) -> Self {
-        let lo = lo.unwrap_or_default();
+        todo!()
+
+        /* let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(level.len() - 1);
 
         // TODO: lazily init readers?
@@ -69,7 +71,7 @@ impl LevelReader {
             lo_reader: Some(lo_reader),
             hi_reader,
             cache_policy,
-        }
+        } */
     }
 }
 
@@ -77,7 +79,9 @@ impl Iterator for LevelReader {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
+        todo!()
+
+        /*    loop {
             if let Some(lo_reader) = &mut self.lo_reader {
                 if let Some(item) = lo_reader.next() {
                     return Some(item);
@@ -104,13 +108,15 @@ impl Iterator for LevelReader {
             } else {
                 return None;
             }
-        }
+        } */
     }
 }
 
 impl DoubleEndedIterator for LevelReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        loop {
+        todo!()
+
+        /*   loop {
             if let Some(hi_reader) = &mut self.hi_reader {
                 if let Some(item) = hi_reader.next_back() {
                     return Some(item);
@@ -137,7 +143,7 @@ impl DoubleEndedIterator for LevelReader {
             } else {
                 return None;
             }
-        }
+        } */
     }
 }
 

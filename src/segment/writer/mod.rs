@@ -343,7 +343,7 @@ impl Writer {
             "Written {} items in {} blocks into new segment file, written {} MiB",
             self.meta.item_count,
             self.meta.data_block_count,
-            *self.meta.file_pos / 1_024 / 1_024
+            *self.meta.file_pos / 1_024 / 1_024,
         );
 
         Ok(Some(trailer))

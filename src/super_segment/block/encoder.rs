@@ -90,11 +90,17 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
         }
     }
 
-    /* /// Toggles prefix truncation.
+    /// Toggles prefix truncation.
     pub fn use_prefix_truncation(mut self, flag: bool) -> Self {
         self.use_prefix_truncation = flag;
+
+        // TODO:
+        if !flag {
+            unimplemented!()
+        }
+
         self
-    } */
+    }
 
     pub fn write(&mut self, item: &'a T) -> crate::Result<()> {
         // NOTE: Check if we are a restart marker

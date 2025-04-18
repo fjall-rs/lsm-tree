@@ -144,7 +144,9 @@ impl TreeIter {
         seqno: Option<SeqNo>,
         level_manifest: ArcRwLockReadGuardian<LevelManifest>,
     ) -> Self {
-        Self::new(guard, |lock| {
+        todo!()
+
+        /*  Self::new(guard, |lock| {
             let lo = match &bounds.0 {
                 // NOTE: See memtable.rs for range explanation
                 Bound::Included(key) => Bound::Included(InternalKey::new(
@@ -282,7 +284,7 @@ impl TreeIter {
                 Ok(value) => !value.key.is_tombstone(),
                 Err(_) => true,
             }))
-        })
+        }) */
     }
 }
 

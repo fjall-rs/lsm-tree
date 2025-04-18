@@ -536,11 +536,7 @@ impl DataBlock {
     }
 
     /// Reads an item by key from the block, if it exists.
-    pub fn point_read(
-        &self,
-        needle: &[u8],
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<InternalValue>> {
+    pub fn point_read(&self, needle: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
         let binary_index = self.get_binary_index_reader();
 
         // NOTE: Try hash index if it exists
@@ -553,10 +549,10 @@ impl DataBlock {
             match lookup {
                 Found(bucket_value) => {
                     let offset = binary_index.get(usize::from(bucket_value));
-                    return Ok(self.scan(needle, seqno, offset));
+                    return self.scan(needle, seqno, offset);
                 }
                 NotFound => {
-                    return Ok(None);
+                    return None;
                 }
                 Conflicted => {
                     // NOTE: Fallback to binary search
@@ -564,11 +560,9 @@ impl DataBlock {
             }
         }
 
-        let Some(offset) = self.binary_search_for_offset(&binary_index, needle, seqno) else {
-            return Ok(None);
-        };
+        let offset = self.binary_search_for_offset(&binary_index, needle, seqno)?;
 
-        Ok(self.scan(needle, seqno, offset))
+        self.scan(needle, seqno, offset)
     }
 
     pub fn encode_items(
@@ -639,6 +633,7 @@ mod tests {
         )];
 
         let bytes = DataBlock::encode_items(&items, 16, 0.0)?;
+        let serialized_len = bytes.len();
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -651,15 +646,17 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
+        assert!(!data_block.is_empty());
+        assert_eq!(data_block.inner.size(), serialized_len);
 
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, None)?,
+                data_block.point_read(&needle.key.user_key, None),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -709,7 +706,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, crate::ValueType::Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -727,11 +724,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -743,7 +740,7 @@ mod tests {
             InternalValue::from_components([0], b"", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -761,11 +758,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -799,11 +796,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -939,11 +936,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, None)?,
+                data_block.point_read(&needle.key.user_key, None),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -957,7 +954,7 @@ mod tests {
             InternalValue::from_components(b"b", b"b", 65, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -977,11 +974,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -996,7 +993,7 @@ mod tests {
             InternalValue::from_components(b"b", b"b", 65, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1013,13 +1010,13 @@ mod tests {
 
         assert_eq!(
             Some(items.first().cloned().unwrap()),
-            data_block.point_read(b"a", None)?
+            data_block.point_read(b"a", None)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(b"b", None)?
+            data_block.point_read(b"b", None)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1054,9 +1051,9 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], None)?
+            data_block.point_read(&[233, 233], None)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1099,13 +1096,13 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], None)?
+            data_block.point_read(&[233, 233], None)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], None)?
+            data_block.point_read(&[255, 255, 0], None)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1148,13 +1145,62 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], Some(SeqNo::MAX))?
+            data_block.point_read(&[233, 233], Some(SeqNo::MAX))
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], Some(SeqNo::MAX))?
+            data_block.point_read(&[255, 255, 0], Some(SeqNo::MAX))
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_mvcc_latest_fuzz_3_dense() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 7, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 6, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 5, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 4, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 3, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 2, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 1, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
+            InternalValue::from_components(
+                Slice::from([255, 255, 0]),
+                Slice::from([]),
+                127_886_946_205_696,
+                Tombstone,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        assert_eq!(
+            Some(items.get(1).cloned().unwrap()),
+            data_block.point_read(&[233, 233], None)
+        );
+        assert_eq!(
+            Some(items.last().cloned().unwrap()),
+            data_block.point_read(&[255, 255, 0], None)
+        );
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1188,11 +1234,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1207,7 +1253,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1223,7 +1269,7 @@ mod tests {
         assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         assert!(data_block
-            .point_read(b"pla:venus:fact", None)?
+            .point_read(b"pla:venus:fact", None)
             .expect("should exist")
             .is_tombstone());
 
@@ -1245,7 +1291,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1263,11 +1309,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None)?);
+        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
@@ -1281,7 +1327,7 @@ mod tests {
             Value,
         )];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1318,7 +1364,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1355,7 +1401,7 @@ mod tests {
             Value,
         )];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1389,7 +1435,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1427,7 +1473,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1493,7 +1539,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1529,7 +1575,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1583,7 +1629,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
@@ -1596,7 +1642,7 @@ mod tests {
             .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
             .collect::<Vec<_>>();
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1614,7 +1660,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
@@ -1627,7 +1673,7 @@ mod tests {
             .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
             .collect::<Vec<_>>();
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1645,7 +1691,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
@@ -1658,7 +1704,7 @@ mod tests {
             .map(|x| InternalValue::from_components(x.to_be_bytes(), x.to_be_bytes(), 0, Value))
             .collect::<Vec<_>>();
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.75)?;
+        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1676,7 +1722,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 
@@ -1707,7 +1753,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1))?,
+                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
             );
         }
 

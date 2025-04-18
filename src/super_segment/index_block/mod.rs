@@ -3,13 +3,16 @@
 // (found in the LICENSE-* files in the repository)
 
 mod block_handle;
+mod forward_reader;
 
 pub use block_handle::{NewBlockHandle, NewKeyedBlockHandle};
+use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
 
 use super::{
     block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
     Block,
 };
+use crate::super_segment::block::TRAILER_START_MARKER;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Seek};
 use varint_rs::VarintReader;
@@ -32,13 +35,6 @@ pub struct IndexBlock {
     binary_index_step_size: u8,
     binary_index_offset: u32,
     binary_index_len: u32,
-}
-
-struct RestartHead {
-    offset: BlockOffset,
-    size: u32,
-    key_start: usize,
-    key_len: usize,
 }
 
 impl IndexBlock {
@@ -125,21 +121,74 @@ impl IndexBlock {
         )
     }
 
-    fn parse_restart_head(cursor: &mut Cursor<&[u8]>, pos: usize) -> RestartHead {
-        let offset = unwrappy!(cursor.read_u64_varint());
-        let size = unwrappy!(cursor.read_u32_varint());
+    // TODO: should not return Option<>?
+    #[must_use]
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn forward_reader(
+        &self,
+        needle: &[u8],
+    ) -> Option<impl Iterator<Item = NewKeyedBlockHandle> + '_> {
+        let offset = self
+            .search_lowest(&self.get_binary_index_reader(), needle)
+            .unwrap_or_default();
 
-        let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
-        let key_start = pos + cursor.position() as usize;
+        // SAFETY: pos is always retrieved from the binary index,
+        // which we consider to be trustworthy
+        #[warn(unsafe_code)]
+        let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
 
-        unwrappy!(cursor.seek_relative(key_len as i64));
+        let item = Self::parse_restart_item(&mut cursor, offset)?;
 
-        RestartHead {
+        let key = &self.inner.data[item.end_key.0..item.end_key.1];
+
+        if needle > key {
+            return None;
+        }
+
+        Some(
+            ForwardReader::new(self)
+                .with_offset(offset)
+                .map(|kv| kv.materialize(&self.inner.data)),
+        )
+    }
+
+    fn parse_restart_item(reader: &mut Cursor<&[u8]>, pos: usize) -> Option<ParsedItem> {
+        let marker = unwrappy!(reader.read_u8());
+
+        if marker == TRAILER_START_MARKER {
+            return None;
+        }
+
+        let offset = unwrappy!(reader.read_u64_varint());
+        let size = unwrappy!(reader.read_u32_varint());
+
+        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_start = pos + reader.position() as usize;
+
+        unwrappy!(reader.seek_relative(key_len as i64));
+
+        Some(ParsedItem {
+            prefix: None,
+            end_key: ParsedSlice(key_start, key_start + key_len),
             offset: BlockOffset(offset),
             size,
-            key_start,
-            key_len,
+        })
+    }
+
+    fn parse_truncated_item(
+        reader: &mut Cursor<&[u8]>,
+        offset: usize,
+        base_key_offset: usize,
+    ) -> Option<ParsedItem> {
+        let marker = unwrappy!(reader.read_u8());
+
+        if marker == TRAILER_START_MARKER {
+            return None;
         }
+
+        let size = unwrappy!(reader.read_u32_varint());
+
+        todo!()
     }
 
     fn get_key_at(&self, pos: usize) -> &[u8] {
@@ -150,20 +199,9 @@ impl IndexBlock {
         #[warn(unsafe_code)]
         let mut cursor = Cursor::new(unsafe { bytes.get_unchecked(pos..) });
 
-        // TODO: maybe move these behind the key
-        let _ = unwrappy!(cursor.read_u64_varint());
-        let _ = unwrappy!(cursor.read_u32_varint());
+        let item = Self::parse_restart_item(&mut cursor, pos).expect("should exist");
 
-        let key_len: usize = unwrappy!(cursor.read_u16_varint()).into();
-        let key_start = cursor.position() as usize;
-
-        let key_start = pos + key_start;
-        let key_end = key_start + key_len;
-
-        #[warn(unsafe_code)]
-        let key = bytes.get(key_start..key_end).expect("should read");
-
-        key
+        &bytes[item.end_key.0..item.end_key.1]
     }
 
     /// Search for the lowest block that may possibly contain the needle.
@@ -247,35 +285,22 @@ impl IndexBlock {
         #[warn(unsafe_code)]
         let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
 
-        let item = Self::parse_restart_head(&mut cursor, offset);
+        let item = Self::parse_restart_item(&mut cursor, offset)?;
 
-        let end_key = self
-            .inner
-            .data
-            .slice(item.key_start..(item.key_start + item.key_len));
+        let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
-        if needle > end_key {
+        if needle > key {
             return None;
         }
 
-        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
+        // TODO: 3.0.0 scan(), delta encoding etc., add test with restart interval > 1
+
+        Some(item.materialize(&self.inner.data))
     }
 
     #[must_use]
     pub fn get_highest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
         let binary_index = self.get_binary_index_reader();
-
-        /*
-         // NOTE: Currently, the hash index is never initialized for index blocks
-         /*  // NOTE: Try hash index if it exists
-         if let Some(bucket_value) = self
-             .get_hash_index_reader()
-             .and_then(|reader| reader.get(key))
-         {
-             let restart_entry_pos = binary_index.get(usize::from(bucket_value));
-             return self.walk(key, seqno, restart_entry_pos, self.restart_interval.into());
-         } */
-        ) */
 
         let offset = self.search_highest(&binary_index, needle)?;
 
@@ -284,26 +309,26 @@ impl IndexBlock {
         #[warn(unsafe_code)]
         let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
 
-        let item = Self::parse_restart_head(&mut cursor, offset);
+        let item = Self::parse_restart_item(&mut cursor, offset)?;
 
-        let end_key = self
-            .inner
-            .data
-            .slice(item.key_start..(item.key_start + item.key_len));
+        let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
-        if needle > end_key {
+        if needle > key {
             return None;
         }
 
-        Some(NewKeyedBlockHandle::new(end_key, item.offset, item.size))
+        Some(item.materialize(&self.inner.data))
     }
 
-    pub fn encode_items(items: &[NewKeyedBlockHandle]) -> crate::Result<Vec<u8>> {
+    pub fn encode_items(
+        items: &[NewKeyedBlockHandle],
+        restart_interval: u8,
+    ) -> crate::Result<Vec<u8>> {
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, NewKeyedBlockHandle>::new(
             items.len(),
-            1,   // TODO: hard-coded for now
+            restart_interval,
             0.0, // TODO: hard-coded for now
             first_key,
         );
@@ -331,7 +356,7 @@ mod tests {
             NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_items(&items, 1)?;
         eprintln!("{bytes:?}");
         eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
@@ -379,7 +404,7 @@ mod tests {
             NewKeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_items(&items, 1)?;
         // eprintln!("{bytes:?}");
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
@@ -422,7 +447,7 @@ mod tests {
             NewKeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_items(&items, 1)?;
         // eprintln!("{bytes:?}");
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
@@ -468,7 +493,7 @@ mod tests {
     fn v3_index_block_one() -> crate::Result<()> {
         let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
 
-        let bytes = IndexBlock::encode_items(&[item.clone()])?;
+        let bytes = IndexBlock::encode_items(&[item.clone()], 1)?;
         // eprintln!("{bytes:?}");
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
@@ -508,7 +533,7 @@ mod tests {
     fn v3_index_block_one_highest() -> crate::Result<()> {
         let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
 
-        let bytes = IndexBlock::encode_items(&[item.clone()])?;
+        let bytes = IndexBlock::encode_items(&[item.clone()], 1)?;
         // eprintln!("{bytes:?}");
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */

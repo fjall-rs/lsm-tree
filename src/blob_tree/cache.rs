@@ -1,9 +1,9 @@
-use crate::cache::Cache;
+use crate::NewCache;
 use std::sync::Arc;
 use value_log::BlobCache;
 
 #[derive(Clone)]
-pub struct MyBlobCache(pub(crate) Arc<Cache>);
+pub struct MyBlobCache(pub(crate) Arc<NewCache>);
 
 impl BlobCache for MyBlobCache {
     fn get(
@@ -11,7 +11,9 @@ impl BlobCache for MyBlobCache {
         vlog_id: value_log::ValueLogId,
         vhandle: &value_log::ValueHandle,
     ) -> Option<value_log::UserValue> {
-        self.0.get_blob(vlog_id, vhandle)
+        todo!()
+
+        // self.0.get_blob(vlog_id, vhandle)
     }
 
     fn insert(
@@ -20,6 +22,8 @@ impl BlobCache for MyBlobCache {
         vhandle: &value_log::ValueHandle,
         value: value_log::UserValue,
     ) {
-        self.0.insert_blob(vlog_id, vhandle, value);
+        todo!()
+
+        // self.0.insert_blob(vlog_id, vhandle, value);
     }
 }

@@ -13,9 +13,10 @@ use crate::{
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
+    super_segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
 use cache::MyBlobCache;
 use compression::MyCompressor;
@@ -333,12 +334,12 @@ impl AbstractTree for BlobTree {
         self.index.sealed_memtable_count()
     }
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
         let vlog_sum = self.blobs.verify()?;
         Ok(index_tree_sum + vlog_sum)
-    }
+    } */
 
     fn keys(
         &self,
@@ -364,7 +365,8 @@ impl AbstractTree for BlobTree {
     ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
-            segment::writer::{Options, Writer as SegmentWriter},
+            //segment::writer::{Options, Writer as SegmentWriter},
+            super_segment::Writer as SegmentWriter,
         };
         use value::MaybeInlineValue;
 
@@ -374,17 +376,21 @@ impl AbstractTree for BlobTree {
         log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
-        let mut segment_writer = SegmentWriter::new(Options {
+        let mut segment_writer = SegmentWriter::new(
+            lsm_segment_folder.join(segment_id.to_string()),
             segment_id,
-            data_block_size: self.index.config.data_block_size,
-            index_block_size: self.index.config.index_block_size,
-            folder: lsm_segment_folder,
-        })?
+            /* Options {
+                segment_id,
+                data_block_size: self.index.config.data_block_size,
+                index_block_size: self.index.config.index_block_size,
+                folder: lsm_segment_folder,
+            } */
+        )?
         .use_compression(self.index.config.compression);
 
-        segment_writer = segment_writer.use_bloom_policy(
+        /* segment_writer = segment_writer.use_bloom_policy(
             crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-        );
+        ); */
 
         let mut blob_writer = self.blobs.get_writer()?;
 

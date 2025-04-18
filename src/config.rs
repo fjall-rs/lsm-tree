@@ -3,11 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    cache::Cache,
-    descriptor_table::FileDescriptorTable,
     path::absolute_path,
     segment::meta::{CompressionType, TableType},
-    BlobTree, Tree,
+    BlobTree, NewCache, NewDescriptorTable, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -85,7 +83,7 @@ pub struct Config {
 
     /// Block cache to use
     #[doc(hidden)]
-    pub cache: Arc<Cache>,
+    pub cache: Arc<NewCache>,
 
     /// Blob file (value log segment) target size in bytes
     #[doc(hidden)]
@@ -97,16 +95,16 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+    pub descriptor_table: Arc<NewDescriptorTable>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
+            descriptor_table: Arc::new(NewDescriptorTable::new(256)),
 
-            cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            cache: Arc::new(NewCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
 
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
@@ -242,7 +240,7 @@ impl Config {
     ///
     /// Defaults to a cache with 8 MiB of capacity *per tree*.
     #[must_use]
-    pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
+    pub fn use_cache(mut self, cache: Arc<NewCache>) -> Self {
         self.cache = cache;
         self
     }
@@ -280,7 +278,7 @@ impl Config {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn descriptor_table(mut self, descriptor_table: Arc<FileDescriptorTable>) -> Self {
+    pub fn descriptor_table(mut self, descriptor_table: Arc<NewDescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

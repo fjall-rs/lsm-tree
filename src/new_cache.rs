@@ -2,23 +2,23 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::segment::block::offset::BlockOffset;
 use crate::segment::id::GlobalSegmentId;
-use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
-use crate::UserValue;
+use crate::super_segment::block::Header;
+use crate::super_segment::{Block, BlockOffset, DataBlock};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
-use std::sync::Arc;
 
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
 
-#[derive(Clone)]
+/* #[derive(Clone)]
 enum Item {
     DataBlock(Arc<ValueBlock>),
     IndexBlock(Arc<IndexBlock>),
     Blob(UserValue),
-}
+} */
+
+type Item = Block;
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64, u64);
@@ -40,12 +40,7 @@ struct BlockWeighter;
 
 impl Weighter<CacheKey, Item> for BlockWeighter {
     fn weight(&self, _: &CacheKey, block: &Item) -> u64 {
-        #[allow(clippy::cast_possible_truncation)]
-        match block {
-            Item::DataBlock(block) => block.header.uncompressed_length.into(),
-            Item::IndexBlock(block) => block.header.uncompressed_length.into(),
-            Item::Blob(blob) => blob.len() as u64,
-        }
+        (Header::serialized_len() as u64) + Into::<u64>::into(block.header.uncompressed_length)
     }
 }
 
@@ -73,7 +68,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// #
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
-pub struct Cache {
+pub struct NewCache {
     // NOTE: rustc_hash performed best: https://fjall-rs.github.io/post/fjall-2-1
     /// Concurrent cache implementation
     data: QuickCache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
@@ -82,7 +77,7 @@ pub struct Cache {
     capacity: u64,
 }
 
-impl Cache {
+impl NewCache {
     /// Creates a new block cache with roughly `n` bytes of capacity.
     #[must_use]
     pub fn with_capacity_bytes(bytes: u64) -> Self {
@@ -128,36 +123,34 @@ impl Cache {
     }
 
     #[doc(hidden)]
-    pub fn insert_data_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-        value: Arc<ValueBlock>,
-    ) {
-        if self.capacity > 0 {
-            self.data.insert(
-                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
-                Item::DataBlock(value),
-            );
-        }
+    #[must_use]
+    pub fn get_data_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<DataBlock> {
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+        self.data.get(&key).map(DataBlock::new)
     }
 
     #[doc(hidden)]
+    pub fn insert_block(&self, id: GlobalSegmentId, offset: BlockOffset, value: Item) {
+        self.data.insert(
+            (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
+            value,
+        );
+    }
+
+    /* #[doc(hidden)]
     pub fn insert_index_block(
         &self,
         id: GlobalSegmentId,
         offset: BlockOffset,
         value: Arc<IndexBlock>,
     ) {
-        if self.capacity > 0 {
             self.data.insert(
                 (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
                 Item::IndexBlock(value),
             );
-        }
-    }
+    } */
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     #[must_use]
     pub fn get_data_block(
         &self,
@@ -172,9 +165,9 @@ impl Cache {
             log::warn!("cache item type was unexpected - this is a bug");
             None
         }
-    }
+    } */
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     #[must_use]
     pub fn get_index_block(
         &self,
@@ -189,24 +182,22 @@ impl Cache {
             log::warn!("cache item type was unexpected - this is a bug");
             None
         }
-    }
+    } */
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     pub fn insert_blob(
         &self,
         vlog_id: value_log::ValueLogId,
         vhandle: &value_log::ValueHandle,
         value: UserValue,
     ) {
-        if self.capacity > 0 {
             self.data.insert(
                 (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
                 Item::Blob(value),
             );
-        }
-    }
+    } */
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     #[must_use]
     pub fn get_blob(
         &self,
@@ -221,5 +212,5 @@ impl Cache {
             log::warn!("cache item type was unexpected - this is a bug");
             None
         }
-    }
+    } */
 }

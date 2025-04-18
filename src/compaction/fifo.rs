@@ -58,7 +58,7 @@ impl CompactionStrategy for Strategy {
                 let now = unix_timestamp().as_micros();
 
                 for segment in resolved_view.iter().flat_map(|lvl| &lvl.segments) {
-                    let lifetime_us = now - segment.metadata.created_at;
+                    let lifetime_us: u128 = /* now - segment.metadata.created_at */ todo!();
                     let lifetime_sec = lifetime_us / 1000 / 1000;
 
                     if lifetime_sec > ttl_seconds.into() {
@@ -128,8 +128,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         time::unix_timestamp,
         HashSet, KeyRange,
     };
@@ -139,7 +140,9 @@ mod tests {
     #[allow(clippy::expect_used)]
     #[allow(clippy::cast_possible_truncation)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -184,7 +187,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]

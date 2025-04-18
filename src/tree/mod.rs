@@ -6,29 +6,24 @@ pub(crate) mod ingest;
 pub mod inner;
 
 use crate::{
-    cache::Cache,
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
-    descriptor_table::FileDescriptorTable,
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    segment::{
-        block_index::{full_index::FullBlockIndex, BlockIndexImpl},
-        meta::TableType,
-        Segment, SegmentInner,
-    },
+    segment::meta::TableType,
+    super_segment::Segment,
     value::InternalValue,
     version::Version,
-    AbstractTree, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, KvPair, NewCache, NewDescriptorTable, SegmentId, SeqNo, Snapshot, UserKey,
+    UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::RangeBounds,
     path::Path,
-    sync::atomic::AtomicBool,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
@@ -133,7 +128,7 @@ impl AbstractTree for Tree {
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(super::segment::Segment::bloom_filter_size)
+            .map(Segment::bloom_filter_size)
             .sum()
     }
 
@@ -144,7 +139,7 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn verify(&self) -> crate::Result<usize> {
+    /* fn verify(&self) -> crate::Result<usize> {
         // NOTE: Lock memtable to prevent any tampering with disk segments
         let _lock = self.lock_active_memtable();
 
@@ -159,7 +154,7 @@ impl AbstractTree for Tree {
         }
 
         Ok(sum)
-    }
+    } */
 
     fn keys(
         &self,
@@ -184,9 +179,7 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>> {
         use crate::{
-            compaction::stream::CompactionStream,
-            file::SEGMENTS_FOLDER,
-            segment::writer::{Options, Writer},
+            compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, super_segment::Writer,
         };
         use std::time::Instant;
 
@@ -195,15 +188,20 @@ impl AbstractTree for Tree {
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         log::debug!("writing segment to {folder:?}");
 
-        let mut segment_writer = Writer::new(Options {
+        let mut segment_writer = Writer::new(
+            folder.join(segment_id.to_string()),
             segment_id,
-            folder,
-            data_block_size: self.config.data_block_size,
-            index_block_size: self.config.index_block_size,
-        })?
-        .use_compression(self.config.compression);
+            /* Options {
+                segment_id,
+                folder,
+                data_block_size: self.config.data_block_size,
+                index_block_size: self.config.index_block_size,
+            } */
+        )?
+        .use_compression(self.config.compression)
+        .use_data_block_size(self.config.data_block_size);
 
-        {
+        /*     {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if self.config.bloom_bits_per_key >= 0 {
@@ -213,7 +211,7 @@ impl AbstractTree for Tree {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
             }
-        }
+        } */
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, seqno_threshold);
@@ -393,10 +391,7 @@ impl AbstractTree for Tree {
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         let levels = self.levels.read().expect("lock is poisoned");
-        levels
-            .iter()
-            .map(super::segment::Segment::get_highest_seqno)
-            .max()
+        levels.iter().map(Segment::get_highest_seqno).max()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
@@ -492,19 +487,18 @@ impl Tree {
 
     pub(crate) fn consume_writer(
         &self,
-        segment_id: SegmentId,
-        mut writer: crate::segment::writer::Writer,
+        segment_id: SegmentId, // TODO: <- remove
+        writer: crate::super_segment::Writer,
     ) -> crate::Result<Option<Segment>> {
-        let segment_folder = writer.opts.folder.clone();
-        let segment_file_path = segment_folder.join(segment_id.to_string());
+        let segment_file_path = writer.path.to_path_buf();
 
-        let Some(trailer) = writer.finish()? else {
+        let Some(_) = writer.finish()? else {
             return Ok(None);
         };
 
-        log::debug!("Finalized segment write at {segment_folder:?}");
+        log::debug!("Finalized segment write at {segment_file_path:?}");
 
-        let block_index =
+        /* let block_index =
             FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
@@ -524,13 +518,20 @@ impl Tree {
 
             is_deleted: AtomicBool::default(),
         }
-        .into();
+        .into(); */
 
-        self.config
-            .descriptor_table
-            .insert(segment_file_path, created_segment.global_id());
+        /* self.config
+        .descriptor_table
+        .insert(segment_file_path, created_segment.global_id()); */
 
-        log::debug!("Flushed segment to {segment_folder:?}");
+        let created_segment = Segment::recover(
+            &segment_file_path,
+            self.id,
+            self.config.cache.clone(),
+            self.config.descriptor_table.clone(),
+        )?;
+
+        log::debug!("Flushed segment to {segment_file_path:?}");
 
         Ok(Some(created_segment))
     }
@@ -881,8 +882,8 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        cache: &Arc<Cache>,
-        descriptor_table: &Arc<FileDescriptorTable>,
+        cache: &Arc<NewCache>,
+        descriptor_table: &Arc<NewDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
             file::fsync_directory,
@@ -951,10 +952,8 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    level_idx == 0 || level_idx == 1,
+                    // level_idx == 0 || level_idx == 1,
                 )?;
-
-                descriptor_table.insert(&segment_file_path, segment.global_id());
 
                 segments.push(segment);
                 log::debug!("Recovered segment from {segment_file_path:?}");

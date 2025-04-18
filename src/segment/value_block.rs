@@ -4,8 +4,8 @@
 
 use super::{block::Block, id::GlobalSegmentId};
 use crate::{
-    binary_search::partition_point, descriptor_table::FileDescriptorTable,
-    segment::block::offset::BlockOffset, value::InternalValue, Cache,
+    binary_search::partition_point, cache::Cache, descriptor_table::FileDescriptorTable,
+    segment::block::offset::BlockOffset, value::InternalValue,
 };
 use std::sync::Arc;
 

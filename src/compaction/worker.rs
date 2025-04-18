@@ -9,27 +9,18 @@ use crate::{
     level_manifest::LevelManifest,
     level_scanner::LevelScanner,
     merge::Merger,
-    segment::{
-        block_index::{
-            full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex, BlockIndexImpl,
-        },
-        id::GlobalSegmentId,
-        multi_writer::MultiWriter,
-        scanner::CompactionReader,
-        Segment, SegmentInner,
-    },
+    segment::id::GlobalSegmentId,
     stop_signal::StopSignal,
+    super_segment::{multi_writer::MultiWriter, Segment},
     tree::inner::TreeId,
-    Config, SegmentId, SeqNo,
+    Config, InternalValue, SegmentId, SeqNo,
 };
 use std::{
-    path::Path,
-    sync::{
-        atomic::{AtomicBool, AtomicU64},
-        Arc, RwLock, RwLockWriteGuard,
-    },
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
+
+pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
 /// Compaction options
 pub struct Options {
@@ -102,7 +93,6 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 }
 
 fn create_compaction_stream<'a>(
-    segment_base_folder: &Path,
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
@@ -139,7 +129,6 @@ fn create_compaction_stream<'a>(
             };
 
             readers.push(Box::new(LevelScanner::from_indexes(
-                segment_base_folder.to_owned(),
                 level.clone(),
                 (Some(lo), Some(hi)),
             )?));
@@ -149,7 +138,7 @@ fn create_compaction_stream<'a>(
             for &id in to_compact {
                 if let Some(segment) = level.segments.iter().find(|x| x.id() == id) {
                     found += 1;
-                    readers.push(Box::new(segment.scan(segment_base_folder)?));
+                    readers.push(Box::new(segment.scan()?));
                 }
             }
         }
@@ -234,7 +223,6 @@ fn merge_segments(
     );
 
     let Some(merge_iter) = create_compaction_stream(
-        &segments_base_folder,
         &levels,
         &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
@@ -261,14 +249,17 @@ fn merge_segments(
     let start = Instant::now();
 
     let Ok(segment_writer) = MultiWriter::new(
+        segments_base_folder.clone(),
         opts.segment_id_generator.clone(),
+        payload.target_size,
+        /* opts.segment_id_generator.clone(),
         payload.target_size,
         crate::segment::writer::Options {
             folder: segments_base_folder.clone(),
             segment_id: 0, // TODO: this is never used in MultiWriter
             data_block_size: opts.config.data_block_size,
             index_block_size: opts.config.index_block_size,
-        },
+        }, */
     ) else {
         log::error!("Compaction failed");
 
@@ -281,9 +272,11 @@ fn merge_segments(
         return Ok(());
     };
 
-    let mut segment_writer = segment_writer.use_compression(opts.config.compression);
+    let mut segment_writer = segment_writer
+        .use_compression(opts.config.compression)
+        .use_data_block_size(opts.config.data_block_size);
 
-    {
+    /* {
         use crate::segment::writer::BloomConstructionPolicy;
 
         if opts.config.bloom_bits_per_key >= 0 {
@@ -304,7 +297,7 @@ fn merge_segments(
             segment_writer =
                 segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
         }
-    }
+    } */
 
     for (idx, item) in merge_iter.enumerate() {
         let Ok(item) = item else {
@@ -362,8 +355,17 @@ fn merge_segments(
 
     let Ok(created_segments) = writer_results
         .into_iter()
-        .map(|trailer| -> crate::Result<Segment> {
-            let segment_id = trailer.metadata.id;
+        .map(|segment_id| -> crate::Result<Segment> {
+            let segment_file_path = segments_base_folder.join(segment_id.to_string());
+
+            Segment::recover(
+                &segment_file_path,
+                opts.tree_id,
+                opts.config.cache.clone(),
+                opts.config.descriptor_table.clone(),
+            )
+
+            /* let segment_id = trailer.metadata.id;
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
 
             let block_index = match payload.dest_level {
@@ -410,7 +412,7 @@ fn merge_segments(
 
                 is_deleted: AtomicBool::default(),
             }
-            .into())
+            .into()) */
         })
         .collect::<crate::Result<Vec<_>>>()
     else {
@@ -453,14 +455,6 @@ fn merge_segments(
         // IMPORTANT: Show the segments again, because compaction failed
         levels.show_segments(payload.segment_ids.iter().copied());
         return Err(e);
-    }
-
-    for segment in &created_segments {
-        let segment_file_path = segments_base_folder.join(segment.id().to_string());
-
-        opts.config
-            .descriptor_table
-            .insert(&segment_file_path, segment.global_id());
     }
 
     // NOTE: If the application were to crash >here< it's fine

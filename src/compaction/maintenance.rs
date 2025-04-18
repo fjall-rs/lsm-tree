@@ -4,10 +4,8 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::{
-    config::Config,
-    level_manifest::LevelManifest,
-    segment::{meta::SegmentId, Segment},
-    HashSet,
+    config::Config, level_manifest::LevelManifest, segment::meta::SegmentId,
+    super_segment::Segment, HashSet,
 };
 
 const L0_SEGMENT_CAP: usize = 20;
@@ -93,8 +91,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::Metadata,
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         KeyRange,
     };
     use std::sync::{atomic::AtomicBool, Arc};
@@ -102,7 +101,8 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -147,7 +147,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]

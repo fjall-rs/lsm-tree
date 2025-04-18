@@ -2,14 +2,13 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{level_manifest::level::Level, segment::scanner::Scanner, InternalValue};
-use std::{path::PathBuf, sync::Arc};
+use crate::{level_manifest::level::Level, super_segment::Scanner, InternalValue};
+use std::sync::Arc;
 
 /// Scans through a disjoint level
 ///
 /// Optimized for compaction, by using a `SegmentScanner` instead of `SegmentReader`.
 pub struct LevelScanner {
-    base_folder: PathBuf,
     segments: Arc<Level>,
     lo: usize,
     hi: usize,
@@ -18,7 +17,6 @@ pub struct LevelScanner {
 
 impl LevelScanner {
     pub fn from_indexes(
-        base_folder: PathBuf,
         level: Arc<Level>,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> crate::Result<Self> {
@@ -27,10 +25,9 @@ impl LevelScanner {
 
         let lo_segment = level.segments.get(lo).expect("should exist");
 
-        let lo_reader = lo_segment.scan(&base_folder)?;
+        let lo_reader = lo_segment.scan()?;
 
         Ok(Self {
-            base_folder,
             segments: level,
             lo,
             hi,
@@ -54,11 +51,8 @@ impl Iterator for LevelScanner {
                 self.lo += 1;
 
                 if self.lo <= self.hi {
-                    let scanner = fail_iter!(self
-                        .segments
-                        .get(self.lo)
-                        .expect("should exist")
-                        .scan(&self.base_folder));
+                    let scanner =
+                        fail_iter!(self.segments.get(self.lo).expect("should exist").scan());
 
                     self.lo_reader = Some(scanner);
                 }
@@ -110,11 +104,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelScanner::from_indexes(
-                tempdir.path().join("segments"),
-                level.clone(),
-                (None, None),
-            )?;
+            let multi_reader = LevelScanner::from_indexes(level.clone(), (None, None))?;
 
             let mut iter = multi_reader.flatten();
 
@@ -134,11 +124,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = LevelScanner::from_indexes(
-                tempdir.path().join("segments"),
-                level.clone(),
-                (Some(1), None),
-            )?;
+            let multi_reader = LevelScanner::from_indexes(level.clone(), (Some(1), None))?;
 
             let mut iter = multi_reader.flatten();
 

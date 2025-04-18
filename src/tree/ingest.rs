@@ -5,13 +5,10 @@
 use super::Tree;
 use crate::{
     file::SEGMENTS_FOLDER,
-    segment::{block_index::BlockIndexImpl, multi_writer::MultiWriter, SegmentInner},
-    AbstractTree, Segment, UserKey, UserValue, ValueType,
+    super_segment::{multi_writer::MultiWriter, Segment},
+    AbstractTree, UserKey, UserValue, ValueType,
 };
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{path::PathBuf, sync::Arc};
 
 pub struct Ingestion<'a> {
     folder: PathBuf,
@@ -30,19 +27,20 @@ impl<'a> Ingestion<'a> {
         let folder = tree.config.path.join(SEGMENTS_FOLDER);
         log::debug!("Ingesting into disk segments in {folder:?}");
 
-        let mut writer = MultiWriter::new(
+        let writer = MultiWriter::new(
+            folder.clone(),
             tree.segment_id_counter.clone(),
             128 * 1_024 * 1_024,
-            crate::segment::writer::Options {
+            /*  crate::segment::writer::Options {
                 folder: folder.clone(),
                 data_block_size: tree.config.data_block_size,
                 index_block_size: tree.config.index_block_size,
                 segment_id: 0, /* TODO: unused */
-            },
+            }, */
         )?
         .use_compression(tree.config.compression);
 
-        {
+        /* {
             use crate::segment::writer::BloomConstructionPolicy;
 
             if tree.config.bloom_bits_per_key >= 0 {
@@ -52,7 +50,7 @@ impl<'a> Ingestion<'a> {
             } else {
                 writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
             }
-        }
+        } */
 
         Ok(Self {
             folder,
@@ -71,16 +69,27 @@ impl<'a> Ingestion<'a> {
     }
 
     pub fn finish(self) -> crate::Result<()> {
-        use crate::{
-            compaction::MoveDown, segment::block_index::two_level_index::TwoLevelBlockIndex,
-        };
+        use crate::compaction::MoveDown;
 
         let results = self.writer.finish()?;
 
+        log::info!("Finished ingestion writer");
+
         let created_segments = results
             .into_iter()
-            .map(|trailer| -> crate::Result<Segment> {
-                let segment_id = trailer.metadata.id;
+            .map(|segment_id| -> crate::Result<Segment> {
+                let segment_file_path = self.folder.join(segment_id.to_string());
+
+                Segment::recover(
+                    &segment_file_path,
+                    self.tree.id,
+                    self.tree.config.cache.clone(),
+                    self.tree.config.descriptor_table.clone(),
+                )
+
+                // todo!()
+
+                /* let segment_id = trailer.metadata.id;
                 let segment_file_path = self.folder.join(segment_id.to_string());
 
                 let block_index = TwoLevelBlockIndex::from_file(
@@ -114,7 +123,7 @@ impl<'a> Ingestion<'a> {
                     path: segment_file_path,
                     is_deleted: AtomicBool::default(),
                 }
-                .into())
+                .into()) */
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
@@ -122,14 +131,14 @@ impl<'a> Ingestion<'a> {
 
         self.tree.compact(Arc::new(MoveDown(0, 6)), 0)?;
 
-        for segment in &created_segments {
+        /*  for segment in &created_segments {
             let segment_file_path = self.folder.join(segment.id().to_string());
 
             self.tree
                 .config
                 .descriptor_table
                 .insert(&segment_file_path, segment.global_id());
-        }
+        } */
 
         Ok(())
     }

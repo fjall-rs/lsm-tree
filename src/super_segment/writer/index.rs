@@ -9,14 +9,95 @@ use crate::{
         index_block::{NewBlockHandle, NewKeyedBlockHandle},
         Block, BlockOffset, IndexBlock,
     },
-    value::UserKey,
-};
-use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
 };
 
-pub struct Writer {
+pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
+    /// Registers a data block in the block index.
+    fn register_data_block(&mut self, block_handle: NewKeyedBlockHandle) -> crate::Result<()>;
+
+    /// Writes the block index to a file.
+    ///
+    /// Returns the (optional) index blocks handle and the TLI handle.
+    fn finish(
+        &mut self,
+        block_file_writer: &mut W,
+    ) -> crate::Result<(NewBlockHandle, Option<NewBlockHandle>)>;
+
+    fn use_compression(&mut self, compression: CompressionType);
+
+    fn len(&self) -> usize;
+}
+
+pub struct FullIndexWriter {
+    compression: CompressionType,
+    block_handles: Vec<NewKeyedBlockHandle>,
+}
+
+impl FullIndexWriter {
+    pub fn new() -> Self {
+        Self {
+            compression: CompressionType::None,
+            block_handles: Vec::new(),
+        }
+    }
+}
+
+impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter {
+    fn len(&self) -> usize {
+        1
+    }
+
+    fn use_compression(&mut self, compression: CompressionType) {
+        self.compression = compression;
+    }
+
+    fn register_data_block(&mut self, block_handle: NewKeyedBlockHandle) -> crate::Result<()> {
+        log::trace!(
+            "Registering block at {:?} with size {} [end_key={:?}]",
+            block_handle.offset(),
+            block_handle.size(),
+            block_handle.end_key(),
+        );
+
+        self.block_handles.push(block_handle);
+
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        block_file_writer: &mut W,
+    ) -> crate::Result<(NewBlockHandle, Option<NewBlockHandle>)> {
+        let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
+
+        let bytes =
+            IndexBlock::encode_items(&self.block_handles, 1 /* TODO: hard coded for now */)?;
+
+        let header = Block::to_writer(block_file_writer, &bytes, self.compression)?;
+
+        // NOTE: We know that blocks never even approach u32 size
+        #[allow(clippy::cast_possible_truncation)]
+        let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
+
+        log::trace!(
+            "Written top level index, with {} pointers ({bytes_written}B)",
+            self.block_handles.len(),
+        );
+
+        Ok((NewBlockHandle::new(tli_ptr, bytes_written), None))
+    }
+}
+
+// TODO: we need 2 index writers (enum dispatch or Box<dyn> then)
+// TODO: -> FullIndexWriter
+// TODO: -> PartitionedIndexWriter
+//
+// FullIndexWriter puts all block handles into the TLI, and sets the index blocks handle to NULL
+// PartitionedIndexWriter works as Writer does currently
+//
+// That way, when index_blocks_handle == 0, TLI is a dense index
+
+/* pub struct Writer {
     file_pos: BlockOffset,
 
     prev_pos: (BlockOffset, BlockOffset),
@@ -56,7 +137,8 @@ impl Writer {
     }
 
     fn write_block(&mut self) -> crate::Result<()> {
-        let bytes = IndexBlock::encode_items(&self.block_handles)?;
+        let bytes =
+            IndexBlock::encode_items(&self.block_handles, 1 /* TODO: hard coded for now */)?;
 
         // TODO: prev block offset
         let _header = Block::to_writer(&mut self.write_buffer, &bytes, self.compression)?;
@@ -126,22 +208,22 @@ impl Writer {
         file_offset: BlockOffset,
     ) -> crate::Result<NewBlockHandle> {
         block_file_writer.write_all(&self.write_buffer)?;
-        let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
-
         log::trace!("Wrote index blocks into segment file");
+
+        let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
 
         for item in &mut self.tli_pointers {
             item.shift(file_offset);
         }
 
-        let bytes = IndexBlock::encode_items(&self.tli_pointers)?;
+        let bytes =
+            IndexBlock::encode_items(&self.tli_pointers, 1 /* TODO: hard coded for now */)?;
 
-        let _header = Block::to_writer(&mut self.write_buffer, &bytes, self.compression)?;
+        let _header = Block::to_writer(block_file_writer, &bytes, self.compression)?;
 
-        let bytes_written = BlockHeader::serialized_len() + bytes.len();
-
-        block_file_writer.flush()?;
-        block_file_writer.get_mut().sync_all()?;
+        // NOTE: We know that blocks never even approach u32 size
+        #[allow(clippy::cast_possible_truncation)]
+        let bytes_written = (BlockHeader::serialized_len() + bytes.len()) as u32;
 
         log::trace!(
             "Written top level index, with {} pointers ({} bytes)",
@@ -149,7 +231,7 @@ impl Writer {
             bytes_written,
         );
 
-        Ok(NewBlockHandle::new(tli_ptr, bytes_written as u32))
+        Ok(NewBlockHandle::new(tli_ptr, bytes_written))
     }
 
     /// Returns the offset in the file to TLI
@@ -166,4 +248,4 @@ impl Writer {
 
         Ok(tli_handle)
     }
-}
+} */

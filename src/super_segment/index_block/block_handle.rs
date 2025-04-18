@@ -6,6 +6,7 @@ use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     super_segment::block::{BlockOffset, Encodable},
 };
+use byteorder::WriteBytesExt;
 use value_log::UserKey;
 use varint_rs::{VarintReader, VarintWriter};
 
@@ -85,6 +86,12 @@ pub struct NewKeyedBlockHandle {
     inner: NewBlockHandle,
 }
 
+impl AsRef<NewBlockHandle> for NewKeyedBlockHandle {
+    fn as_ref(&self) -> &NewBlockHandle {
+        &self.inner
+    }
+}
+
 impl NewKeyedBlockHandle {
     pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
         Self {
@@ -139,12 +146,16 @@ impl Encodable<BlockOffset> for NewKeyedBlockHandle {
         state: &mut BlockOffset,
     ) -> crate::Result<()> {
         // We encode restart markers as:
-        // [offset] [size] [key len] [end key]
-        // 1        2      3         4
+        // [marker=0] [offset] [size] [key len] [end key]
+        // 1          2        3      4         5
 
-        self.inner.encode_into(writer)?; // 1, 2
-        writer.write_u16_varint(self.end_key.len() as u16)?; // 3
-        writer.write_all(&self.end_key)?; // 4
+        writer.write_u8(0)?; // 1
+
+        // TODO: maybe move these behind the key
+        self.inner.encode_into(writer)?; // 2, 3
+
+        writer.write_u16_varint(self.end_key.len() as u16)?; // 4
+        writer.write_all(&self.end_key)?; // 5
 
         *state = BlockOffset(*self.offset() + u64::from(self.size()));
 
@@ -158,22 +169,24 @@ impl Encodable<BlockOffset> for NewKeyedBlockHandle {
         shared_len: usize,
     ) -> crate::Result<()> {
         // We encode truncated handles as:
-        // [size] [shared prefix len] [rest key len] [rest key]
-        // 1      2                   3              4
+        // [marker=0] [size] [shared prefix len] [rest key len] [rest key]
+        // 1          2      3                   4              5
 
-        writer.write_u32_varint(self.size())?; // 1
+        writer.write_u8(0)?; // 1
+
+        writer.write_u32_varint(self.size())?; // 2
 
         // TODO: maybe we can skip this varint altogether if prefix truncation = false
-        writer.write_u16_varint(shared_len as u16)?; // 2
+        writer.write_u16_varint(shared_len as u16)?; // 3
 
         // NOTE: We can safely cast to u16, because keys are u16 long max
         #[allow(clippy::cast_possible_truncation)]
         let rest_len = self.end_key.len() - shared_len;
 
-        writer.write_u16_varint(rest_len as u16)?; // 3
+        writer.write_u16_varint(rest_len as u16)?; // 4
 
         let truncated_user_key = self.end_key.get(shared_len..).expect("should be in bounds");
-        writer.write_all(truncated_user_key)?; // 4
+        writer.write_all(truncated_user_key)?; // 5
 
         *state += u64::from(self.size());
 

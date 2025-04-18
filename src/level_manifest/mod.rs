@@ -8,8 +8,8 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
-    segment::{meta::SegmentId, Segment},
-    HashMap, HashSet, KeyRange,
+    super_segment::Segment,
+    HashMap, HashSet, KeyRange, SegmentId,
 };
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
@@ -529,7 +529,7 @@ mod tests {
         #[rustfmt::skip]
         let raw = &[
             // Magic
-            b'L', b'S', b'M', 2,
+            b'L', b'S', b'M', 3,
 
             // Count
             0,

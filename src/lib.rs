@@ -90,7 +90,7 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
-#![deny(unsafe_code)]
+#![warn(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
@@ -119,6 +119,8 @@ macro_rules! fail_iter {
         }
     };
 }
+
+// TODO: 3.0.0 change everything to LittleEndian?
 
 mod any_tree;
 
@@ -158,6 +160,12 @@ mod level_scanner;
 
 mod manifest;
 mod memtable;
+
+#[doc(hidden)]
+mod new_cache;
+
+#[doc(hidden)]
+mod new_descriptor_table;
 
 #[doc(hidden)]
 pub mod merge;
@@ -204,17 +212,20 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
+    new_cache::NewCache,
+    new_descriptor_table::NewDescriptorTable,
     segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };
 
 pub use {
-    cache::Cache,
     coding::{DecodeError, EncodeError},
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
+    new_cache::NewCache as Cache, // <- TODO: rename
+    new_descriptor_table::NewDescriptorTable as DescriptorTable,
     r#abstract::AbstractTree,
     segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,

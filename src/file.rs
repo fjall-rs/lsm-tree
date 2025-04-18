@@ -19,6 +19,8 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
 
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
     temp_file.write_all(content)?;
+    temp_file.flush()?;
+    temp_file.as_file_mut().sync_all()?;
     temp_file.persist(path)?;
 
     // TODO: not sure why it fails on Windows...

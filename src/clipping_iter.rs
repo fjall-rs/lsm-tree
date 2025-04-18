@@ -1,10 +1,13 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::InternalValue;
 use std::{
     marker::PhantomData,
     ops::{Bound, RangeBounds},
 };
 
-/* crate::Result<InternalValue> */
 type Item = InternalValue;
 
 /// Clips an iterator to a key range
@@ -158,7 +161,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_clipping_iter_forwards() -> crate::Result<()> {
+    fn v3_clipping_iter_forwards() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),
@@ -178,12 +181,10 @@ mod tests {
             iter.next().map(|x| x.key.user_key).as_deref(),
         );
         assert!(iter.next().is_none());
-
-        Ok(())
     }
 
     #[test]
-    fn v3_clipping_iter_rev() -> crate::Result<()> {
+    fn v3_clipping_iter_rev() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),
@@ -203,12 +204,10 @@ mod tests {
             iter.next_back().map(|x| x.key.user_key).as_deref(),
         );
         assert!(iter.next_back().is_none());
-
-        Ok(())
     }
 
     #[test]
-    fn v3_clipping_iter_ping_pong() -> crate::Result<()> {
+    fn v3_clipping_iter_ping_pong() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),
@@ -233,7 +232,5 @@ mod tests {
         );
         assert!(iter.next_back().is_none());
         assert!(iter.next().is_none());
-
-        Ok(())
     }
 }

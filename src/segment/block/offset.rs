@@ -1,3 +1,4 @@
+// TODO: rename FileOffset?
 #[derive(Copy, Clone, Default, Debug, std::hash::Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct BlockOffset(pub u64);
 

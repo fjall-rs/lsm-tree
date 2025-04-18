@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Header {
     /// Compression type used
-    pub compression: CompressionType,
+    pub compression: CompressionType, // TODO: 3.0.0 store in segment meta instead?
 
     /// Checksum value to verify integrity of data
     pub checksum: Checksum,
@@ -23,11 +23,11 @@ pub struct Header {
     /// File offset of previous block - only used for data blocks
     pub previous_block_offset: BlockOffset,
 
-    /// Compressed size of data segment
+    /// On-disk size of data segment
     pub data_length: u32,
 
     /// Uncompressed size of data segment
-    pub uncompressed_length: u32, // TODO: v3: can remove this, because every block stores its allocation anyway
+    pub uncompressed_length: u32,
 }
 
 impl Header {
@@ -124,7 +124,7 @@ mod tests {
         #[rustfmt::skip]
         let bytes = &[
             // Header
-            b'L', b'S', b'M', 2,
+            b'L', b'S', b'M', 3,
             
             // Compression
             0, 0,

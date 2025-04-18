@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
+    compaction::CompactionStrategy, config::TreeType, super_segment::Segment,
+    tree::inner::MemtableId, AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo,
+    Snapshot, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -44,8 +45,9 @@ pub trait AbstractTree {
     /// Gets the memory usage of all bloom filters in the tree.
     fn bloom_filter_size(&self) -> usize;
 
-    #[doc(hidden)]
-    fn verify(&self) -> crate::Result<usize>;
+    // TODO:?
+    /* #[doc(hidden)]
+    fn verify(&self) -> crate::Result<usize>; */
 
     /// Synchronously flushes a memtable to a disk segment.
     ///

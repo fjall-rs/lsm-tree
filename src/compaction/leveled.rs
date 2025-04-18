@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
     level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
-    segment::Segment,
+    super_segment::Segment,
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, KeyRange, SegmentId,
 };
@@ -272,7 +272,7 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
-                // TODO: eventually, this should happen lazily
+                /*// TODO: eventually, this should happen lazily
                 // if a segment file lives for very long, it should get rewritten
                 // Rocks, by default, rewrites files that are 1 month or older
                 //
@@ -284,7 +284,7 @@ impl CompactionStrategy for Strategy {
 
                 if goes_into_cold_storage {
                     return Choice::Merge(choice);
-                }
+                }*/
 
                 if can_trivial_move && level.is_disjoint {
                     return Choice::Move(choice);
@@ -301,34 +301,30 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            if first_level.len() >= self.l0_threshold.into() && !busy_levels.contains(&0) {
+            if busy_levels.contains(&0) {
+                return Choice::DoNothing;
+            }
+
+            if first_level.len() >= self.l0_threshold.into() {
                 let first_level_size = first_level.size();
 
                 // NOTE: Special handling for disjoint workloads
-                if levels.is_disjoint() {
-                    if first_level_size < self.target_size.into() {
-                        // TODO: also do this in non-disjoint workloads
-                        // -> intra-L0 compaction
+                if levels.is_disjoint() && first_level_size < self.target_size.into() {
+                    // TODO: also do this in non-disjoint workloads
+                    // -> intra-L0 compaction
 
-                        // NOTE: Force a merge into L0 itself
-                        // ...we seem to have *very* small flushes
-                        return if first_level.len() >= 32 {
-                            Choice::Merge(CompactionInput {
-                                dest_level: 0,
-                                segment_ids: first_level.list_ids(),
-                                // NOTE: Allow a bit of overshooting
-                                target_size: ((self.target_size as f32) * 1.1) as u64,
-                            })
-                        } else {
-                            Choice::DoNothing
-                        };
-                    }
-
-                    return Choice::Merge(CompactionInput {
-                        dest_level: 1,
-                        segment_ids: first_level.list_ids(),
-                        target_size: ((self.target_size as f32) * 1.1) as u64,
-                    });
+                    // NOTE: Force a merge into L0 itself
+                    // ...we seem to have *very* small flushes
+                    return if first_level.len() >= 30 {
+                        Choice::Merge(CompactionInput {
+                            dest_level: 0,
+                            segment_ids: first_level.list_ids(),
+                            // NOTE: Allow a bit of overshooting
+                            target_size: ((self.target_size as f32) * 1.1) as u64,
+                        })
+                    } else {
+                        Choice::DoNothing
+                    };
                 }
 
                 if first_level_size < self.target_size.into() {
@@ -392,8 +388,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         time::unix_timestamp,
         Config, HashSet, KeyRange,
     };
@@ -418,7 +415,9 @@ mod tests {
         size: u64,
         tombstone_ratio: f32,
     ) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /*   let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -463,7 +462,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[allow(clippy::expect_used)]
