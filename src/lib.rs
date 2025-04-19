@@ -200,7 +200,7 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::{block::Checksum, GlobalSegmentId, SegmentId},
+    segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };
