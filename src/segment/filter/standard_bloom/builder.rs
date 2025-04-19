@@ -97,16 +97,11 @@ impl Builder {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
-            self.enable_bit(idx as usize);
+            self.inner.enable_bit(idx as usize);
 
             h1 = h1.wrapping_add(h2);
             h2 = h2.wrapping_mul(i);
         }
-    }
-
-    /// Sets the bit at the given index to `true`.
-    fn enable_bit(&mut self, idx: usize) {
-        self.inner.set(idx, true);
     }
 
     /// Gets the hash of a key.

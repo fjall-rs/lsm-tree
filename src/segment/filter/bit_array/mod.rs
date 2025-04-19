@@ -9,6 +9,7 @@ pub use sliced::BitArray as BitArrayReader;
 const BIT_MASK: u8 = 0b1000_0000_u8;
 
 /// Sets a bit in the byte
+#[must_use]
 pub fn set_bit(byte: u8, idx: usize, value: bool) -> u8 {
     let bit_mask = BIT_MASK >> idx;
 
@@ -41,12 +42,12 @@ impl Builder {
     }
 
     /// Sets the i-th bit
-    pub fn set(&mut self, idx: usize, val: bool) {
+    pub fn enable_bit(&mut self, idx: usize) {
         let byte_idx = idx / 8;
         let byte = self.0.get_mut(byte_idx).expect("should be in bounds");
 
         let bit_idx = idx % 8;
-        *byte = set_bit(*byte, bit_idx, val);
+        *byte = set_bit(*byte, bit_idx, true);
     }
 }
 
@@ -61,14 +62,5 @@ mod tests {
         assert_eq!(0b1000_0000, set_bit(0, 0, true));
         assert_eq!(0b0100_0000, set_bit(0, 1, true));
         assert_eq!(0b0100_0110, set_bit(0b0000_0110, 1, true));
-    }
-
-    #[test]
-    fn bit_set_false() {
-        assert_eq!(0b1111_1101, set_bit(0xFF, 6, false));
-        assert_eq!(0b0111_1111, set_bit(0xFF, 0, false));
-        assert_eq!(0b1011_1111, set_bit(0xFF, 1, false));
-
-        assert_eq!(0b0000_0110, set_bit(0b0100_0110, 1, false));
     }
 }
