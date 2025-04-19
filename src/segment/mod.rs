@@ -5,7 +5,7 @@
 pub mod block;
 mod block_index;
 pub(crate) mod data_block;
-pub(crate) mod filter;
+pub mod filter;
 mod id;
 mod index_block;
 mod inner;

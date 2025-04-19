@@ -1,34 +1,39 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::bloom::BloomFilter;
 
 fn filter_construction(c: &mut Criterion) {
-    let mut filter = BloomFilter::with_fp_rate(1_000_000, 0.01);
+    use lsm_tree::segment::filter::standard_bloom::Builder;
+
+    let mut filter = Builder::with_fp_rate(500_000_000, 0.01);
 
     c.bench_function("bloom filter add key", |b| {
         b.iter(|| {
             let key = nanoid::nanoid!();
-            filter.set_with_hash(BloomFilter::get_hash(key.as_bytes()));
+            filter.set_with_hash(Builder::get_hash(key.as_bytes()));
         });
     });
 }
 
 fn filter_contains(c: &mut Criterion) {
+    use lsm_tree::segment::filter::standard_bloom::Builder;
+
     let keys = (0..100_000u128)
         .map(|x| x.to_be_bytes().to_vec())
         .collect::<Vec<_>>();
 
     for fpr in [0.01, 0.001, 0.0001, 0.00001] {
-        let mut filter = BloomFilter::with_fp_rate(100_000, fpr);
+        let mut filter = Builder::with_fp_rate(100_000_000, fpr);
 
         for key in &keys {
-            filter.set_with_hash(BloomFilter::get_hash(key));
+            filter.set_with_hash(Builder::get_hash(key));
         }
 
         let mut rng = rand::rng();
 
+        let filter = filter.build();
+
         c.bench_function(
             &format!(
-                "bloom filter contains key, true positive ({}%)",
+                "standard bloom filter contains key, true positive ({}%)",
                 fpr * 100.0,
             ),
             |b| {
@@ -36,7 +41,7 @@ fn filter_contains(c: &mut Criterion) {
                     use rand::seq::IndexedRandom;
 
                     let sample = keys.choose(&mut rng).unwrap();
-                    let hash = BloomFilter::get_hash(sample);
+                    let hash = Builder::get_hash(sample);
                     assert!(filter.contains_hash(hash));
                 });
             },

@@ -98,7 +98,7 @@ impl StandardBloomFilter {
     ///
     /// Will never have a false negative.
     #[must_use]
-    pub(crate) fn contains_hash(&self, hash: CompositeHash) -> bool {
+    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
         let (mut h1, mut h2) = hash;
 
         for i in 1..=(self.k as u64) {
