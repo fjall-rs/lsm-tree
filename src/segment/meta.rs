@@ -44,6 +44,7 @@ pub struct ParsedMeta {
 }
 
 impl ParsedMeta {
+    #[allow(clippy::expect_used)]
     pub fn from_trailer(file: &File, trailer: &Trailer) -> crate::Result<Self> {
         let ptr = trailer.metadata;
         let block = Block::from_file(file, ptr.offset(), ptr.size(), CompressionType::None)?;
