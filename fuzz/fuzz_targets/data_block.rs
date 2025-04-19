@@ -101,9 +101,11 @@ fuzz_target!(|data: &[u8]| {
     } */
 
     let items = items.into_iter().map(|value| value.0).collect::<Vec<_>>();
-    let bytes = DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
 
-    let data_block = DataBlock::new(Block {
+    for restart_interval in 1..=u8::MAX {
+        let bytes = DataBlock::encode_items(&items, restart_interval.into(), hash_ratio).unwrap();
+
+        let data_block = DataBlock::new(Block {
         data: bytes.into(),
         header: lsm_tree::segment::block::Header {
             checksum: lsm_tree::segment::Checksum::from_raw(0),
@@ -250,8 +252,9 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(
             expected_range,
             data_block
-                .range::<&[u8], _>(&(lo_key.as_ref()..=hi_key.as_ref()))
-                .collect::<Vec<_>>(),
-        );
+                    .range::<&[u8], _>(&(lo_key.as_ref()..=hi_key.as_ref()))
+                    .collect::<Vec<_>>(),
+            );
+        }
     }
 });

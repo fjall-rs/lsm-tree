@@ -68,13 +68,13 @@ impl IndexBlock {
         }
     }
 
-    /// Returns the amount of items in the block
+    /// Returns the amount of items in the block.
     #[must_use]
-    pub fn item_count(&self) -> usize {
+    pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
     }
 
-    /// Always returns false: a block is never empty
+    /// Always returns false: a block is never empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         false
@@ -371,7 +371,7 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.item_count(), items.len());
+        assert_eq!(data_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
@@ -419,7 +419,7 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.item_count(), items.len());
+        assert_eq!(data_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
@@ -462,7 +462,7 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.item_count(), items.len());
+        assert_eq!(data_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
@@ -508,7 +508,7 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.item_count(), 1);
+        assert_eq!(data_block.len(), 1);
 
         assert_eq!(
             Some(item.clone()),
@@ -548,7 +548,7 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.item_count(), 1);
+        assert_eq!(data_block.len(), 1);
 
         assert_eq!(
             Some(item.clone()),

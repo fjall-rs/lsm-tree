@@ -19,7 +19,7 @@ mod writer;
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
 pub use id::{GlobalSegmentId, SegmentId};
-pub use index_block::{IndexBlock, NewKeyedBlockHandle};
+pub use index_block::{IndexBlock, NewBlockHandle, NewKeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
 
@@ -28,7 +28,6 @@ use crate::{
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
 use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
-use index_block::NewBlockHandle;
 use inner::Inner;
 use meta::ParsedMeta;
 use std::{
