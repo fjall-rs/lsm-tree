@@ -155,7 +155,7 @@ impl CompactionStrategy for Strategy {
 mod tests {
     use super::Strategy;
     use crate::{
-        bloom::BloomFilter,
+        bloom::StandardBloomFilter,
         cache::Cache,
         compaction::{Choice, CompactionStrategy, Input as CompactionInput},
         config::Config,
@@ -216,7 +216,7 @@ mod tests {
             },
             cache,
 
-            bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            bloom_filter: Some(StandardBloomFilter::with_fp_rate(1, 0.1)),
 
             path: "a".into(),
             is_deleted: AtomicBool::default(),

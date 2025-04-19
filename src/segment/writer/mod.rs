@@ -13,7 +13,7 @@ use super::{
     value_block::ValueBlock,
 };
 use crate::{
-    bloom::BloomFilter,
+    bloom::StandardBloomFilter,
     coding::Encode,
     file::fsync_directory,
     segment::block::ItemSize,
@@ -75,10 +75,10 @@ impl Default for BloomConstructionPolicy {
 
 impl BloomConstructionPolicy {
     #[must_use]
-    pub fn build(&self, n: usize) -> BloomFilter {
+    pub fn build(&self, n: usize) -> StandardBloomFilter {
         match self {
-            Self::BitsPerKey(bpk) => BloomFilter::with_bpk(n, *bpk),
-            Self::FpRate(fpr) => BloomFilter::with_fp_rate(n, *fpr),
+            Self::BitsPerKey(bpk) => StandardBloomFilter::with_bpk(n, *bpk),
+            Self::FpRate(fpr) => StandardBloomFilter::with_fp_rate(n, *fpr),
         }
     }
 
@@ -225,7 +225,7 @@ impl Writer {
             // of the same key
             if self.bloom_policy.is_active() {
                 self.bloom_hash_buffer
-                    .push(BloomFilter::get_hash(&item.key.user_key));
+                    .push(StandardBloomFilter::get_hash(&item.key.user_key));
             }
         }
 

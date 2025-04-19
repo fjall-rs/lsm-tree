@@ -35,7 +35,7 @@ pub struct Inner {
 
     /// Bloom filter
     #[doc(hidden)]
-    pub bloom_filter: Option<crate::bloom::BloomFilter>,
+    pub bloom_filter: Option<crate::bloom::StandardBloomFilter>,
 
     pub is_deleted: AtomicBool,
 }

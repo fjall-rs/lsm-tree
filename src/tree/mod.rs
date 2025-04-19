@@ -618,7 +618,7 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::bloom::BloomFilter::get_hash(key);
+        let key_hash = crate::bloom::StandardBloomFilter::get_hash(key);
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
 

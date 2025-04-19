@@ -19,7 +19,7 @@ pub mod value_block_consumer;
 pub mod writer;
 
 use crate::{
-    bloom::{BloomFilter, CompositeHash},
+    bloom::{StandardBloomFilter, CompositeHash},
     cache::Cache,
     descriptor_table::FileDescriptorTable,
     time::unix_timestamp,
@@ -220,7 +220,7 @@ impl Segment {
     pub(crate) fn load_bloom(
         path: &Path,
         ptr: block::offset::BlockOffset,
-    ) -> crate::Result<Option<BloomFilter>> {
+    ) -> crate::Result<Option<StandardBloomFilter>> {
         Ok(if *ptr > 0 {
             use crate::coding::Decode;
             use std::{
@@ -230,7 +230,7 @@ impl Segment {
 
             let mut reader = File::open(path)?;
             reader.seek(SeekFrom::Start(*ptr))?;
-            Some(BloomFilter::decode_from(&mut reader)?)
+            Some(StandardBloomFilter::decode_from(&mut reader)?)
         } else {
             None
         })
@@ -308,7 +308,7 @@ impl Segment {
     pub fn bloom_filter_size(&self) -> usize {
         self.bloom_filter
             .as_ref()
-            .map(super::bloom::BloomFilter::len)
+            .map(super::bloom::StandardBloomFilter::len)
             .unwrap_or_default()
     }
 
