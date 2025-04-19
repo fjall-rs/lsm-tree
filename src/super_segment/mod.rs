@@ -24,8 +24,7 @@ pub use scanner::Scanner;
 pub use writer::Writer;
 
 use crate::{
-    new_cache::Cache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId,
-    UserKey,
+    cache::Cache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
 use filter::standard_bloom::{CompositeHash, StandardBloomFilter};

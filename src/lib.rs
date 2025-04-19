@@ -153,7 +153,7 @@ mod manifest;
 mod memtable;
 
 #[doc(hidden)]
-mod new_cache;
+mod cache;
 
 #[doc(hidden)]
 mod new_descriptor_table;
@@ -200,7 +200,6 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    new_cache::Cache,
     new_descriptor_table::NewDescriptorTable,
     super_segment::{block::Checksum, GlobalSegmentId, SegmentId},
     tree::inner::TreeId,
@@ -208,12 +207,12 @@ pub use {
 };
 
 pub use {
+    cache::Cache,
     coding::{DecodeError, EncodeError},
     compression::CompressionType,
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
-    new_cache::Cache as Cache, // <- TODO: rename
     new_descriptor_table::NewDescriptorTable as DescriptorTable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,

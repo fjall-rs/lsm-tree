@@ -7,7 +7,7 @@ use super::{
     trailer::Trailer,
 };
 use crate::{
-    new_cache::Cache, new_descriptor_table::NewDescriptorTable, tree::inner::TreeId,
+    cache::Cache, new_descriptor_table::NewDescriptorTable, tree::inner::TreeId,
     GlobalSegmentId,
 };
 use std::{
