@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::segment::id::GlobalSegmentId;
 use crate::super_segment::block::Header;
 use crate::super_segment::{Block, BlockOffset, DataBlock};
+use crate::GlobalSegmentId;
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
 
@@ -148,23 +148,6 @@ impl NewCache {
                 (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
                 Item::IndexBlock(value),
             );
-    } */
-
-    /*  #[doc(hidden)]
-    #[must_use]
-    pub fn get_data_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-    ) -> Option<Arc<ValueBlock>> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
-
-        if let Item::DataBlock(block) = self.data.get(&key)? {
-            Some(block)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
     } */
 
     /*  #[doc(hidden)]

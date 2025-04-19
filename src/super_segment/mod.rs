@@ -5,7 +5,8 @@
 pub mod block;
 mod block_index;
 pub(crate) mod data_block;
-mod filter;
+pub(crate) mod filter;
+mod id;
 mod index_block;
 mod inner;
 mod meta;
@@ -17,16 +18,17 @@ mod writer;
 
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
+pub use id::{GlobalSegmentId, SegmentId};
 pub use index_block::{IndexBlock, NewKeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
 
 use crate::{
-    bloom::CompositeHash, new_cache::NewCache, new_descriptor_table::NewDescriptorTable,
-    CompressionType, GlobalSegmentId, InternalValue, SegmentId, SeqNo, TreeId, UserKey,
+    new_cache::NewCache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId,
+    UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
-use filter::standard_bloom::StandardBloomFilter;
+use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
 use index_block::NewBlockHandle;
 use inner::Inner;
 use meta::ParsedMeta;
@@ -35,6 +37,25 @@ use std::{
     path::Path,
     sync::{atomic::AtomicBool, Arc},
 };
+
+// todo
+
+// TODO: segment iter:
+// TODO:    we only need to truncate items from blocks that are not the first and last block
+// TODO:    because any block inbetween must (trivially) only contain relevant items
+
+// TODO: in Leveled compaction, compact segments that live very long and have
+// many versions (possibly unnecessary space usage of old, stale versions)
+
+// TODO: move into module
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CachePolicy {
+    /// Read cached blocks, but do not change cache
+    Read,
+
+    /// Read cached blocks, and update cache
+    Write,
+}
 
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
@@ -154,8 +175,6 @@ impl Segment {
     }
 
     fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> crate::Result<Option<InternalValue>> {
-        use crate::segment::value_block::CachePolicy;
-
         match seqno {
             None => {
                 let Some(block_handle) = self

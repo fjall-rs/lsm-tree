@@ -18,7 +18,7 @@ pub use fifo::Strategy as Fifo;
 pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
-use crate::{config::Config, level_manifest::LevelManifest, segment::meta::SegmentId, HashSet};
+use crate::{config::Config, level_manifest::LevelManifest, HashSet, SegmentId};
 
 /// Alias for `Leveled`
 pub type Levelled = Leveled;

@@ -523,7 +523,7 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_seqno()
     }
 
-    fn active_memtable_size(&self) -> u32 {
+    fn active_memtable_size(&self) -> u64 {
         self.index.active_memtable_size()
     }
 
@@ -612,7 +612,7 @@ impl AbstractTree for BlobTree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32) {
+    ) -> (u64, u64) {
         use value::MaybeInlineValue;
 
         // NOTE: Initially, we always write an inline value
@@ -652,11 +652,11 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove(key, seqno)
     }
 
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
 }

@@ -388,7 +388,7 @@ impl DataBlock {
         let key_start = offset + reader.position() as usize;
         unwrappy!(reader.seek_relative(key_len as i64));
 
-        let val_len: usize = if value_type == ValueType::Value.into() {
+        let val_len: usize = if value_type == u8::from(ValueType::Value) {
             unwrappy!(reader.read_u32_varint()) as usize
         } else {
             0
@@ -396,7 +396,7 @@ impl DataBlock {
         let val_offset = offset + reader.position() as usize;
         unwrappy!(reader.seek_relative(val_len as i64));
 
-        Some(if value_type == ValueType::Value.into() {
+        Some(if value_type == u8::from(ValueType::Value) {
             ParsedItem {
                 value_type,
                 seqno,
@@ -435,7 +435,7 @@ impl DataBlock {
 
         unwrappy!(reader.seek_relative(rest_key_len as i64));
 
-        let val_len: usize = if value_type == ValueType::Value.into() {
+        let val_len: usize = if value_type == u8::from(ValueType::Value) {
             unwrappy!(reader.read_u32_varint()) as usize
         } else {
             0
@@ -443,7 +443,7 @@ impl DataBlock {
         let val_offset = offset + reader.position() as usize;
         unwrappy!(reader.seek_relative(val_len as i64));
 
-        Some(if value_type == ValueType::Value.into() {
+        Some(if value_type == u8::from(ValueType::Value) {
             ParsedItem {
                 value_type,
                 seqno,

@@ -2,9 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::super_segment::filter::bit_array::BitArrayReader;
-
 use super::{super::bit_array::Builder as BitArrayBuilder, StandardBloomFilter};
+use crate::super_segment::filter::bit_array::BitArrayReader;
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
@@ -95,13 +94,13 @@ impl Builder {
 
     /// Adds the key to the filter.
     pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
-        for i in 0..(self.k as u64) {
+        for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
             self.enable_bit(idx as usize);
 
             h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_add(i);
+            h2 = h2.wrapping_mul(i);
         }
     }
 

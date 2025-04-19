@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    level_manifest::level::Level,
-    segment::{range::Range, value_block::CachePolicy},
-    InternalValue, UserKey,
-};
+use crate::{level_manifest::level::Level, super_segment::CachePolicy, InternalValue, UserKey};
 use std::{ops::Bound, sync::Arc};
 
 /// Reads through a disjoint level
@@ -14,8 +10,8 @@ pub struct LevelReader {
     segments: Arc<Level>,
     lo: usize,
     hi: usize,
-    lo_reader: Option<Range>,
-    hi_reader: Option<Range>,
+    lo_reader: Option<()>, // TODO: range
+    hi_reader: Option<()>, // TODO: range
     cache_policy: CachePolicy,
 }
 

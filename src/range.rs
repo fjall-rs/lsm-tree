@@ -3,14 +3,11 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    key::InternalKey,
     level_manifest::{level::Level, LevelManifest},
     level_reader::LevelReader,
     memtable::Memtable,
-    merge::{BoxedIterator, Merger},
     multi_reader::MultiReader,
-    mvcc_stream::MvccStream,
-    segment::value_block::CachePolicy,
+    super_segment::CachePolicy,
     value::{SeqNo, UserKey},
     InternalValue,
 };

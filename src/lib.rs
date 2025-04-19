@@ -120,8 +120,6 @@ macro_rules! fail_iter {
     };
 }
 
-// TODO: 3.0.0 change everything to LittleEndian?
-
 mod any_tree;
 
 mod r#abstract;
@@ -132,17 +130,10 @@ pub mod binary_search;
 #[doc(hidden)]
 pub mod blob_tree;
 
-mod cache;
-
-#[doc(hidden)]
-pub mod bloom;
-
 mod clipping_iter;
 pub mod compaction;
+mod compression;
 mod config;
-
-#[doc(hidden)]
-pub mod descriptor_table;
 
 mod error;
 // mod export;
@@ -180,9 +171,6 @@ mod path;
 #[doc(hidden)]
 pub mod range;
 
-#[doc(hidden)]
-pub mod segment;
-
 mod seqno;
 mod snapshot;
 mod windows;
@@ -214,20 +202,20 @@ pub use {
     merge::BoxedIterator,
     new_cache::NewCache,
     new_descriptor_table::NewDescriptorTable,
-    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
+    super_segment::{block::Checksum, GlobalSegmentId, SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };
 
 pub use {
     coding::{DecodeError, EncodeError},
+    compression::CompressionType,
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
     new_cache::NewCache as Cache, // <- TODO: rename
     new_descriptor_table::NewDescriptorTable as DescriptorTable,
     r#abstract::AbstractTree,
-    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,
     tree::Tree,

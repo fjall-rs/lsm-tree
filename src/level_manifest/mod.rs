@@ -11,7 +11,7 @@ use crate::{
     super_segment::Segment,
     HashMap, HashSet, KeyRange, SegmentId,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
 use level::Level;
 use std::{
@@ -162,10 +162,10 @@ impl LevelManifest {
 
         for _ in 0..level_count {
             let mut level = vec![];
-            let segment_count = level_manifest.read_u32::<BigEndian>()?;
+            let segment_count = level_manifest.read_u32::<LittleEndian>()?;
 
             for _ in 0..segment_count {
-                let id = level_manifest.read_u64::<BigEndian>()?;
+                let id = level_manifest.read_u64::<LittleEndian>()?;
                 level.push(id);
             }
 
@@ -451,10 +451,10 @@ impl<'a> Encode for Runs<'a> {
         for level in self.iter() {
             // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
             #[allow(clippy::cast_possible_truncation)]
-            writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
+            writer.write_u32::<LittleEndian>(level.segments.len() as u32)?;
 
             for segment in &level.segments {
-                writer.write_u64::<BigEndian>(segment.id())?;
+                writer.write_u64::<LittleEndian>(segment.id())?;
             }
         }
 

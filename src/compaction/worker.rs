@@ -9,11 +9,10 @@ use crate::{
     level_manifest::LevelManifest,
     level_scanner::LevelScanner,
     merge::Merger,
-    segment::id::GlobalSegmentId,
     stop_signal::StopSignal,
     super_segment::{multi_writer::MultiWriter, Segment},
     tree::inner::TreeId,
-    Config, InternalValue, SegmentId, SeqNo,
+    Config, GlobalSegmentId, InternalValue, SegmentId, SeqNo,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},

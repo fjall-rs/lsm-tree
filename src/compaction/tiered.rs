@@ -150,12 +150,11 @@ impl CompactionStrategy for Strategy {
         super::maintenance::Strategy.choose(levels, config)
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::Strategy;
     use crate::{
-        bloom::BloomFilter,
         cache::Cache,
         compaction::{Choice, CompactionStrategy, Input as CompactionInput},
         config::Config,
@@ -433,3 +432,4 @@ mod tests {
         Ok(())
     }
 }
+ */

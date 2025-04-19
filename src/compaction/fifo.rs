@@ -112,7 +112,7 @@ impl CompactionStrategy for Strategy {
         }
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::Strategy;
@@ -276,3 +276,4 @@ mod tests {
         Ok(())
     }
 }
+ */

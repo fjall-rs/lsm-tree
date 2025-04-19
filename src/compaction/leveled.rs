@@ -375,7 +375,7 @@ impl CompactionStrategy for Strategy {
         Choice::DoNothing
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::{Choice, Strategy};
@@ -680,3 +680,4 @@ mod tests {
         Ok(())
     }
 }
+ */

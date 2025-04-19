@@ -383,3 +383,229 @@ impl Writer {
         Ok(Some(self.segment_id))
     }
 }
+
+// TODO: restore
+/*
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::cache::Cache;
+    use crate::descriptor_table::FileDescriptorTable;
+    use crate::segment::block_index::top_level::TopLevelIndex;
+    use crate::segment::reader::Reader;
+    use crate::value::{InternalValue, ValueType};
+    use std::sync::Arc;
+    use test_log::test;
+
+    #[test]
+    fn segment_writer_seqnos() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?;
+
+        writer.write(InternalValue::from_components(
+            "a",
+            nanoid::nanoid!().as_bytes(),
+            7,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "b",
+            nanoid::nanoid!().as_bytes(),
+            5,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "c",
+            nanoid::nanoid!().as_bytes(),
+            8,
+            ValueType::Value,
+        ))?;
+        writer.write(InternalValue::from_components(
+            "d",
+            nanoid::nanoid!().as_bytes(),
+            10,
+            ValueType::Value,
+        ))?;
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(5, trailer.metadata.seqnos.0);
+        assert_eq!(10, trailer.metadata.seqnos.1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_writer_zero_bpk() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 100;
+
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder,
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
+
+        let items = (0u64..ITEM_COUNT).map(|i| {
+            InternalValue::from_components(
+                i.to_be_bytes(),
+                nanoid::nanoid!().as_bytes(),
+                0,
+                ValueType::Value,
+            )
+        });
+
+        for item in items {
+            writer.write(item)?;
+        }
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+        assert_eq!(trailer.offsets.bloom_ptr, BlockOffset(0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_writer_write_read() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 100;
+
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder: folder.clone(),
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?;
+
+        let items = (0u64..ITEM_COUNT).map(|i| {
+            InternalValue::from_components(
+                i.to_be_bytes(),
+                nanoid::nanoid!().as_bytes(),
+                0,
+                ValueType::Value,
+            )
+        });
+
+        for item in items {
+            writer.write(item)?;
+        }
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(ITEM_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        assert!(*trailer.offsets.bloom_ptr > 0);
+
+        let segment_file_path = folder.join(segment_id.to_string());
+
+        // NOTE: The TLI is bound by the index block count, because we know the index block count is u32
+        // the TLI length fits into u32 as well
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            let tli = TopLevelIndex::from_file(
+                &segment_file_path,
+                &trailer.metadata,
+                trailer.offsets.tli_ptr,
+            )?;
+
+            assert_eq!(tli.len() as u32, trailer.metadata.index_block_count);
+        }
+
+        let table = Arc::new(FileDescriptorTable::new(512, 1));
+        table.insert(segment_file_path, (0, segment_id).into());
+
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+
+        let iter = Reader::new(
+            trailer.offsets.index_block_ptr,
+            table,
+            (0, segment_id).into(),
+            block_cache,
+            BlockOffset(0),
+            None,
+        );
+
+        assert_eq!(ITEM_COUNT, iter.count() as u64);
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_writer_write_read_mvcc() -> crate::Result<()> {
+        const ITEM_COUNT: u64 = 1_000;
+        const VERSION_COUNT: u64 = 5;
+
+        let folder = tempfile::tempdir()?.into_path();
+
+        let segment_id = 532;
+
+        let mut writer = Writer::new(Options {
+            folder: folder.clone(),
+            data_block_size: 4_096,
+            index_block_size: 4_096,
+            segment_id,
+        })?;
+
+        for key in 0u64..ITEM_COUNT {
+            for seqno in (0..VERSION_COUNT).rev() {
+                let value = InternalValue::from_components(
+                    key.to_be_bytes(),
+                    nanoid::nanoid!().as_bytes(),
+                    seqno,
+                    ValueType::Value,
+                );
+
+                writer.write(value)?;
+            }
+        }
+
+        let trailer = writer.finish()?.expect("should exist");
+
+        assert_eq!(ITEM_COUNT * VERSION_COUNT, trailer.metadata.item_count);
+        assert_eq!(ITEM_COUNT, trailer.metadata.key_count);
+
+        assert!(*trailer.offsets.bloom_ptr > 0);
+
+        let segment_file_path = folder.join(segment_id.to_string());
+
+        let table = Arc::new(FileDescriptorTable::new(512, 1));
+        table.insert(segment_file_path, (0, segment_id).into());
+
+        let block_cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+
+        let iter = Reader::new(
+            trailer.offsets.index_block_ptr,
+            table,
+            (0, segment_id).into(),
+            block_cache,
+            BlockOffset(0),
+            None,
+        );
+
+        assert_eq!(ITEM_COUNT * VERSION_COUNT, iter.count() as u64);
+
+        Ok(())
+    }
+}
+ */

@@ -3,13 +3,12 @@ use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
 };
-use builder::CompositeHash;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 mod builder;
 
-pub use builder::Builder;
+pub use builder::{Builder, CompositeHash};
 
 /// A standard bloom filter
 ///
@@ -29,6 +28,8 @@ pub struct StandardBloomFilter {
     /// Number of hash functions
     k: usize,
 }
+
+// TODO: change encode/decode to be Filter enum
 
 impl Encode for StandardBloomFilter {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
@@ -100,7 +101,7 @@ impl StandardBloomFilter {
     pub(crate) fn contains_hash(&self, hash: CompositeHash) -> bool {
         let (mut h1, mut h2) = hash;
 
-        for i in 0..(self.k as u64) {
+        for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
             // NOTE: should be in bounds because of modulo
@@ -110,7 +111,7 @@ impl StandardBloomFilter {
             }
 
             h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_add(i);
+            h2 = h2.wrapping_mul(i);
         }
 
         true
@@ -131,13 +132,11 @@ impl StandardBloomFilter {
 
     /// Gets the hash of a key.
     fn get_hash(key: &[u8]) -> CompositeHash {
-        let h0 = xxhash_rust::xxh3::xxh3_128(key);
-        let h1 = (h0 >> 64) as u64;
-        let h2 = h0 as u64;
-        (h1, h2)
+        Builder::get_hash(key)
     }
 }
 
+// TODO: restore
 #[cfg(test)]
 mod tests {
     use super::*;

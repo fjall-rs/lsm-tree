@@ -2,8 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{IndexBlock, NewKeyedBlockHandle};
-use crate::segment::value_block::CachePolicy;
+use super::{CachePolicy, IndexBlock, NewKeyedBlockHandle};
 
 #[enum_dispatch::enum_dispatch]
 pub trait NewBlockIndex {

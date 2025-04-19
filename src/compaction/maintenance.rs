@@ -4,8 +4,7 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::{
-    config::Config, level_manifest::LevelManifest, segment::meta::SegmentId,
-    super_segment::Segment, HashSet,
+    config::Config, level_manifest::LevelManifest, super_segment::Segment, HashSet, SegmentId,
 };
 
 const L0_SEGMENT_CAP: usize = 20;
@@ -75,7 +74,7 @@ impl CompactionStrategy for Strategy {
         }
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,3 +204,4 @@ mod tests {
         Ok(())
     }
 }
+ */

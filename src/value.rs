@@ -5,7 +5,6 @@
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     key::InternalKey,
-    segment::block::ItemSize,
     Slice,
 };
 use std::io::{Read, Write};
@@ -156,15 +155,6 @@ impl PartialOrd for InternalValue {
 impl Ord for InternalValue {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.key.cmp(&other.key)
-    }
-}
-
-impl ItemSize for InternalValue {
-    fn size(&self) -> usize {
-        std::mem::size_of::<SeqNo>()
-            + std::mem::size_of::<ValueType>()
-            + self.key.user_key.len()
-            + self.value.len()
     }
 }
 

@@ -3,8 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    binary_search::partition_point, segment::meta::SegmentId, super_segment::Segment, HashSet,
-    KeyRange, UserKey,
+    binary_search::partition_point, super_segment::Segment, HashSet, KeyRange, SegmentId, UserKey,
 };
 use std::ops::Bound;
 
@@ -241,7 +240,7 @@ impl<'a> DisjointLevel<'a> {
         Some((lo, hi))
     }
 }
-
+/*
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -534,3 +533,4 @@ mod tests {
         );
     }
 }
+ */

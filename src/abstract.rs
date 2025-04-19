@@ -118,7 +118,7 @@ pub trait AbstractTree {
     /// Returns the approximate size of the active memtable in bytes.
     ///
     /// May be used to flush the memtable if it grows too large.
-    fn active_memtable_size(&self) -> u32;
+    fn active_memtable_size(&self) -> u64;
 
     /// Returns the tree type.
     fn tree_type(&self) -> TreeType;
@@ -550,7 +550,7 @@ pub trait AbstractTree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32);
+    ) -> (u64, u64);
 
     /// Removes an item from the tree.
     ///
@@ -579,7 +579,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 
     /// Removes an item from the tree.
     ///
@@ -613,5 +613,5 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 }

@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    path::absolute_path,
-    segment::meta::{CompressionType, TableType},
-    BlobTree, NewCache, NewDescriptorTable, Tree,
-};
+use crate::{path::absolute_path, BlobTree, CompressionType, NewCache, NewDescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -62,10 +58,9 @@ pub struct Config {
     /// What type of compression is used for blobs
     pub blob_compression: CompressionType,
 
-    /// Table type (unused)
-    #[allow(unused)]
-    pub(crate) table_type: TableType,
-
+    // /// Table type (unused)
+    // #[allow(unused)]
+    // pub(crate) table_type: TableType,
     /// Block size of data blocks
     pub data_block_size: u32,
 
@@ -110,7 +105,7 @@ impl Default for Config {
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
             tree_type: TreeType::Standard,
-            table_type: TableType::Block,
+            // table_type: TableType::Block,
             compression: CompressionType::None,
             blob_compression: CompressionType::None,
             bloom_bits_per_key: 10,

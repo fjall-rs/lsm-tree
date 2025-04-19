@@ -6,13 +6,14 @@ use super::index_block::NewBlockHandle;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    segment::trailer::TRAILER_SIZE,
 };
 use std::{
     fs::File,
     io::{BufReader, Read, Seek, Write},
     path::Path,
 };
+
+const TRAILER_SIZE: usize = 128;
 
 /// The segment trailer stores offsets to the different segment disk file "zones"
 ///

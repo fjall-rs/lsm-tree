@@ -3,12 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    segment::meta::CompressionType,
     super_segment::{
         block::Header as BlockHeader,
         index_block::{NewBlockHandle, NewKeyedBlockHandle},
         Block, BlockOffset, IndexBlock,
     },
+    CompressionType,
 };
 
 pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {

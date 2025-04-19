@@ -4,7 +4,7 @@
 
 use crate::{
     config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
-    segment::meta::SegmentId, stop_signal::StopSignal,
+    stop_signal::StopSignal, SegmentId,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 

@@ -12,7 +12,6 @@ use crate::{
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    segment::meta::TableType,
     super_segment::Segment,
     value::InternalValue,
     version::Version,
@@ -300,7 +299,7 @@ impl AbstractTree for Tree {
         &self.config
     }
 
-    fn active_memtable_size(&self) -> u32 {
+    fn active_memtable_size(&self) -> u64 {
         use std::sync::atomic::Ordering::Acquire;
 
         self.active_memtable
@@ -433,17 +432,17 @@ impl AbstractTree for Tree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32) {
+    ) -> (u64, u64) {
         let value = InternalValue::from_components(key, value, seqno, ValueType::Value);
         self.append_entry(value)
     }
 
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         let value = InternalValue::new_tombstone(key, seqno);
         self.append_entry(value)
     }
 
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
@@ -619,7 +618,7 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::bloom::BloomFilter::get_hash(key);
+        let key_hash = crate::super_segment::filter::standard_bloom::Builder::get_hash(key);
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
 
@@ -787,7 +786,7 @@ impl Tree {
     /// Returns the added item's size and new size of the memtable.
     #[doc(hidden)]
     #[must_use]
-    pub fn append_entry(&self, value: InternalValue) -> (u32, u32) {
+    pub fn append_entry(&self, value: InternalValue) -> (u64, u64) {
         let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
         memtable_lock.insert(value)
     }
@@ -813,7 +812,7 @@ impl Tree {
 
         // IMPORTANT: Restore persisted config
         config.level_count = manifest.level_count;
-        config.table_type = manifest.table_type;
+        // config.table_type = manifest.table_type;
         config.tree_type = manifest.tree_type;
 
         let tree_id = get_next_tree_id();
@@ -865,7 +864,7 @@ impl Tree {
             version: Version::V3,
             level_count: config.level_count,
             tree_type: config.tree_type,
-            table_type: TableType::Block,
+            // table_type: TableType::Block,
         }
         .encode_into(&mut file)?;
         file.sync_all()?;
