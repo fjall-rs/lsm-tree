@@ -136,21 +136,20 @@ impl StandardBloomFilter {
     }
 }
 
-// TODO: restore
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs::File;
     use test_log::test;
 
-    /*   #[test]
+    #[test]
     fn bloom_serde_round_trip() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
 
         let path = dir.path().join("bf");
         let mut file = File::create(&path)?;
 
-        let mut filter = StandardBloomFilter::with_fp_rate(10, 0.0001);
+        let mut filter = Builder::with_fp_rate(10, 0.0001);
 
         let keys = &[
             b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
@@ -160,6 +159,8 @@ mod tests {
         for key in keys {
             filter.set_with_hash(StandardBloomFilter::get_hash(*key));
         }
+
+        let filter = filter.build();
 
         for key in keys {
             assert!(filter.contains(&**key));
@@ -175,7 +176,7 @@ mod tests {
         let mut file = File::open(&path)?;
         let filter_copy = StandardBloomFilter::decode_from(&mut file)?;
 
-        assert_eq!(filter, filter_copy);
+        assert_eq!(filter.inner, filter_copy.inner);
 
         for key in keys {
             assert!(filter.contains(&**key));
@@ -185,37 +186,52 @@ mod tests {
         assert!(!filter_copy.contains(b"cxycxycxy"));
 
         Ok(())
-    } */
+    }
 
-    /*   #[test]
+    #[test]
     fn bloom_basic() {
-        let mut filter = StandardBloomFilter::with_fp_rate(10, 0.0001);
+        let mut filter = Builder::with_fp_rate(10, 0.0001);
 
-        for key in [
-            b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
-            b"item8", b"item9",
-        ] {
-            assert!(!filter.contains(key));
-            filter.set_with_hash(StandardBloomFilter::get_hash(key));
-            assert!(filter.contains(key));
+        let keys = [
+            b"item0" as &[u8],
+            b"item1",
+            b"item2",
+            b"item3",
+            b"item4",
+            b"item5",
+            b"item6",
+            b"item7",
+            b"item8",
+            b"item9",
+        ];
 
-            assert!(!filter.contains(b"asdasdasdasdasdasdasd"));
+        for key in &keys {
+            filter.set_with_hash(Builder::get_hash(key));
         }
-    } */
 
-    /* #[test]
+        let filter = filter.build();
+
+        for key in &keys {
+            assert!(filter.contains(key));
+        }
+
+        assert!(!filter.contains(b"asdasdasdasdasdasdasd"));
+    }
+
+    #[test]
     fn bloom_bpk() {
         let item_count = 1_000;
         let bpk = 5;
 
-        let mut filter = StandardBloomFilter::with_bpk(item_count, bpk);
+        let mut filter = Builder::with_bpk(item_count, bpk);
 
         for key in (0..item_count).map(|_| nanoid::nanoid!()) {
             let key = key.as_bytes();
 
-            filter.set_with_hash(StandardBloomFilter::get_hash(key));
-            assert!(filter.contains(key));
+            filter.set_with_hash(Builder::get_hash(key));
         }
+
+        let filter = filter.build();
 
         let mut false_positives = 0;
 
@@ -237,14 +253,15 @@ mod tests {
         let item_count = 100_000;
         let wanted_fpr = 0.1;
 
-        let mut filter = StandardBloomFilter::with_fp_rate(item_count, wanted_fpr);
+        let mut filter = Builder::with_fp_rate(item_count, wanted_fpr);
 
         for key in (0..item_count).map(|_| nanoid::nanoid!()) {
             let key = key.as_bytes();
 
-            filter.set_with_hash(StandardBloomFilter::get_hash(key));
-            assert!(filter.contains(key));
+            filter.set_with_hash(Builder::get_hash(key));
         }
+
+        let filter = filter.build();
 
         let mut false_positives = 0;
 
@@ -267,14 +284,15 @@ mod tests {
         let item_count = 100_000;
         let wanted_fpr = 0.5;
 
-        let mut filter = StandardBloomFilter::with_fp_rate(item_count, wanted_fpr);
+        let mut filter = Builder::with_fp_rate(item_count, wanted_fpr);
 
         for key in (0..item_count).map(|_| nanoid::nanoid!()) {
             let key = key.as_bytes();
 
-            filter.set_with_hash(StandardBloomFilter::get_hash(key));
-            assert!(filter.contains(key));
+            filter.set_with_hash(Builder::get_hash(key));
         }
+
+        let filter = filter.build();
 
         let mut false_positives = 0;
 
@@ -290,5 +308,5 @@ mod tests {
         let fpr = false_positives as f32 / item_count as f32;
         assert!(fpr > 0.45);
         assert!(fpr < 0.55);
-    } */
+    }
 }
