@@ -2,7 +2,7 @@
 use arbitrary::{Arbitrary, Result, Unstructured};
 use libfuzzer_sys::fuzz_target;
 use lsm_tree::{
-    super_segment::{block::BlockOffset, Block, DataBlock},
+    segment::{block::BlockOffset, Block, DataBlock},
     InternalValue, SeqNo, ValueType,
 };
 
@@ -105,8 +105,8 @@ fuzz_target!(|data: &[u8]| {
 
     let data_block = DataBlock::new(Block {
         data: bytes.into(),
-        header: lsm_tree::super_segment::block::Header {
-            checksum: lsm_tree::super_segment::Checksum::from_raw(0),
+        header: lsm_tree::segment::block::Header {
+            checksum: lsm_tree::segment::Checksum::from_raw(0),
             data_length: 0,
             uncompressed_length: 0,
             previous_block_offset: BlockOffset(0),
@@ -133,9 +133,7 @@ fuzz_target!(|data: &[u8]| {
 
         assert_eq!(
             Some(needle.clone()),
-            data_block
-                .point_read(&needle.key.user_key, Some(needle.key.seqno + 1))
-                .unwrap(),
+            data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
         );
 
         assert_eq!(
@@ -143,7 +141,8 @@ fuzz_target!(|data: &[u8]| {
             items
                 .iter()
                 .find(|item| item.key.user_key == needle.key.user_key)
-                .cloned(),
+                .cloned()
+                .unwrap(),
         );
     }
 
