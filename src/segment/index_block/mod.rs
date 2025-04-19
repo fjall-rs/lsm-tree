@@ -5,7 +5,7 @@
 mod block_handle;
 mod forward_reader;
 
-pub use block_handle::{NewBlockHandle, NewKeyedBlockHandle};
+pub use block_handle::{BlockHandle, KeyedBlockHandle};
 use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
 
 use super::{
@@ -127,7 +127,7 @@ impl IndexBlock {
     pub fn forward_reader(
         &self,
         needle: &[u8],
-    ) -> Option<impl Iterator<Item = NewKeyedBlockHandle> + '_> {
+    ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
         let offset = self
             .search_lowest(&self.get_binary_index_reader(), needle)
             .unwrap_or_default();
@@ -263,7 +263,7 @@ impl IndexBlock {
     }
 
     #[must_use]
-    pub fn get_lowest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
+    pub fn get_lowest_possible_block(&self, needle: &[u8]) -> Option<KeyedBlockHandle> {
         let binary_index = self.get_binary_index_reader();
 
         /*
@@ -299,7 +299,7 @@ impl IndexBlock {
     }
 
     #[must_use]
-    pub fn get_highest_possible_block(&self, needle: &[u8]) -> Option<NewKeyedBlockHandle> {
+    pub fn get_highest_possible_block(&self, needle: &[u8]) -> Option<KeyedBlockHandle> {
         let binary_index = self.get_binary_index_reader();
 
         let offset = self.search_highest(&binary_index, needle)?;
@@ -321,12 +321,12 @@ impl IndexBlock {
     }
 
     pub fn encode_items(
-        items: &[NewKeyedBlockHandle],
+        items: &[KeyedBlockHandle],
         restart_interval: u8,
     ) -> crate::Result<Vec<u8>> {
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
-        let mut serializer = Encoder::<'_, BlockOffset, NewKeyedBlockHandle>::new(
+        let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
             items.len(),
             restart_interval,
             0.0, // TODO: hard-coded for now
@@ -351,9 +351,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn v3_index_block_simple() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
@@ -399,9 +399,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn v3_index_block_span() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
-            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
@@ -441,10 +441,10 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn v3_index_block_span_highest() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"c".into(), BlockOffset(6_000), 7_000),
-            NewKeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"c".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn v3_index_block_one() -> crate::Result<()> {
-        let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
+        let item = KeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
 
         let bytes = IndexBlock::encode_items(&[item.clone()], 1)?;
         // eprintln!("{bytes:?}");
@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn v3_index_block_one_highest() -> crate::Result<()> {
-        let item = NewKeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
+        let item = KeyedBlockHandle::new(b"c".into(), BlockOffset(0), 6_000);
 
         let bytes = IndexBlock::encode_items(&[item.clone()], 1)?;
         // eprintln!("{bytes:?}");

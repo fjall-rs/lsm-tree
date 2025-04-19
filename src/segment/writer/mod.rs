@@ -3,12 +3,12 @@ mod meta;
 
 use super::{
     block::Header as BlockHeader, filter::BloomConstructionPolicy, trailer::Trailer, Block,
-    BlockOffset, DataBlock, NewKeyedBlockHandle,
+    BlockOffset, DataBlock, KeyedBlockHandle,
 };
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::{filter::standard_bloom::Builder, index_block::NewBlockHandle},
+    segment::{filter::standard_bloom::Builder, index_block::BlockHandle},
     time::unix_timestamp,
     CompressionType, InternalValue, SegmentId, UserKey,
 };
@@ -181,7 +181,7 @@ impl Writer {
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         self.index_writer
-            .register_data_block(NewKeyedBlockHandle::new(
+            .register_data_block(KeyedBlockHandle::new(
                 last.key.user_key.clone(),
                 self.meta.file_pos,
                 bytes_written,
@@ -269,7 +269,7 @@ impl Writer {
 
                 let bytes_written = (BlockHeader::serialized_len() as u32) + block.data_length;
 
-                Some(NewBlockHandle::new(BlockOffset(filter_ptr), bytes_written))
+                Some(BlockHandle::new(BlockOffset(filter_ptr), bytes_written))
             }
         };
         log::trace!("filter_ptr={filter_handle:?}");
@@ -354,7 +354,7 @@ impl Writer {
 
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
-            NewBlockHandle::new(metadata_start, bytes_written as u32)
+            BlockHandle::new(metadata_start, bytes_written as u32)
         };
 
         // Bundle all the file offsets

@@ -5,7 +5,7 @@
 use crate::{
     segment::{
         block::Header as BlockHeader,
-        index_block::{NewBlockHandle, NewKeyedBlockHandle},
+        index_block::{BlockHandle, KeyedBlockHandle},
         Block, BlockOffset, IndexBlock,
     },
     CompressionType,
@@ -13,7 +13,7 @@ use crate::{
 
 pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
     /// Registers a data block in the block index.
-    fn register_data_block(&mut self, block_handle: NewKeyedBlockHandle) -> crate::Result<()>;
+    fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()>;
 
     /// Writes the block index to a file.
     ///
@@ -21,7 +21,7 @@ pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
     fn finish(
         &mut self,
         block_file_writer: &mut W,
-    ) -> crate::Result<(NewBlockHandle, Option<NewBlockHandle>)>;
+    ) -> crate::Result<(BlockHandle, Option<BlockHandle>)>;
 
     fn use_compression(&mut self, compression: CompressionType);
 
@@ -30,7 +30,7 @@ pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
 
 pub struct FullIndexWriter {
     compression: CompressionType,
-    block_handles: Vec<NewKeyedBlockHandle>,
+    block_handles: Vec<KeyedBlockHandle>,
 }
 
 impl FullIndexWriter {
@@ -51,7 +51,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         self.compression = compression;
     }
 
-    fn register_data_block(&mut self, block_handle: NewKeyedBlockHandle) -> crate::Result<()> {
+    fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()> {
         log::trace!(
             "Registering block at {:?} with size {} [end_key={:?}]",
             block_handle.offset(),
@@ -67,7 +67,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
     fn finish(
         &mut self,
         block_file_writer: &mut W,
-    ) -> crate::Result<(NewBlockHandle, Option<NewBlockHandle>)> {
+    ) -> crate::Result<(BlockHandle, Option<BlockHandle>)> {
         let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
 
         let bytes =
@@ -84,7 +84,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             self.block_handles.len(),
         );
 
-        Ok((NewBlockHandle::new(tli_ptr, bytes_written), None))
+        Ok((BlockHandle::new(tli_ptr, bytes_written), None))
     }
 }
 
@@ -109,8 +109,8 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
 
     buffer_size: u32,
 
-    block_handles: Vec<NewKeyedBlockHandle>,
-    tli_pointers: Vec<NewKeyedBlockHandle>,
+    block_handles: Vec<KeyedBlockHandle>,
+    tli_pointers: Vec<KeyedBlockHandle>,
 
     pub block_count: usize,
 }
@@ -154,7 +154,7 @@ impl Writer {
         let last = self.block_handles.pop().expect("Chunk should not be empty");
 
         let index_block_handle =
-            NewKeyedBlockHandle::new(last.into_end_key(), self.file_pos, bytes_written);
+            KeyedBlockHandle::new(last.into_end_key(), self.file_pos, bytes_written);
 
         self.tli_pointers.push(index_block_handle);
 
@@ -187,9 +187,9 @@ impl Writer {
 
         // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
         #[allow(clippy::cast_possible_truncation)]
-        let block_handle_size = (end_key.len() + std::mem::size_of::<NewKeyedBlockHandle>()) as u32;
+        let block_handle_size = (end_key.len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
-        let block_handle = NewKeyedBlockHandle::new(end_key, offset, size);
+        let block_handle = KeyedBlockHandle::new(end_key, offset, size);
 
         self.block_handles.push(block_handle);
 
@@ -206,7 +206,7 @@ impl Writer {
         &mut self,
         block_file_writer: &mut BufWriter<File>,
         file_offset: BlockOffset,
-    ) -> crate::Result<NewBlockHandle> {
+    ) -> crate::Result<BlockHandle> {
         block_file_writer.write_all(&self.write_buffer)?;
         log::trace!("Wrote index blocks into segment file");
 
@@ -231,14 +231,14 @@ impl Writer {
             bytes_written,
         );
 
-        Ok(NewBlockHandle::new(tli_ptr, bytes_written))
+        Ok(BlockHandle::new(tli_ptr, bytes_written))
     }
 
     /// Returns the offset in the file to TLI
     pub fn finish(
         &mut self,
         block_file_writer: &mut BufWriter<File>,
-    ) -> crate::Result<NewBlockHandle> {
+    ) -> crate::Result<BlockHandle> {
         if self.buffer_size > 0 {
             self.write_block()?;
         }

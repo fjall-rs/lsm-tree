@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{IndexBlock, NewKeyedBlockHandle};
+use super::{IndexBlock, KeyedBlockHandle};
 use crate::{segment::BlockOffset, Slice};
 use std::io::Cursor;
 
@@ -36,7 +36,7 @@ pub struct ParsedItem {
 }
 
 impl ParsedItem {
-    pub fn materialize(&self, bytes: &Slice) -> NewKeyedBlockHandle {
+    pub fn materialize(&self, bytes: &Slice) -> KeyedBlockHandle {
         let end_key = if let Some(prefix) = &self.prefix {
             let prefix_key = &bytes[prefix.0..prefix.1];
             let rest_key = &bytes[self.end_key.0..self.end_key.1];
@@ -45,7 +45,7 @@ impl ParsedItem {
             bytes.slice(self.end_key.0..self.end_key.1)
         };
 
-        NewKeyedBlockHandle::new(end_key, self.offset, self.size)
+        KeyedBlockHandle::new(end_key, self.offset, self.size)
     }
 }
 
@@ -145,9 +145,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn v3_index_block_simple() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
@@ -165,7 +165,7 @@ mod tests {
             },
         });
 
-        assert_eq!(block.item_count(), items.len());
+        assert_eq!(block.len(), items.len());
 
         let iter = block.forward_reader(b"a").unwrap();
         assert_eq!(&items, &*iter.collect::<Vec<_>>());
@@ -177,9 +177,9 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn v3_index_block_seek() -> crate::Result<()> {
         let items = [
-            NewKeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            NewKeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            NewKeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
@@ -197,7 +197,7 @@ mod tests {
             },
         });
 
-        assert_eq!(block.item_count(), items.len());
+        assert_eq!(block.len(), items.len());
 
         {
             let iter = block.forward_reader(b"a").unwrap();

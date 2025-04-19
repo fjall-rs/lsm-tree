@@ -19,7 +19,7 @@ mod writer;
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
 pub use id::{GlobalSegmentId, SegmentId};
-pub use index_block::{IndexBlock, NewBlockHandle, NewKeyedBlockHandle};
+pub use index_block::{IndexBlock, BlockHandle, KeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
 
@@ -116,7 +116,7 @@ impl Segment {
         self.metadata.id
     }
 
-    fn load_data_block(&self, handle: &NewBlockHandle) -> crate::Result<DataBlock> {
+    fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
         let id = self.global_id();
 
         if let Some(data_block) = self.cache.get_data_block(id, handle.offset()) {

@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{CachePolicy, IndexBlock, NewKeyedBlockHandle};
+use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
 
 #[enum_dispatch::enum_dispatch]
 pub trait NewBlockIndex {
@@ -11,20 +11,20 @@ pub trait NewBlockIndex {
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<NewKeyedBlockHandle>>; // TODO: return NewBlockHandle (::into_non_keyed)
+    ) -> crate::Result<Option<KeyedBlockHandle>>; // TODO: return BlockHandle (::into_non_keyed)
 
     /// Gets the last block handle that can possibly contain the given item.
     fn get_last_block_containing_key(
         &self,
         key: &[u8],
         cache_policy: CachePolicy,
-    ) -> crate::Result<Option<NewKeyedBlockHandle>>;
+    ) -> crate::Result<Option<KeyedBlockHandle>>;
 
     /// Returns a handle to the last block.
     fn get_last_block_handle(
         &self,
         cache_policy: CachePolicy,
-    ) -> crate::Result<NewKeyedBlockHandle>;
+    ) -> crate::Result<KeyedBlockHandle>;
 }
 
 /// The block index stores references to the positions of blocks on a file and their size
@@ -65,7 +65,7 @@ impl NewFullBlockIndex {
     pub fn forward_reader(
         &self,
         needle: &[u8],
-    ) -> Option<impl Iterator<Item = NewKeyedBlockHandle> + '_> {
+    ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
         self.0.forward_reader(needle)
     }
 }
@@ -75,7 +75,7 @@ impl NewBlockIndex for NewFullBlockIndex {
         &self,
         key: &[u8],
         _: CachePolicy,
-    ) -> crate::Result<Option<NewKeyedBlockHandle>> {
+    ) -> crate::Result<Option<KeyedBlockHandle>> {
         Ok(self.0.get_highest_possible_block(key))
     }
 
@@ -83,17 +83,17 @@ impl NewBlockIndex for NewFullBlockIndex {
         &self,
         key: &[u8],
         _: CachePolicy,
-    ) -> crate::Result<Option<NewKeyedBlockHandle>> {
+    ) -> crate::Result<Option<KeyedBlockHandle>> {
         Ok(self.0.get_lowest_possible_block(key))
     }
 
-    fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<NewKeyedBlockHandle> {
+    fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<KeyedBlockHandle> {
         todo!()
     }
 }
 
 /* impl std::ops::Deref for FullBlockIndex {
-    type Target = Box<[NewKeyedBlockHandle]>;
+    type Target = Box<[KeyedBlockHandle]>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

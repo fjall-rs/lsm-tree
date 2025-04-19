@@ -13,7 +13,7 @@ use varint_rs::{VarintReader, VarintWriter};
 /// Points to a block on file
 #[derive(Copy, Clone, Debug, Default, Eq)]
 #[allow(clippy::module_name_repetitions)]
-pub struct NewBlockHandle {
+pub struct BlockHandle {
     /// Position of block in file
     offset: BlockOffset,
 
@@ -21,7 +21,7 @@ pub struct NewBlockHandle {
     size: u32,
 }
 
-impl NewBlockHandle {
+impl BlockHandle {
     pub fn new(offset: BlockOffset, size: u32) -> Self {
         Self { offset, size }
     }
@@ -35,25 +35,25 @@ impl NewBlockHandle {
     }
 }
 
-impl PartialEq for NewBlockHandle {
+impl PartialEq for BlockHandle {
     fn eq(&self, other: &Self) -> bool {
         self.offset == other.offset
     }
 }
 
-impl Ord for NewBlockHandle {
+impl Ord for BlockHandle {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.offset.cmp(&other.offset)
     }
 }
 
-impl PartialOrd for NewBlockHandle {
+impl PartialOrd for BlockHandle {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.offset.cmp(&other.offset))
     }
 }
 
-impl Encode for NewBlockHandle {
+impl Encode for BlockHandle {
     fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u64_varint(*self.offset)?;
         writer.write_u32_varint(self.size)?;
@@ -61,7 +61,7 @@ impl Encode for NewBlockHandle {
     }
 }
 
-impl Decode for NewBlockHandle {
+impl Decode for BlockHandle {
     fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, DecodeError>
     where
         Self: Sized,
@@ -79,24 +79,24 @@ impl Decode for NewBlockHandle {
 /// Points to a block on file
 #[derive(Clone, Debug, Eq)]
 #[allow(clippy::module_name_repetitions)]
-pub struct NewKeyedBlockHandle {
+pub struct KeyedBlockHandle {
     /// Key of last item in block
     end_key: UserKey,
 
-    inner: NewBlockHandle,
+    inner: BlockHandle,
 }
 
-impl AsRef<NewBlockHandle> for NewKeyedBlockHandle {
-    fn as_ref(&self) -> &NewBlockHandle {
+impl AsRef<BlockHandle> for KeyedBlockHandle {
+    fn as_ref(&self) -> &BlockHandle {
         &self.inner
     }
 }
 
-impl NewKeyedBlockHandle {
+impl KeyedBlockHandle {
     pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
         Self {
             end_key,
-            inner: NewBlockHandle::new(offset, size),
+            inner: BlockHandle::new(offset, size),
         }
     }
 
@@ -121,25 +121,25 @@ impl NewKeyedBlockHandle {
     }
 }
 
-impl PartialEq for NewKeyedBlockHandle {
+impl PartialEq for KeyedBlockHandle {
     fn eq(&self, other: &Self) -> bool {
         self.offset() == other.offset()
     }
 }
 
-impl Ord for NewKeyedBlockHandle {
+impl Ord for KeyedBlockHandle {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.offset().cmp(&other.offset())
     }
 }
 
-impl PartialOrd for NewKeyedBlockHandle {
+impl PartialOrd for KeyedBlockHandle {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.offset().cmp(&other.offset()))
     }
 }
 
-impl Encodable<BlockOffset> for NewKeyedBlockHandle {
+impl Encodable<BlockOffset> for KeyedBlockHandle {
     fn encode_full_into<W: std::io::Write>(
         &self,
         writer: &mut W,

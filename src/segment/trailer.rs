@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::index_block::NewBlockHandle;
+use super::index_block::BlockHandle;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -34,9 +34,9 @@ const TRAILER_SIZE: usize = 128;
 /// |--------------|
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Trailer {
-    pub tli: NewBlockHandle,
-    pub index_blocks: Option<NewBlockHandle>,
-    pub filter: Option<NewBlockHandle>, // option
+    pub tli: BlockHandle,
+    pub index_blocks: Option<BlockHandle>,
+    pub filter: Option<BlockHandle>, // option
 
     // // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2
     // pub range_tombstones: BlockOffset,
@@ -46,7 +46,7 @@ pub struct Trailer {
 
     // // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46
     // pub range_filter: BlockOffset,
-    pub metadata: NewBlockHandle,
+    pub metadata: BlockHandle,
 }
 
 impl Trailer {
@@ -111,13 +111,13 @@ impl Encode for Trailer {
         if let Some(handle) = &self.index_blocks {
             handle.encode_into(writer)
         } else {
-            NewBlockHandle::default().encode_into(writer)
+            BlockHandle::default().encode_into(writer)
         }?;
 
         if let Some(handle) = &self.filter {
             handle.encode_into(writer)
         } else {
-            NewBlockHandle::default().encode_into(writer)
+            BlockHandle::default().encode_into(writer)
         }?;
 
         self.metadata.encode_into(writer)?;
@@ -128,10 +128,10 @@ impl Encode for Trailer {
 
 impl Decode for Trailer {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let tli = NewBlockHandle::decode_from(reader)?;
-        let index_blocks = NewBlockHandle::decode_from(reader)?;
-        let filter = NewBlockHandle::decode_from(reader)?;
-        let metadata = NewBlockHandle::decode_from(reader)?;
+        let tli = BlockHandle::decode_from(reader)?;
+        let index_blocks = BlockHandle::decode_from(reader)?;
+        let filter = BlockHandle::decode_from(reader)?;
+        let metadata = BlockHandle::decode_from(reader)?;
 
         Ok(Self {
             index_blocks: match *index_blocks.offset() {
@@ -158,10 +158,10 @@ mod tests {
     #[test]
     fn v3_file_offsets_roundtrip() -> crate::Result<()> {
         let before = Trailer {
-            tli: NewBlockHandle::new(BlockOffset(15), 5),
-            index_blocks: Some(NewBlockHandle::new(BlockOffset(20), 5)),
-            filter: Some(NewBlockHandle::new(BlockOffset(25), 5)),
-            metadata: NewBlockHandle::new(BlockOffset(30), 5),
+            tli: BlockHandle::new(BlockOffset(15), 5),
+            index_blocks: Some(BlockHandle::new(BlockOffset(20), 5)),
+            filter: Some(BlockHandle::new(BlockOffset(25), 5)),
+            metadata: BlockHandle::new(BlockOffset(30), 5),
         };
 
         let buf = before.encode_into_vec();
