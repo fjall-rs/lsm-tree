@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::writer::Writer;
+use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{value::InternalValue, CompressionType, SegmentId, UserKey};
 use std::{
     path::PathBuf,
@@ -24,7 +24,6 @@ pub struct MultiWriter {
     /// resulting in a sorted "run" of segments
     pub target_size: u64,
 
-    // pub opts: Options,
     results: Vec<SegmentId>,
 
     segment_id_generator: Arc<AtomicU64>,
@@ -34,7 +33,8 @@ pub struct MultiWriter {
 
     pub compression: CompressionType,
 
-    // bloom_policy: BloomConstructionPolicy,
+    bloom_policy: BloomConstructionPolicy,
+
     current_key: Option<UserKey>,
 }
 
@@ -44,20 +44,12 @@ impl MultiWriter {
         base_path: PathBuf,
         segment_id_generator: Arc<AtomicU64>,
         target_size: u64,
-        //   opts: Options,
     ) -> crate::Result<Self> {
         let current_segment_id =
             segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let path = base_path.join(current_segment_id.to_string());
         let writer = Writer::new(path, current_segment_id)?;
-
-        /* let writer = Writer::new(Options {
-            segment_id: current_segment_id,
-            folder: opts.folder.clone(),
-            data_block_size: opts.data_block_size,
-            index_block_size: opts.index_block_size,
-        })?; */
 
         Ok(Self {
             base_path,
@@ -66,14 +58,14 @@ impl MultiWriter {
 
             target_size,
             results: Vec::with_capacity(10),
-            // opts,
             segment_id_generator,
             current_segment_id,
             writer,
 
             compression: CompressionType::None,
 
-            // bloom_policy: BloomConstructionPolicy::default(),
+            bloom_policy: BloomConstructionPolicy::default(),
+
             current_key: None,
         })
     }
@@ -95,12 +87,12 @@ impl MultiWriter {
         self
     }
 
-    /*    #[must_use]
+    #[must_use]
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self.writer = self.writer.use_bloom_policy(bloom_policy);
         self
-    } */
+    }
 
     fn get_next_segment_id(&mut self) -> u64 {
         self.current_segment_id = self
@@ -119,9 +111,8 @@ impl MultiWriter {
 
         let new_writer = Writer::new(path, new_segment_id)?
             .use_compression(self.compression)
-            .use_data_block_size(self.data_block_size);
-
-        //   new_writer = new_writer.use_bloom_policy(self.bloom_policy);
+            .use_data_block_size(self.data_block_size)
+            .use_bloom_policy(self.bloom_policy);
 
         let old_writer = std::mem::replace(&mut self.writer, new_writer);
 

@@ -2,8 +2,8 @@ mod index;
 mod meta;
 
 use super::{
-    block::Header as BlockHeader, trailer::Trailer, Block, BlockOffset, DataBlock,
-    NewKeyedBlockHandle,
+    block::Header as BlockHeader, filter::BloomConstructionPolicy, trailer::Trailer, Block,
+    BlockOffset, DataBlock, NewKeyedBlockHandle,
 };
 use crate::{
     coding::Encode,
@@ -27,6 +27,7 @@ pub struct Writer {
     segment_id: SegmentId,
 
     data_block_size: u32,
+    index_block_size: u32, // TODO: implement
 
     /// Compression to use
     compression: CompressionType,
@@ -49,7 +50,8 @@ pub struct Writer {
 
     current_key: Option<UserKey>,
 
-    // bloom_policy: BloomConstructionPolicy,
+    bloom_policy: BloomConstructionPolicy,
+
     /// Hashes for bloom filter
     ///
     /// using enhanced double hashing, so we got two u64s
@@ -67,6 +69,7 @@ impl Writer {
             segment_id,
 
             data_block_size: 4_096,
+            index_block_size: 4_096,
 
             compression: CompressionType::None,
 
@@ -82,6 +85,8 @@ impl Writer {
             chunk_size: 0,
 
             current_key: None,
+
+            bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
         })
@@ -101,6 +106,12 @@ impl Writer {
     pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
         self.index_writer.use_compression(compression);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+        self.bloom_policy = bloom_policy;
         self
     }
 
@@ -125,11 +136,10 @@ impl Writer {
             // because there may be multiple versions
             // of the same key
 
-            // TODO: policy
-            //if self.bloom_policy.is_active() {
-            self.bloom_hash_buffer
-                .push(Builder::get_hash(&item.key.user_key));
-            // }
+            if self.bloom_policy.is_active() {
+                self.bloom_hash_buffer
+                    .push(Builder::get_hash(&item.key.user_key));
+            }
         }
 
         let seqno = item.key.seqno;
@@ -233,18 +243,15 @@ impl Writer {
                 let filter_ptr = self.block_writer.stream_position()?;
                 let n = self.bloom_hash_buffer.len();
 
-                // TODO:
-                /*  log::trace!(
+                log::trace!(
                     "Constructing Bloom filter with {n} entries: {:?}",
                     self.bloom_policy,
-                ); */
+                );
 
                 let start = std::time::Instant::now();
 
-                // let mut filter = self.bloom_policy.build(n);
-
                 let filter = {
-                    let mut builder = Builder::with_bpk(n, 10);
+                    let mut builder = self.bloom_policy.init(n);
 
                     for hash in std::mem::take(&mut self.bloom_hash_buffer) {
                         builder.set_with_hash(hash);

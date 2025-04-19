@@ -273,30 +273,26 @@ fn merge_segments(
 
     let mut segment_writer = segment_writer
         .use_compression(opts.config.compression)
-        .use_data_block_size(opts.config.data_block_size);
+        .use_data_block_size(opts.config.data_block_size)
+        .use_bloom_policy({
+            use crate::segment::filter::BloomConstructionPolicy;
 
-    /* {
-        use crate::segment::writer::BloomConstructionPolicy;
-
-        if opts.config.bloom_bits_per_key >= 0 {
-            // NOTE: Apply some MONKEY to have very high FPR on small levels
-            // because it's cheap
-            //
-            // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
-            let bloom_policy = match payload.dest_level {
-                0 => BloomConstructionPolicy::FpRate(0.00001),
-                1 => BloomConstructionPolicy::FpRate(0.0005),
-                _ => BloomConstructionPolicy::BitsPerKey(
-                    opts.config.bloom_bits_per_key.unsigned_abs(),
-                ),
-            };
-
-            segment_writer = segment_writer.use_bloom_policy(bloom_policy);
-        } else {
-            segment_writer =
-                segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
-        }
-    } */
+            if opts.config.bloom_bits_per_key >= 0 {
+                // NOTE: Apply some MONKEY to have very high FPR on small levels
+                // because it's cheap
+                //
+                // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
+                match payload.dest_level {
+                    0 => BloomConstructionPolicy::FpRate(0.00001),
+                    1 => BloomConstructionPolicy::FpRate(0.0005),
+                    _ => BloomConstructionPolicy::BitsPerKey(
+                        opts.config.bloom_bits_per_key.unsigned_abs(),
+                    ),
+                }
+            } else {
+                BloomConstructionPolicy::BitsPerKey(0)
+            }
+        });
 
     for (idx, item) in merge_iter.enumerate() {
         let Ok(item) = item else {

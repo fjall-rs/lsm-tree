@@ -177,40 +177,27 @@ impl AbstractTree for Tree {
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>> {
-        use crate::{
-            compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer,
-        };
+        use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
         use std::time::Instant;
 
         let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
-        log::debug!("writing segment to {folder:?}");
+        let segment_file_path = folder.join(segment_id.to_string());
+        log::debug!("writing segment to {segment_file_path:?}");
 
-        let mut segment_writer = Writer::new(
-            folder.join(segment_id.to_string()),
-            segment_id,
-            /* Options {
-                segment_id,
-                folder,
-                data_block_size: self.config.data_block_size,
-                index_block_size: self.config.index_block_size,
-            } */
-        )?
-        .use_compression(self.config.compression)
-        .use_data_block_size(self.config.data_block_size);
+        let mut segment_writer = Writer::new(segment_file_path, segment_id)?
+            .use_compression(self.config.compression)
+            .use_data_block_size(self.config.data_block_size)
+            .use_bloom_policy({
+                use crate::segment::filter::BloomConstructionPolicy;
 
-        /*     {
-            use crate::segment::writer::BloomConstructionPolicy;
-
-            if self.config.bloom_bits_per_key >= 0 {
-                segment_writer =
-                    segment_writer.use_bloom_policy(BloomConstructionPolicy::FpRate(0.00001));
-            } else {
-                segment_writer =
-                    segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
-            }
-        } */
+                if self.config.bloom_bits_per_key >= 0 {
+                    BloomConstructionPolicy::FpRate(0.00001)
+                } else {
+                    BloomConstructionPolicy::BitsPerKey(0)
+                }
+            });
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, seqno_threshold);

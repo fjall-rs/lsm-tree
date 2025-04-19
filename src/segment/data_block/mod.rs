@@ -706,29 +706,31 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, crate::ValueType::Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
+        for restart_interval in 1..=20 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
 
-        let data_block = DataBlock::new(Block {
-            data: bytes.into(),
-            header: Header {
-                checksum: Checksum::from_raw(0),
-                data_length: 0,
-                uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
-            },
-        });
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
 
-        assert_eq!(data_block.len(), items.len());
-        assert!(data_block.hash_bucket_count().unwrap() > 0);
+            assert_eq!(data_block.len(), items.len());
+            assert!(data_block.hash_bucket_count().unwrap() > 0);
 
-        for needle in items {
-            assert_eq!(
-                Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
-            );
+            for needle in &items {
+                assert_eq!(
+                    Some(needle.clone()),
+                    data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                );
+            }
+
+            assert_eq!(None, data_block.point_read(b"yyy", None));
         }
-
-        assert_eq!(None, data_block.point_read(b"yyy", None));
 
         Ok(())
     }
