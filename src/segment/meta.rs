@@ -49,6 +49,15 @@ impl ParsedMeta {
         let block = Block::from_file(file, ptr.offset(), ptr.size(), CompressionType::None)?;
         let block = DataBlock::new(block);
 
+        assert_eq!(
+            b"xxh3",
+            &*block
+                .point_read(b"#hash_type", None)
+                .expect("Segment ID should exist")
+                .value,
+            "invalid hash type",
+        );
+
         let id = {
             let bytes = block
                 .point_read(b"#id", None)
