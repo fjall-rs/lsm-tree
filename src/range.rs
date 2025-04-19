@@ -301,13 +301,8 @@ mod tests {
                     _ if prefix.is_empty() => Unbounded,
                     _ => Included(Slice::from(prefix)),
                 },
-                // TODO: Bound::map 1.77
-                match upper_bound {
-                    Unbounded => Unbounded,
-                    Included(x) => Included(Slice::from(x)),
-                    Excluded(x) => Excluded(Slice::from(x)),
-                }
-            )
+                upper_bound.map(Slice::from),
+            ),
         );
     }
 
