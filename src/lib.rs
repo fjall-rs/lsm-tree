@@ -199,7 +199,6 @@ pub mod coding {
 
 #[doc(hidden)]
 pub use {
-    descriptor_table::DescriptorTable,
     merge::BoxedIterator,
     super_segment::{block::Checksum, GlobalSegmentId, SegmentId},
     tree::inner::TreeId,
