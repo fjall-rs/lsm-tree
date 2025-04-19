@@ -9,8 +9,8 @@ use crate::{
     level_manifest::LevelManifest,
     level_scanner::LevelScanner,
     merge::Merger,
+    segment::{multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
-    super_segment::{multi_writer::MultiWriter, Segment},
     tree::inner::TreeId,
     Config, GlobalSegmentId, InternalValue, SegmentId, SeqNo,
 };

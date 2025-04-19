@@ -151,7 +151,7 @@ impl Decode for Trailer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::super_segment::BlockOffset;
+    use crate::segment::BlockOffset;
     use std::io::Cursor;
     use test_log::test;
 

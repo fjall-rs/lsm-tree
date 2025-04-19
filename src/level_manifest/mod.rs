@@ -8,7 +8,7 @@ pub(crate) mod level;
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::{rewrite_atomic, MAGIC_BYTES},
-    super_segment::Segment,
+    segment::Segment,
     HashMap, HashSet, KeyRange, SegmentId,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};

@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, super_segment::Segment, Config, HashSet};
+use crate::{level_manifest::LevelManifest, segment::Segment, Config, HashSet};
 
 /// Pulls down and merges a level into the destination level.
 ///

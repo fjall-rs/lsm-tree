@@ -438,7 +438,7 @@ mod tests {
         let file = dir.path().join("segment");
 
         {
-            let mut writer = crate::super_segment::Writer::new(file.clone(), 5)?;
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
             writer.write(crate::InternalValue::from_components(
                 b"abc",
                 b"asdasdasd",
@@ -497,7 +497,7 @@ mod tests {
         ];
 
         {
-            let mut writer = crate::super_segment::Writer::new(file.clone(), 5)?;
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
 
             for item in items.iter().cloned() {
                 writer.write(item)?;

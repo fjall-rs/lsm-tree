@@ -12,7 +12,7 @@ use super::{
     block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
     Block,
 };
-use crate::super_segment::block::TRAILER_START_MARKER;
+use crate::segment::block::TRAILER_START_MARKER;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Seek};
 use varint_rs::VarintReader;
@@ -344,7 +344,7 @@ impl IndexBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::super_segment::block::{Checksum, Header};
+    use crate::segment::block::{Checksum, Header};
     use test_log::test;
 
     #[test]

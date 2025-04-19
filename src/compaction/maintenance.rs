@@ -4,7 +4,7 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::{
-    config::Config, level_manifest::LevelManifest, super_segment::Segment, HashSet, SegmentId,
+    config::Config, level_manifest::LevelManifest, segment::Segment, HashSet, SegmentId,
 };
 
 const L0_SEGMENT_CAP: usize = 20;

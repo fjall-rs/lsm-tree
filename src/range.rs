@@ -7,7 +7,7 @@ use crate::{
     level_reader::LevelReader,
     memtable::Memtable,
     multi_reader::MultiReader,
-    super_segment::CachePolicy,
+    segment::CachePolicy,
     value::{SeqNo, UserKey},
     InternalValue,
 };

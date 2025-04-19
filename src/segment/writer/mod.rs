@@ -8,7 +8,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    super_segment::{filter::standard_bloom::Builder, index_block::NewBlockHandle},
+    segment::{filter::standard_bloom::Builder, index_block::NewBlockHandle},
     time::unix_timestamp,
     CompressionType, InternalValue, SegmentId, UserKey,
 };

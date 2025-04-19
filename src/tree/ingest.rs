@@ -5,7 +5,7 @@
 use super::Tree;
 use crate::{
     file::SEGMENTS_FOLDER,
-    super_segment::{multi_writer::MultiWriter, Segment},
+    segment::{multi_writer::MultiWriter, Segment},
     AbstractTree, UserKey, UserValue, ValueType,
 };
 use std::{path::PathBuf, sync::Arc};

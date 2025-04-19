@@ -6,7 +6,7 @@ use super::{
     encoder::{Encodable, Encoder},
     Block,
 };
-use crate::super_segment::block::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
+use crate::segment::block::hash_index::MAX_POINTERS_FOR_HASH_INDEX;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub const TRAILER_START_MARKER: u8 = 255;

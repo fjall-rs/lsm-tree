@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
-    super_segment::block::{BlockOffset, Encodable},
+    segment::block::{BlockOffset, Encodable},
 };
 use byteorder::WriteBytesExt;
 use value_log::UserKey;

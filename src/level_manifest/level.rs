@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    binary_search::partition_point, super_segment::Segment, HashSet, KeyRange, SegmentId, UserKey,
+    binary_search::partition_point, segment::Segment, HashSet, KeyRange, SegmentId, UserKey,
 };
 use std::ops::Bound;
 

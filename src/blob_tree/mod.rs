@@ -13,7 +13,7 @@ use crate::{
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
-    super_segment::Segment,
+    segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
     Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
@@ -366,7 +366,7 @@ impl AbstractTree for BlobTree {
         use crate::{
             file::SEGMENTS_FOLDER,
             //segment::writer::{Options, Writer as SegmentWriter},
-            super_segment::Writer as SegmentWriter,
+            segment::Writer as SegmentWriter,
         };
         use value::MaybeInlineValue;
 

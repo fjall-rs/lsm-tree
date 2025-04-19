@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{super_segment::BlockOffset, SeqNo, UserKey};
+use crate::{segment::BlockOffset, SeqNo, UserKey};
 
 pub struct Metadata {
     /// Written data block count

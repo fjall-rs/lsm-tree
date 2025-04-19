@@ -43,7 +43,7 @@ impl BitArray {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::super_segment::filter::bit_array::set_bit;
+    use crate::segment::filter::bit_array::set_bit;
     use test_log::test;
 
     #[test]

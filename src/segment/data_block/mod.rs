@@ -11,7 +11,7 @@ use super::block::{
     Encodable, Encoder, Trailer, TRAILER_START_MARKER,
 };
 use crate::clipping_iter::ClippingIter;
-use crate::super_segment::util::compare_prefixed_slice;
+use crate::segment::util::compare_prefixed_slice;
 use crate::{InternalValue, SeqNo, ValueType};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -596,7 +596,7 @@ impl DataBlock {
 mod tests {
     use super::*;
     use crate::{
-        super_segment::{
+        segment::{
             block::{BlockOffset, Checksum, Header},
             Block,
         },

@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{super::bit_array::Builder as BitArrayBuilder, StandardBloomFilter};
-use crate::super_segment::filter::bit_array::BitArrayReader;
+use crate::segment::filter::bit_array::BitArrayReader;
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);

@@ -12,7 +12,7 @@ use crate::{
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
-    super_segment::Segment,
+    segment::Segment,
     value::InternalValue,
     version::Version,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
@@ -178,7 +178,7 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>> {
         use crate::{
-            compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, super_segment::Writer,
+            compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer,
         };
         use std::time::Instant;
 
@@ -487,7 +487,7 @@ impl Tree {
     pub(crate) fn consume_writer(
         &self,
         segment_id: SegmentId, // TODO: <- remove
-        writer: crate::super_segment::Writer,
+        writer: crate::segment::Writer,
     ) -> crate::Result<Option<Segment>> {
         let segment_file_path = writer.path.to_path_buf();
 
@@ -618,7 +618,7 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::super_segment::filter::standard_bloom::Builder::get_hash(key);
+        let key_hash = crate::segment::filter::standard_bloom::Builder::get_hash(key);
 
         let level_manifest = self.levels.read().expect("lock is poisoned");
 

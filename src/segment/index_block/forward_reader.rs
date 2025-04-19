@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{IndexBlock, NewKeyedBlockHandle};
-use crate::{super_segment::BlockOffset, Slice};
+use crate::{segment::BlockOffset, Slice};
 use std::io::Cursor;
 
 #[derive(Default, Debug)]
@@ -138,7 +138,7 @@ impl Iterator for ForwardReader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::super_segment::{block::Header, Block, Checksum};
+    use crate::segment::{block::Header, Block, Checksum};
     use test_log::test;
 
     #[test]

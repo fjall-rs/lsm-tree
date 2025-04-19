@@ -184,7 +184,7 @@ mod value;
 mod version;
 
 #[doc(hidden)]
-pub mod super_segment;
+pub mod segment;
 
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
@@ -200,7 +200,7 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    super_segment::{block::Checksum, GlobalSegmentId, SegmentId},
+    segment::{block::Checksum, GlobalSegmentId, SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };

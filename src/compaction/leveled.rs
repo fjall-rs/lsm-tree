@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
     level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
-    super_segment::Segment,
+    segment::Segment,
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, KeyRange, SegmentId,
 };

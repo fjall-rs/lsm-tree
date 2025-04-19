@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, super_segment::Segment,
+    compaction::CompactionStrategy, config::TreeType, segment::Segment,
     tree::inner::MemtableId, AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo,
     Snapshot, Tree, UserKey, UserValue,
 };

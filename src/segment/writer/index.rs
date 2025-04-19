@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    super_segment::{
+    segment::{
         block::Header as BlockHeader,
         index_block::{NewBlockHandle, NewKeyedBlockHandle},
         Block, BlockOffset, IndexBlock,
