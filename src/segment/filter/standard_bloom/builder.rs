@@ -23,6 +23,7 @@ pub struct Builder {
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
+    #[must_use]
     pub fn build(self) -> StandardBloomFilter {
         StandardBloomFilter {
             inner: BitArrayReader::new(self.inner.bytes().into()),
