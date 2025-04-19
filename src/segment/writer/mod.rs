@@ -208,6 +208,8 @@ impl Writer {
         Ok(())
     }
 
+    // TODO: 3.0.0 split meta writing into new function
+    #[allow(clippy::too_many_lines)]
     /// Finishes the segment, making sure all data is written durably
     pub fn finish(mut self) -> crate::Result<Option<SegmentId>> {
         self.spill_block()?;
