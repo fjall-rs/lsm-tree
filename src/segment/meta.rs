@@ -59,6 +59,15 @@ impl ParsedMeta {
             "invalid hash type",
         );
 
+        assert_eq!(
+            b"xxh3",
+            &*block
+                .point_read(b"#checksum_type", None)
+                .expect("Segment ID should exist")
+                .value,
+            "invalid checksum type",
+        );
+
         let id = {
             let bytes = block
                 .point_read(b"#id", None)

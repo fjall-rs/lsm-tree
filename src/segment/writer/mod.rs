@@ -288,6 +288,7 @@ impl Writer {
             }
 
             let meta_items = [
+                meta("#checksum_type", b"xxh3"),
                 meta("#compression#data", &self.compression.encode_into_vec()),
                 meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
