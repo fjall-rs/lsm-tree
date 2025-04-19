@@ -11,9 +11,7 @@ impl BlobCache for MyBlobCache {
         vlog_id: value_log::ValueLogId,
         vhandle: &value_log::ValueHandle,
     ) -> Option<value_log::UserValue> {
-        todo!()
-
-        // self.0.get_blob(vlog_id, vhandle)
+        self.0.get_blob(vlog_id, vhandle)
     }
 
     fn insert(
@@ -22,8 +20,6 @@ impl BlobCache for MyBlobCache {
         vhandle: &value_log::ValueHandle,
         value: value_log::UserValue,
     ) {
-        todo!()
-
-        // self.0.insert_blob(vlog_id, vhandle, value);
+        self.0.insert_blob(vlog_id, vhandle, value);
     }
 }

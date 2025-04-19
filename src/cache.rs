@@ -3,22 +3,19 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::segment::block::Header;
-use crate::segment::{Block, BlockOffset, DataBlock};
-use crate::GlobalSegmentId;
+use crate::segment::{Block, BlockOffset, DataBlock, IndexBlock};
+use crate::{GlobalSegmentId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
 
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
 
-/* #[derive(Clone)]
+#[derive(Clone)]
 enum Item {
-    DataBlock(Arc<ValueBlock>),
-    IndexBlock(Arc<IndexBlock>),
+    Block(Block),
     Blob(UserValue),
-} */
-
-type Item = Block;
+}
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64, u64);
@@ -39,8 +36,15 @@ impl From<(u8, u64, u64, u64)> for CacheKey {
 struct BlockWeighter;
 
 impl Weighter<CacheKey, Item> for BlockWeighter {
-    fn weight(&self, _: &CacheKey, block: &Item) -> u64 {
-        (Header::serialized_len() as u64) + Into::<u64>::into(block.header.uncompressed_length)
+    fn weight(&self, _: &CacheKey, item: &Item) -> u64 {
+        use Item::{Blob, Block};
+
+        match item {
+            Block(b) => {
+                (Header::serialized_len() as u64) + Into::<u64>::into(b.header.uncompressed_length)
+            }
+            Blob(b) => b.len() as u64,
+        }
     }
 }
 
@@ -124,63 +128,48 @@ impl Cache {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_data_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<DataBlock> {
+    pub fn get_index_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<IndexBlock> {
         let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
-        self.data.get(&key).map(DataBlock::new)
+
+        Some(match self.data.get(&key)? {
+            Item::Block(block) => IndexBlock::new(block),
+            Item::Blob(_) => unreachable!("invalid cache item"),
+        })
     }
 
     #[doc(hidden)]
-    pub fn insert_block(&self, id: GlobalSegmentId, offset: BlockOffset, value: Item) {
+    #[must_use]
+    pub fn get_data_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<DataBlock> {
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+
+        Some(match self.data.get(&key)? {
+            Item::Block(block) => DataBlock::new(block),
+            Item::Blob(_) => unreachable!("invalid cache item"),
+        })
+    }
+
+    #[doc(hidden)]
+    pub fn insert_block(&self, id: GlobalSegmentId, offset: BlockOffset, block: Block) {
         self.data.insert(
             (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
-            value,
+            Item::Block(block),
         );
     }
 
-    /* #[doc(hidden)]
-    pub fn insert_index_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-        value: Arc<IndexBlock>,
-    ) {
-            self.data.insert(
-                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
-                Item::IndexBlock(value),
-            );
-    } */
-
-    /*  #[doc(hidden)]
-    #[must_use]
-    pub fn get_index_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-    ) -> Option<Arc<IndexBlock>> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
-
-        if let Item::IndexBlock(block) = self.data.get(&key)? {
-            Some(block)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
-    } */
-
-    /*  #[doc(hidden)]
+    #[doc(hidden)]
     pub fn insert_blob(
         &self,
         vlog_id: value_log::ValueLogId,
         vhandle: &value_log::ValueHandle,
         value: UserValue,
     ) {
-            self.data.insert(
-                (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
-                Item::Blob(value),
-            );
-    } */
+        self.data.insert(
+            (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
+            Item::Blob(value),
+        );
+    }
 
-    /*  #[doc(hidden)]
+    #[doc(hidden)]
     #[must_use]
     pub fn get_blob(
         &self,
@@ -189,11 +178,9 @@ impl Cache {
     ) -> Option<UserValue> {
         let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into();
 
-        if let Item::Blob(blob) = self.data.get(&key)? {
-            Some(blob)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
-    } */
+        Some(match self.data.get(&key)? {
+            Item::Blob(blob) => blob,
+            Item::Block(_) => unreachable!("invalid cache item"),
+        })
+    }
 }
