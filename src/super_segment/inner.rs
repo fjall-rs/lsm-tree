@@ -7,7 +7,7 @@ use super::{
     trailer::Trailer,
 };
 use crate::{
-    cache::Cache, new_descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
+    cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
 };
 use std::{
     path::PathBuf,
