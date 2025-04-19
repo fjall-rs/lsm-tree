@@ -24,7 +24,7 @@ pub use scanner::Scanner;
 pub use writer::Writer;
 
 use crate::{
-    new_cache::NewCache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId,
+    new_cache::Cache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId,
     UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
@@ -278,7 +278,7 @@ impl Segment {
     pub fn recover(
         file_path: &Path,
         tree_id: TreeId,
-        cache: Arc<NewCache>,
+        cache: Arc<Cache>,
         descriptor_table: Arc<NewDescriptorTable>,
     ) -> crate::Result<Self> {
         // use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
@@ -453,7 +453,7 @@ mod tests {
             let segment = Segment::recover(
                 &file,
                 0,
-                Arc::new(NewCache::with_capacity_bytes(1_000_000)),
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(NewDescriptorTable::new(10)),
             )?;
 
@@ -511,7 +511,7 @@ mod tests {
             let segment = Segment::recover(
                 &file,
                 0,
-                Arc::new(NewCache::with_capacity_bytes(1_000_000)),
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(NewDescriptorTable::new(10)),
             )?;
 

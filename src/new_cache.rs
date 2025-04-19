@@ -68,7 +68,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// #
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
-pub struct NewCache {
+pub struct Cache {
     // NOTE: rustc_hash performed best: https://fjall-rs.github.io/post/fjall-2-1
     /// Concurrent cache implementation
     data: QuickCache<CacheKey, Item, BlockWeighter, rustc_hash::FxBuildHasher>,
@@ -77,7 +77,7 @@ pub struct NewCache {
     capacity: u64,
 }
 
-impl NewCache {
+impl Cache {
     /// Creates a new block cache with roughly `n` bytes of capacity.
     #[must_use]
     pub fn with_capacity_bytes(bytes: u64) -> Self {

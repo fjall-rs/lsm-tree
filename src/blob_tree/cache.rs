@@ -1,9 +1,9 @@
-use crate::NewCache;
+use crate::Cache;
 use std::sync::Arc;
 use value_log::BlobCache;
 
 #[derive(Clone)]
-pub struct MyBlobCache(pub(crate) Arc<NewCache>);
+pub struct MyBlobCache(pub(crate) Arc<Cache>);
 
 impl BlobCache for MyBlobCache {
     fn get(

@@ -15,7 +15,7 @@ use crate::{
     super_segment::Segment,
     value::InternalValue,
     version::Version,
-    AbstractTree, KvPair, NewCache, NewDescriptorTable, SegmentId, SeqNo, Snapshot, UserKey,
+    AbstractTree, KvPair, Cache, NewDescriptorTable, SegmentId, SeqNo, Snapshot, UserKey,
     UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
@@ -881,7 +881,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        cache: &Arc<NewCache>,
+        cache: &Arc<Cache>,
         descriptor_table: &Arc<NewDescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{

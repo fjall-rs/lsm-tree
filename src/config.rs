@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{path::absolute_path, BlobTree, CompressionType, NewCache, NewDescriptorTable, Tree};
+use crate::{path::absolute_path, BlobTree, CompressionType, Cache, NewDescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -78,7 +78,7 @@ pub struct Config {
 
     /// Block cache to use
     #[doc(hidden)]
-    pub cache: Arc<NewCache>,
+    pub cache: Arc<Cache>,
 
     /// Blob file (value log segment) target size in bytes
     #[doc(hidden)]
@@ -99,7 +99,7 @@ impl Default for Config {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(NewDescriptorTable::new(256)),
 
-            cache: Arc::new(NewCache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
 
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
@@ -235,7 +235,7 @@ impl Config {
     ///
     /// Defaults to a cache with 8 MiB of capacity *per tree*.
     #[must_use]
-    pub fn use_cache(mut self, cache: Arc<NewCache>) -> Self {
+    pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
         self.cache = cache;
         self
     }

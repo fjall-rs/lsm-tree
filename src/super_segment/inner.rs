@@ -7,7 +7,7 @@ use super::{
     trailer::Trailer,
 };
 use crate::{
-    new_cache::NewCache, new_descriptor_table::NewDescriptorTable, tree::inner::TreeId,
+    new_cache::Cache, new_descriptor_table::NewDescriptorTable, tree::inner::TreeId,
     GlobalSegmentId,
 };
 use std::{
@@ -37,7 +37,7 @@ pub struct Inner {
     ///
     /// Stores index and data blocks
     #[doc(hidden)]
-    pub cache: Arc<NewCache>,
+    pub cache: Arc<Cache>,
 
     /// Pinned AMQ filter
     pub pinned_filter: Option<StandardBloomFilter>,
