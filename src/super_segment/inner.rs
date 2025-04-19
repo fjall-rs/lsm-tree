@@ -7,8 +7,7 @@ use super::{
     trailer::Trailer,
 };
 use crate::{
-    cache::Cache, new_descriptor_table::NewDescriptorTable, tree::inner::TreeId,
-    GlobalSegmentId,
+    cache::Cache, new_descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
 };
 use std::{
     path::PathBuf,
@@ -21,7 +20,7 @@ pub struct Inner {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<NewDescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable>,
 
     /// Segment metadata object
     #[doc(hidden)]

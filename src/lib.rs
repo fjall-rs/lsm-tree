@@ -200,7 +200,7 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    new_descriptor_table::NewDescriptorTable,
+    new_descriptor_table::DescriptorTable,
     super_segment::{block::Checksum, GlobalSegmentId, SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
@@ -213,7 +213,7 @@ pub use {
     config::{Config, TreeType},
     error::{Error, Result},
     memtable::Memtable,
-    new_descriptor_table::NewDescriptorTable as DescriptorTable,
+    new_descriptor_table::DescriptorTable as DescriptorTable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,

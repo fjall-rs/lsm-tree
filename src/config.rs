@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{path::absolute_path, BlobTree, CompressionType, Cache, NewDescriptorTable, Tree};
+use crate::{path::absolute_path, BlobTree, CompressionType, Cache, DescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -90,14 +90,14 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<NewDescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(NewDescriptorTable::new(256)),
+            descriptor_table: Arc::new(DescriptorTable::new(256)),
 
             cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
 
@@ -273,7 +273,7 @@ impl Config {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn descriptor_table(mut self, descriptor_table: Arc<NewDescriptorTable>) -> Self {
+    pub fn descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

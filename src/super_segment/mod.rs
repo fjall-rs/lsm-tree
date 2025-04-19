@@ -24,7 +24,7 @@ pub use scanner::Scanner;
 pub use writer::Writer;
 
 use crate::{
-    cache::Cache, new_descriptor_table::NewDescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
+    cache::Cache, new_descriptor_table::DescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
 use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
@@ -278,7 +278,7 @@ impl Segment {
         file_path: &Path,
         tree_id: TreeId,
         cache: Arc<Cache>,
-        descriptor_table: Arc<NewDescriptorTable>,
+        descriptor_table: Arc<DescriptorTable>,
     ) -> crate::Result<Self> {
         // use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::Trailer;
@@ -453,7 +453,7 @@ mod tests {
                 &file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
-                Arc::new(NewDescriptorTable::new(10)),
+                Arc::new(DescriptorTable::new(10)),
             )?;
 
             assert_eq!(5, segment.id());
@@ -511,7 +511,7 @@ mod tests {
                 &file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
-                Arc::new(NewDescriptorTable::new(10)),
+                Arc::new(DescriptorTable::new(10)),
             )?;
 
             assert_eq!(5, segment.id());

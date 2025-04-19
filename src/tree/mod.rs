@@ -15,8 +15,8 @@ use crate::{
     super_segment::Segment,
     value::InternalValue,
     version::Version,
-    AbstractTree, KvPair, Cache, NewDescriptorTable, SegmentId, SeqNo, Snapshot, UserKey,
-    UserValue, ValueType,
+    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -882,7 +882,7 @@ impl Tree {
         tree_path: P,
         tree_id: TreeId,
         cache: &Arc<Cache>,
-        descriptor_table: &Arc<NewDescriptorTable>,
+        descriptor_table: &Arc<DescriptorTable>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
             file::fsync_directory,

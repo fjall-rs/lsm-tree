@@ -14,12 +14,11 @@ type Item = Arc<File>;
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64);
 
-// TODO: 3.0.0 rename
-pub struct NewDescriptorTable {
+pub struct DescriptorTable {
     inner: QuickCache<CacheKey, Item, UnitWeighter, rustc_hash::FxBuildHasher>,
 }
 
-impl NewDescriptorTable {
+impl DescriptorTable {
     #[must_use]
     pub fn new(capacity: usize) -> Self {
         use quick_cache::sync::DefaultLifecycle;
