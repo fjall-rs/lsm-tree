@@ -85,7 +85,12 @@ impl BlobTree {
         let vlog_cfg =
             value_log::Config::<MyBlobCache, MyCompressor>::new(MyBlobCache(config.cache.clone()))
                 .segment_size_bytes(config.blob_file_target_size)
-                .compression(MyCompressor(config.blob_compression));
+                .compression(match config.blob_compression {
+                    crate::CompressionType::None => None,
+
+                    #[cfg(any(feature = "lz4", feature = "miniz"))]
+                    c => Some(MyCompressor(c)),
+                });
 
         let index: IndexTree = config.open()?.into();
 
