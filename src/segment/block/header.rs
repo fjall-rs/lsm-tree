@@ -2,13 +2,13 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::coding::{Encode, EncodeError, Decode, DecodeError};
-use crate::file::MAGIC_BYTES;
-use byteorder::LittleEndian;
-use byteorder::{ReadBytesExt,WriteBytesExt};
-use std::io::{Read, Write};
 use super::offset::BlockOffset;
 use super::Checksum;
+use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::file::MAGIC_BYTES;
+use byteorder::LittleEndian;
+use byteorder::{ReadBytesExt, WriteBytesExt};
+use std::io::{Read, Write};
 
 /// Header of a disk-based block
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -35,7 +35,7 @@ impl Header {
             // Backlink
             + std::mem::size_of::<u64>()
             // On-disk size
-            + std::mem::size_of::<u32>()   
+            + std::mem::size_of::<u32>()
             // Uncompressed data length
             + std::mem::size_of::<u32>()
     }
@@ -71,7 +71,6 @@ impl Decode for Header {
         if magic != MAGIC_BYTES {
             return Err(DecodeError::InvalidHeader("Block"));
         }
-
 
         // Read checksum
         let checksum = reader.read_u64::<LittleEndian>()?;
