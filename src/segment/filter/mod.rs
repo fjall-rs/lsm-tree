@@ -3,8 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod bit_array;
+pub mod blocked_bloom;
 pub mod standard_bloom;
 
+const CACHE_LINE_BYTES: usize = 64;
+
+use blocked_bloom::Builder as BlockedBloomFilterBuilder;
 use standard_bloom::Builder as StandardBloomFilterBuilder;
 
 #[derive(Copy, Clone, Debug)]
