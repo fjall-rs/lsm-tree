@@ -21,10 +21,7 @@ pub trait NewBlockIndex {
     ) -> crate::Result<Option<KeyedBlockHandle>>;
 
     /// Returns a handle to the last block.
-    fn get_last_block_handle(
-        &self,
-        cache_policy: CachePolicy,
-    ) -> crate::Result<KeyedBlockHandle>;
+    fn get_last_block_handle(&self, cache_policy: CachePolicy) -> crate::Result<KeyedBlockHandle>;
 }
 
 /// The block index stores references to the positions of blocks on a file and their size
