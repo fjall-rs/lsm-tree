@@ -19,7 +19,7 @@ mod writer;
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
 pub use id::{GlobalSegmentId, SegmentId};
-pub use index_block::{IndexBlock, BlockHandle, KeyedBlockHandle};
+pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
 
