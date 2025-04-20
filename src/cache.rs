@@ -40,9 +40,7 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
         use Item::{Blob, Block};
 
         match item {
-            Block(b) => {
-                (Header::serialized_len() as u64) + Into::<u64>::into(b.header.uncompressed_length)
-            }
+            Block(b) => (Header::serialized_len() as u64) + u64::from(b.header.uncompressed_length),
             Blob(b) => b.len() as u64,
         }
     }
