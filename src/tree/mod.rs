@@ -651,7 +651,7 @@ impl Tree {
 
         if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
-        };
+        }
 
         drop(memtable_lock);
 
