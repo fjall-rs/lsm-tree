@@ -6,10 +6,13 @@ pub mod bit_array;
 pub mod blocked_bloom;
 pub mod standard_bloom;
 
-const CACHE_LINE_BYTES: usize = 64;
+use crate::{coding::DecodeError, file::MAGIC_BYTES};
+use byteorder::ReadBytesExt;
+use std::io::Read;
 
-use blocked_bloom::Builder as BlockedBloomFilterBuilder;
-use standard_bloom::Builder as StandardBloomFilterBuilder;
+use standard_bloom::{Builder as StandardBloomFilterBuilder, StandardBloomFilter};
+
+const CACHE_LINE_BYTES: usize = 64;
 
 #[derive(Copy, Clone, Debug)]
 pub enum BloomConstructionPolicy {
@@ -40,5 +43,58 @@ impl BloomConstructionPolicy {
             Self::BitsPerKey(bpk) => *bpk > 0,
             Self::FpRate(fpr) => *fpr > 0.0,
         }
+    }
+}
+
+enum FilterType {
+    StandardBloom = 0,
+    BlockedBloom = 1,
+}
+
+impl TryFrom<u8> for FilterType {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::StandardBloom),
+            1 => Ok(Self::BlockedBloom),
+            _ => Err(()),
+        }
+    }
+}
+
+pub trait AMQFilter: Sync + Send {
+    fn bytes(&self) -> &[u8];
+    fn len(&self) -> usize;
+    fn contains(&self, item: &[u8]) -> bool;
+    fn contains_hash(&self, hash: (u64, u64)) -> bool;
+}
+
+pub struct AMQFilterBuilder {}
+
+impl AMQFilterBuilder {
+    pub fn decode_from<R: Read>(reader: &mut R) -> Result<Box<dyn AMQFilter + Sync>, DecodeError> {
+        // Check header
+        let mut magic = [0u8; MAGIC_BYTES.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != MAGIC_BYTES {
+            return Err(DecodeError::InvalidHeader("BloomFilter"));
+        }
+
+        let filter_type = reader.read_u8()?;
+        let filter_type = FilterType::try_from(filter_type)
+            .map_err(|_| DecodeError::InvalidHeader("FilterType"))?;
+
+        match filter_type {
+            FilterType::StandardBloom => StandardBloomFilter::decode_from(reader)
+                .map(Self::wrap_filter)
+                .map_err(|e| DecodeError::from(e)),
+            // TODO: Implement
+            FilterType::BlockedBloom => Err(DecodeError::InvalidHeader("BlockedBloom")),
+        }
+    }
+
+    fn wrap_filter<T: 'static + AMQFilter + Sync>(filter: T) -> Box<dyn AMQFilter + Sync> {
+        Box::new(filter)
     }
 }

@@ -1,4 +1,4 @@
-use super::bit_array::BitArrayReader;
+use super::{bit_array::BitArrayReader, AMQFilter};
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -30,6 +30,49 @@ pub struct StandardBloomFilter {
 }
 
 // TODO: change encode/decode to be Filter enum
+impl AMQFilter for StandardBloomFilter {
+    /// Size of bloom filter in bytes.
+    #[must_use]
+    fn len(&self) -> usize {
+        self.inner.bytes().len()
+    }
+
+    /// Returns the raw bytes of the filter.
+    fn bytes(&self) -> &[u8] {
+        self.inner.bytes()
+    }
+
+    /// Returns `true` if the item may be contained.
+    ///
+    /// Will never have a false negative.
+    #[must_use]
+    fn contains(&self, key: &[u8]) -> bool {
+        self.contains_hash(Self::get_hash(key))
+    }
+
+    /// Returns `true` if the hash may be contained.
+    ///
+    /// Will never have a false negative.
+    #[must_use]
+    fn contains_hash(&self, hash: CompositeHash) -> bool {
+        let (mut h1, mut h2) = hash;
+
+        for i in 1..=(self.k as u64) {
+            let idx = h1 % (self.m as u64);
+
+            // NOTE: should be in bounds because of modulo
+            #[allow(clippy::expect_used)]
+            if !self.has_bit(idx as usize) {
+                return false;
+            }
+
+            h1 = h1.wrapping_add(h2);
+            h2 = h2.wrapping_mul(i);
+        }
+
+        true
+    }
+}
 
 impl Encode for StandardBloomFilter {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
@@ -50,20 +93,10 @@ impl Encode for StandardBloomFilter {
     }
 }
 
-impl Decode for StandardBloomFilter {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        // Check header
-        let mut magic = [0u8; MAGIC_BYTES.len()];
-        reader.read_exact(&mut magic)?;
-
-        if magic != MAGIC_BYTES {
-            return Err(DecodeError::InvalidHeader("BloomFilter"));
-        }
-
-        // NOTE: Filter type (unused)
-        let filter_type = reader.read_u8()?;
-        assert_eq!(0, filter_type, "Invalid filter type");
-
+#[allow(clippy::len_without_is_empty)]
+impl StandardBloomFilter {
+    // To be used by AMQFilter after magic bytes and filter type have been read and parsed
+    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
@@ -76,15 +109,6 @@ impl Decode for StandardBloomFilter {
 
         Ok(Self::from_raw(m, k, bytes.into()))
     }
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl StandardBloomFilter {
-    /// Size of bloom filter in bytes.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.inner.bytes().len()
-    }
 
     fn from_raw(m: usize, k: usize, slice: crate::Slice) -> Self {
         Self {
@@ -92,37 +116,6 @@ impl StandardBloomFilter {
             m,
             k,
         }
-    }
-
-    /// Returns `true` if the hash may be contained.
-    ///
-    /// Will never have a false negative.
-    #[must_use]
-    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
-        let (mut h1, mut h2) = hash;
-
-        for i in 1..=(self.k as u64) {
-            let idx = h1 % (self.m as u64);
-
-            // NOTE: should be in bounds because of modulo
-            #[allow(clippy::expect_used)]
-            if !self.has_bit(idx as usize) {
-                return false;
-            }
-
-            h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_mul(i);
-        }
-
-        true
-    }
-
-    /// Returns `true` if the item may be contained.
-    ///
-    /// Will never have a false negative.
-    #[must_use]
-    pub fn contains(&self, key: &[u8]) -> bool {
-        self.contains_hash(Self::get_hash(key))
     }
 
     /// Returns `true` if the bit at `idx` is `1`.
@@ -138,6 +131,8 @@ impl StandardBloomFilter {
 
 #[cfg(test)]
 mod tests {
+    use crate::segment::filter::AMQFilterBuilder;
+
     use super::*;
     use std::fs::File;
     use test_log::test;
@@ -174,9 +169,9 @@ mod tests {
         drop(file);
 
         let mut file = File::open(&path)?;
-        let filter_copy = StandardBloomFilter::decode_from(&mut file)?;
+        let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
-        assert_eq!(filter.inner, filter_copy.inner);
+        assert_eq!(filter.inner.bytes(), filter_copy.bytes());
 
         for key in keys {
             assert!(filter.contains(&**key));
