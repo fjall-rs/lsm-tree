@@ -72,6 +72,10 @@ impl AMQFilter for StandardBloomFilter {
 
         true
     }
+
+    fn filter_type(&self) -> super::FilterType {
+        super::FilterType::StandardBloom
+    }
 }
 
 impl Encode for StandardBloomFilter {
@@ -79,8 +83,7 @@ impl Encode for StandardBloomFilter {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        // NOTE: Filter type (unused)
-        writer.write_u8(0)?;
+        writer.write_u8(super::FilterType::StandardBloom as u8)?;
 
         // NOTE: Hash type (unused)
         writer.write_u8(0)?;
@@ -131,7 +134,7 @@ impl StandardBloomFilter {
 
 #[cfg(test)]
 mod tests {
-    use crate::segment::filter::AMQFilterBuilder;
+    use crate::segment::filter::{AMQFilterBuilder, FilterType};
 
     use super::*;
     use std::fs::File;
@@ -172,6 +175,7 @@ mod tests {
         let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
         assert_eq!(filter.inner.bytes(), filter_copy.bytes());
+        assert_eq!(FilterType::StandardBloom, filter_copy.filter_type());
 
         for key in keys {
             assert!(filter.contains(&**key));

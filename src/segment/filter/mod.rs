@@ -7,6 +7,7 @@ pub mod blocked_bloom;
 pub mod standard_bloom;
 
 use crate::{coding::DecodeError, file::MAGIC_BYTES};
+use blocked_bloom::BlockedBloomFilter;
 use byteorder::ReadBytesExt;
 use std::io::Read;
 
@@ -46,7 +47,8 @@ impl BloomConstructionPolicy {
     }
 }
 
-enum FilterType {
+#[derive(PartialEq, Debug)]
+pub enum FilterType {
     StandardBloom = 0,
     BlockedBloom = 1,
 }
@@ -67,6 +69,7 @@ pub trait AMQFilter: Sync + Send {
     fn len(&self) -> usize;
     fn contains(&self, item: &[u8]) -> bool;
     fn contains_hash(&self, hash: (u64, u64)) -> bool;
+    fn filter_type(&self) -> FilterType;
 }
 
 pub struct AMQFilterBuilder {}
@@ -89,8 +92,9 @@ impl AMQFilterBuilder {
             FilterType::StandardBloom => StandardBloomFilter::decode_from(reader)
                 .map(Self::wrap_filter)
                 .map_err(|e| DecodeError::from(e)),
-            // TODO: Implement
-            FilterType::BlockedBloom => Err(DecodeError::InvalidHeader("BlockedBloom")),
+            FilterType::BlockedBloom => BlockedBloomFilter::decode_from(reader)
+                .map(Self::wrap_filter)
+                .map_err(|e| DecodeError::from(e)),
         }
     }
 
