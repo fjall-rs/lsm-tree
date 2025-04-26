@@ -101,7 +101,7 @@ impl Builder {
 
         for i in 1..(self.k as u64) {
             h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_add(i);
+            h2 = h2.wrapping_mul(i);
 
             let idx = h1 % (CACHE_LINE_BYTES as u64);
 
