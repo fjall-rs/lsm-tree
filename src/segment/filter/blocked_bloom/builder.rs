@@ -48,7 +48,7 @@ impl Builder {
         let bpk = m / n;
         let k = (((bpk as f32) * LN_2) as usize).max(1);
 
-        let num_blocks = m.div_ceil(CACHE_LINE_BYTES);
+        let num_blocks = m.div_ceil(CACHE_LINE_BYTES * 8);
 
         Self {
             inner: BitArrayBuilder::with_capacity(num_blocks * CACHE_LINE_BYTES),
@@ -73,7 +73,7 @@ impl Builder {
         let m = n * bpk;
         let k = (((bpk as f32) * LN_2) as usize).max(1);
 
-        let num_blocks = m.div_ceil(CACHE_LINE_BYTES);
+        let num_blocks = m.div_ceil(CACHE_LINE_BYTES * 8);
 
         Self {
             inner: BitArrayBuilder::with_capacity(num_blocks * CACHE_LINE_BYTES),
