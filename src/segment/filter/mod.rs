@@ -53,6 +53,7 @@ pub trait AMQFilter {
     fn contains(&self, item: &[u8]) -> bool;
     fn contains_hash(&self, hash: (u64, u64)) -> bool;
 }
+
 #[enum_dispatch::enum_dispatch(AMQFilter)]
 #[derive(PartialEq, Debug)]
 pub enum BloomFilter {
@@ -60,7 +61,6 @@ pub enum BloomFilter {
     BlockedBloom(BlockedBloomFilter),
 }
 
-#[derive(Debug, PartialEq)]
 pub enum BloomFilterType {
     StandardBloom = 0,
     BlockedBloom = 1,

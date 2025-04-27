@@ -50,11 +50,11 @@ impl AMQFilter for BlockedBloomFilter {
             h1 = h1.wrapping_add(h2);
             h2 = h2.wrapping_mul(i);
 
-            let idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
+            let bit_idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
             // NOTE: should be in bounds because of modulo
             #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-            if !self.has_bit(block_idx as usize, idx as usize) {
+            if !self.has_bit(block_idx as usize, bit_idx as usize) {
                 return false;
             }
         }

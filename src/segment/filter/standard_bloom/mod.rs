@@ -1,4 +1,4 @@
-use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter};
+use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter, BloomFilterType};
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -30,7 +30,6 @@ pub struct StandardBloomFilter {
     k: usize,
 }
 
-// TODO: change encode/decode to be Filter enum
 impl AMQFilter for StandardBloomFilter {
     /// Size of bloom filter in bytes.
     #[must_use]
@@ -80,7 +79,7 @@ impl Encode for StandardBloomFilter {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        writer.write_u8(0)?; // TODO: How to make this a enum?
+        writer.write_u8(BloomFilterType::StandardBloom as u8)?;
 
         // NOTE: Hash type (unused)
         writer.write_u8(0)?;
