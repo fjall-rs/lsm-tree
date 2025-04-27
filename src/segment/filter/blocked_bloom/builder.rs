@@ -103,7 +103,7 @@ impl Builder {
             h1 = h1.wrapping_add(h2);
             h2 = h2.wrapping_mul(i);
 
-            let idx = h1 % (CACHE_LINE_BYTES as u64);
+            let idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
             self.inner
                 .enable_bit(Self::get_bit_idx(block_idx as usize, idx as usize));
@@ -111,7 +111,7 @@ impl Builder {
     }
 
     pub fn get_bit_idx(block_idx: usize, idx_in_block: usize) -> usize {
-        block_idx * CACHE_LINE_BYTES as usize + idx_in_block
+        block_idx * CACHE_LINE_BYTES * 8 + idx_in_block
     }
 
     /// Gets the hash of a key.
