@@ -27,7 +27,7 @@ use crate::{
     cache::Cache, descriptor_table::DescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
-use filter::{standard_bloom::CompositeHash, AMQFilterBuilder};
+use filter::{standard_bloom::CompositeHash, AMQFilter, AMQFilterBuilder};
 use inner::Inner;
 use meta::ParsedMeta;
 use std::{

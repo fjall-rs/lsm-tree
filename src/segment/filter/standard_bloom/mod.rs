@@ -1,4 +1,4 @@
-use super::{bit_array::BitArrayReader, AMQFilter};
+use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter};
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -18,6 +18,7 @@ pub use builder::{Builder, CompositeHash};
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
 /// <https://fjall-rs.github.io/post/bloom-filter-hash-sharing>
+#[derive(Debug, PartialEq)]
 pub struct StandardBloomFilter {
     /// Raw bytes exposed as bit array
     inner: BitArrayReader,
@@ -72,10 +73,6 @@ impl AMQFilter for StandardBloomFilter {
 
         true
     }
-
-    fn filter_type(&self) -> super::FilterType {
-        super::FilterType::StandardBloom
-    }
 }
 
 impl Encode for StandardBloomFilter {
@@ -83,7 +80,7 @@ impl Encode for StandardBloomFilter {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        writer.write_u8(super::FilterType::StandardBloom as u8)?;
+        writer.write_u8(0)?; // TODO: How to make this a enum?
 
         // NOTE: Hash type (unused)
         writer.write_u8(0)?;
@@ -99,7 +96,7 @@ impl Encode for StandardBloomFilter {
 #[allow(clippy::len_without_is_empty)]
 impl StandardBloomFilter {
     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
@@ -110,7 +107,11 @@ impl StandardBloomFilter {
         let mut bytes = vec![0; m / 8];
         reader.read_exact(&mut bytes)?;
 
-        Ok(Self::from_raw(m, k, bytes.into()))
+        Ok(BloomFilter::StandardBloom(Self::from_raw(
+            m,
+            k,
+            bytes.into(),
+        )))
     }
 
     fn from_raw(m: usize, k: usize, slice: crate::Slice) -> Self {
@@ -134,7 +135,7 @@ impl StandardBloomFilter {
 
 #[cfg(test)]
 mod tests {
-    use crate::segment::filter::{AMQFilterBuilder, FilterType};
+    use crate::segment::filter::{AMQFilterBuilder, BloomFilter};
 
     use super::*;
     use std::fs::File;
@@ -175,7 +176,7 @@ mod tests {
         let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
         assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-        assert_eq!(FilterType::StandardBloom, filter_copy.filter_type());
+        assert!(matches!(filter_copy, BloomFilter::StandardBloom(_)));
 
         for key in keys {
             assert!(filter.contains(&**key));

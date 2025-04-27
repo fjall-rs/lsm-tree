@@ -9,9 +9,8 @@ pub mod standard_bloom;
 use crate::{coding::DecodeError, file::MAGIC_BYTES};
 use blocked_bloom::BlockedBloomFilter;
 use byteorder::ReadBytesExt;
-use std::io::Read;
-
 use standard_bloom::{Builder as StandardBloomFilterBuilder, StandardBloomFilter};
+use std::io::Read;
 
 const CACHE_LINE_BYTES: usize = 64;
 
@@ -47,13 +46,27 @@ impl BloomConstructionPolicy {
     }
 }
 
+#[enum_dispatch::enum_dispatch]
+pub trait AMQFilter {
+    fn bytes(&self) -> &[u8];
+    fn len(&self) -> usize;
+    fn contains(&self, item: &[u8]) -> bool;
+    fn contains_hash(&self, hash: (u64, u64)) -> bool;
+}
+#[enum_dispatch::enum_dispatch(AMQFilter)]
 #[derive(PartialEq, Debug)]
-pub enum FilterType {
+pub enum BloomFilter {
+    StandardBloom(StandardBloomFilter),
+    BlockedBloom(BlockedBloomFilter),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BloomFilterType {
     StandardBloom = 0,
     BlockedBloom = 1,
 }
 
-impl TryFrom<u8> for FilterType {
+impl TryFrom<u8> for BloomFilterType {
     type Error = ();
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -64,18 +77,10 @@ impl TryFrom<u8> for FilterType {
     }
 }
 
-pub trait AMQFilter: Sync + Send {
-    fn bytes(&self) -> &[u8];
-    fn len(&self) -> usize;
-    fn contains(&self, item: &[u8]) -> bool;
-    fn contains_hash(&self, hash: (u64, u64)) -> bool;
-    fn filter_type(&self) -> FilterType;
-}
-
 pub struct AMQFilterBuilder {}
 
 impl AMQFilterBuilder {
-    pub fn decode_from<R: Read>(reader: &mut R) -> Result<Box<dyn AMQFilter + Sync>, DecodeError> {
+    pub fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
@@ -85,20 +90,15 @@ impl AMQFilterBuilder {
         }
 
         let filter_type = reader.read_u8()?;
-        let filter_type = FilterType::try_from(filter_type)
-            .map_err(|_| DecodeError::InvalidHeader("FilterType"))?;
 
-        match filter_type {
-            FilterType::StandardBloom => StandardBloomFilter::decode_from(reader)
-                .map(Self::wrap_filter)
-                .map_err(|e| DecodeError::from(e)),
-            FilterType::BlockedBloom => BlockedBloomFilter::decode_from(reader)
-                .map(Self::wrap_filter)
-                .map_err(|e| DecodeError::from(e)),
+        match BloomFilterType::try_from(filter_type) {
+            Ok(BloomFilterType::StandardBloom) => {
+                StandardBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
+            }
+            Ok(BloomFilterType::BlockedBloom) => {
+                BlockedBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
+            }
+            _ => Err(DecodeError::InvalidHeader("Unknown filter type")),
         }
-    }
-
-    fn wrap_filter<T: 'static + AMQFilter + Sync>(filter: T) -> Box<dyn AMQFilter + Sync> {
-        Box::new(filter)
     }
 }

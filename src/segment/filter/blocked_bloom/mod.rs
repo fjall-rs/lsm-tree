@@ -3,18 +3,20 @@
 // (found in the LICENSE-* files in the repository)
 
 mod builder;
-use super::{bit_array::BitArrayReader, AMQFilter, CACHE_LINE_BYTES};
+use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter, BloomFilterType, CACHE_LINE_BYTES};
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
 };
 pub use builder::Builder;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use core::num;
 use std::io::{Read, Write};
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
 
+#[derive(Debug, PartialEq)]
 pub struct BlockedBloomFilter {
     /// Raw bytes exposed as bit array
     inner: BitArrayReader,
@@ -67,10 +69,6 @@ impl AMQFilter for BlockedBloomFilter {
     fn contains(&self, key: &[u8]) -> bool {
         self.contains_hash(Self::get_hash(key))
     }
-
-    fn filter_type(&self) -> super::FilterType {
-        super::FilterType::BlockedBloom
-    }
 }
 
 impl Encode for BlockedBloomFilter {
@@ -78,7 +76,7 @@ impl Encode for BlockedBloomFilter {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
-        writer.write_u8(super::FilterType::BlockedBloom as u8)?;
+        writer.write_u8(BloomFilterType::BlockedBloom as u8)?;
 
         // NOTE: Hash type (unused)
         writer.write_u8(0)?;
@@ -93,7 +91,7 @@ impl Encode for BlockedBloomFilter {
 
 impl BlockedBloomFilter {
     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
@@ -104,7 +102,11 @@ impl BlockedBloomFilter {
         let mut bytes = vec![0; num_blocks * CACHE_LINE_BYTES];
         reader.read_exact(&mut bytes)?;
 
-        Ok(Self::from_raw(num_blocks, k, bytes.into()))
+        Ok(BloomFilter::BlockedBloom(Self::from_raw(
+            num_blocks,
+            k,
+            bytes.into(),
+        )))
     }
 
     fn from_raw(num_blocks: usize, k: usize, slice: crate::Slice) -> Self {
@@ -129,7 +131,7 @@ impl BlockedBloomFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segment::filter::{AMQFilterBuilder, FilterType};
+    use crate::segment::filter::{AMQFilterBuilder, BloomFilter};
 
     use std::fs::File;
     use test_log::test;
@@ -169,7 +171,7 @@ mod tests {
         let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
         assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-        assert_eq!(FilterType::BlockedBloom, filter_copy.filter_type());
+        assert!(matches!(filter_copy, BloomFilter::BlockedBloom(_)));
 
         for key in keys {
             assert!(filter.contains(&**key));

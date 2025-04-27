@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{
-    block_index::NewBlockIndexImpl, filter::AMQFilter, meta::ParsedMeta, trailer::Trailer,
+    block_index::NewBlockIndexImpl, filter::BloomFilter, meta::ParsedMeta, trailer::Trailer,
 };
 use crate::{
     cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
@@ -38,7 +38,7 @@ pub struct Inner {
     pub cache: Arc<Cache>,
 
     /// Pinned AMQ filter
-    pub pinned_filter: Option<Box<dyn AMQFilter + Sync>>,
+    pub pinned_filter: Option<BloomFilter>,
 
     // /// Pinned filter
     // #[doc(hidden)]
