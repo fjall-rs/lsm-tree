@@ -47,16 +47,16 @@ impl BloomConstructionPolicy {
 }
 
 #[enum_dispatch::enum_dispatch]
-pub trait AMQFilter {
+pub trait AMQ {
     fn bytes(&self) -> &[u8];
     fn len(&self) -> usize;
     fn contains(&self, item: &[u8]) -> bool;
     fn contains_hash(&self, hash: (u64, u64)) -> bool;
 }
 
-#[enum_dispatch::enum_dispatch(AMQFilter)]
+#[enum_dispatch::enum_dispatch(AMQ)]
 #[derive(PartialEq, Debug)]
-pub enum BloomFilter {
+pub enum AMQFilter {
     StandardBloom(StandardBloomFilter),
     BlockedBloom(BlockedBloomFilter),
 }
@@ -80,7 +80,7 @@ impl TryFrom<u8> for BloomFilterType {
 pub struct AMQFilterBuilder {}
 
 impl AMQFilterBuilder {
-    pub fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
+    pub fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;

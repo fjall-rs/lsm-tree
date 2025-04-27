@@ -14,7 +14,7 @@ fn standard_filter_construction(c: &mut Criterion) {
 }
 
 fn standard_filter_contains(c: &mut Criterion) {
-    use lsm_tree::segment::filter::{standard_bloom::Builder, AMQFilter};
+    use lsm_tree::segment::filter::{standard_bloom::Builder, AMQ};
 
     let keys = (0..100_000u128)
         .map(|x| x.to_be_bytes().to_vec())
@@ -63,7 +63,7 @@ fn blocked_filter_construction(c: &mut Criterion) {
 }
 
 fn blocked_filter_contains(c: &mut Criterion) {
-    use lsm_tree::segment::filter::{blocked_bloom::Builder, AMQFilter};
+    use lsm_tree::segment::filter::{blocked_bloom::Builder, AMQ};
 
     let keys = (0..100_000u128)
         .map(|x| x.to_be_bytes().to_vec())

@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 mod builder;
-use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter, BloomFilterType, CACHE_LINE_BYTES};
+use super::{bit_array::BitArrayReader, AMQFilter, BloomFilterType, AMQ, CACHE_LINE_BYTES};
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -28,7 +28,7 @@ pub struct BlockedBloomFilter {
     num_blocks: usize,
 }
 
-impl AMQFilter for BlockedBloomFilter {
+impl AMQ for BlockedBloomFilter {
     fn bytes(&self) -> &[u8] {
         self.inner.bytes()
     }
@@ -91,7 +91,7 @@ impl Encode for BlockedBloomFilter {
 
 impl BlockedBloomFilter {
     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
+    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
@@ -102,7 +102,7 @@ impl BlockedBloomFilter {
         let mut bytes = vec![0; num_blocks * CACHE_LINE_BYTES];
         reader.read_exact(&mut bytes)?;
 
-        Ok(BloomFilter::BlockedBloom(Self::from_raw(
+        Ok(AMQFilter::BlockedBloom(Self::from_raw(
             num_blocks,
             k,
             bytes.into(),
@@ -131,7 +131,7 @@ impl BlockedBloomFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segment::filter::{AMQFilterBuilder, BloomFilter};
+    use crate::segment::filter::{AMQFilter, AMQFilterBuilder};
 
     use std::fs::File;
     use test_log::test;
@@ -171,7 +171,7 @@ mod tests {
         let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
         assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-        assert!(matches!(filter_copy, BloomFilter::BlockedBloom(_)));
+        assert!(matches!(filter_copy, AMQFilter::BlockedBloom(_)));
 
         for key in keys {
             assert!(filter.contains(&**key));

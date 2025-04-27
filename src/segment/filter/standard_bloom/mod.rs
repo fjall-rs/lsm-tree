@@ -1,4 +1,4 @@
-use super::{bit_array::BitArrayReader, AMQFilter, BloomFilter, BloomFilterType};
+use super::{bit_array::BitArrayReader, AMQFilter, BloomFilterType, AMQ};
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
@@ -30,7 +30,7 @@ pub struct StandardBloomFilter {
     k: usize,
 }
 
-impl AMQFilter for StandardBloomFilter {
+impl AMQ for StandardBloomFilter {
     /// Size of bloom filter in bytes.
     #[must_use]
     fn len(&self) -> usize {
@@ -95,7 +95,7 @@ impl Encode for StandardBloomFilter {
 #[allow(clippy::len_without_is_empty)]
 impl StandardBloomFilter {
     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<BloomFilter, DecodeError> {
+    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
@@ -106,11 +106,7 @@ impl StandardBloomFilter {
         let mut bytes = vec![0; m / 8];
         reader.read_exact(&mut bytes)?;
 
-        Ok(BloomFilter::StandardBloom(Self::from_raw(
-            m,
-            k,
-            bytes.into(),
-        )))
+        Ok(AMQFilter::StandardBloom(Self::from_raw(m, k, bytes.into())))
     }
 
     fn from_raw(m: usize, k: usize, slice: crate::Slice) -> Self {
@@ -134,7 +130,7 @@ impl StandardBloomFilter {
 
 #[cfg(test)]
 mod tests {
-    use crate::segment::filter::{AMQFilterBuilder, BloomFilter};
+    use crate::segment::filter::{AMQFilter, AMQFilterBuilder};
 
     use super::*;
     use std::fs::File;
@@ -175,7 +171,7 @@ mod tests {
         let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
 
         assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-        assert!(matches!(filter_copy, BloomFilter::StandardBloom(_)));
+        assert!(matches!(filter_copy, AMQFilter::StandardBloom(_)));
 
         for key in keys {
             assert!(filter.contains(&**key));
