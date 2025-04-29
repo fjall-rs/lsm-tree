@@ -100,13 +100,13 @@ impl Builder {
         let block_idx = h1 % (self.num_blocks as u64);
 
         for i in 1..(self.k as u64) {
-            h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_mul(i);
-
             let idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
             self.inner
                 .enable_bit(Self::get_bit_idx(block_idx as usize, idx as usize));
+
+            h1 = h1.wrapping_add(h2);
+            h2 = h2.wrapping_mul(i);
         }
     }
 

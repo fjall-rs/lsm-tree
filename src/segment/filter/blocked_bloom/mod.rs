@@ -47,9 +47,6 @@ impl AMQ for BlockedBloomFilter {
         let block_idx = h1 % (self.num_blocks as u64);
 
         for i in 1..(self.k as u64) {
-            h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_mul(i);
-
             let bit_idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
             // NOTE: should be in bounds because of modulo
@@ -57,6 +54,9 @@ impl AMQ for BlockedBloomFilter {
             if !self.has_bit(block_idx as usize, bit_idx as usize) {
                 return false;
             }
+
+            h1 = h1.wrapping_add(h2);
+            h2 = h2.wrapping_mul(i);
         }
 
         true
