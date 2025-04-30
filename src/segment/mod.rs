@@ -116,15 +116,15 @@ impl Segment {
         self.metadata.id
     }
 
-    fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
+    fn load_block(&self, handle: &BlockHandle) -> crate::Result<Block> {
         let id = self.global_id();
 
-        if let Some(data_block) = self.cache.get_data_block(id, handle.offset()) {
-            return Ok(data_block);
+        if let Some(block) = self.cache.get_block(id, handle.offset()) {
+            return Ok(block);
         }
 
         let cached_fd = self.descriptor_table.access_for_table(&id);
-        let cache_miss = cached_fd.is_none();
+        let fd_cache_miss = cached_fd.is_none();
 
         let fd = if let Some(fd) = cached_fd {
             fd
@@ -137,18 +137,22 @@ impl Segment {
             handle.offset(),
             handle.size(),
             self.metadata.data_block_compression,
-        )
-        .map(DataBlock::new)?;
+        )?;
+
+        let id = self.global_id();
 
         // Cache FD
-        if cache_miss {
+        if fd_cache_miss {
             self.descriptor_table.insert_for_table(id, fd);
         }
 
-        self.cache
-            .insert_block(id, handle.offset(), block.inner.clone());
+        self.cache.insert_block(id, handle.offset(), block.clone());
 
         Ok(block)
+    }
+
+    fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
+        self.load_block(handle).map(DataBlock::new)
     }
 
     pub fn get(

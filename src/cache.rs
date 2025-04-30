@@ -126,22 +126,11 @@ impl Cache {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_index_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<IndexBlock> {
+    pub fn get_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<Block> {
         let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
 
         Some(match self.data.get(&key)? {
-            Item::Block(block) => IndexBlock::new(block),
-            Item::Blob(_) => unreachable!("invalid cache item"),
-        })
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn get_data_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<DataBlock> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
-
-        Some(match self.data.get(&key)? {
-            Item::Block(block) => DataBlock::new(block),
+            Item::Block(block) => block,
             Item::Blob(_) => unreachable!("invalid cache item"),
         })
     }
