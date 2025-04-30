@@ -14,13 +14,33 @@ pub struct Builder(Vec<u8>);
 
 impl Builder {
     /// Initializes a new builder with the given amount of buckets.
-    pub fn new(bucket_count: u32) -> Self {
+    #[must_use]
+    pub fn with_bucket_count(bucket_count: u32) -> Self {
         Self(vec![MARKER_FREE; bucket_count as usize])
+    }
+
+    #[must_use]
+    pub fn with_hash_ratio(item_count: usize, hash_ratio: f32) -> Self {
+        Self::with_bucket_count(Self::calculate_bucket_count(item_count, hash_ratio))
+    }
+
+    fn calculate_bucket_count(item_count: usize, hash_ratio: f32) -> u32 {
+        assert!(
+            hash_ratio.is_sign_positive(),
+            "hash_ratio may not be negative",
+        );
+
+        if hash_ratio > 0.0 {
+            ((item_count as f32 * hash_ratio) as u32).max(1)
+        } else {
+            0
+        }
     }
 
     // NOTE: We know the hash index has a bucket count <= u8
     #[allow(clippy::cast_possible_truncation)]
     /// Returns the number of buckets.
+    #[must_use]
     pub fn bucket_count(&self) -> u32 {
         self.0.len() as u32
     }
@@ -72,8 +92,9 @@ impl Builder {
 
     /// Consumes the builder, returning its raw bytes.
     ///
-    /// Only used for tests
-    #[cfg(test)]
+    /// Only used for tests/benchmarks
+    #[must_use]
+    #[doc(hidden)]
     pub fn into_inner(self) -> Vec<u8> {
         self.0
     }

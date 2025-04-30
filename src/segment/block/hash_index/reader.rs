@@ -22,6 +22,7 @@ pub struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     /// Initializes a new hash index reader.
+    #[must_use]
     pub fn new(bytes: &'a [u8], offset: u32, len: u32) -> Self {
         let offset = offset as usize;
         let len = len as usize;
@@ -35,6 +36,7 @@ impl<'a> Reader<'a> {
     // NOTE: Not used for performance reasons, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
     /// Returns the amount of empty slots in the hash index.
+    #[must_use]
     pub fn free_count(&self) -> usize {
         self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
     }
@@ -42,6 +44,7 @@ impl<'a> Reader<'a> {
     // NOTE: Not used for performance reasons, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
     /// Returns the amount of conflict markers in the hash index.
+    #[must_use]
     pub fn conflict_count(&self) -> usize {
         self.0
             .iter()
@@ -50,6 +53,7 @@ impl<'a> Reader<'a> {
     }
 
     /// Returns the binary index position if the key is not conflicted.
+    #[must_use]
     pub fn get(&self, key: &[u8]) -> Lookup {
         // NOTE: Even with very high hash ratio, there will be nearly enough items to
         // cause us to create u32 buckets

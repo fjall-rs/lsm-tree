@@ -63,12 +63,7 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
     ) -> Self {
         let binary_index_len = item_count / usize::from(restart_interval);
 
-        // TODO: verify
-        let bucket_count = if hash_index_ratio > 0.0 {
-            ((item_count as f32 * hash_index_ratio) as u32).max(1)
-        } else {
-            0
-        };
+        let hash_index_builder = HashIndexBuilder::with_hash_ratio(item_count, hash_index_ratio);
 
         Self {
             phantom: PhantomData,
@@ -84,7 +79,7 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
             use_prefix_truncation: true,
 
             binary_index_builder: BinaryIndexBuilder::new(binary_index_len),
-            hash_index_builder: HashIndexBuilder::new(bucket_count),
+            hash_index_builder,
 
             base_key: first_key,
         }
