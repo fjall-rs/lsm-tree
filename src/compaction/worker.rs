@@ -247,28 +247,23 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    let Ok(segment_writer) = MultiWriter::new(
+    let segment_writer = match MultiWriter::new(
         segments_base_folder.clone(),
         opts.segment_id_generator.clone(),
         payload.target_size,
-        /* opts.segment_id_generator.clone(),
-        payload.target_size,
-        crate::segment::writer::Options {
-            folder: segments_base_folder.clone(),
-            segment_id: 0, // TODO: this is never used in MultiWriter
-            data_block_size: opts.config.data_block_size,
-            index_block_size: opts.config.index_block_size,
-        }, */
-    ) else {
-        log::error!("Compaction failed");
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let mut segment_writer = segment_writer
@@ -295,16 +290,19 @@ fn merge_segments(
         });
 
     for (idx, item) in merge_iter.enumerate() {
-        let Ok(item) = item else {
-            log::error!("Compaction failed");
+        let item = match item {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("Compaction failed: {e:?}");
 
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
+                // IMPORTANT: Show the segments again, because compaction failed
+                opts.levels
+                    .write()
+                    .expect("lock is poisoned")
+                    .show_segments(payload.segment_ids.iter().copied());
 
-            return Ok(());
+                return Ok(());
+            }
         };
 
         // IMPORTANT: We can only drop tombstones when writing into last level
@@ -312,8 +310,8 @@ fn merge_segments(
             continue;
         }
 
-        if segment_writer.write(item).is_err() {
-            log::error!("Compaction failed");
+        if let Err(e) = segment_writer.write(item) {
+            log::error!("Compaction failed: {e:?}");
 
             // IMPORTANT: Show the segments again, because compaction failed
             opts.levels
@@ -322,7 +320,7 @@ fn merge_segments(
                 .show_segments(payload.segment_ids.iter().copied());
 
             return Ok(());
-        };
+        }
 
         if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
@@ -330,16 +328,19 @@ fn merge_segments(
         }
     }
 
-    let Ok(writer_results) = segment_writer.finish() else {
-        log::error!("Compaction failed");
+    let writer_results = match segment_writer.finish() {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     log::debug!(
@@ -348,7 +349,7 @@ fn merge_segments(
         writer_results.len(),
     );
 
-    let Ok(created_segments) = writer_results
+    let created_segments = writer_results
         .into_iter()
         .map(|segment_id| -> crate::Result<Segment> {
             let segment_file_path = segments_base_folder.join(segment_id.to_string());
@@ -389,8 +390,10 @@ fn merge_segments(
             };
             let block_index = Arc::new(block_index);
 
+            let bloom_filter = Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?;
+
             Ok(SegmentInner {
-                path: segment_file_path.to_path_buf(),
+                path: segment_file_path,
 
                 tree_id: opts.tree_id,
 
@@ -403,23 +406,27 @@ fn merge_segments(
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index,
 
-                bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+                bloom_filter,
 
                 is_deleted: AtomicBool::default(),
             }
             .into()) */
         })
-        .collect::<crate::Result<Vec<_>>>()
-    else {
-        log::error!("Compaction failed");
+        .collect::<crate::Result<Vec<_>>>();
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+    let created_segments = match created_segments {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        return Ok(());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
+
+            return Ok(());
+        }
     };
 
     // NOTE: Mind lock order L -> M -> S

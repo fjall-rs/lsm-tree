@@ -919,12 +919,6 @@ impl Tree {
             let segment_file_path = dirent.path();
             assert!(!segment_file_path.is_dir());
 
-            if segment_file_name.starts_with("tmp_") {
-                log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
-                std::fs::remove_file(&segment_file_path)?;
-                continue;
-            }
-
             log::debug!("Recovering segment from {segment_file_path:?}");
 
             let segment_id = segment_file_name.parse::<SegmentId>().map_err(|e| {
