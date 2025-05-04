@@ -27,7 +27,7 @@ use crate::{
     cache::Cache, descriptor_table::DescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
-use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
+use filter::{standard_bloom::CompositeHash, AMQ, AMQFilterBuilder};
 use inner::Inner;
 use meta::ParsedMeta;
 use std::{
@@ -345,8 +345,6 @@ impl Segment {
         let pinned_filter = trailer
             .filter
             .map(|filter_ptr| {
-                use crate::coding::Decode;
-
                 log::debug!("Reading filter block for pinning, with filter_ptr={filter_ptr:?}");
 
                 let block = Block::from_file(
@@ -357,7 +355,7 @@ impl Segment {
                 )?;
 
                 let mut reader = &block.data[..];
-                StandardBloomFilter::decode_from(&mut reader).map_err(Into::<crate::Error>::into)
+                AMQFilterBuilder::decode_from(&mut reader).map_err(Into::<crate::Error>::into)
             })
             .transpose()?;
 
