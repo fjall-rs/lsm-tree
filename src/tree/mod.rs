@@ -715,30 +715,24 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        log::trace!("range read: acquiring levels manifest read lock");
         // NOTE: Mind lock order L -> M -> S
-        let level_manifest =
-            guardian::ArcRwLockReadGuardian::take(self.levels.clone()).expect("lock is poisoned");
-        log::trace!("range read: acquired level manifest read lock");
+        log::trace!("range read: acquiring read locks");
 
-        log::trace!("range read: acquiring active memtable read lock");
-        let active = guardian::ArcRwLockReadGuardian::take(self.active_memtable.clone())
-            .expect("lock is poisoned");
-        log::trace!("range read: acquired active memtable read lock");
+        let level_manifest = self.levels.read().expect("lock is poisoned");
 
-        log::trace!("range read: acquiring sealed memtable read lock");
-        let sealed = guardian::ArcRwLockReadGuardian::take(self.sealed_memtables.clone())
-            .expect("lock is poisoned");
-        log::trace!("range read: acquired sealed memtable read lock");
+        let iter_state = {
+            let active = self.active_memtable.read().expect("lock is poisoned");
+            let sealed = &self.sealed_memtables.read().expect("lock is poisoned");
 
-        let iter_state = IterState {
-            active: active.clone(),
-            sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
-            ephemeral,
-            levels: level_manifest.levels.clone(),
+            IterState {
+                active: active.clone(),
+                sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
+                ephemeral,
+                levels: level_manifest.levels.clone(),
+            }
         };
 
-        TreeIter::create_range(iter_state, bounds, seqno, level_manifest)
+        TreeIter::create_range(iter_state, bounds, seqno, &level_manifest)
     }
 
     #[doc(hidden)]
