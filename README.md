@@ -21,15 +21,15 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 
 - Thread-safe BTreeMap-like API
 - Mostly [safe](./UNSAFE.md) & 100% stable Rust
-- Block-based tables with compression support
-  - Optional hash indexes in blocks for faster point lookups [[3]](#footnotes)
+- Block-based tables with compression support & prefix truncation
+  - Optional block hash indexes in blocks for faster point lookups [[3]](#footnotes)
 - Range & prefix searching with forward and reverse iteration
+- Block caching to keep hot data in memory
+- AMQ filters (currently Bloom filters) to increase point lookup performance
+- Snapshots (MVCC)
+- Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
-- Optionally partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
-- Block caching to keep hot data in memory
-- Bloom filters to increase point lookup performance
-- Snapshots (MVCC)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
 
