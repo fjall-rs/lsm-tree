@@ -11,7 +11,6 @@ use crate::{
     value::{SeqNo, UserKey},
     InternalValue,
 };
-use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
 use std::{ops::Bound, sync::Arc};
 
@@ -139,7 +138,7 @@ impl TreeIter {
         guard: IterState,
         bounds: (Bound<UserKey>, Bound<UserKey>),
         seqno: Option<SeqNo>,
-        level_manifest: ArcRwLockReadGuardian<LevelManifest>,
+        level_manifest: &LevelManifest,
     ) -> Self {
         todo!()
 
