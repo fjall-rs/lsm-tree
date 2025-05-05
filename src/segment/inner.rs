@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{
-    block_index::NewBlockIndexImpl, filter::standard_bloom::StandardBloomFilter, meta::ParsedMeta,
+    block_index::BlockIndexImpl, filter::standard_bloom::StandardBloomFilter, meta::ParsedMeta,
     trailer::Trailer,
 };
 use crate::{
@@ -30,7 +30,7 @@ pub struct Inner {
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
-    pub block_index: Arc<NewBlockIndexImpl>,
+    pub block_index: Arc<BlockIndexImpl>,
 
     /// Block cache
     ///
