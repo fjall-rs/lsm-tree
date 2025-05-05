@@ -11,6 +11,7 @@ mod index_block;
 mod inner;
 mod meta;
 pub(crate) mod multi_writer;
+mod regions;
 mod scanner;
 mod trailer;
 pub(crate) mod util;
@@ -20,6 +21,7 @@ pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
 pub use id::{GlobalSegmentId, SegmentId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
+use regions::ParsedRegions;
 pub use scanner::Scanner;
 pub use writer::Writer;
 
@@ -98,13 +100,11 @@ impl Segment {
     }
 
     #[must_use]
-    pub fn bloom_filter_size(&self) -> usize {
-        if let Some(pinned_filter) = &self.pinned_filter {
-            pinned_filter.len()
-        } else {
-            // TODO: meta.filter_size
-            todo!()
-        }
+    pub fn pinned_bloom_filter_size(&self) -> usize {
+        self.pinned_filter
+            .as_ref()
+            .map(|filter| filter.len())
+            .unwrap_or_default()
     }
 
     /// Gets the segment ID.
@@ -168,6 +168,20 @@ impl Segment {
         }
 
         if let Some(filter) = &self.pinned_filter {
+            if !filter.contains_hash(key_hash) {
+                return Ok(None);
+            }
+        } else if let Some(filter_block_handle) = &self.regions.filter {
+            use crate::coding::Decode;
+
+            let block = self.load_block(filter_block_handle)?;
+
+            let mut reader = &block.data[..];
+
+            // TODO: FilterReader that does not need decoding... just use the slice directly
+            let filter = StandardBloomFilter::decode_from(&mut reader)
+                .map_err(Into::<crate::Error>::into)?;
+
             if !filter.contains_hash(key_hash) {
                 return Ok(None);
             }
@@ -282,46 +296,47 @@ impl Segment {
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
+        pin_filter: bool,
     ) -> crate::Result<Self> {
-        // use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
         use trailer::Trailer;
 
         log::debug!("Recovering segment from file {file_path:?}");
-        let trailer = Trailer::from_file(file_path)?;
+        let mut file = std::fs::File::open(file_path)?;
+
+        let trailer = Trailer::from_file(&mut file)?;
         log::trace!("Got trailer: {trailer:#?}");
 
-        log::debug!("Reading meta block, with meta_ptr={:?}", trailer.metadata);
-        let metadata = ParsedMeta::from_trailer(&std::fs::File::open(file_path)?, &trailer)?;
+        log::debug!(
+            "Reading regions block, with region_ptr={:?}",
+            trailer.regions_block_handle(),
+        );
+        let regions = ParsedRegions::load_with_handle(&file, trailer.regions_block_handle())?;
 
-        /*     assert_eq!(
-            0, *trailer.range_tombstones_ptr,
-            "Range tombstones not supported"
-        ); */
-
-        let file = std::fs::File::open(file_path)?;
+        log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
+        let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
         let tli_block = {
-            log::debug!("Reading TLI block, with tli_ptr={:?}", trailer.tli);
+            log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
 
             let block = Block::from_file(
                 &file,
-                trailer.tli.offset(),
-                trailer.tli.size(),
+                regions.tli.offset(),
+                regions.tli.size(),
                 metadata.data_block_compression, // TODO: index blocks may get their own compression level
             )?;
 
             IndexBlock::new(block)
         };
 
-        let block_index = if let Some(index_block_handle) = trailer.index_blocks {
+        let block_index = if let Some(index_block_handle) = regions.index {
             log::debug!(
                 "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
-                trailer.tli,
+                regions.tli,
             );
             todo!();
             // BlockIndexImpl::TwoLevel(tli_block, todo!())
         } else {
-            log::debug!("Creating full block index, with tli_ptr={:?}", trailer.tli);
+            log::debug!("Creating full block index, with tli_ptr={:?}", regions.tli);
             BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
         };
 
@@ -342,24 +357,30 @@ impl Segment {
             BlockIndexImpl::TwoLevel(block_index)
         }; */
 
-        let pinned_filter = trailer
-            .filter
-            .map(|filter_ptr| {
-                use crate::coding::Decode;
+        // TODO: load FilterBlock
+        let pinned_filter = if pin_filter {
+            regions
+                .filter
+                .map(|filter_ptr| {
+                    use crate::coding::Decode;
 
-                log::debug!("Reading filter block for pinning, with filter_ptr={filter_ptr:?}");
+                    log::debug!("Loading and pinning filter block, with filter_ptr={filter_ptr:?}");
 
-                let block = Block::from_file(
-                    &file,
+                    let block = Block::from_file(
+                        &file,
                     filter_ptr.offset(),
                     filter_ptr.size(),
                     crate::CompressionType::None, // NOTE: We never write a filter block with compression
-                )?;
+                    )?;
 
-                let mut reader = &block.data[..];
-                StandardBloomFilter::decode_from(&mut reader).map_err(Into::<crate::Error>::into)
-            })
-            .transpose()?;
+                    let mut reader = &block.data[..];
+                    StandardBloomFilter::decode_from(&mut reader)
+                        .map_err(Into::<crate::Error>::into)
+                })
+                .transpose()?
+        } else {
+            None
+        };
 
         descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
@@ -368,7 +389,7 @@ impl Segment {
             tree_id,
 
             metadata,
-            trailer,
+            regions,
 
             cache,
 
@@ -457,6 +478,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                true,
             )?;
 
             assert_eq!(5, segment.id());
@@ -464,19 +486,42 @@ mod tests {
             assert_eq!(1, segment.metadata.data_block_count);
             assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
             assert!(
-                segment.trailer.index_blocks.is_none(),
+                segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
 
             assert_eq!(
                 b"abc",
-                &*segment.point_read(b"abc", None)?.unwrap().key.user_key,
+                &*segment
+                    .get(
+                        b"abc",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
             );
             assert_eq!(
                 b"abc",
-                &*segment.point_read(b"abc", None)?.unwrap().key.user_key,
+                &*segment
+                    .get(
+                        b"abc",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
             );
-            assert_eq!(None, segment.point_read(b"def", None)?);
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    None,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
 
             assert_eq!(
                 segment.metadata.key_range,
@@ -515,6 +560,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                true,
             )?;
 
             assert_eq!(5, segment.id());
@@ -522,29 +568,138 @@ mod tests {
             assert_eq!(1, segment.metadata.data_block_count);
             assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
             assert!(
-                segment.trailer.index_blocks.is_none(),
+                segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
 
             assert_eq!(
                 b"abc",
-                &*segment.point_read(b"abc", None)?.unwrap().key.user_key,
+                &*segment
+                    .get(
+                        b"abc",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
             );
             assert_eq!(
                 b"def",
-                &*segment.point_read(b"def", None)?.unwrap().key.user_key,
+                &*segment
+                    .get(
+                        b"def",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
             );
             assert_eq!(
                 b"xyz",
-                &*segment.point_read(b"xyz", None)?.unwrap().key.user_key,
+                &*segment
+                    .get(
+                        b"xyz",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"xyz")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
             );
-            assert_eq!(None, segment.point_read(b"____", None)?);
+            assert_eq!(
+                None,
+                segment.get(
+                    b"____",
+                    None,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
+                )?
+            );
 
             assert_eq!(items, &*segment.scan()?.flatten().collect::<Vec<_>>());
 
             assert_eq!(
                 segment.metadata.key_range,
                 crate::KeyRange::new((b"abc".into(), b"xyz".into())),
+            );
+        }
+
+        Ok(())
+    }
+
+    // TODO: when using stats cfg feature: check filter hits += 1
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_unpinned_filter() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+            writer.write(crate::InternalValue::from_components(
+                b"abc",
+                b"asdasdasd",
+                3,
+                crate::ValueType::Value,
+            ))?;
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            let segment = Segment::recover(
+                &file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                false,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(1, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        None,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    None,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"abc".into())),
             );
         }
 

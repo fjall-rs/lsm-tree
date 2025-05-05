@@ -122,12 +122,12 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn bloom_filter_size(&self) -> usize {
+    fn pinned_bloom_filter_size(&self) -> usize {
         self.levels
             .read()
             .expect("lock is poisoned")
             .iter()
-            .map(Segment::bloom_filter_size)
+            .map(Segment::pinned_bloom_filter_size)
             .sum()
     }
 
@@ -515,6 +515,7 @@ impl Tree {
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
+            true, // TODO: look at configuration
         )?;
 
         log::debug!("Flushed segment to {segment_file_path:?}");
@@ -920,13 +921,13 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
+            if let Some(&_level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
                     &segment_file_path,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    // level_idx == 0 || level_idx == 1,
+                    true, // TODO: look at configuration
                 )?;
 
                 segments.push(segment);

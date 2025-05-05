@@ -85,7 +85,8 @@ impl<'a> Ingestion<'a> {
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
-                )
+                    true,
+                ) // TODO: look at configuration
 
                 // todo!()
 

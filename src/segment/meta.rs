@@ -2,12 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{trailer::Trailer, Block, DataBlock};
+use super::{Block, BlockHandle, DataBlock};
 use crate::{coding::Decode, CompressionType, KeyRange, SegmentId, SeqNo};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 
-/// Nano-second timestamp.
+/// Nanosecond timestamp.
 pub struct Timestamp(u128);
 
 impl Deref for Timestamp {
@@ -45,9 +45,8 @@ pub struct ParsedMeta {
 
 impl ParsedMeta {
     #[allow(clippy::expect_used)]
-    pub fn from_trailer(file: &File, trailer: &Trailer) -> crate::Result<Self> {
-        let ptr = trailer.metadata;
-        let block = Block::from_file(file, ptr.offset(), ptr.size(), CompressionType::None)?;
+    pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
+        let block = Block::from_file(file, handle.offset(), handle.size(), CompressionType::None)?;
         let block = DataBlock::new(block);
 
         assert_eq!(

@@ -8,7 +8,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::{filter::standard_bloom::Builder, index_block::BlockHandle},
+    segment::{filter::standard_bloom::Builder, index_block::BlockHandle, regions::ParsedRegions},
     time::unix_timestamp,
     CompressionType, InternalValue, SegmentId, UserKey,
 };
@@ -343,10 +343,7 @@ impl Writer {
                 assert_eq!(meta_items, sorted_copy, "meta items not sorted correctly");
             }
 
-            log::trace!(
-                "Writing metadata to segment file {:?}: {meta_items:#?}",
-                self.path,
-            );
+            log::trace!("Encoding metadata block: {meta_items:#?}");
 
             // TODO: no binary index
             let bytes = DataBlock::encode_items(&meta_items, 1, 0.0)?;
@@ -357,23 +354,29 @@ impl Writer {
             BlockHandle::new(metadata_start, bytes_written as u32)
         };
 
-        // Bundle all the file offsets
-        let trailer = Trailer {
-            tli: tli_handle,
-            index_blocks: None,
-            filter: filter_handle,
-            metadata: metadata_handle,
-            /* range_filter:range_filter_ptr: rf:rf_ptr,
-            range_tombstones:range_tombstones_ptr,
-            pfx:pfx_ptr, */
+        // Write regions block
+        let regions_block_handle = {
+            let regions_block_start = BlockOffset(self.block_writer.stream_position()?);
+
+            let regions = ParsedRegions {
+                tli: tli_handle,
+                index: None,
+                filter: filter_handle,
+                metadata: metadata_handle,
+            };
+
+            log::trace!("Encoding regions: {regions:#?}");
+
+            let bytes = regions.encode_into_vec()?;
+            let header = Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
+
+            let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
+
+            BlockHandle::new(regions_block_start, bytes_written as u32)
         };
 
-        log::trace!(
-            "Writing trailer to segment file {:?}: {trailer:#?}",
-            self.path,
-        );
-
-        // Write trailer
+        // Write fixed-size trailer
+        let trailer = Trailer::from_handle(regions_block_handle);
         trailer.write_into(&mut self.block_writer)?;
 
         // Finally, flush & fsync the blocks file

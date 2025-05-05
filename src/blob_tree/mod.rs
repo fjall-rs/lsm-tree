@@ -331,8 +331,8 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    fn bloom_filter_size(&self) -> usize {
-        self.index.bloom_filter_size()
+    fn pinned_bloom_filter_size(&self) -> usize {
+        self.index.pinned_bloom_filter_size()
     }
 
     fn sealed_memtable_count(&self) -> usize {

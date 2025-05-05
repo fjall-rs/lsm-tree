@@ -359,6 +359,7 @@ fn merge_segments(
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
+                true, // TODO: look at configuration
             )
 
             /* let segment_id = trailer.metadata.id;

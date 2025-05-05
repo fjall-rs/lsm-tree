@@ -3,9 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, segment::Segment,
-    tree::inner::MemtableId, AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo,
-    Snapshot, Tree, UserKey, UserValue,
+    compaction::CompactionStrategy, config::TreeType, segment::Segment, tree::inner::MemtableId,
+    AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, Tree, UserKey,
+    UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -42,8 +42,8 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
-    /// Gets the memory usage of all bloom filters in the tree.
-    fn bloom_filter_size(&self) -> usize;
+    /// Gets the memory usage of all pinned bloom filters in the tree.
+    fn pinned_bloom_filter_size(&self) -> usize;
 
     // TODO:?
     /* #[doc(hidden)]

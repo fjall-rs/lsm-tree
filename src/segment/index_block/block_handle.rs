@@ -22,7 +22,6 @@ pub struct BlockHandle {
 }
 
 impl BlockHandle {
-    #[must_use]
     pub fn new(offset: BlockOffset, size: u32) -> Self {
         Self { offset, size }
     }

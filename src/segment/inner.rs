@@ -4,7 +4,7 @@
 
 use super::{
     block_index::BlockIndexImpl, filter::standard_bloom::StandardBloomFilter, meta::ParsedMeta,
-    trailer::Trailer,
+    regions::ParsedRegions,
 };
 use crate::{
     cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
@@ -22,11 +22,13 @@ pub struct Inner {
     #[doc(hidden)]
     pub descriptor_table: Arc<DescriptorTable>,
 
-    /// Segment metadata object
+    /// Parsed metadata
     #[doc(hidden)]
     pub metadata: ParsedMeta,
 
-    pub(crate) trailer: Trailer, // TODO: remove...?
+    /// Parsed region block handles
+    #[doc(hidden)]
+    pub regions: ParsedRegions,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
