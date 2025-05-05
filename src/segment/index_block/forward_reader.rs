@@ -37,6 +37,8 @@ pub struct ParsedItem {
 
 impl ParsedItem {
     pub fn materialize(&self, bytes: &Slice) -> KeyedBlockHandle {
+        // NOTE: We consider the prefix and key slice indexes to be trustworthy
+        #[allow(clippy::indexing_slicing)]
         let end_key = if let Some(prefix) = &self.prefix {
             let prefix_key = &bytes[prefix.0..prefix.1];
             let rest_key = &bytes[self.end_key.0..self.end_key.1];

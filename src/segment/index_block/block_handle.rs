@@ -22,14 +22,17 @@ pub struct BlockHandle {
 }
 
 impl BlockHandle {
+    #[must_use]
     pub fn new(offset: BlockOffset, size: u32) -> Self {
         Self { offset, size }
     }
 
+    #[must_use]
     pub fn size(&self) -> u32 {
         self.size
     }
 
+    #[must_use]
     pub fn offset(&self) -> BlockOffset {
         self.offset
     }

@@ -2,16 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::DataBlock;
+use super::{forward_reader::ForwardReader, DataBlock};
 use crate::{key::InternalKey, InternalValue, SeqNo, Slice};
 use std::io::Cursor;
-
-#[derive(Default, Debug)]
-struct LoScanner {
-    offset: usize,
-    remaining_in_interval: usize,
-    base_key_offset: Option<usize>,
-}
 
 #[derive(Debug)]
 struct HiScanner {
@@ -26,7 +19,7 @@ pub struct Iter<'a> {
     block: &'a DataBlock,
     restart_interval: usize,
 
-    lo_scanner: LoScanner,
+    lo_scanner: ForwardReader<'a>,
     hi_scanner: HiScanner,
 }
 
@@ -45,6 +38,8 @@ pub struct ParsedItem {
 
 impl ParsedItem {
     pub fn materialize(&self, bytes: &Slice) -> InternalValue {
+        // NOTE: We consider the prefix and key slice indexes to be trustworthy
+        #[allow(clippy::indexing_slicing)]
         let key = if let Some(prefix) = &self.prefix {
             let prefix_key = &bytes[prefix.0..prefix.1];
             let rest_key = &bytes[self.key.0..self.key.1];
@@ -55,6 +50,8 @@ impl ParsedItem {
         let key = InternalKey::new(
             key,
             self.seqno,
+            // NOTE: Value type is (or should be) checked when reading it
+            #[allow(clippy::expect_used)]
             self.value_type.try_into().expect("should work"),
         );
 
@@ -77,8 +74,9 @@ impl<'a> Iter<'a> {
 
             restart_interval,
 
-            lo_scanner: LoScanner::default(),
+            lo_scanner: ForwardReader::new(block),
 
+            /* lo_scanner: LoScanner::default(), */
             hi_scanner: HiScanner {
                 offset: 0,
                 ptr_idx: binary_index_len,
@@ -88,10 +86,10 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn with_offset(mut self, offset: usize) -> Self {
+    /* pub fn with_offset(mut self, offset: usize) -> Self {
         self.lo_scanner.offset = offset;
         self
-    }
+    } */
 
     fn parse_restart_item(
         block: &DataBlock,
@@ -134,7 +132,7 @@ impl<'a> Iter<'a> {
 
     fn consume_stack_top(&mut self) -> Option<ParsedItem> {
         if let Some(offset) = self.hi_scanner.stack.pop() {
-            if self.lo_scanner.offset > 0 && offset < self.lo_scanner.offset {
+            if self.lo_scanner.offset() > 0 && offset < self.lo_scanner.offset() {
                 return None;
             }
 
@@ -166,12 +164,12 @@ impl Iterator for Iter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.hi_scanner.base_key_offset.is_some()
-            && self.lo_scanner.offset >= self.hi_scanner.offset
+            && self.lo_scanner.offset() >= self.hi_scanner.offset
         {
             return None;
         }
 
-        let is_restart = self.lo_scanner.remaining_in_interval == 0;
+        /* let is_restart = self.lo_scanner.remaining_in_interval == 0;
 
         let item = if is_restart {
             self.lo_scanner.remaining_in_interval = self.restart_interval;
@@ -189,10 +187,12 @@ impl Iterator for Iter<'_> {
             )
         };
 
-        self.lo_scanner.remaining_in_interval -= 1;
+        self.lo_scanner.remaining_in_interval -= 1; */
+
+        let item = self.lo_scanner.next();
 
         if self.hi_scanner.base_key_offset.is_some()
-            && self.lo_scanner.offset >= self.hi_scanner.offset
+            && self.lo_scanner.offset() >= self.hi_scanner.offset
         {
             return None;
         }
@@ -251,5 +251,144 @@ impl DoubleEndedIterator for Iter<'_> {
         }
 
         self.consume_stack_top()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::{
+        segment::{
+            block::{BlockOffset, Checksum, Header},
+            Block,
+        },
+        InternalValue,
+        ValueType::Value,
+    };
+    use test_log::test;
+
+    #[test]
+    fn v3_data_block_consume_last_back() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
+            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
+            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
+            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
+            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
+
+        {
+            let mut iter = data_block.iter();
+            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:radius",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert!(iter.next_back().is_none());
+            assert!(iter.next().is_none());
+        }
+
+        {
+            let mut iter = data_block.iter();
+            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:radius",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert!(iter.next().is_none());
+            assert!(iter.next_back().is_none());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_consume_last_forwards() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
+            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
+            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
+            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
+            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(data_block.hash_bucket_count().is_none());
+
+        {
+            let mut iter = data_block.iter().rev();
+            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:fact",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:mass",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:name",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
+            assert!(iter.next_back().is_none());
+        }
+
+        {
+            let mut iter = data_block.iter().rev();
+            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+            assert_eq!(
+                b"pla:jupiter:fact",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:mass",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(
+                b"pla:jupiter:name",
+                &*iter.next_back().unwrap().key.user_key
+            );
+            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+            assert!(iter.next_back().is_none());
+            assert!(iter.next().is_none());
+        }
+
+        Ok(())
     }
 }

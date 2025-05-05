@@ -6,7 +6,6 @@ mod block_handle;
 mod forward_reader;
 
 pub use block_handle::{BlockHandle, KeyedBlockHandle};
-use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
 
 use super::{
     block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
@@ -14,14 +13,15 @@ use super::{
 };
 use crate::segment::block::TRAILER_START_MARKER;
 use byteorder::{LittleEndian, ReadBytesExt};
+use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
 use std::io::{Cursor, Seek};
 use varint_rs::VarintReader;
 
 macro_rules! unwrappy {
     ($x:expr) => {
-        // $x.expect("should read")
+        $x.expect("should read")
 
-        unsafe { $x.unwrap_unchecked() }
+        // unsafe { $x.unwrap_unchecked() }
     };
 }
 
