@@ -26,7 +26,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache, descriptor_table::DescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
 };
-use block_index::{NewBlockIndex, NewBlockIndexImpl, NewFullBlockIndex};
+use block_index::{BlockIndex, BlockIndexImpl, FullBlockIndex};
 use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
 use inner::Inner;
 use meta::ParsedMeta;
@@ -192,7 +192,7 @@ impl Segment {
                 return Ok(block.point_read(key, None));
             }
             Some(seqno) => {
-                let NewBlockIndexImpl::Full(block_index) = &*self.block_index else {
+                let BlockIndexImpl::Full(block_index) = &*self.block_index else {
                     todo!();
                 };
 
@@ -322,7 +322,7 @@ impl Segment {
             // BlockIndexImpl::TwoLevel(tli_block, todo!())
         } else {
             log::debug!("Creating full block index, with tli_ptr={:?}", trailer.tli);
-            NewBlockIndexImpl::Full(NewFullBlockIndex::new(tli_block))
+            BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
         };
 
         /*  let block_index = if use_full_block_index {
