@@ -176,6 +176,11 @@ impl DataBlock {
         Iter::new(self).map(|kv| kv.materialize(&self.inner.data))
     }
 
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn scan(&self) -> impl Iterator<Item = InternalValue> + '_ {
+        ForwardReader::new(self).map(|kv| kv.materialize(&self.inner.data))
+    }
+
     pub fn range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
         range: &'a R,

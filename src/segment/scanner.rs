@@ -38,7 +38,7 @@ impl Scanner {
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         let block = Self::fetch_next_block(&mut reader, compression)?;
-        let iter = Iter::new(block, |block| Box::new(block.iter()));
+        let iter = Iter::new(block, |block| Box::new(block.scan()));
 
         Ok(Self {
             reader,
@@ -73,7 +73,7 @@ impl Iterator for Scanner {
 
             // Init new block
             let block = fail_iter!(Self::fetch_next_block(&mut self.reader, self.compression));
-            self.iter = Iter::new(block, |block| Box::new(block.iter()));
+            self.iter = Iter::new(block, |block| Box::new(block.scan()));
 
             self.read_count += 1;
         }
