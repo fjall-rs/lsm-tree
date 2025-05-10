@@ -13,8 +13,8 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
+    tree_version::Version,
     value::InternalValue,
-    version::Version,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
     ValueType,
 };

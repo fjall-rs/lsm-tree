@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{DecodeError, EncodeError},
-    version::Version,
+    tree_version::Version,
     Checksum, CompressionType,
 };
 

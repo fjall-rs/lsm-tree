@@ -180,6 +180,7 @@ pub mod stop_signal;
 
 mod time;
 mod tree;
+mod tree_version;
 mod value;
 mod version;
 
@@ -217,8 +218,8 @@ pub use {
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,
     tree::Tree,
+    tree_version::Version as TreeVersion,
     value::{SeqNo, UserKey, UserValue, ValueType},
-    version::Version,
 };
 
 pub use any_tree::AnyTree;
