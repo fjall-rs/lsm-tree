@@ -2,10 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{
-    block_index::BlockIndexImpl, filter::standard_bloom::StandardBloomFilter, meta::ParsedMeta,
-    regions::ParsedRegions,
-};
+use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
 use crate::{
     cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
 };
@@ -41,7 +38,7 @@ pub struct Inner {
     pub cache: Arc<Cache>,
 
     /// Pinned AMQ filter
-    pub pinned_filter: Option<StandardBloomFilter>,
+    pub pinned_filter_block: Option<Block>,
 
     // /// Pinned filter
     // #[doc(hidden)]
