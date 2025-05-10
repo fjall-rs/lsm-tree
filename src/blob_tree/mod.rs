@@ -465,7 +465,7 @@ impl AbstractTree for BlobTree {
         self.blobs.register_writer(blob_writer)?;
 
         log::trace!("Creating LSM-tree segment {segment_id}");
-        let segment = self.index.consume_writer(segment_id, segment_writer)?;
+        let segment = self.index.consume_writer(segment_writer)?;
 
         // TODO: this can probably solved in a nicer way
         if segment.is_some() {

@@ -206,7 +206,7 @@ impl AbstractTree for Tree {
             segment_writer.write(item?)?;
         }
 
-        let result = self.consume_writer(segment_id, segment_writer)?;
+        let result = self.consume_writer(segment_writer)?;
 
         log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
 
@@ -473,7 +473,6 @@ impl Tree {
 
     pub(crate) fn consume_writer(
         &self,
-        segment_id: SegmentId, // TODO: <- remove
         writer: crate::segment::Writer,
     ) -> crate::Result<Option<Segment>> {
         let segment_file_path = writer.path.to_path_buf();
