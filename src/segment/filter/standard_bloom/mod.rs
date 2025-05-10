@@ -1,14 +1,11 @@
-use super::bit_array::BitArrayReader;
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    file::MAGIC_BYTES,
-};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
-
 mod builder;
 
 pub use builder::{Builder, CompositeHash};
+
+use super::bit_array::BitArrayReader;
+use crate::file::MAGIC_BYTES;
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{Cursor, Read};
 
 /// A standard bloom filter
 ///
@@ -18,9 +15,9 @@ pub use builder::{Builder, CompositeHash};
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
 /// <https://fjall-rs.github.io/post/bloom-filter-hash-sharing>
-pub struct StandardBloomFilter {
+pub struct StandardBloomFilterReader<'a> {
     /// Raw bytes exposed as bit array
-    inner: BitArrayReader,
+    inner: BitArrayReader<'a>,
 
     /// Bit count
     m: usize,
@@ -29,35 +26,18 @@ pub struct StandardBloomFilter {
     k: usize,
 }
 
-// TODO: change encode/decode to be Filter enum
+impl<'a> StandardBloomFilterReader<'a> {
+    pub fn new(slice: &'a [u8]) -> crate::Result<Self> {
+        let mut reader = Cursor::new(slice);
 
-impl Encode for StandardBloomFilter {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // Write header
-        writer.write_all(&MAGIC_BYTES)?;
-
-        // NOTE: Filter type (unused)
-        writer.write_u8(0)?;
-
-        // NOTE: Hash type (unused)
-        writer.write_u8(0)?;
-
-        writer.write_u64::<LittleEndian>(self.m as u64)?;
-        writer.write_u64::<LittleEndian>(self.k as u64)?;
-        writer.write_all(self.inner.bytes())?;
-
-        Ok(())
-    }
-}
-
-impl Decode for StandardBloomFilter {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DecodeError::InvalidHeader("BloomFilter"));
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
+                "BloomFilter",
+            )));
         }
 
         // NOTE: Filter type (unused)
@@ -71,27 +51,23 @@ impl Decode for StandardBloomFilter {
         let m = reader.read_u64::<LittleEndian>()? as usize;
         let k = reader.read_u64::<LittleEndian>()? as usize;
 
-        let mut bytes = vec![0; m / 8];
-        reader.read_exact(&mut bytes)?;
+        let offset = reader.position() as usize;
 
-        Ok(Self::from_raw(m, k, bytes.into()))
+        #[allow(clippy::indexing_slicing)]
+        Ok(Self {
+            k,
+            m,
+            inner: BitArrayReader::new(slice.get(offset..).expect("should be in bounds")),
+        })
     }
 }
 
 #[allow(clippy::len_without_is_empty)]
-impl StandardBloomFilter {
+impl StandardBloomFilterReader<'_> {
     /// Size of bloom filter in bytes.
     #[must_use]
     pub fn len(&self) -> usize {
         self.inner.bytes().len()
-    }
-
-    fn from_raw(m: usize, k: usize, slice: crate::Slice) -> Self {
-        Self {
-            inner: BitArrayReader::new(slice),
-            m,
-            k,
-        }
     }
 
     /// Returns `true` if the hash may be contained.
@@ -137,18 +113,13 @@ impl StandardBloomFilter {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use test_log::test;
 
     #[test]
-    fn bloom_serde_round_trip() -> crate::Result<()> {
-        let dir = tempfile::tempdir()?;
-
-        let path = dir.path().join("bf");
-        let mut file = File::create(&path)?;
-
+    fn bloom_serde_round_trip() {
         let mut filter = Builder::with_fp_rate(10, 0.0001);
 
         let keys = &[
@@ -157,35 +128,17 @@ mod tests {
         ];
 
         for key in keys {
-            filter.set_with_hash(StandardBloomFilter::get_hash(*key));
+            filter.set_with_hash(StandardBloomFilterReader::get_hash(*key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter_copy = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
-        for key in keys {
-            assert!(filter.contains(&**key));
-        }
-        assert!(!filter.contains(b"asdasads"));
-        assert!(!filter.contains(b"item10"));
-        assert!(!filter.contains(b"cxycxycxy"));
-
-        filter.encode_into(&mut file)?;
-        file.sync_all()?;
-        drop(file);
-
-        let mut file = File::open(&path)?;
-        let filter_copy = StandardBloomFilter::decode_from(&mut file)?;
-
-        assert_eq!(filter.inner, filter_copy.inner);
-
-        for key in keys {
-            assert!(filter.contains(&**key));
-        }
+        assert_eq!(filter.k, filter_copy.k);
+        assert_eq!(filter.m, filter_copy.m);
         assert!(!filter_copy.contains(b"asdasads"));
         assert!(!filter_copy.contains(b"item10"));
         assert!(!filter_copy.contains(b"cxycxycxy"));
-
-        Ok(())
     }
 
     #[test]
@@ -209,7 +162,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         for key in &keys {
             assert!(filter.contains(key));
@@ -231,7 +185,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 
@@ -261,7 +216,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 
@@ -292,7 +248,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 

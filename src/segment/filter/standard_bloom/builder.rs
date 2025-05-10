@@ -2,8 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{super::bit_array::Builder as BitArrayBuilder, StandardBloomFilter};
-use crate::segment::filter::bit_array::BitArrayReader;
+use super::super::bit_array::Builder as BitArrayBuilder;
+use crate::file::MAGIC_BYTES;
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::Write;
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
@@ -15,21 +17,34 @@ pub struct Builder {
     inner: BitArrayBuilder,
 
     /// Bit count
-    m: usize,
+    pub(super) m: usize,
 
     /// Number of hash functions
-    k: usize,
+    pub(super) k: usize,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
     #[must_use]
-    pub fn build(self) -> StandardBloomFilter {
-        StandardBloomFilter {
-            inner: BitArrayReader::new(self.inner.bytes().into()),
-            k: self.k,
-            m: self.m,
-        }
+    pub fn build(&self) -> Vec<u8> {
+        let mut v = vec![];
+
+        // Write header
+        v.write_all(&MAGIC_BYTES).expect("should not fail");
+
+        // NOTE: Filter type (unused)
+        v.write_u8(0).expect("should not fail");
+
+        // NOTE: Hash type (unused)
+        v.write_u8(0).expect("should not fail");
+
+        v.write_u64::<LittleEndian>(self.m as u64)
+            .expect("should not fail");
+        v.write_u64::<LittleEndian>(self.k as u64)
+            .expect("should not fail");
+        v.write_all(self.inner.bytes()).expect("should not fail");
+
+        v
     }
 
     /// Constructs a bloom filter that can hold `n` items
