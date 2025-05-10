@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::segment::block::Header;
-use crate::segment::{Block, BlockOffset, DataBlock, IndexBlock};
+use crate::segment::{Block, BlockOffset};
 use crate::{GlobalSegmentId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};

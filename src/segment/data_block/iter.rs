@@ -65,6 +65,7 @@ impl ParsedItem {
 }
 
 impl<'a> Iter<'a> {
+    #[must_use]
     pub fn new(block: &'a DataBlock) -> Self {
         let restart_interval = block.restart_interval.into();
         let binary_index_len = block.binary_index_len as usize;

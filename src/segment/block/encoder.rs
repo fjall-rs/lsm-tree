@@ -53,7 +53,6 @@ pub struct Encoder<'a, S: Default, T: Encodable<S>> {
     base_key: &'a [u8],
 }
 
-// TODO: maybe split into Builder
 impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
     pub fn new(
         item_count: usize,

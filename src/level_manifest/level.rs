@@ -188,7 +188,6 @@ impl<'a> DisjointLevel<'a> {
             .cloned()
     }
 
-    // TODO: use a single custom binary search instead of partition_point... benchmark it and add some unit tests before
     pub fn range_indexes(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
