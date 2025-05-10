@@ -5,13 +5,13 @@
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
-    TreeType, Version,
+    TreeType, TreeVersion,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::Write;
 
 pub struct Manifest {
-    pub(crate) version: Version,
+    pub(crate) version: TreeVersion,
     pub(crate) tree_type: TreeType,
     // pub(crate) table_type: TableType,
     pub(crate) level_count: u8,
@@ -38,7 +38,7 @@ impl Decode for Manifest {
 
         #[allow(clippy::expect_used)]
         let version = *header.get(3).expect("header must be length 4");
-        let version = Version::try_from(version).map_err(|()| DecodeError::InvalidVersion)?;
+        let version = TreeVersion::try_from(version).map_err(|()| DecodeError::InvalidVersion)?;
 
         let tree_type = reader.read_u8()?;
         // let table_type = reader.read_u8()?;
