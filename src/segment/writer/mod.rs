@@ -250,7 +250,7 @@ impl Writer {
 
                 let start = std::time::Instant::now();
 
-                let filter = {
+                let filter_bytes = {
                     let mut builder = self.bloom_policy.init(n);
 
                     for hash in std::mem::take(&mut self.bloom_hash_buffer) {
@@ -260,12 +260,14 @@ impl Writer {
                     builder.build()
                 };
 
-                log::trace!("Built Bloom filter in {:?}", start.elapsed());
-
-                let bytes = filter.encode_into_vec();
+                log::trace!(
+                    "Built Bloom filter ({} B) in {:?}",
+                    filter_bytes.len(),
+                    start.elapsed(),
+                );
 
                 let block =
-                    Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
+                    Block::to_writer(&mut self.block_writer, &filter_bytes, CompressionType::None)?;
 
                 let bytes_written = (BlockHeader::serialized_len() as u32) + block.data_length;
 

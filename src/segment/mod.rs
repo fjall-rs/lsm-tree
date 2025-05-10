@@ -101,9 +101,9 @@ impl Segment {
 
     #[must_use]
     pub fn pinned_bloom_filter_size(&self) -> usize {
-        self.pinned_filter
+        self.pinned_filter_block
             .as_ref()
-            .map(|filter| filter.len())
+            .map(Block::size)
             .unwrap_or_default()
     }
 
@@ -116,7 +116,11 @@ impl Segment {
         self.metadata.id
     }
 
-    fn load_block(&self, handle: &BlockHandle) -> crate::Result<Block> {
+    fn load_block(
+        &self,
+        handle: &BlockHandle,
+        compression: CompressionType,
+    ) -> crate::Result<Block> {
         let id = self.global_id();
 
         if let Some(block) = self.cache.get_block(id, handle.offset()) {
@@ -132,12 +136,7 @@ impl Segment {
             Arc::new(std::fs::File::open(&self.path)?)
         };
 
-        let block = Block::from_file(
-            &fd,
-            handle.offset(),
-            handle.size(),
-            self.metadata.data_block_compression,
-        )?;
+        let block = Block::from_file(&fd, handle.offset(), handle.size(), compression)?;
 
         let id = self.global_id();
 
@@ -152,7 +151,8 @@ impl Segment {
     }
 
     fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
-        self.load_block(handle).map(DataBlock::new)
+        self.load_block(handle, self.metadata.data_block_compression)
+            .map(DataBlock::new)
     }
 
     pub fn get(
@@ -167,20 +167,15 @@ impl Segment {
             }
         }
 
-        if let Some(filter) = &self.pinned_filter {
+        if let Some(block) = &self.pinned_filter_block {
+            let filter = StandardBloomFilterReader::new(&block.data)?;
+
             if !filter.contains_hash(key_hash) {
                 return Ok(None);
             }
         } else if let Some(filter_block_handle) = &self.regions.filter {
-            use crate::coding::Decode;
-
-            let block = self.load_block(filter_block_handle)?;
-
-            let mut reader = &block.data[..];
-
-            // TODO: FilterReader that does not need decoding... just use the slice directly
-            let filter = StandardBloomFilter::decode_from(&mut reader)
-                .map_err(Into::<crate::Error>::into)?;
+            let block = self.load_block(filter_block_handle, CompressionType::None)?;
+            let filter = StandardBloomFilterReader::new(&block.data)?;
 
             if !filter.contains_hash(key_hash) {
                 return Ok(None);
@@ -215,6 +210,7 @@ impl Segment {
                 };
 
                 for block_handle in iter {
+                    // TODO: can this ever happen...?
                     if block_handle.end_key() < &key {
                         return Ok(None);
                     }
@@ -223,6 +219,12 @@ impl Segment {
 
                     if let Some(item) = block.point_read(key, Some(seqno)) {
                         return Ok(Some(item));
+                    }
+
+                    // NOTE: If the last block key is higher than ours,
+                    // our key cannot be in the next block
+                    if block_handle.end_key() > &key {
+                        return Ok(None);
                     }
                 }
             }
@@ -333,55 +335,37 @@ impl Segment {
                 "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
                 regions.tli,
             );
-            todo!();
+
+            unimplemented!("partitioned index is not supported yet");
+
             // BlockIndexImpl::TwoLevel(tli_block, todo!())
         } else {
             log::debug!("Creating full block index, with tli_ptr={:?}", regions.tli);
             BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
         };
 
-        /*  let block_index = if use_full_block_index {
-            let block_index =
-                FullBlockIndex::from_file(file_path, &trailer.metadata, &trailer.offsets)?;
-
-            BlockIndexImpl::Full(block_index)
-        } else {
-            let block_index = TwoLevelBlockIndex::from_file(
-                file_path,
-                &trailer.metadata,
-                trailer.offsets.tli_ptr,
-                (tree_id, trailer.metadata.id).into(),
-                descriptor_table.clone(),
-                cache.clone(),
-            )?;
-            BlockIndexImpl::TwoLevel(block_index)
-        }; */
-
         // TODO: load FilterBlock
-        let pinned_filter = if pin_filter {
+        let pinned_filter_block = if pin_filter {
             regions
                 .filter
-                .map(|filter_ptr| {
-                    use crate::coding::Decode;
+                .map(|filter_handle| {
+                    log::debug!(
+                        "Loading and pinning filter block, with filter_ptr={filter_handle:?}"
+                    );
 
-                    log::debug!("Loading and pinning filter block, with filter_ptr={filter_ptr:?}");
-
-                    let block = Block::from_file(
+                    Block::from_file(
                         &file,
-                    filter_ptr.offset(),
-                    filter_ptr.size(),
-                    crate::CompressionType::None, // NOTE: We never write a filter block with compression
-                    )?;
-
-                    let mut reader = &block.data[..];
-                    StandardBloomFilter::decode_from(&mut reader)
-                        .map_err(Into::<crate::Error>::into)
+                        filter_handle.offset(),
+                        filter_handle.size(),
+                        crate::CompressionType::None, // NOTE: We never write a filter block with compression
+                    )
                 })
                 .transpose()?
         } else {
             None
         };
 
+        // NOTE: We already have a file descriptor open, so let's just cache it immediately
         descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         let segment = Self(Arc::new(Inner {
@@ -397,7 +381,7 @@ impl Segment {
 
             block_index: Arc::new(block_index),
 
-            pinned_filter,
+            pinned_filter_block,
 
             is_deleted: AtomicBool::default(),
         }));
