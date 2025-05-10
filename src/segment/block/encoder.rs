@@ -60,8 +60,7 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
         hash_index_ratio: f32,
         first_key: &'a [u8],
     ) -> Self {
-        let binary_index_len = item_count / usize::from(restart_interval);
-
+        let binary_index_builder = BinaryIndexBuilder::new(item_count / restart_interval as usize);
         let hash_index_builder = HashIndexBuilder::with_hash_ratio(item_count, hash_index_ratio);
 
         Self {
@@ -77,7 +76,7 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
             restart_interval,
             use_prefix_truncation: true,
 
-            binary_index_builder: BinaryIndexBuilder::new(binary_index_len),
+            binary_index_builder,
             hash_index_builder,
 
             base_key: first_key,
