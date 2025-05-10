@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod block;
-mod block_index;
-pub(crate) mod data_block;
+pub(crate) mod block_index;
+pub mod data_block;
 pub mod filter;
 mod id;
 mod index_block;
@@ -26,10 +26,11 @@ pub use scanner::Scanner;
 pub use writer::Writer;
 
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, InternalValue, SeqNo, TreeId, UserKey,
+    cache::Cache, descriptor_table::DescriptorTable, CompressionType, InternalValue, SeqNo, TreeId,
+    UserKey,
 };
 use block_index::{BlockIndex, BlockIndexImpl, FullBlockIndex};
-use filter::standard_bloom::{CompositeHash, StandardBloomFilter};
+use filter::standard_bloom::{CompositeHash, StandardBloomFilterReader};
 use inner::Inner;
 use meta::ParsedMeta;
 use std::{
