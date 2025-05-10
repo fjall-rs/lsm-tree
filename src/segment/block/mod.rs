@@ -5,7 +5,7 @@
 pub(crate) mod binary_index;
 mod checksum;
 mod encoder;
-pub(crate) mod hash_index;
+pub mod hash_index;
 mod header;
 mod offset;
 mod trailer;
@@ -123,8 +123,12 @@ impl Block {
         size: u32,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        // TODO: use with_size_unzeroed (or whatever it will be called)
-        // TODO: use a Slice::get_mut instead... needs value-log update
+        // TODO: toggle with use_unsafe and add bench
+
+        #[cfg(feature = "use_unsafe")]
+        let mut buf = byteview::ByteView::with_size_unzeroed(size as usize);
+
+        #[cfg(not(feature = "use_unsafe"))]
         let mut buf = byteview::ByteView::with_size(size as usize);
 
         {
