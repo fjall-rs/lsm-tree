@@ -5,9 +5,11 @@
 use crate::key::InternalKey;
 use crate::segment::block::ItemSize;
 use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
-use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicU32, AtomicU64};
+
+#[allow(unsafe_code)]
+mod skiplist;
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
@@ -16,7 +18,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64};
 pub struct Memtable {
     /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
-    pub items: SkipMap<InternalKey, UserValue>,
+    pub items: skiplist::SkipMap<InternalKey, UserValue>,
 
     /// Approximate active memtable size.
     ///
@@ -32,7 +34,7 @@ pub struct Memtable {
 impl Memtable {
     /// Clears the memtable.
     pub fn clear(&mut self) {
-        self.items.clear();
+        self.items = Default::default();
         self.highest_seqno = AtomicU64::new(0);
         self.approximate_size
             .store(0, std::sync::atomic::Ordering::Release);
@@ -131,7 +133,11 @@ impl Memtable {
             .fetch_add(item_size, std::sync::atomic::Ordering::AcqRel);
 
         let key = InternalKey::new(item.key.user_key, item.key.seqno, item.key.value_type);
-        self.items.insert(key, item.value);
+        // TODO(ajwerner): Decide what we want to do here. The panic is sort of
+        // extreme, but also seems right given the invariants.
+        if let Err((key, _value)) = self.items.insert(key, item.value) {
+            panic!("duplicate insert of {key:?} into memtable")
+        }
 
         self.highest_seqno
             .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
