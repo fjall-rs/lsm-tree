@@ -11,15 +11,15 @@
 //!
 //! Due to the requirements of memtable, there are a number of notable in the
 //! features it lacks:
-//!     * Updates
-//!     * Deletes
-//!     * Overwrites
+//! - Updates
+//! - Deletes
+//! - Overwrites
 //!
 //! The main reasons for its existence are that it
-//!     * provides concurrent reads and inserts, and
-//!     * batches memory allocations.
+//! - provides concurrent reads and inserts, and
+//! - batches memory allocations
 //!
-//! Prior to this implementation, crossbeam_skiplist was used.
+//! Prior to this implementation, `crossbeam_skiplist` was used.
 
 mod arena;
 mod skipmap;

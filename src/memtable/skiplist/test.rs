@@ -31,6 +31,7 @@ fn test_basic() {
 }
 
 #[test]
+#[allow(clippy::unwrap_used)]
 fn test_basic_strings() {
     let v = SkipMap::<String, usize>::new(rng().next_u32());
     let mut foo = String::new();
@@ -58,7 +59,7 @@ where
     V: Arbitrary,
 {
     fn arbitrary(g: &mut Gen) -> Self {
-        TestOperation {
+        Self {
             key: K::arbitrary(g),
             value: V::arbitrary(g),
         }
@@ -95,12 +96,14 @@ where
     K: Arbitrary + Ord + Eq + Debug + Send + Sync + Clone,
     V: Arbitrary + Eq + Debug + Send + Sync + Clone,
 {
-    let mut skipmap = SkipMap::new(operations.seed);
-    let barrier = Barrier::new(operations.threads);
     #[cfg(not(miri))]
     const TRACK_OUTCOMES: bool = true;
     #[cfg(miri)]
     const TRACK_OUTCOMES: bool = false;
+
+    let mut skipmap = SkipMap::new(operations.seed);
+    let barrier = Barrier::new(operations.threads);
+
     let outcomes = std::thread::scope(|scope| {
         let (mut ops, mut threads_to_launch) = (operations.ops.as_slice(), operations.threads);
         let mut thread_outcomes = Vec::new();
@@ -119,25 +122,30 @@ where
                 }
                 outcomes
             });
+
             if TRACK_OUTCOMES {
                 thread_outcomes.push(spawned);
             }
         }
+
         thread_outcomes
             .into_iter()
             .flat_map(|v| v.join().unwrap())
             .collect::<Vec<_>>()
     });
+
     #[cfg(miri)]
     if true {
         return true;
     }
+
     let successful_ops = operations
         .ops
         .into_iter()
-        .zip(outcomes.into_iter())
+        .zip(outcomes)
         .filter_map(|(op, outcome)| outcome.then_some(op))
         .collect::<Vec<_>>();
+
     skipmap.check_integrity();
 
     verify_ranges(&skipmap, &successful_ops);
@@ -151,15 +159,16 @@ where
         .rev()
         .map(|e| (e.key().clone(), e.value().clone()))
         .collect();
+
     let mut skipmap_items_rev_rev = skipmap_items_rev.clone();
     skipmap_items_rev_rev.reverse();
+
     assert_eq!(successful_ops.len(), skipmap.len(), "len");
     assert_eq!(skipmap_items.len(), skipmap.len(), "items");
     assert_eq!(skipmap_items.len(), skipmap_items_rev.len(), "rev items");
     assert_eq!(
         skipmap_items, skipmap_items_rev_rev,
-        "Forward iteration should match\n{:#?}\n{:#?}",
-        skipmap_items, skipmap_items_rev_rev
+        "Forward iteration should match\n{skipmap_items:#?}\n{skipmap_items_rev_rev:#?}",
     );
 
     true
@@ -175,6 +184,7 @@ fn test_quickcheck_ints() {
     quickcheck::quickcheck(prop as fn(TestOperations<i64, i32>) -> bool);
 }
 
+#[allow(clippy::indexing_slicing)]
 fn verify_ranges<K, V>(skipmap: &SkipMap<K, V>, successful_ops: &Vec<TestOperation<K, V>>)
 where
     K: Ord + Eq + Debug + Clone,
@@ -185,20 +195,23 @@ where
         .map(|op| op.key.clone())
         .collect::<Vec<_>>();
     successful_keys_sorted.sort();
+
     let btree = successful_ops
         .iter()
         .map(|TestOperation { key, value }| (key.clone(), value.clone()))
         .collect::<BTreeMap<_, _>>();
 
     for _ in 0..10 {
-        if successful_ops.len() == 0 {
+        if successful_ops.is_empty() {
             break;
         }
         let (a, b) = (
             rng().next_u32() as usize % successful_ops.len(),
             rng().next_u32() as usize % successful_ops.len(),
         );
+
         let (start, end) = (a.min(b), a.max(b));
+
         fn assert_range_eq<K, V, B: RangeBounds<K> + Clone + std::fmt::Debug>(
             a: &BTreeMap<K, V>,
             b: &SkipMap<K, V>,
@@ -212,10 +225,12 @@ where
                     .range(bounds.clone())
                     .map(|(a, b)| (a.clone(), b.clone()))
                     .collect::<Vec<_>>();
+
                 let rb = b
                     .range(bounds.clone())
                     .map(|entry| (entry.key().clone(), entry.value().clone()))
                     .collect::<Vec<_>>();
+
                 assert_eq!(
                     ra,
                     rb,
@@ -232,6 +247,7 @@ where
                     .rev()
                     .map(|(a, b)| (a.clone(), b.clone()))
                     .collect::<Vec<_>>();
+
                 let rb = b
                     .range(bounds.clone())
                     .rev()
@@ -249,6 +265,7 @@ where
                 );
             }
         }
+
         let (start, end) = (&successful_keys_sorted[start], &successful_keys_sorted[end]);
         assert_range_eq(&btree, skipmap, ..);
         assert_range_eq(&btree, skipmap, ..end);

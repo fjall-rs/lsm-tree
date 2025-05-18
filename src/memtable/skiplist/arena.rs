@@ -37,7 +37,7 @@ pub(crate) struct Arenas<const BUFFER_SIZE: usize = DEFAULT_BUFFER_SIZE> {
 impl<const BUFFER_SIZE: usize> Arenas<BUFFER_SIZE> {
     pub(crate) fn new() -> Self {
         Self {
-            arenas: Default::default(),
+            arenas: Mutex::default(),
             open_arena: AtomicPtr::default(),
         }
     }
@@ -52,13 +52,15 @@ impl<const BUFFER_SIZE: usize> Arenas<BUFFER_SIZE> {
                     return offset;
                 }
             }
+
             let mut buffers = self.arenas.lock().unwrap();
             let buffer = buffers.last().unwrap_or(&std::ptr::null_mut());
             if *buffer != buffer_tail {
                 // Lost the race with somebody else.
                 continue;
             }
-            let new_buffer: Box<Buffer<BUFFER_SIZE>> = Box::new(Buffer::default());
+
+            let new_buffer: Box<Buffer<BUFFER_SIZE>> = Box::default();
             let new_buffer = Box::into_raw(new_buffer);
             self.open_arena.store(new_buffer, Ordering::Release);
             buffers.push(new_buffer);
@@ -74,7 +76,7 @@ struct Buffer<const N: usize> {
 impl<const N: usize> Default for Buffer<N> {
     fn default() -> Self {
         Self {
-            offset: Default::default(),
+            offset: AtomicUsize::default(),
             data: [0; N],
         }
     }
@@ -84,7 +86,7 @@ impl<const N: usize> Drop for Arenas<N> {
     fn drop(&mut self) {
         let mut buffers = self.arenas.lock().unwrap();
         for buffer in buffers.drain(..) {
-            drop(unsafe { Box::from_raw(buffer) })
+            drop(unsafe { Box::from_raw(buffer) });
         }
     }
 }

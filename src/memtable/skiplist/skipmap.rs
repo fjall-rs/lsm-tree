@@ -4,6 +4,7 @@
 
 #![allow(unsafe_code)]
 
+use super::arena::Arenas;
 use std::{
     alloc::Layout,
     borrow::Borrow,
@@ -17,11 +18,10 @@ use std::{
     },
 };
 
-use super::arena::Arenas;
-
-/// A SkipMap is a concurrent mapping structure like a BTreeMap
-/// but it allows for concurrent reads and writes. A tradeoff
-/// is that it does not allow for updates or deletions.
+/// A `SkipMap` is a concurrent, ordered map like a `BTreeMap`
+/// but it allows for concurrent reads and writes.
+///
+/// A tradeoff is that it does not allow for updates or deletions.
 pub struct SkipMap<K, V> {
     arena: ArenasAllocator<K, V>,
 
@@ -73,8 +73,9 @@ impl<K, V> SkipMap<K, V>
 where
     K: Ord,
 {
-    /// Insert a key-value pair into the SkipMap. Returns true
-    /// if the entry was inserted.
+    /// Inserts a key-value pair into the `SkipMap`.
+    ///
+    /// Returns `true` if the entry was inserted.
     pub fn insert(&self, k: K, v: V) -> Result<(), (K, V)> {
         let Some(splices) = self.seek_splices(&k) else {
             return Err((k, v));
@@ -128,7 +129,7 @@ where
                     // Either we succeed, or somebody else fixed up our link above.
                     let _ = next.cas_prev(level, prev, node);
                     break;
-                };
+                }
 
                 splice = match self.find_splice_for_level(node.key(), level, prev) {
                     SpliceOrMatch::Splice(splice) => splice,
@@ -143,12 +144,12 @@ where
                             let NodeData { key, value } =
                                 unsafe { ManuallyDrop::take(&mut (*node.0).data) };
                             return Err((key, value));
-                        } else {
-                            // This shouldn't be possible because we go from level 0
-                            // up the tower. If some other insert of the same key
-                            // succeeded we should have found it and bailed.
-                            panic!("concurrent insert of identical key")
                         }
+
+                        // This shouldn't be possible because we go from level 0
+                        // up the tower. If some other insert of the same key
+                        // succeeded we should have found it and bailed.
+                        panic!("concurrent insert of identical key")
                     }
                 }
             }
@@ -157,8 +158,7 @@ where
         Ok(())
     }
 
-    /// Range constructs an iterator over a range of the
-    /// SkipMap.
+    /// Returns a ranged iterator over the `SkipMap`.
     pub fn range<Q, R>(&self, range: R) -> Range<'_, K, V, Q, R>
     where
         K: Borrow<Q>,
@@ -172,21 +172,21 @@ where
             next: None,
             next_back: None,
             called: 0,
-            _phantom: Default::default(),
+            _phantom: PhantomData,
         }
     }
 
-    /// The SkipMap is empty.
+    /// Returns `true` if the map is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// The current number of entries in the SkipMap.
+    /// Returns the current number of entries in the `SkipMap`.
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }
 
-    /// The current height of the SkipMap.
+    /// Returns the current height of the `SkipMap`.
     pub fn height(&self) -> usize {
         self.height.load(Ordering::Relaxed)
     }
@@ -250,15 +250,15 @@ where
         num ^= num >> 17;
         num ^= num << 5;
         self.seed.store(num, Ordering::Relaxed);
-        let val = num as u32;
 
         let mut height = 1;
         for &p in PROBABILITIES.iter() {
-            if val > p {
+            if num > p {
                 break;
             }
             height += 1;
         }
+
         // Keep decreasing the height while it's much larger than all towers currently in the
         // skip list.
         let head = self.head.load();
@@ -280,6 +280,7 @@ where
                 Err(h) => max_height = h,
             }
         }
+
         height
     }
 
@@ -387,12 +388,14 @@ static PROBABILITIES: LazyLock<[u32; MAX_HEIGHT - 1]> = LazyLock::new(|| {
     let mut probabilities = [0u32; MAX_HEIGHT - 1];
     const P_VALUE: f64 = 1f64 / std::f64::consts::E;
     let mut p = 1f64;
+
     for i in 0..MAX_HEIGHT {
         if i > 0 {
             probabilities[i - 1] = ((u32::MAX as f64) * p) as u32;
         }
         p *= P_VALUE;
     }
+
     probabilities
 });
 
@@ -438,7 +441,7 @@ struct NodePtr<K, V>(*mut Node<K, V>);
 
 impl<K, V> Clone for NodePtr<K, V> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        *self
     }
 }
 
@@ -485,11 +488,11 @@ impl<K, V> NodePtr<K, V> {
         self.links(level).prev.cas(current, new)
     }
 
-    fn load_next(self, level: usize) -> Option<NodePtr<K, V>> {
+    fn load_next(self, level: usize) -> Option<Self> {
         self.links(level).next.load()
     }
 
-    fn load_prev(self, level: usize) -> Option<NodePtr<K, V>> {
+    fn load_prev(self, level: usize) -> Option<Self> {
         self.links(level).prev.load()
     }
 
@@ -538,7 +541,7 @@ enum SpliceOrMatch<K, V> {
 
 impl<K, V> From<Splice<K, V>> for SpliceOrMatch<K, V> {
     fn from(value: Splice<K, V>) -> Self {
-        SpliceOrMatch::Splice(value)
+        Self::Splice(value)
     }
 }
 
@@ -583,11 +586,13 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
         if self.exhausted {
             return None;
         }
+
         let next = self.before.load_next(0).unwrap();
         if next == self.after {
             self.exhausted = true;
             return None;
         }
+
         self.before = next;
         Some(Entry::new(next))
     }
@@ -598,17 +603,20 @@ impl<'map, K, V> DoubleEndedIterator for Iter<'map, K, V> {
         if self.exhausted {
             return None;
         }
+
         let next = self.after.load_prev(0).unwrap();
         if next == self.before {
             self.exhausted = true;
             return None;
         }
+
         self.after = next;
         Some(Entry::new(next))
     }
 }
 
-/// Range is an Iterator over a SkipMap for a range.
+/// Range is an Iterator over a `SkipMap` for a range.
+#[allow(clippy::struct_field_names)]
 pub struct Range<'m, K, V, Q: ?Sized, R> {
     map: &'m SkipMap<K, V>,
     range: R,
@@ -634,12 +642,12 @@ impl<'m, K, V> Entry<'m, K, V> {
 
     pub fn key(&self) -> &'m K {
         // Transmute because we're lying about the lifetime.
-        unsafe { core::mem::transmute(&(&(*self.node.0).data).key) }
+        unsafe { core::mem::transmute(&(*self.node.0).data.key) }
     }
 
     pub fn value(&self) -> &'m V {
         // Transmute because we're lying about the lifetime.
-        unsafe { core::mem::transmute(&(&(*self.node.0).data).value) }
+        unsafe { core::mem::transmute(&(*self.node.0).data.value) }
     }
 }
 
@@ -664,7 +672,9 @@ where
         if self.exhaused {
             return None;
         }
+
         self.called += 1;
+
         let next = if let Some(next) = self.next {
             next
         } else {
@@ -677,11 +687,13 @@ where
                 }
             }
         };
+
         // If after_next is None, then we're at the tail and are done.
         let Some(after_next) = next.load_next(0) else {
             self.exhaust();
             return None;
         };
+
         // If we're not at the tail, then the key is valid.
         if match self.range.end_bound() {
             Bound::Included(bound) => next.key() > bound,
@@ -691,12 +703,14 @@ where
             self.exhaust();
             return None;
         }
+
         // Make sure we haven't moved past reverse iteration.
         if self.next_back.is_none_or(|next_back| next_back != next) {
             self.next = Some(after_next);
         } else {
             self.exhaust();
         };
+
         Some(Entry::new(next))
     }
 }
@@ -711,6 +725,7 @@ where
         if self.exhaused {
             return None;
         }
+
         let next_back = if let Some(next_back) = self.next_back {
             next_back
         } else {
@@ -723,10 +738,12 @@ where
                 }
             }
         };
+
         let Some(before_next_back) = next_back.load_prev(0) else {
             self.exhaust();
             return None;
         };
+
         if match self.range.start_bound() {
             Bound::Included(bound) => next_back.key() < bound,
             Bound::Excluded(bound) => next_back.key() <= bound,
@@ -735,11 +752,13 @@ where
             self.exhaust();
             return None;
         }
+
         if self.next.is_none_or(|next| next_back != next) {
             self.next_back = Some(before_next_back);
         } else {
             self.exhaust();
         };
+
         Some(Entry::new(next_back))
     }
 }
@@ -749,6 +768,7 @@ impl<K, V> SkipMap<K, V>
 where
     K: Ord,
 {
+    #[allow(clippy::needless_pass_by_ref_mut)]
     pub(crate) fn check_integrity(&mut self) {
         use std::collections::HashSet;
         // We want to check that there are no cycles, that the forward and backwards
@@ -777,7 +797,9 @@ where
             }
             tail_nodes
         };
+
         tail_nodes.reverse();
+
         assert_eq!(head_nodes, tail_nodes);
     }
 }
@@ -790,8 +812,8 @@ struct ArenasAllocator<K, V> {
 impl<K, V> Default for ArenasAllocator<K, V> {
     fn default() -> Self {
         Self {
-            arenas: Default::default(),
-            _phantom: Default::default(),
+            arenas: Arenas::default(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -808,6 +830,6 @@ impl<K, V> ArenasAllocator<K, V> {
             )
         };
 
-        self.arenas.alloc(layout) as *mut Node<K, V>
+        self.arenas.alloc(layout).cast::<Node<K, V>>()
     }
 }
