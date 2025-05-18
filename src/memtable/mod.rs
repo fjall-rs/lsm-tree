@@ -2,14 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::key::InternalKey;
-use crate::segment::block::ItemSize;
-use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
-use std::ops::RangeBounds;
-use std::sync::atomic::{AtomicU32, AtomicU64};
-
 #[allow(unsafe_code)]
 mod skiplist;
+
+use crate::key::{InternalKey, InternalKeyRef};
+use crate::segment::block::ItemSize;
+use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
+use skiplist::SkipMap;
+use std::ops::RangeBounds;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
@@ -18,7 +19,7 @@ mod skiplist;
 pub struct Memtable {
     /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
-    pub items: skiplist::SkipMap<InternalKey, UserValue>,
+    pub items: SkipMap<InternalKey, UserValue>,
 
     /// Approximate active memtable size.
     ///
@@ -34,7 +35,7 @@ pub struct Memtable {
 impl Memtable {
     /// Clears the memtable.
     pub fn clear(&mut self) {
-        self.items = Default::default();
+        self.items = SkipMap::default();
         self.highest_seqno = AtomicU64::new(0);
         self.approximate_size
             .store(0, std::sync::atomic::Ordering::Release);
@@ -84,7 +85,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(
+        let lower_bound = InternalKeyRef::new(
             key,
             match seqno {
                 Some(seqno) => seqno - 1,
