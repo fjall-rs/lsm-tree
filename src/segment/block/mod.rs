@@ -39,6 +39,7 @@ impl Block {
         self.data.len()
     }
 
+    /// Encodes a block into a writer.
     pub fn to_writer<W: std::io::Write>(
         mut writer: &mut W,
         data: &[u8],
@@ -74,6 +75,7 @@ impl Block {
         Ok(header)
     }
 
+    /// Reads a block from a reader.
     pub fn from_reader<R: std::io::Read>(
         reader: &mut R,
         compression: CompressionType,
@@ -115,6 +117,7 @@ impl Block {
     }
 
     // TODO: take non-keyed block handle
+    /// Reads a block from a file without needing to seek the file.
     pub fn from_file(
         file: &File,
         offset: BlockOffset,
@@ -197,12 +200,10 @@ impl Block {
 
         // TODO: check checksum
 
-        debug_assert_eq!(header.uncompressed_length, {
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-            {
-                data.len() as u32
-            }
-        });
+        #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+        {
+            debug_assert_eq!(header.uncompressed_length, data.len() as u32);
+        }
 
         Ok(Self {
             header,
