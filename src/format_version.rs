@@ -4,7 +4,7 @@
 
 /// Disk format version
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Version {
+pub enum FormatVersion {
     /// Version for 1.x.x releases
     V1,
 
@@ -15,23 +15,23 @@ pub enum Version {
     V3,
 }
 
-impl std::fmt::Display for Version {
+impl std::fmt::Display for FormatVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", u8::from(*self))
     }
 }
 
-impl From<Version> for u8 {
-    fn from(value: Version) -> Self {
+impl From<FormatVersion> for u8 {
+    fn from(value: FormatVersion) -> Self {
         match value {
-            Version::V1 => 1,
-            Version::V2 => 2,
-            Version::V3 => 3,
+            FormatVersion::V1 => 1,
+            FormatVersion::V2 => 2,
+            FormatVersion::V3 => 3,
         }
     }
 }
 
-impl TryFrom<u8> for Version {
+impl TryFrom<u8> for FormatVersion {
     type Error = ();
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {

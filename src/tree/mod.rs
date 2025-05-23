@@ -9,11 +9,11 @@ use crate::{
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
+    format_version::FormatVersion,
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
-    tree_version::Version,
     value::InternalValue,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
     ValueType,
@@ -455,7 +455,7 @@ impl Tree {
 
         // Check for old version
         if config.path.join("version").try_exists()? {
-            return Err(crate::Error::InvalidVersion(Version::V1));
+            return Err(crate::Error::InvalidVersion(FormatVersion::V1));
         }
 
         let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
@@ -787,7 +787,7 @@ impl Tree {
         let mut bytes = Cursor::new(bytes);
         let manifest = Manifest::decode_from(&mut bytes)?;
 
-        if manifest.version != Version::V3 {
+        if manifest.version != FormatVersion::V3 {
             return Err(crate::Error::InvalidVersion(manifest.version));
         }
 
@@ -842,7 +842,7 @@ impl Tree {
         // -> the LSM is fully initialized
         let mut file = File::create(manifest_path)?;
         Manifest {
-            version: Version::V3,
+            version: FormatVersion::V3,
             level_count: config.level_count,
             tree_type: config.tree_type,
             // table_type: TableType::Block,

@@ -178,9 +178,9 @@ mod windows;
 #[doc(hidden)]
 pub mod stop_signal;
 
+mod format_version;
 mod time;
 mod tree;
-mod tree_version;
 mod value;
 mod version;
 
@@ -213,12 +213,12 @@ pub use {
     config::{Config, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
+    format_version::FormatVersion,
     memtable::Memtable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,
     tree::Tree,
-    tree_version::Version as TreeVersion,
     value::{SeqNo, UserKey, UserValue, ValueType},
 };
 
