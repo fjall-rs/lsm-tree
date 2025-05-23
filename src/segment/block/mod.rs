@@ -44,10 +44,8 @@ impl Block {
         data: &[u8],
         compression: CompressionType,
     ) -> crate::Result<Header> {
-        let checksum = xxh3_64(data);
-
         let mut header = Header {
-            checksum: Checksum::from_raw(checksum),
+            checksum: Checksum::from_raw(xxh3_64(data)),
             data_length: 0, // <-- NOTE: Is set later on
             uncompressed_length: data.len() as u32,
             previous_block_offset: BlockOffset(0), // <-- TODO:
@@ -196,6 +194,8 @@ impl Block {
                     .into()
             }
         };
+
+        // TODO: check checksum
 
         debug_assert_eq!(header.uncompressed_length, {
             #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
