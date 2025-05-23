@@ -332,7 +332,7 @@ impl DataBlock {
             }
 
             if left == 0 {
-                return None;
+                return Some(0);
             }
 
             let offset = binary_index.get(left - 1);

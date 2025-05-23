@@ -287,6 +287,40 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn v3_data_block_snapshot_read_first() -> crate::Result<()> {
+        let items = [InternalValue::from_components(
+            "hello",
+            "world",
+            0,
+            crate::ValueType::Value,
+        )];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.0)?;
+        let serialized_len = bytes.len();
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(!data_block.is_empty());
+        assert_eq!(data_block.inner.size(), serialized_len);
+
+        assert_eq!(
+            Some(items[0].clone()),
+            data_block.point_read(b"hello", Some(777))
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn v3_data_block_point_read_one() -> crate::Result<()> {
         let items = [InternalValue::from_components(
             "pla:earth:fact",
