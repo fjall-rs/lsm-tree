@@ -3,12 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    level_manifest::{level::Level, LevelManifest},
-    level_reader::LevelReader,
+    level_manifest::LevelManifest,
     memtable::Memtable,
     multi_reader::MultiReader,
+    run_reader::LevelReader,
     segment::CachePolicy,
     value::{SeqNo, UserKey},
+    version::Version,
     InternalValue,
 };
 use self_cell::self_cell;
@@ -52,12 +53,9 @@ pub struct IterState {
     pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 
-    // NOTE: Monkey patch to keep segments referenced until range read drops
-    // Otherwise segment files can get deleted too early
-    // (because once we create the range iterator, it does not hold onto segments normally)
-    // TODO: we need a Version system
+    // NOTE: Hold the version so segments cannot be unlinked
     #[allow(unused)]
-    pub(crate) levels: Vec<Arc<Level>>,
+    pub(crate) version: Version,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;

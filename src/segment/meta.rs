@@ -40,6 +40,7 @@ pub struct ParsedMeta {
     pub seqnos: (SeqNo, SeqNo),
     pub file_size: u64,
     pub item_count: u64,
+    pub tombstone_count: u64,
 
     pub data_block_compression: CompressionType,
 }
@@ -89,6 +90,15 @@ impl ParsedMeta {
         let item_count = {
             let bytes = block
                 .point_read(b"#item_count", None)
+                .expect("Segment ID should exist");
+
+            let mut bytes = &bytes.value[..];
+            bytes.read_u64::<LittleEndian>()?
+        };
+
+        let tombstone_count = {
+            let bytes = block
+                .point_read(b"#tombstone_count", None)
                 .expect("Segment ID should exist");
 
             let mut bytes = &bytes.value[..];
@@ -170,6 +180,7 @@ impl ParsedMeta {
             seqnos,
             file_size,
             item_count,
+            tombstone_count,
             data_block_compression,
         })
     }

@@ -126,9 +126,10 @@ impl DataBlock {
     #[must_use]
     pub fn new(inner: Block) -> Self {
         let trailer = Trailer::new(&inner);
-        let mut reader = trailer.as_slice();
 
-        let _item_count = unwrappy!(reader.read_u32::<LittleEndian>());
+        // NOTE: Skip item count (u32)
+        let offset = std::mem::size_of::<u32>();
+        let mut reader = unwrappy!(trailer.as_slice().get(offset..));
 
         let restart_interval = unwrappy!(reader.read_u8());
 
