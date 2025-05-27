@@ -82,15 +82,18 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.len(None, None)?);
     assert_eq!(
         1,
-        tree.levels
+        tree.manifest
             .read()
-            .unwrap()
-            .levels
+            .expect("lock is poisoned")
+            .current_version()
+            .level(0)
+            .expect("should exist")
             .first()
-            .unwrap()
+            .expect("should have at least 1 run")
             .first()
-            .unwrap()
-            .tombstone_count()
+            .expect("should have one segment")
+            .metadata
+            .tombstone_count
     );
 
     // NOTE: Should evict tombstone because last level
@@ -99,15 +102,18 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.len(None, None)?);
     assert_eq!(
         0,
-        tree.levels
+        tree.manifest
             .read()
-            .unwrap()
-            .levels
-            .last()
-            .unwrap()
+            .expect("lock is poisoned")
+            .current_version()
+            .level(6)
+            .expect("should exist")
             .first()
-            .unwrap()
-            .tombstone_count()
+            .expect("should have at least 1 run")
+            .first()
+            .expect("should have one segment")
+            .metadata
+            .tombstone_count
     );
 
     Ok(())
