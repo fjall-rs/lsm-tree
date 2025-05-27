@@ -84,11 +84,11 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10, 8)), 1)?;
     assert_eq!(
         1,
-        tree.levels
+        tree.manifest
             .read()
             .expect("asdasd")
-            .levels
-            .get(1)
+            .current_version()
+            .level(1)
             .unwrap()
             .len()
     );
@@ -139,11 +139,11 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     assert_eq!(
         1,
         tree.index
-            .levels
+            .manifest
             .read()
             .expect("asdasd")
-            .levels
-            .get(1)
+            .current_version()
+            .level(1)
             .unwrap()
             .len()
     );
