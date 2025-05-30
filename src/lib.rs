@@ -138,6 +138,8 @@ mod config;
 mod error;
 // mod export;
 
+pub(crate) mod fallible_clipping_iter;
+
 #[doc(hidden)]
 pub mod file;
 
