@@ -168,6 +168,8 @@ pub struct Strategy {
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
+    /// Default = 10
+    ///
     /// This is the exponential growth of the from one.
     /// level to the next
     ///
