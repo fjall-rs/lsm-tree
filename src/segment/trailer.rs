@@ -16,6 +16,8 @@ const TRAILER_SIZE: usize = 32;
 
 /// The fixed-size segment trailer stores a block handle to the regions block
 ///
+/// # Diagram
+///
 /// ----------------
 /// |  data blocks | <- implicitly start at 0
 /// |--------------|
