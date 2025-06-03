@@ -23,9 +23,9 @@ use crate::{
 use std::fs::File;
 use xxhash_rust::xxh3::xxh3_64;
 
-/// A block on disk.
+/// A block on disk
 ///
-/// Consists of a header and some bytes (the data/payload).
+/// Consists of a fixed-size header and some bytes (the data/payload).
 #[derive(Clone)]
 pub struct Block {
     pub header: Header,
