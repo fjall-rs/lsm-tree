@@ -19,21 +19,21 @@ const TRAILER_SIZE: usize = 32;
 /// # Diagram
 ///
 /// ----------------
-/// |  data blocks | <- implicitly start at 0
+/// | data blocks  | <- implicitly start at 0
 /// |--------------|
-/// |  tli   block |
+/// | tli block    |
 /// |--------------|
-/// | index  block | <- may not exist (if full block index is used, TLI will be dense)
+/// | index block  | <- may not exist (if full block index is used, TLI will be dense)
 /// |--------------|
 /// | filter block | <- may not exist
 /// |--------------|
 /// |  ... TBD ... |
 /// |--------------|
-/// |  meta  block |
+/// | meta block   |
 /// |--------------|
 /// | region block |
 /// |--------------|
-/// |    trailer   | <- fixed size
+/// | trailer      | <- fixed size
 /// |--------------|
 ///
 /// Through this indirection, we can have a variable amount of region block handles.
