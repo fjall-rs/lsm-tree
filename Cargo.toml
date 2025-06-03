@@ -36,7 +36,8 @@ quick_cache = { version = "0.6.13", default-features = false, features = [] }
 rustc-hash = "2.0.0"
 self_cell = "1.0.4"
 tempfile = "3.12.0"
-value-log = { version = "~1.9", default-features = false, features = [] }
+value-log = { git = "https://github.com/fjall-rs/value-log", branch = "v2", default-features = false, features = [
+] }
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
