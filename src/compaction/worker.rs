@@ -344,10 +344,8 @@ fn merge_segments(
     let created_segments = writer_results
         .into_iter()
         .map(|segment_id| -> crate::Result<Segment> {
-            let segment_file_path = segments_base_folder.join(segment_id.to_string());
-
             Segment::recover(
-                &segment_file_path,
+                segments_base_folder.join(segment_id.to_string()),
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),

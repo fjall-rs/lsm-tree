@@ -35,7 +35,7 @@ use inner::Inner;
 use meta::ParsedMeta;
 use std::{
     ops::{Bound, RangeBounds},
-    path::Path,
+    path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -295,7 +295,7 @@ impl Segment {
 
     /// Tries to recover a segment from a file.
     pub fn recover(
-        file_path: &Path,
+        file_path: PathBuf,
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
@@ -304,7 +304,7 @@ impl Segment {
         use trailer::Trailer;
 
         log::debug!("Recovering segment from file {file_path:?}");
-        let mut file = std::fs::File::open(file_path)?;
+        let mut file = std::fs::File::open(&file_path)?;
 
         let trailer = Trailer::from_file(&mut file)?;
         log::trace!("Got trailer: {trailer:#?}");
@@ -370,7 +370,7 @@ impl Segment {
         descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         let segment = Self(Arc::new(Inner {
-            path: file_path.into(),
+            path: Arc::new(file_path),
             tree_id,
 
             metadata,

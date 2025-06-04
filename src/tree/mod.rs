@@ -515,14 +515,14 @@ impl Tree {
         .insert(segment_file_path, created_segment.global_id()); */
 
         let created_segment = Segment::recover(
-            &segment_file_path,
+            segment_file_path,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
             true, // TODO: look at configuration
         )?;
 
-        log::debug!("Flushed segment to {segment_file_path:?}");
+        log::debug!("Flushed segment to {:?}", created_segment.path);
 
         Ok(Some(created_segment))
     }
@@ -923,15 +923,16 @@ impl Tree {
 
             if let Some(&_level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
-                    &segment_file_path,
+                    segment_file_path,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
                     true, // TODO: look at configuration
                 )?;
 
+                log::debug!("Recovered segment from {:?}", segment.path);
+
                 segments.push(segment);
-                log::debug!("Recovered segment from {segment_file_path:?}");
 
                 if idx % progress_mod == 0 {
                     log::debug!("Recovered {idx}/{cnt} disk segments");
