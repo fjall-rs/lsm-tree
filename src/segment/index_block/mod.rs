@@ -4,16 +4,18 @@
 
 mod block_handle;
 mod forward_reader;
+mod iter;
 
 pub use block_handle::{BlockHandle, KeyedBlockHandle};
+pub use iter::Iter;
 
 use super::{
     block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
     Block,
 };
-use crate::segment::block::TRAILER_START_MARKER;
+use crate::segment::{block::TRAILER_START_MARKER, data_block::forward_reader::ParsedSlice};
 use byteorder::{LittleEndian, ReadBytesExt};
-use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
+use forward_reader::{ForwardReader, ParsedItem};
 use std::io::{Cursor, Seek};
 use varint_rs::VarintReader;
 
@@ -174,6 +176,12 @@ impl IndexBlock {
             offset: BlockOffset(offset),
             size,
         })
+    }
+
+    #[must_use]
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = KeyedBlockHandle> + '_ {
+        Iter::new(self).map(|kv| kv.materialize(&self.inner.data))
     }
 
     fn parse_truncated_item(

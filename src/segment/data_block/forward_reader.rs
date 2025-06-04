@@ -2,9 +2,50 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{iter::ParsedItem, DataBlock};
-use crate::{segment::util::compare_prefixed_slice, InternalValue, SeqNo};
+use super::DataBlock;
+use crate::{key::InternalKey, segment::util::compare_prefixed_slice, InternalValue, SeqNo, Slice};
 use std::io::{Cursor, Seek};
+
+/// [start, end] slice indexes
+#[derive(Debug)]
+pub struct ParsedSlice(pub usize, pub usize);
+
+impl ParsedItem {
+    pub fn materialize(&self, bytes: &Slice) -> InternalValue {
+        // NOTE: We consider the prefix and key slice indexes to be trustworthy
+        #[allow(clippy::indexing_slicing)]
+        let key = if let Some(prefix) = &self.prefix {
+            let prefix_key = &bytes[prefix.0..prefix.1];
+            let rest_key = &bytes[self.key.0..self.key.1];
+            Slice::fused(prefix_key, rest_key)
+        } else {
+            bytes.slice(self.key.0..self.key.1)
+        };
+        let key = InternalKey::new(
+            key,
+            self.seqno,
+            // NOTE: Value type is (or should be) checked when reading it
+            #[allow(clippy::expect_used)]
+            self.value_type.try_into().expect("should work"),
+        );
+
+        let value = self
+            .value
+            .as_ref()
+            .map_or_else(Slice::empty, |v| bytes.slice(v.0..v.1));
+
+        InternalValue { key, value }
+    }
+}
+
+#[derive(Debug)]
+pub struct ParsedItem {
+    pub value_type: u8,
+    pub seqno: SeqNo,
+    pub prefix: Option<ParsedSlice>,
+    pub key: ParsedSlice,
+    pub value: Option<ParsedSlice>,
+}
 
 // TODO: flatten into main struct
 #[derive(Default, Debug)]
@@ -44,7 +85,7 @@ impl<'a> ForwardReader<'a> {
 
     /// Reads an item by key from the block, if it exists.
     #[must_use]
-    pub fn point_read(&mut self, needle: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
+    pub fn point_read(&mut self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
         let may_exist = self.seek(needle, seqno);
 
         if !may_exist {
@@ -65,10 +106,7 @@ impl<'a> ForwardReader<'a> {
 
             match cmp_result {
                 std::cmp::Ordering::Equal => {
-                    // TODO: maybe return early if past seqno
-                    let should_skip = seqno.is_some_and(|watermark| item.seqno >= watermark);
-
-                    if !should_skip {
+                    if item.seqno < seqno {
                         let kv = item.materialize(&self.block.inner.data);
                         return Some(kv);
                     }
@@ -91,7 +129,7 @@ impl<'a> ForwardReader<'a> {
     ///
     /// Returns `false` if `next()` can be safely skipped because the item definitely
     /// does not exist.
-    pub fn seek(&mut self, needle: &[u8], seqno: Option<SeqNo>) -> bool {
+    pub fn seek(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         let binary_index = self.block.get_binary_index_reader();
 
         // NOTE: Try hash index if it exists
@@ -118,17 +156,19 @@ impl<'a> ForwardReader<'a> {
             }
         }
 
-        let offset = self
+        let Some(offset) = self
             .block
             .binary_search_for_offset(&binary_index, needle, seqno)
-            .expect("should work");
+        else {
+            return false;
+        };
 
         self.lo_scanner.offset = offset;
 
         self.linear_probe(needle, seqno)
     }
 
-    fn linear_probe(&mut self, needle: &[u8], seqno: Option<SeqNo> /* TODO: use */) -> bool {
+    fn linear_probe(&mut self, needle: &[u8], seqno: SeqNo /* TODO: use */) -> bool {
         let bytes = self.block.bytes();
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
@@ -287,6 +327,46 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn v3_data_block_seek_too_low() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert!(
+            data_block.point_read(b"a", SeqNo::MAX).is_none(),
+            "should return None because a does not exist",
+        );
+
+        assert!(
+            data_block.point_read(b"b", SeqNo::MAX).is_some(),
+            "should return Some because b exists",
+        );
+
+        assert!(
+            data_block.point_read(b"z", SeqNo::MAX).is_none(),
+            "should return Some because z does not exist",
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn v3_data_block_snapshot_read_first() -> crate::Result<()> {
         let items = [InternalValue::from_components(
             "hello",
@@ -312,10 +392,7 @@ mod tests {
         assert!(!data_block.is_empty());
         assert_eq!(data_block.inner.size(), serialized_len);
 
-        assert_eq!(
-            Some(items[0].clone()),
-            data_block.point_read(b"hello", Some(777))
-        );
+        assert_eq!(Some(items[0].clone()), data_block.point_read(b"hello", 777));
 
         Ok(())
     }
@@ -349,11 +426,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, None),
+                data_block.point_read(&needle.key.user_key, SeqNo::MAX),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -422,11 +499,11 @@ mod tests {
             for needle in &items {
                 assert_eq!(
                     Some(needle.clone()),
-                    data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                    data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
                 );
             }
 
-            assert_eq!(None, data_block.point_read(b"yyy", None));
+            assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
         }
 
         Ok(())
@@ -457,11 +534,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -495,11 +572,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -635,11 +712,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, None),
+                data_block.point_read(&needle.key.user_key, SeqNo::MAX),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -673,11 +750,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -709,13 +786,13 @@ mod tests {
 
         assert_eq!(
             Some(items.first().cloned().unwrap()),
-            data_block.point_read(b"a", None)
+            data_block.point_read(b"a", SeqNo::MAX)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(b"b", None)
+            data_block.point_read(b"b", SeqNo::MAX)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -750,9 +827,9 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], None)
+            data_block.point_read(&[233, 233], SeqNo::MAX)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -795,13 +872,13 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], None)
+            data_block.point_read(&[233, 233], SeqNo::MAX)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], None)
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -844,13 +921,13 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], Some(SeqNo::MAX))
+            data_block.point_read(&[233, 233], SeqNo::MAX)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], Some(SeqNo::MAX))
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -893,13 +970,13 @@ mod tests {
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], None)
+            data_block.point_read(&[233, 233], SeqNo::MAX)
         );
         assert_eq!(
             Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], None)
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
         );
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -933,11 +1010,11 @@ mod tests {
 
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -968,7 +1045,7 @@ mod tests {
         assert!(data_block.hash_bucket_count().unwrap() > 0);
 
         assert!(data_block
-            .point_read(b"pla:venus:fact", None)
+            .point_read(b"pla:venus:fact", SeqNo::MAX)
             .expect("should exist")
             .is_tombstone());
 
@@ -1008,11 +1085,11 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
-        assert_eq!(None, data_block.point_read(b"yyy", None));
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
 
         Ok(())
     }
@@ -1328,7 +1405,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
@@ -1359,7 +1436,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
@@ -1390,7 +1467,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
@@ -1421,7 +1498,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
@@ -1452,7 +1529,7 @@ mod tests {
         for needle in items {
             assert_eq!(
                 Some(needle.clone()),
-                data_block.point_read(&needle.key.user_key, Some(needle.key.seqno + 1)),
+                data_block.point_read(&needle.key.user_key, needle.key.seqno + 1),
             );
         }
 
