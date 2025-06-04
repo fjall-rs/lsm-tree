@@ -65,6 +65,10 @@ impl FullBlockIndex {
     ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
         self.0.forward_reader(needle)
     }
+
+    pub fn inner(&self) -> &IndexBlock {
+        &self.0
+    }
 }
 
 impl BlockIndex for FullBlockIndex {
