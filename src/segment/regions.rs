@@ -6,7 +6,7 @@ use super::{Block, BlockHandle};
 use crate::{
     coding::{Decode, Encode},
     segment::DataBlock,
-    CompressionType, InternalValue, UserValue,
+    CompressionType, InternalValue, SeqNo, UserValue,
 };
 use std::fs::File;
 
@@ -26,7 +26,7 @@ impl ParsedRegions {
 
         let tli = {
             let bytes = block
-                .point_read(b"tli", None)
+                .point_read(b"tli", SeqNo::MAX)
                 .expect("TLI handle should exist");
 
             let mut bytes = &bytes.value[..];
@@ -35,7 +35,7 @@ impl ParsedRegions {
 
         let metadata = {
             let bytes = block
-                .point_read(b"meta", None)
+                .point_read(b"meta", SeqNo::MAX)
                 .expect("Metadata handle should exist");
 
             let mut bytes = &bytes.value[..];
@@ -43,7 +43,7 @@ impl ParsedRegions {
         }?;
 
         let index = {
-            match block.point_read(b"index", None) {
+            match block.point_read(b"index", SeqNo::MAX) {
                 Some(bytes) if !bytes.value.is_empty() => {
                     let mut bytes = &bytes.value[..];
                     Some(BlockHandle::decode_from(&mut bytes))
@@ -54,7 +54,7 @@ impl ParsedRegions {
         .transpose()?;
 
         let filter = {
-            match block.point_read(b"filter", None) {
+            match block.point_read(b"filter", SeqNo::MAX) {
                 Some(bytes) if !bytes.value.is_empty() => {
                     let mut bytes = &bytes.value[..];
                     Some(BlockHandle::decode_from(&mut bytes))

@@ -383,7 +383,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .current_version()
             .iter_segments()
-            .map(|x| x.get_highest_seqno())
+            .map(Segment::get_highest_seqno)
             .max()
     }
 
@@ -399,7 +399,7 @@ impl AbstractTree for Tree {
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
         Ok(self
-            .get_internal_entry(key.as_ref(), seqno)?
+            .get_internal_entry(key.as_ref(), seqno.unwrap_or(SeqNo::MAX))?
             .map(|x| x.value))
     }
 
@@ -577,7 +577,7 @@ impl Tree {
         &self,
         memtable_lock: &Memtable,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
@@ -594,7 +594,7 @@ impl Tree {
     fn get_internal_entry_from_sealed_memtables(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> Option<InternalValue> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
 
@@ -610,7 +610,7 @@ impl Tree {
     fn get_internal_entry_from_segments(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
@@ -627,19 +627,16 @@ impl Tree {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
+                } else {
+                    // NOTE: Fallback to linear search
+                    for segment in run.iter() {
+                        if !segment.is_key_in_key_range(key) {
+                            continue;
+                        }
 
-                    // NOTE: Go to next level
-                    continue;
-                }
-
-                // NOTE: Fallback to linear search
-                for segment in run.iter() {
-                    if !segment.is_key_in_key_range(key) {
-                        continue;
-                    }
-
-                    if let Some(item) = segment.get(key, seqno, key_hash)? {
-                        return Ok(ignore_tombstone_value(item));
+                        if let Some(item) = segment.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
                     }
                 }
             }
@@ -652,7 +649,7 @@ impl Tree {
     pub fn get_internal_entry(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
 

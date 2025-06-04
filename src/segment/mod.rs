@@ -9,12 +9,13 @@ pub mod filter;
 mod id;
 mod index_block;
 mod inner;
+mod iter;
 mod meta;
 pub(crate) mod multi_writer;
 mod regions;
 mod scanner;
 mod trailer;
-pub(crate) mod util;
+pub mod util;
 mod writer;
 
 pub use block::{Block, BlockOffset, Checksum};
@@ -27,12 +28,14 @@ use util::load_block;
 pub use writer::Writer;
 
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, CompressionType, InternalValue, SeqNo, TreeId,
-    UserKey,
+    cache::Cache, descriptor_table::DescriptorTable, fallible_clipping_iter::FallibleClippingIter,
+    segment::block_index::iter::create_index_block_reader, CompressionType, InternalValue, SeqNo,
+    TreeId, UserKey,
 };
-use block_index::{BlockIndex, BlockIndexImpl, FullBlockIndex};
+use block_index::{BlockIndexImpl, FullBlockIndex};
 use filter::standard_bloom::{CompositeHash, StandardBloomFilterReader};
 use inner::Inner;
+use iter::Iter;
 use meta::ParsedMeta;
 use std::{
     ops::{Bound, RangeBounds},
@@ -141,13 +144,11 @@ impl Segment {
     pub fn get(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         key_hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
-        if let Some(seqno) = seqno {
-            if self.metadata.seqnos.0 >= seqno {
-                return Ok(None);
-            }
+        if self.metadata.seqnos.0 >= seqno {
+            return Ok(None);
         }
 
         if let Some(block) = &self.pinned_filter_block {
@@ -168,48 +169,35 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
-    fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> crate::Result<Option<InternalValue>> {
-        match seqno {
-            None => {
-                let Some(block_handle) = self
-                    .block_index
-                    .get_lowest_block_containing_key(key, CachePolicy::Write)?
-                else {
-                    return Ok(None);
-                };
+    // TODO: maybe we can skip Fuse costs of the user key
+    // TODO: because we just want to return the value
+    // TODO: we would need to return something like ValueType + Value
+    // TODO: so the caller can decide whether to return the value or not
+    fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        let BlockIndexImpl::Full(block_index) = &*self.block_index else {
+            todo!();
+        };
 
-                let block = self.load_data_block(block_handle.as_ref())?;
+        let Some(iter) = block_index.forward_reader(key) else {
+            return Ok(None);
+        };
 
-                // NOTE: Fastpath for non-seqno reads
-                return Ok(block.point_read(key, None));
+        for block_handle in iter {
+            // TODO: can this ever happen...?
+            if block_handle.end_key() < &key {
+                return Ok(None);
             }
-            Some(seqno) => {
-                let BlockIndexImpl::Full(block_index) = &*self.block_index else {
-                    todo!();
-                };
 
-                let Some(iter) = block_index.forward_reader(key) else {
-                    return Ok(None);
-                };
+            let block = self.load_data_block(block_handle.as_ref())?;
 
-                for block_handle in iter {
-                    // TODO: can this ever happen...?
-                    if block_handle.end_key() < &key {
-                        return Ok(None);
-                    }
+            if let Some(item) = block.point_read(key, seqno) {
+                return Ok(Some(item));
+            }
 
-                    let block = self.load_data_block(block_handle.as_ref())?;
-
-                    if let Some(item) = block.point_read(key, Some(seqno)) {
-                        return Ok(Some(item));
-                    }
-
-                    // NOTE: If the last block key is higher than ours,
-                    // our key cannot be in the next block
-                    if block_handle.end_key() > &key {
-                        return Ok(None);
-                    }
-                }
+            // NOTE: If the last block key is higher than ours,
+            // our key cannot be in the next block
+            if block_handle.end_key() > &key {
+                return Ok(None);
             }
         }
 
@@ -250,11 +238,8 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + '_ {
-        // self.range(..)
-        todo!();
-
-        std::iter::empty()
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+        self.range(..)
     }
 
     /// Creates a ranged iterator over the `Segment`.
@@ -265,14 +250,32 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
-    pub fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+    pub fn range<R: RangeBounds<UserKey>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + '_ {
-        // self.range((std::ops::Bound::Unbounded, std::ops::Bound::Unbounded))
-        todo!();
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+        let BlockIndexImpl::Full(block_index) = &*self.block_index else {
+            todo!();
+        };
 
-        std::iter::empty()
+        // TODO: range should be RangeBounds<UserKey>?
+
+        // TODO: seek iter to lowest block containing lower bound
+        let index_iter = create_index_block_reader(block_index.inner().clone());
+
+        // TODO: then when we read the first data block
+        // (first .next(), seek inside the first data block)
+
+        let iter = Iter::new(
+            self.global_id(),
+            self.path.clone(),
+            index_iter,
+            self.descriptor_table.clone(),
+            self.cache.clone(),
+            self.metadata.data_block_compression,
+        );
+
+        FallibleClippingIter::new(iter, range)
     }
 
     /// Tries to recover a segment from a file.
@@ -384,10 +387,7 @@ impl Segment {
     }
 
     /// Checks if a key range is (partially or fully) contained in this segment.
-    pub(crate) fn check_key_range_overlap(
-        &self,
-        bounds: &(Bound<UserKey>, Bound<UserKey>),
-    ) -> bool {
+    pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
@@ -462,7 +462,7 @@ mod tests {
                 &*segment
                     .get(
                         b"abc",
-                        None,
+                        SeqNo::MAX,
                         crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
                     )?
                     .unwrap()
@@ -474,7 +474,7 @@ mod tests {
                 &*segment
                     .get(
                         b"abc",
-                        None,
+                        SeqNo::MAX,
                         crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
                     )?
                     .unwrap()
@@ -485,8 +485,16 @@ mod tests {
                 None,
                 segment.get(
                     b"def",
-                    None,
+                    SeqNo::MAX,
                     crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"____",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
                 )?
             );
 
@@ -539,56 +547,191 @@ mod tests {
                 "should use full index, so only TLI exists",
             );
 
-            assert_eq!(
-                b"abc",
-                &*segment
-                    .get(
-                        b"abc",
-                        None,
-                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
-                    )?
-                    .unwrap()
-                    .key
-                    .user_key,
-            );
-            assert_eq!(
-                b"def",
-                &*segment
-                    .get(
-                        b"def",
-                        None,
-                        crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
-                    )?
-                    .unwrap()
-                    .key
-                    .user_key,
-            );
-            assert_eq!(
-                b"xyz",
-                &*segment
-                    .get(
-                        b"xyz",
-                        None,
-                        crate::segment::filter::standard_bloom::Builder::get_hash(b"xyz")
-                    )?
-                    .unwrap()
-                    .key
-                    .user_key,
-            );
-            assert_eq!(
-                None,
-                segment.get(
-                    b"____",
-                    None,
-                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
-                )?
-            );
-
             assert_eq!(items, &*segment.scan()?.flatten().collect::<Vec<_>>());
 
             assert_eq!(
                 segment.metadata.key_range,
                 crate::KeyRange::new((b"abc".into(), b"xyz".into())),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_iter_simple() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(items, &*segment.iter().flatten().collect::<Vec<_>>());
+            assert_eq!(
+                items.iter().rev().cloned().collect::<Vec<_>>(),
+                &*segment.iter().rev().flatten().collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_simple() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                items.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items.iter().skip(1).rev().cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_multiple_data_blocks() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"b", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"c", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"d", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"e", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_data_block_size(1);
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(5, segment.metadata.item_count);
+            assert_eq!(5, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(1)
+                    .take(3)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
             );
         }
 
@@ -636,7 +779,7 @@ mod tests {
                 &*segment
                     .get(
                         b"abc",
-                        None,
+                        SeqNo::MAX,
                         crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
                     )?
                     .unwrap()
@@ -648,7 +791,7 @@ mod tests {
                 &*segment
                     .get(
                         b"abc",
-                        None,
+                        SeqNo::MAX,
                         crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
                     )?
                     .unwrap()
@@ -659,7 +802,7 @@ mod tests {
                 None,
                 segment.get(
                     b"def",
-                    None,
+                    SeqNo::MAX,
                     crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
                 )?
             );
