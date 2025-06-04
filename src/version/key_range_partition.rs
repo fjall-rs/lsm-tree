@@ -44,12 +44,14 @@ impl<T: Clone + Debug + Ranged + Identifiable<SegmentId>> KeyRangePartitions<T> 
     pub fn index_segment(&mut self, segment: &T) {
         let key_range = &segment.key_range();
         let start_key = key_range.min();
-        let end_key = key_range.max();
 
         let idx = partition_point(&self.0, |x| x.key_range.max() < start_key);
 
         if let Some(slice) = self.0.get_mut(idx..) {
-            for partition in slice.iter_mut().filter(|x| x.key_range.max() <= end_key) {
+            for partition in slice
+                .iter_mut()
+                .filter(|x| x.key_range.overlaps_with_key_range(key_range))
+            {
                 partition.segments.push_back(segment.clone());
             }
         }
@@ -59,7 +61,11 @@ impl<T: Clone + Debug + Ranged + Identifiable<SegmentId>> KeyRangePartitions<T> 
         let mut optimized = VecDeque::new();
         let mut blacklist = HashSet::<SegmentId>::default();
 
-        loop {
+        while self
+            .0
+            .iter()
+            .any(|partition| !partition.segments.is_empty())
+        {
             let run = {
                 let mut v: Vec<T> = vec![];
 
@@ -71,6 +77,7 @@ impl<T: Clone + Debug + Ranged + Identifiable<SegmentId>> KeyRangePartitions<T> 
                     let curr_id = front.id();
 
                     if blacklist.contains(&curr_id) {
+                        partition.segments.pop_front().expect("front should exist");
                         continue;
                     }
 
@@ -90,17 +97,15 @@ impl<T: Clone + Debug + Ranged + Identifiable<SegmentId>> KeyRangePartitions<T> 
                 v
             };
 
-            if run.is_empty() {
-                break;
-            }
-
             #[cfg(debug_assertions)]
             {
                 let ranges = run.iter().map(Ranged::key_range).collect::<Vec<_>>();
                 debug_assert!(KeyRange::is_disjoint(&ranges));
             }
 
-            optimized.push_front(run);
+            if !run.is_empty() {
+                optimized.push_front(run);
+            }
         }
 
         optimized.into()
@@ -127,6 +132,84 @@ mod tests {
     impl Ranged for FauxSegment {
         fn key_range(&self) -> &KeyRange {
             &self.key_range
+        }
+    }
+
+    #[test]
+    fn key_range_partition_single_key_twice() {
+        let a = FauxSegment {
+            key_range: KeyRange::new((UserKey::new(&[0; 8]), UserKey::new(&[0; 8]))),
+            id: 0,
+        };
+        let b = FauxSegment {
+            key_range: KeyRange::new((UserKey::new(&[0; 8]), UserKey::new(&[0; 8]))),
+            id: 1,
+        };
+
+        {
+            let mut index = KeyRangePartitions::<FauxSegment>::new(std::iter::once((
+                UserKey::new(&[0; 8]),
+                UserKey::new(&[0; 8]),
+            )));
+
+            index.index_segment(&a);
+            index.index_segment(&b);
+
+            assert_eq!(
+                vec![vec![b.clone()], vec![a.clone()]],
+                index.into_optimized_runs()
+            );
+        }
+
+        {
+            let mut index = KeyRangePartitions::<FauxSegment>::new(std::iter::once((
+                UserKey::new(&[0; 8]),
+                UserKey::new(&[0; 8]),
+            )));
+
+            index.index_segment(&b);
+            index.index_segment(&a);
+
+            assert_eq!(vec![vec![a], vec![b]], index.into_optimized_runs());
+        }
+    }
+
+    #[test]
+    fn key_range_partition_single_key() {
+        let a = FauxSegment {
+            key_range: KeyRange::new((UserKey::new(b"a"), UserKey::new(b"b"))),
+            id: 0,
+        };
+        let b = FauxSegment {
+            key_range: KeyRange::new((UserKey::new(b"a"), UserKey::new(b"a"))),
+            id: 1,
+        };
+
+        {
+            let mut index = KeyRangePartitions::<FauxSegment>::new(std::iter::once((
+                UserKey::new(b"a"),
+                UserKey::new(b"b"),
+            )));
+
+            index.index_segment(&a);
+            index.index_segment(&b);
+
+            assert_eq!(
+                vec![vec![b.clone()], vec![a.clone()]],
+                index.into_optimized_runs()
+            );
+        }
+
+        {
+            let mut index = KeyRangePartitions::<FauxSegment>::new(std::iter::once((
+                UserKey::new(b"a"),
+                UserKey::new(b"b"),
+            )));
+
+            index.index_segment(&b);
+            index.index_segment(&a);
+
+            assert_eq!(vec![vec![a], vec![b]], index.into_optimized_runs());
         }
     }
 
@@ -170,6 +253,8 @@ mod tests {
 
             index.index_segment(&a);
             index.index_segment(&b);
+
+            eprintln!("{index:#?}");
 
             assert_eq!(
                 vec![vec![a.clone(), b.clone()]],
