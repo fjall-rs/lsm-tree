@@ -142,6 +142,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
@@ -210,6 +212,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, pos).expect("should exist");
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         &bytes[item.end_key.0..item.end_key.1]
     }
 
@@ -296,6 +300,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
@@ -320,6 +326,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
