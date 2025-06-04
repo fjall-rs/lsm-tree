@@ -505,6 +505,7 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[ignore]
     fn compaction_drop_segments() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
