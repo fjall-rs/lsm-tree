@@ -308,8 +308,7 @@ impl Segment {
 
             let block = Block::from_file(
                 &file,
-                regions.tli.offset(),
-                regions.tli.size(),
+                regions.tli,
                 metadata.data_block_compression, // TODO: index blocks may get their own compression level
             )?;
 
@@ -341,8 +340,7 @@ impl Segment {
 
                     Block::from_file(
                         &file,
-                        filter_handle.offset(),
-                        filter_handle.size(),
+                        filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                     )
                 })

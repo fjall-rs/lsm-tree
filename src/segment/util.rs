@@ -29,7 +29,7 @@ pub fn load_block(
         Arc::new(std::fs::File::open(path)?)
     };
 
-    let block = Block::from_file(&fd, handle.offset(), handle.size(), compression)?;
+    let block = Block::from_file(&fd, *handle, compression)?;
 
     // Cache FD
     if fd_cache_miss {
