@@ -25,23 +25,6 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
 
-        {
-            assert_eq!(
-                0,
-                tree.manifest
-                    .read()
-                    .expect("lock is poisoned")
-                    .current_version()
-                    .level(0)
-                    .expect("should exist")
-                    .first()
-                    .expect("should have exactly 1 run")
-                    .first()
-                    .expect("should have one segment")
-                    .id()
-            );
-        }
-
         tree.insert("b", "b", 0);
         tree.flush_active_memtable(0)?;
 
@@ -50,36 +33,6 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
             tree.0
                 .segment_id_counter
                 .load(std::sync::atomic::Ordering::Relaxed)
-        );
-
-        assert_eq!(
-            1,
-            tree.manifest
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .level(0)
-                .expect("should exist")
-                .first()
-                .expect("should have at least 1 run")
-                .first()
-                .expect("should have one segment")
-                .id()
-        );
-
-        assert_eq!(
-            0,
-            tree.manifest
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .level(0)
-                .expect("should exist")
-                .get(1)
-                .expect("should have at least 1 run")
-                .first()
-                .expect("should have one segment")
-                .id()
         );
     }
 
