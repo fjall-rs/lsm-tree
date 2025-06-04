@@ -23,6 +23,7 @@ pub use id::{GlobalSegmentId, SegmentId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 use regions::ParsedRegions;
 pub use scanner::Scanner;
+use util::load_block;
 pub use writer::Writer;
 
 use crate::{
@@ -122,33 +123,14 @@ impl Segment {
         handle: &BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Block> {
-        let id = self.global_id();
-
-        if let Some(block) = self.cache.get_block(id, handle.offset()) {
-            return Ok(block);
-        }
-
-        let cached_fd = self.descriptor_table.access_for_table(&id);
-        let fd_cache_miss = cached_fd.is_none();
-
-        let fd = if let Some(fd) = cached_fd {
-            fd
-        } else {
-            Arc::new(std::fs::File::open(&self.path)?)
-        };
-
-        let block = Block::from_file(&fd, handle.offset(), handle.size(), compression)?;
-
-        let id = self.global_id();
-
-        // Cache FD
-        if fd_cache_miss {
-            self.descriptor_table.insert_for_table(id, fd);
-        }
-
-        self.cache.insert_block(id, handle.offset(), block.clone());
-
-        Ok(block)
+        load_block(
+            self.global_id(),
+            &self.path,
+            &self.descriptor_table,
+            &self.cache,
+            handle,
+            compression,
+        )
     }
 
     fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
@@ -459,7 +441,7 @@ mod tests {
 
         {
             let segment = Segment::recover(
-                &file,
+                file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -541,7 +523,7 @@ mod tests {
 
         {
             let segment = Segment::recover(
-                &file,
+                file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -633,7 +615,7 @@ mod tests {
 
         {
             let segment = Segment::recover(
-                &file,
+                file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),

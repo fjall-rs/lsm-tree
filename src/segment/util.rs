@@ -2,6 +2,46 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use super::{Block, BlockHandle, GlobalSegmentId};
+use crate::{Cache, CompressionType, DescriptorTable};
+use std::{path::Path, sync::Arc};
+
+pub fn load_block(
+    segment_id: GlobalSegmentId,
+    path: &Path,
+    descriptor_table: &DescriptorTable,
+    cache: &Cache,
+    handle: &BlockHandle,
+    compression: CompressionType,
+) -> crate::Result<Block> {
+    log::trace!("load block {handle:?}");
+
+    if let Some(block) = cache.get_block(segment_id, handle.offset()) {
+        return Ok(block);
+    }
+
+    let cached_fd = descriptor_table.access_for_table(&segment_id);
+    let fd_cache_miss = cached_fd.is_none();
+
+    let fd = if let Some(fd) = cached_fd {
+        fd
+    } else {
+        Arc::new(std::fs::File::open(path)?)
+    };
+
+    let block = Block::from_file(&fd, handle.offset(), handle.size(), compression)?;
+
+    // Cache FD
+    if fd_cache_miss {
+        descriptor_table.insert_for_table(segment_id, fd);
+    }
+
+    cache.insert_block(segment_id, handle.offset(), block.clone());
+
+    Ok(block)
+}
+
+#[must_use]
 pub fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
     s1.iter()
         .zip(s2.iter())
