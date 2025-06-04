@@ -21,6 +21,18 @@ pub struct InternalKey {
     pub value_type: ValueType,
 }
 
+impl<'a> From<&InternalKeyRef<'a>> for InternalKey {
+    fn from(value: &InternalKeyRef<'a>) -> Self {
+        Self::new(value.user_key, value.seqno, value.value_type)
+    }
+}
+
+impl AsRef<[u8]> for InternalKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.user_key
+    }
+}
+
 impl PartialEq for InternalKey {
     fn eq(&self, other: &Self) -> bool {
         self.user_key == other.user_key && self.seqno == other.seqno
@@ -134,39 +146,45 @@ impl Ord for InternalKey {
 //     }
 // }
 
-// Temporary internal key without heap allocation
-// #[derive(Debug, Eq)]
-// pub struct InternalKeyRef<'a> {
-//     pub user_key: &'a [u8],
-//     pub seqno: SeqNo,
-//     pub value_type: ValueType,
-// }
+/* /// Temporary internal key without heap allocation
+#[derive(Clone, Debug, Eq)]
+pub struct InternalKeyRef<'a> {
+    pub user_key: &'a [u8],
+    pub seqno: SeqNo,
+    pub value_type: ValueType,
+}
 
-// impl<'a> InternalKeyRef<'a> {
-//     // Constructor for InternalKeyRef
-//     pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
-//         InternalKeyRef {
-//             user_key,
-//             seqno,
-//             value_type,
-//         }
-//     }
-// }
+impl<'a> AsRef<[u8]> for InternalKeyRef<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.user_key
+    }
+}
 
-// impl<'a> PartialEq for InternalKeyRef<'a> {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.user_key == other.user_key && self.seqno == other.seqno
-//     }
-// }
+impl<'a> InternalKeyRef<'a> {
+    // Constructor for InternalKeyRef
+    pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
+        InternalKeyRef {
+            user_key,
+            seqno,
+            value_type,
+        }
+    }
+}
 
-// impl<'a> PartialOrd for InternalKeyRef<'a> {
-//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
+impl<'a> PartialEq for InternalKeyRef<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
 
-// impl<'a> Ord for InternalKeyRef<'a> {
-//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-//         (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
-//     }
-// }
+impl<'a> PartialOrd for InternalKeyRef<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> Ord for InternalKeyRef<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+    }
+} */
