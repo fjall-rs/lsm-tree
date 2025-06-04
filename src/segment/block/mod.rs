@@ -187,7 +187,12 @@ impl Block {
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
+                #[cfg(feature = "use_unsafe")]
+                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
+
+                #[cfg(not(feature = "use_unsafe"))]
+                let mut data = Slice::with_size(header.uncompressed_length as usize);
+
                 {
                     // NOTE: We know that we are the owner
                     #[allow(clippy::expect_used)]
@@ -196,6 +201,7 @@ impl Block {
                     lz4_flex::decompress_into(raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
+
                 data
             }
 
