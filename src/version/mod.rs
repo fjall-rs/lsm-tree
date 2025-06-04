@@ -33,10 +33,6 @@ impl<T: Ranged> GenericLevel<T> {
         Self { runs }
     }
 
-    pub fn get_runs(&self) -> Vec<Arc<Run<T>>> {
-        self.runs.clone()
-    }
-
     pub fn segment_count(&self) -> usize {
         self.iter().map(|x| x.len()).sum()
     }
@@ -53,8 +49,8 @@ impl<T: Ranged> GenericLevel<T> {
         self.runs.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Run<T>> {
-        self.runs.iter().map(std::ops::Deref::deref)
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<Run<T>>> {
+        self.runs.iter()
     }
 
     pub fn get_for_key<'a>(&'a self, key: &'a [u8]) -> impl Iterator<Item = &'a T> {
@@ -115,7 +111,7 @@ impl Level {
     pub fn aggregate_key_range(&self) -> KeyRange {
         let key_ranges = self
             .iter()
-            .map(Run::aggregate_key_range)
+            .map(|x| Run::aggregate_key_range(x))
             .collect::<Vec<_>>();
 
         KeyRange::aggregate(key_ranges.iter())
@@ -141,11 +137,12 @@ impl std::ops::Deref for Version {
     }
 }
 
+// TODO: optimize runs unit test(s)
 pub fn optimize_runs(level: Vec<Run<Segment>>) -> Vec<Run<Segment>> {
     if level.len() <= 1 {
         level
     } else {
-        let mut key_range_boundaries: BTreeSet<crate::Slice> = BTreeSet::<UserKey>::default();
+        let mut key_range_boundaries: BTreeSet<crate::UserKey> = BTreeSet::<UserKey>::default();
 
         for run in &level {
             for fragment in run.iter() {
@@ -155,21 +152,20 @@ pub fn optimize_runs(level: Vec<Run<Segment>>) -> Vec<Run<Segment>> {
             }
         }
 
-        let mut index = KeyRangePartitions::new(
-            key_range_boundaries
-                .into_iter()
-                .collect::<Vec<_>>()
-                .windows(2)
-                .map(|pair| {
-                    // NOTE: We are iterating over pairs, so index 0 and 1 always exist
-                    #[allow(clippy::expect_used)]
-                    #[allow(clippy::get_first)]
-                    (
-                        pair.get(0).expect("exists").clone(),
-                        pair.get(1).expect("exists").clone(),
-                    )
-                }),
-        );
+        let range_boundaries = key_range_boundaries
+            .into_iter()
+            .flat_map(|key| vec![key.clone(), key])
+            .collect::<Vec<_>>();
+
+        let mut index = KeyRangePartitions::new(range_boundaries.windows(2).map(|pair| {
+            // NOTE: We are iterating over pairs, so index 0 and 1 always exist
+            #[allow(clippy::expect_used)]
+            #[allow(clippy::get_first)]
+            (
+                pair.get(0).expect("exists").clone(),
+                pair.get(1).expect("exists").clone(),
+            )
+        }));
 
         // IMPORTANT: Index from bottom to top
         for run in level.iter().rev() {
@@ -236,13 +232,22 @@ impl Version {
             // Copy-on-write the first level with new run at top
             let l0 = self.levels.first().expect("L0 should always exist");
 
-            let prev_runs = l0.get_runs();
+            let prev_runs = l0
+                .runs
+                .iter()
+                .map(|run| {
+                    let run: Run<Segment> = run.deref().clone();
+                    run
+                })
+                .collect::<Vec<_>>();
 
             let mut runs = Vec::with_capacity(prev_runs.len() + 1);
-            runs.push(Arc::new(Run::new(run.to_vec())));
+            runs.push(Run::new(run.to_vec()));
             runs.extend(prev_runs);
 
-            Level::from_runs(runs)
+            let runs = optimize_runs(runs);
+
+            Level::from_runs(runs.into_iter().map(Arc::new).collect())
         });
 
         // L1+
