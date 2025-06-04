@@ -15,8 +15,7 @@ use crate::clipping_iter::ClippingIter;
 use crate::{InternalValue, SeqNo, ValueType};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
-use forward_reader::ForwardReader;
-use iter::{ParsedItem, ParsedSlice};
+use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
 use std::io::Seek;
 use std::ops::RangeBounds;
 use std::{cmp::Reverse, io::Cursor};
@@ -308,8 +307,13 @@ impl DataBlock {
         &self,
         binary_index: &BinaryIndexReader,
         needle: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> Option<usize> {
+        debug_assert!(
+            binary_index.len() >= 1,
+            "binary index should never be empty",
+        );
+
         let mut left: usize = 0;
         let mut right = binary_index.len();
 
@@ -317,69 +321,57 @@ impl DataBlock {
             return None;
         }
 
-        if let Some(seqno) = seqno {
-            let seqno_cmp = Reverse(seqno - 1);
+        let seqno_cmp = Reverse(seqno - 1);
 
-            while left < right {
-                let mid = (left + right) / 2;
+        while left < right {
+            let mid = (left + right) / 2;
 
-                let offset = binary_index.get(mid);
+            let offset = binary_index.get(mid);
 
-                if self.get_key_at(offset) <= (needle, seqno_cmp) {
+            let (head_key, head_seqno) = self.get_key_at(offset);
+
+            match head_key.cmp(needle) {
+                std::cmp::Ordering::Less => {
                     left = mid + 1;
-                } else {
+                }
+                std::cmp::Ordering::Equal => match head_seqno.cmp(&seqno_cmp) {
+                    std::cmp::Ordering::Less => {
+                        left = mid + 1;
+                    }
+                    std::cmp::Ordering::Equal => {
+                        left = mid;
+                        right = mid;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        right = mid;
+                    }
+                },
+                std::cmp::Ordering::Greater => {
+                    // NOTE: If we are at the first restart interval head
+                    // and its key is larger than the requested key, the key cannot be possibly contained in the block
+                    //
+                    //     Block
+                    //     [b... c... d... e...]
+                    //
+                    //  ^
+                    //  needle = "a"
+                    //
+                    if mid == 0 {
+                        return None;
+                    }
+
                     right = mid;
                 }
             }
-
-            if left == 0 {
-                return Some(0);
-            }
-
-            let offset = binary_index.get(left - 1);
-
-            Some(offset)
-        } else if self.restart_interval == 1 {
-            while left < right {
-                let mid = (left + right) / 2;
-
-                let offset = binary_index.get(mid);
-
-                if self.get_key_at(offset).0 < needle {
-                    left = mid + 1;
-                } else {
-                    right = mid;
-                }
-            }
-
-            Some(if left == 0 {
-                binary_index.get(0)
-            } else if left < binary_index.len() {
-                binary_index.get(left)
-            } else {
-                binary_index.get(binary_index.len() - 1)
-            })
-        } else {
-            while left < right {
-                let mid = (left + right) / 2;
-
-                let offset = binary_index.get(mid);
-
-                if self.get_key_at(offset).0 < needle {
-                    left = mid + 1;
-                } else {
-                    right = mid;
-                }
-            }
-
-            Some(if left == 0 {
-                binary_index.get(0)
-            } else if left < binary_index.len() {
-                binary_index.get(left - 1)
-            } else {
-                binary_index.get(binary_index.len() - 1)
-            })
         }
+
+        if left == 0 {
+            return Some(0);
+        }
+
+        let offset = binary_index.get(left - 1);
+
+        Some(offset)
     }
 
     fn parse_restart_item(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<ParsedItem> {
@@ -476,7 +468,7 @@ impl DataBlock {
     }
 
     #[must_use]
-    pub fn point_read(&self, needle: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
+    pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
         let mut reader = ForwardReader::new(self);
         reader.point_read(needle, seqno)
     }
@@ -504,5 +496,63 @@ impl DataBlock {
         }
 
         serializer.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        segment::{block::Header, Block, BlockOffset, DataBlock},
+        Checksum, InternalValue, SeqNo,
+        ValueType::{Tombstone, Value},
+    };
+    use test_log::test;
+
+    #[test]
+    fn v3_data_block_binary_search() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        let binary_index = data_block.get_binary_index_reader();
+
+        assert!(
+            data_block
+                .binary_search_for_offset(&binary_index, b"a", SeqNo::MAX)
+                .is_none(),
+            "should return None because a is less than min key",
+        );
+
+        assert!(
+            data_block
+                .binary_search_for_offset(&binary_index, b"b", SeqNo::MAX)
+                .is_some(),
+            "should return Some because b exists",
+        );
+
+        assert!(
+            data_block
+                .binary_search_for_offset(&binary_index, b"z", SeqNo::MAX)
+                .is_some(),
+            "should return Some because z may be in last restart interval",
+        );
+
+        Ok(())
     }
 }
