@@ -21,11 +21,11 @@ pub struct InternalKey {
     pub value_type: ValueType,
 }
 
-impl<'a> From<&InternalKeyRef<'a>> for InternalKey {
+/* impl<'a> From<&InternalKeyRef<'a>> for InternalKey {
     fn from(value: &InternalKeyRef<'a>) -> Self {
         Self::new(value.user_key, value.seqno, value.value_type)
     }
-}
+} */
 
 impl AsRef<[u8]> for InternalKey {
     fn as_ref(&self) -> &[u8] {
