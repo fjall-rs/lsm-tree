@@ -207,6 +207,8 @@ impl AbstractTree for Tree {
     }
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
+        log::trace!("Registering {} segments", segments.len());
+
         // NOTE: Mind lock order L -> M -> S
         log::trace!("register: Acquiring levels manifest write lock");
         let mut manifest = self.manifest.write().expect("lock is poisoned");
