@@ -144,8 +144,7 @@ impl BlobTree {
             .blobs
             .scan_for_stats(iter.filter_map(|kv| {
                 let Ok(kv) = kv else {
-                    return Some(Err(IoError::new(
-                        IoErrorKind::Other,
+                    return Some(Err(IoError::other(
                         "Failed to load KV pair from index tree",
                     )));
                 };
@@ -153,7 +152,7 @@ impl BlobTree {
                 let mut cursor = Cursor::new(kv.value);
                 let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                    Err(e) => return Some(Err(IoError::other(e.to_string()))),
                 };
 
                 match value {
