@@ -2,6 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod iter;
+
 use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
 
 #[enum_dispatch::enum_dispatch]
