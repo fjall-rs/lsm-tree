@@ -45,7 +45,7 @@ impl<T: Ranged> std::ops::Deref for Indexed<T> {
 }
 
 /// A disjoint run of disk segments
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Run<T: Ranged>(Vec<T>);
 
 impl<T: Ranged> std::ops::Deref for Run<T> {
@@ -108,9 +108,9 @@ impl<T: Ranged> Run<T> {
     }
 
     /// Returns the indexes of the interval [min, max] of segments that overlap with a given range.
-    pub fn range_indexes<'a, R: RangeBounds<&'a [u8]>>(
+    pub fn range_indexes<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
-        key_range: R,
+        key_range: &R,
     ) -> Option<(usize, usize)> {
         let level = &self.0;
 
@@ -242,16 +242,16 @@ mod tests {
 
         let run = Run(items);
 
-        assert_eq!(Some((0, 3)), run.range_indexes(..));
-        assert_eq!(Some((0, 0)), run.range_indexes(b"a" as &[u8]..=b"a"));
-        assert_eq!(Some((0, 0)), run.range_indexes(b"a" as &[u8]..=b"b"));
-        assert_eq!(Some((0, 0)), run.range_indexes(b"a" as &[u8]..=b"d"));
-        assert_eq!(Some((0, 0)), run.range_indexes(b"a" as &[u8]..b"d"));
-        assert_eq!(Some((0, 1)), run.range_indexes(b"a" as &[u8]..=b"g"));
-        assert_eq!(Some((0, 3)), run.range_indexes(b"a" as &[u8]..=b"z"));
-        assert_eq!(Some((3, 3)), run.range_indexes(b"z" as &[u8]..=b"zzz"));
-        assert_eq!(Some((3, 3)), run.range_indexes(b"z" as &[u8]..));
-        assert!(run.range_indexes(b"zzz" as &[u8]..=b"zzzzzzz").is_none());
+        assert_eq!(Some((0, 3)), run.range_indexes::<&[u8], _>(&..));
+        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"a")));
+        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"b")));
+        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"d")));
+        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..b"d")));
+        assert_eq!(Some((0, 1)), run.range_indexes(&(b"a" as &[u8]..=b"g")));
+        assert_eq!(Some((0, 3)), run.range_indexes(&(b"a" as &[u8]..=b"z")));
+        assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..=b"zzz")));
+        assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..)));
+        assert!(run.range_indexes(&(b"zzz" as &[u8]..=b"zzzzzzz")).is_none());
     }
 
     #[test]
