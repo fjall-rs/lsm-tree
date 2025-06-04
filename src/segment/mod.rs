@@ -89,7 +89,7 @@ impl std::ops::Deref for Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}({})", self.id(), self.metadata.key_range)
+        write!(f, "Segment:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
