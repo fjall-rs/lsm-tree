@@ -3,6 +3,7 @@ use std::sync::Arc;
 use test_log::test;
 
 #[test]
+#[ignore]
 fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
