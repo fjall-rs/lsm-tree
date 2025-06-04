@@ -50,8 +50,9 @@ pub fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
 }
 
 // TODO: Fuzz test
+#[must_use]
 pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> std::cmp::Ordering {
-    use std::cmp::Ordering::{Equal, Greater, Less};
+    use std::cmp::Ordering::{Equal, Greater};
 
     if needle.is_empty() {
         let combined_len = prefix.len() + suffix.len();
@@ -59,35 +60,33 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
         return if combined_len > 0 { Greater } else { Equal };
     }
 
-    match prefix.len().cmp(&needle.len()) {
-        Equal => match prefix.cmp(needle) {
+    let max_pfx_len = prefix.len().min(needle.len());
+
+    {
+        #[allow(unsafe_code)]
+        let prefix = unsafe { prefix.get_unchecked(0..max_pfx_len) };
+
+        #[allow(unsafe_code)]
+        let needle = unsafe { needle.get_unchecked(0..max_pfx_len) };
+
+        match prefix.cmp(needle) {
             Equal => {}
             ordering => return ordering,
-        },
-        Greater => {
-            // SAFETY: We know that the prefix is longer than the needle, so we can safely
-            // truncate it to the needle's length
-            #[allow(unsafe_code)]
-            let prefix = unsafe { prefix.get_unchecked(0..needle.len()) };
-            return prefix.cmp(needle);
         }
-        Less => {
-            // SAFETY: We know that the needle is longer than the prefix, so we can safely
-            // truncate it to the prefix's length
-            #[allow(unsafe_code)]
-            let needle = unsafe { needle.get_unchecked(0..prefix.len()) };
+    }
 
-            match prefix.cmp(needle) {
-                Equal => {}
-                ordering => return ordering,
-            }
+    let rest_len = needle.len() - max_pfx_len;
+    if rest_len == 0 {
+        if !suffix.is_empty() {
+            return std::cmp::Ordering::Greater;
         }
+        return std::cmp::Ordering::Equal;
     }
 
     // SAFETY: We know that the prefix is definitely not longer than the needle
     // so we can safely truncate
     #[allow(unsafe_code)]
-    let needle = unsafe { needle.get_unchecked(prefix.len()..) };
+    let needle = unsafe { needle.get_unchecked(max_pfx_len..) };
     suffix.cmp(needle)
 }
 
