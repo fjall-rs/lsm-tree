@@ -121,7 +121,7 @@ impl KvStore {
         Ok(())
     }
 
-    pub fn maintenance(&mut self, memtable_size: u32) -> lsm_tree::Result<()> {
+    pub fn maintenance(&mut self, memtable_size: u64) -> lsm_tree::Result<()> {
         // 8 MiB limit
         if memtable_size > 8 * 1_024 * 1_024 {
             self.force_flush()?;
