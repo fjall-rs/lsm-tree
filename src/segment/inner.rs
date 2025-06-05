@@ -12,7 +12,7 @@ use std::{
 };
 
 pub struct Inner {
-    pub path: PathBuf,
+    pub path: Arc<PathBuf>,
 
     pub(crate) tree_id: TreeId,
 
@@ -53,7 +53,7 @@ impl Drop for Inner {
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted segment {global_id:?} at {:?}", self.path);
 
-            if let Err(e) = std::fs::remove_file(&self.path) {
+            if let Err(e) = std::fs::remove_file(&*self.path) {
                 log::warn!(
                     "Failed to cleanup deleted segment {global_id:?} at {:?}: {e:?}",
                     self.path,

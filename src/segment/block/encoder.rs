@@ -85,12 +85,9 @@ impl<'a, S: Default, T: Encodable<S>> Encoder<'a, S, T> {
 
     /// Toggles prefix truncation.
     pub fn use_prefix_truncation(mut self, flag: bool) -> Self {
-        self.use_prefix_truncation = flag;
+        assert!(flag, "prefix truncation is currently required to be true");
 
-        // TODO:
-        if !flag {
-            unimplemented!()
-        }
+        self.use_prefix_truncation = flag;
 
         self
     }

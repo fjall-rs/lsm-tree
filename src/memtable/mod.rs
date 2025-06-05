@@ -60,8 +60,8 @@ impl Memtable {
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None.
     #[doc(hidden)]
-    pub fn get(&self, key: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
-        if seqno == Some(0) {
+    pub fn get(&self, key: &[u8], seqno: SeqNo) -> Option<InternalValue> {
+        if seqno == 0 {
             return None;
         }
 
@@ -81,14 +81,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(
-            key,
-            match seqno {
-                Some(seqno) => seqno - 1,
-                None => SeqNo::MAX,
-            },
-            ValueType::Value,
-        );
+        let lower_bound = InternalKey::new(key, seqno - 1, ValueType::Value);
 
         let mut iter = self
             .items
@@ -172,10 +165,10 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get(b"hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", SeqNo::MAX);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", SeqNo::MAX);
         assert_eq!(*b"hello-value-999991", &*item.unwrap().value);
 
         memtable.insert(InternalValue::from_components(
@@ -185,22 +178,22 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get(b"hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", SeqNo::MAX);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", SeqNo::MAX);
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
 
-        let item = memtable.get(b"hello-key-99999", Some(1));
+        let item = memtable.get(b"hello-key-99999", 1);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", Some(1));
+        let item = memtable.get(b"hello-key-999991", 1);
         assert_eq!((*b"hello-value-999991"), &*item.unwrap().value);
 
-        let item = memtable.get(b"hello-key-99999", Some(2));
+        let item = memtable.get(b"hello-key-99999", 2);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", Some(2));
+        let item = memtable.get(b"hello-key-999991", 2);
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
     }
 
@@ -213,7 +206,7 @@ mod tests {
 
         memtable.insert(value.clone());
 
-        assert_eq!(Some(value), memtable.get(b"abc", None));
+        assert_eq!(Some(value), memtable.get(b"abc", SeqNo::MAX));
     }
 
     #[test]
@@ -258,7 +251,7 @@ mod tests {
                 4,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
     }
 
@@ -286,7 +279,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
 
         assert_eq!(
@@ -296,7 +289,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get(b"abc0", None)
+            memtable.get(b"abc0", SeqNo::MAX)
         );
     }
 
@@ -330,7 +323,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
 
         assert_eq!(
@@ -340,7 +333,7 @@ mod tests {
                 99,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", Some(100))
+            memtable.get(b"abc", 100)
         );
 
         assert_eq!(
@@ -350,7 +343,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", Some(50))
+            memtable.get(b"abc", 50)
         );
     }
 }

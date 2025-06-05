@@ -4,16 +4,18 @@
 
 mod block_handle;
 mod forward_reader;
+mod iter;
 
 pub use block_handle::{BlockHandle, KeyedBlockHandle};
+pub use iter::Iter;
 
 use super::{
     block::{binary_index::Reader as BinaryIndexReader, BlockOffset, Encoder, Trailer},
     Block,
 };
-use crate::segment::block::TRAILER_START_MARKER;
+use crate::segment::{block::TRAILER_START_MARKER, data_block::forward_reader::ParsedSlice};
 use byteorder::{LittleEndian, ReadBytesExt};
-use forward_reader::{ForwardReader, ParsedItem, ParsedSlice};
+use forward_reader::{ForwardReader, ParsedItem};
 use std::io::{Cursor, Seek};
 use varint_rs::VarintReader;
 
@@ -26,6 +28,7 @@ macro_rules! unwrappy {
 }
 
 /// Block that contains block handles (file offset + size)
+#[derive(Clone)]
 pub struct IndexBlock {
     pub inner: Block,
 
@@ -139,6 +142,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
@@ -175,6 +180,12 @@ impl IndexBlock {
         })
     }
 
+    #[must_use]
+    #[allow(clippy::iter_without_into_iter)]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = KeyedBlockHandle> + '_ {
+        Iter::new(self).map(|kv| kv.materialize(&self.inner.data))
+    }
+
     fn parse_truncated_item(
         reader: &mut Cursor<&[u8]>,
         offset: usize,
@@ -201,6 +212,8 @@ impl IndexBlock {
 
         let item = Self::parse_restart_item(&mut cursor, pos).expect("should exist");
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         &bytes[item.end_key.0..item.end_key.1]
     }
 
@@ -280,13 +293,15 @@ impl IndexBlock {
 
         let offset = self.search_lowest(&binary_index, needle)?;
 
-        // SAFETY: pos is always retrieved from the binary index,
+        // SAFETY: offset is always retrieved from the binary index,
         // which we consider to be trustworthy
         #[warn(unsafe_code)]
         let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
@@ -304,13 +319,15 @@ impl IndexBlock {
 
         let offset = self.search_highest(&binary_index, needle)?;
 
-        // SAFETY: pos is always retrieved from the binary index,
+        // SAFETY: offset is always retrieved from the binary index,
         // which we consider to be trustworthy
         #[warn(unsafe_code)]
         let mut cursor = Cursor::new(unsafe { self.inner.data.get_unchecked(offset..) });
 
         let item = Self::parse_restart_item(&mut cursor, offset)?;
 
+        // SAFETY: We trust the parsed restart head
+        #[allow(clippy::indexing_slicing)]
         let key = &self.inner.data[item.end_key.0..item.end_key.1];
 
         if needle > key {
@@ -357,11 +374,11 @@ mod tests {
         ];
 
         let bytes = IndexBlock::encode_items(&items, 1)?;
-        eprintln!("{bytes:?}");
-        eprintln!("{}", String::from_utf8_lossy(&bytes));
+        // eprintln!("{bytes:?}");
+        // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
 
-        let data_block = IndexBlock::new(Block {
+        let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
@@ -371,23 +388,23 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.len(), items.len());
+        assert_eq!(index_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
-            data_block.get_lowest_possible_block(b"a")
+            index_block.get_lowest_possible_block(b"a")
         );
         assert_eq!(
             Some(items.first().unwrap().clone()),
-            data_block.get_lowest_possible_block(b"b")
+            index_block.get_lowest_possible_block(b"b")
         );
         assert_eq!(
             Some(items.get(1).unwrap().clone()),
-            data_block.get_lowest_possible_block(b"ba")
+            index_block.get_lowest_possible_block(b"ba")
         );
         assert_eq!(
             Some(items.get(2).unwrap().clone()),
-            data_block.get_lowest_possible_block(b"d")
+            index_block.get_lowest_possible_block(b"d")
         );
 
         // assert_eq!(None, data_block.get_lowest_possible_block(b"zzz"));
@@ -409,7 +426,7 @@ mod tests {
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
 
-        let data_block = IndexBlock::new(Block {
+        let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
@@ -419,19 +436,19 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.len(), items.len());
+        assert_eq!(index_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
-            data_block.get_lowest_possible_block(b"a")
+            index_block.get_lowest_possible_block(b"a")
         );
         assert_eq!(
             Some(items.last().unwrap().clone()),
-            data_block.get_lowest_possible_block(b"abc")
+            index_block.get_lowest_possible_block(b"abc")
         );
         assert_eq!(
             Some(items.last().unwrap().clone()),
-            data_block.get_lowest_possible_block(b"b")
+            index_block.get_lowest_possible_block(b"b")
         );
 
         Ok(())
@@ -452,7 +469,7 @@ mod tests {
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
 
-        let data_block = IndexBlock::new(Block {
+        let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
@@ -462,29 +479,29 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.len(), items.len());
+        assert_eq!(index_block.len(), items.len());
 
         assert_eq!(
             Some(items.first().unwrap().clone()),
-            data_block.get_highest_possible_block(b"a")
+            index_block.get_highest_possible_block(b"a")
         );
         assert_eq!(
             Some(items.get(1).unwrap().clone()),
-            data_block.get_highest_possible_block(b"abc")
+            index_block.get_highest_possible_block(b"abc")
         );
         assert_eq!(
             Some(items.last().unwrap().clone()),
-            data_block.get_highest_possible_block(b"c")
+            index_block.get_highest_possible_block(b"c")
         );
         assert_eq!(
             Some(items.last().unwrap().clone()),
-            data_block.get_highest_possible_block(b"cef")
+            index_block.get_highest_possible_block(b"cef")
         );
         assert_eq!(
             Some(items.last().unwrap().clone()),
-            data_block.get_highest_possible_block(b"d")
+            index_block.get_highest_possible_block(b"d")
         );
-        assert_eq!(None, data_block.get_highest_possible_block(b"zzz"));
+        assert_eq!(None, index_block.get_highest_possible_block(b"zzz"));
 
         Ok(())
     }
@@ -498,7 +515,7 @@ mod tests {
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
 
-        let data_block = IndexBlock::new(Block {
+        let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
@@ -508,23 +525,23 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.len(), 1);
+        assert_eq!(index_block.len(), 1);
 
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"a")
+            index_block.get_lowest_possible_block(b"a")
         );
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"asdasd")
+            index_block.get_lowest_possible_block(b"asdasd")
         );
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"b")
+            index_block.get_lowest_possible_block(b"b")
         );
-        assert_eq!(Some(item), data_block.get_lowest_possible_block(b"c"));
-        assert_eq!(None, data_block.get_lowest_possible_block(b"d"));
-        assert_eq!(None, data_block.get_lowest_possible_block(b"z"));
+        assert_eq!(Some(item), index_block.get_lowest_possible_block(b"c"));
+        assert_eq!(None, index_block.get_lowest_possible_block(b"d"));
+        assert_eq!(None, index_block.get_lowest_possible_block(b"z"));
 
         Ok(())
     }
@@ -538,7 +555,7 @@ mod tests {
         // eprintln!("{}", String::from_utf8_lossy(&bytes));
         /* eprintln!("encoded into {} bytes", bytes.len()); */
 
-        let data_block = IndexBlock::new(Block {
+        let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
                 checksum: Checksum::from_raw(0),
@@ -548,23 +565,23 @@ mod tests {
             },
         });
 
-        assert_eq!(data_block.len(), 1);
+        assert_eq!(index_block.len(), 1);
 
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"a")
+            index_block.get_lowest_possible_block(b"a")
         );
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"asdasd")
+            index_block.get_lowest_possible_block(b"asdasd")
         );
         assert_eq!(
             Some(item.clone()),
-            data_block.get_lowest_possible_block(b"b")
+            index_block.get_lowest_possible_block(b"b")
         );
-        assert_eq!(Some(item), data_block.get_lowest_possible_block(b"c"));
-        assert_eq!(None, data_block.get_lowest_possible_block(b"d"));
-        assert_eq!(None, data_block.get_lowest_possible_block(b"z"));
+        assert_eq!(Some(item), index_block.get_lowest_possible_block(b"c"));
+        assert_eq!(None, index_block.get_lowest_possible_block(b"d"));
+        assert_eq!(None, index_block.get_lowest_possible_block(b"z"));
 
         Ok(())
     }

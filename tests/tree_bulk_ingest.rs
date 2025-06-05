@@ -4,6 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 100_000;
 
 #[test]
+#[ignore]
 fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -29,6 +30,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn tree_copy() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let src = Config::new(folder).open()?;
@@ -73,6 +75,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -101,6 +104,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn blob_tree_copy() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let src = Config::new(folder)

@@ -138,6 +138,8 @@ mod config;
 mod error;
 // mod export;
 
+pub(crate) mod fallible_clipping_iter;
+
 #[doc(hidden)]
 pub mod file;
 
@@ -146,8 +148,8 @@ mod key;
 #[doc(hidden)]
 pub mod level_manifest;
 
-mod level_reader;
-mod level_scanner;
+mod run_reader;
+mod run_scanner;
 
 mod manifest;
 mod memtable;

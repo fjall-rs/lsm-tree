@@ -2,82 +2,76 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{level_manifest::level::Level, segment::CachePolicy, InternalValue, UserKey};
-use std::{ops::Bound, sync::Arc};
+use crate::{segment::CachePolicy, version::Run, BoxedIterator, InternalValue, Segment, UserKey};
+use std::{
+    ops::{Deref, RangeBounds},
+    sync::Arc,
+};
 
-/// Reads through a disjoint level
-pub struct LevelReader {
-    segments: Arc<Level>,
+/// Reads through a disjoint run
+pub struct RunReader {
+    run: Arc<Run<Segment>>,
     lo: usize,
     hi: usize,
-    lo_reader: Option<()>, // TODO: range
-    hi_reader: Option<()>, // TODO: range
+    lo_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
+    hi_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
     cache_policy: CachePolicy,
 }
 
-impl LevelReader {
+impl RunReader {
     #[must_use]
-    pub fn new(
-        level: Arc<Level>,
-        range: &(Bound<UserKey>, Bound<UserKey>),
+    pub fn new<R: RangeBounds<UserKey> + Clone + 'static>(
+        run: Arc<Run<Segment>>,
+        range: R,
         cache_policy: CachePolicy,
     ) -> Option<Self> {
-        assert!(!level.is_empty(), "level reader cannot read empty level");
+        assert!(!run.is_empty(), "level reader cannot read empty level");
 
-        let disjoint_level = level.as_disjoint().expect("level should be disjoint");
+        let (lo, hi) = run.range_indexes(&range)?;
 
-        let (lo, hi) = disjoint_level.range_indexes(range)?;
-
-        Some(Self::from_indexes(
-            level,
-            range,
-            (Some(lo), Some(hi)),
-            cache_policy,
-        ))
+        Some(Self::culled(run, range, (Some(lo), Some(hi)), cache_policy))
     }
 
     #[must_use]
-    pub fn from_indexes(
-        level: Arc<Level>,
-        range: &(Bound<UserKey>, Bound<UserKey>),
+    pub fn culled<R: RangeBounds<UserKey> + Clone + 'static>(
+        run: Arc<Run<Segment>>,
+        range: R,
         (lo, hi): (Option<usize>, Option<usize>),
         cache_policy: CachePolicy,
     ) -> Self {
-        todo!()
-
-        /* let lo = lo.unwrap_or_default();
-        let hi = hi.unwrap_or(level.len() - 1);
+        let lo = lo.unwrap_or_default();
+        let hi = hi.unwrap_or(run.len() - 1);
 
         // TODO: lazily init readers?
-        let lo_segment = level.segments.get(lo).expect("should exist");
-        let lo_reader = lo_segment.range(range.clone()).cache_policy(cache_policy);
+        let lo_segment = run.deref().get(lo).expect("should exist");
+        let lo_reader = lo_segment.range(range.clone())/* .cache_policy(cache_policy) */;
 
         // TODO: lazily init readers?
         let hi_reader = if hi > lo {
-            let hi_segment = level.segments.get(hi).expect("should exist");
-            Some(hi_segment.range(range.clone()).cache_policy(cache_policy))
+            let hi_segment = run.deref().get(hi).expect("should exist");
+            Some(
+                hi_segment.range(range), /* .cache_policy(cache_policy) */
+            )
         } else {
             None
         };
 
         Self {
-            segments: level,
+            run,
             lo,
             hi,
-            lo_reader: Some(lo_reader),
-            hi_reader,
+            lo_reader: Some(Box::new(lo_reader)),
+            hi_reader: hi_reader.map(|x| Box::new(x) as BoxedIterator),
             cache_policy,
-        } */
+        }
     }
 }
 
-impl Iterator for LevelReader {
+impl Iterator for RunReader {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-
-        /*    loop {
+        loop {
             if let Some(lo_reader) = &mut self.lo_reader {
                 if let Some(item) = lo_reader.next() {
                     return Some(item);
@@ -88,13 +82,9 @@ impl Iterator for LevelReader {
                 self.lo += 1;
 
                 if self.lo < self.hi {
-                    self.lo_reader = Some(
-                        self.segments
-                            .get(self.lo)
-                            .expect("should exist")
-                            .iter()
-                            .cache_policy(self.cache_policy),
-                    );
+                    self.lo_reader = Some(Box::new(
+                        self.run.get(self.lo).expect("should exist").iter(),
+                    ) /* .cache_policy(self.cache_policy) */);
                 }
             } else if let Some(hi_reader) = &mut self.hi_reader {
                 // NOTE: We reached the hi marker, so consume from it instead
@@ -104,15 +94,13 @@ impl Iterator for LevelReader {
             } else {
                 return None;
             }
-        } */
+        }
     }
 }
 
-impl DoubleEndedIterator for LevelReader {
+impl DoubleEndedIterator for RunReader {
     fn next_back(&mut self) -> Option<Self::Item> {
-        todo!()
-
-        /*   loop {
+        loop {
             if let Some(hi_reader) = &mut self.hi_reader {
                 if let Some(item) = hi_reader.next_back() {
                     return Some(item);
@@ -123,13 +111,9 @@ impl DoubleEndedIterator for LevelReader {
                 self.hi -= 1;
 
                 if self.lo < self.hi {
-                    self.hi_reader = Some(
-                        self.segments
-                            .get(self.hi)
-                            .expect("should exist")
-                            .iter()
-                            .cache_policy(self.cache_policy),
-                    );
+                    self.hi_reader = Some(Box::new(
+                        self.run.get(self.hi).expect("should exist").iter(),
+                    ) /* .cache_policy(self.cache_policy) */);
                 }
             } else if let Some(lo_reader) = &mut self.lo_reader {
                 // NOTE: We reached the lo marker, so consume from it instead
@@ -139,7 +123,7 @@ impl DoubleEndedIterator for LevelReader {
             } else {
                 return None;
             }
-        } */
+        }
     }
 }
 
@@ -148,11 +132,10 @@ impl DoubleEndedIterator for LevelReader {
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
-    use std::ops::Bound::{Included, Unbounded};
     use test_log::test;
 
     #[test]
-    fn level_reader_skip() -> crate::Result<()> {
+    fn v3_run_reader_skip() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -171,38 +154,30 @@ mod tests {
         }
 
         let segments = tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
             .iter()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Level {
-            segments,
-            is_disjoint: true,
-        });
+        let level = Arc::new(Run::new(segments));
 
-        assert!(LevelReader::new(
+        assert!(RunReader::new(
             level.clone(),
-            &(Included(b"y".into()), Included(b"z".into())),
+            UserKey::from("y")..=UserKey::from("z"),
             CachePolicy::Read
         )
         .is_none());
 
-        assert!(LevelReader::new(
-            level.clone(),
-            &(Included(b"y".into()), Unbounded),
-            CachePolicy::Read
-        )
-        .is_none());
+        assert!(RunReader::new(level, UserKey::from("y").., CachePolicy::Read).is_none());
 
         Ok(())
     }
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn level_reader_basic() -> crate::Result<()> {
+    fn v3_run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -221,22 +196,17 @@ mod tests {
         }
 
         let segments = tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
             .iter()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Level {
-            segments,
-            is_disjoint: true,
-        });
+        let level = Arc::new(Run::new(segments));
 
         {
-            let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
-                    .unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -255,9 +225,7 @@ mod tests {
         }
 
         {
-            let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
-                    .unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -276,9 +244,7 @@ mod tests {
         }
 
         {
-            let multi_reader =
-                LevelReader::new(level.clone(), &(Unbounded, Unbounded), CachePolicy::Read)
-                    .unwrap();
+            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -297,12 +263,8 @@ mod tests {
         }
 
         {
-            let multi_reader = LevelReader::new(
-                level.clone(),
-                &(Included(b"g".into()), Unbounded),
-                CachePolicy::Read,
-            )
-            .unwrap();
+            let multi_reader =
+                RunReader::new(level.clone(), UserKey::from("g").., CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -315,12 +277,8 @@ mod tests {
         }
 
         {
-            let multi_reader = LevelReader::new(
-                level,
-                &(Included(b"g".into()), Unbounded),
-                CachePolicy::Read,
-            )
-            .unwrap();
+            let multi_reader =
+                RunReader::new(level, UserKey::from("g").., CachePolicy::Read).unwrap();
 
             let mut iter = multi_reader.flatten().rev();
 

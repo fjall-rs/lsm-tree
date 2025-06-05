@@ -78,10 +78,8 @@ impl<'a> Ingestion<'a> {
         let created_segments = results
             .into_iter()
             .map(|segment_id| -> crate::Result<Segment> {
-                let segment_file_path = self.folder.join(segment_id.to_string());
-
                 Segment::recover(
-                    &segment_file_path,
+                    self.folder.join(segment_id.to_string()),
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),

@@ -101,21 +101,13 @@ impl AbstractTree for Tree {
     }
 
     fn l0_run_count(&self) -> usize {
-        let lock = self.levels.read().expect("lock is poisoned");
-
-        let first_level = lock
-            .levels
-            .first()
-            .expect("first level should always exist");
-
-        if first_level.is_disjoint {
-            1
-        } else {
-            // TODO: in the future, there will be a Vec<Run> per Level
-            // TODO: so this will need to change,
-            // TODO: but then we also don't need the manual is_disjoint check
-            first_level.segments.len()
-        }
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .level(0)
+            .map(|x| x.run_count())
+            .unwrap_or_default()
     }
 
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
@@ -123,11 +115,12 @@ impl AbstractTree for Tree {
     }
 
     fn pinned_bloom_filter_size(&self) -> usize {
-        self.levels
+        self.manifest
             .read()
             .expect("lock is poisoned")
-            .iter()
-            .map(Segment::pinned_bloom_filter_size)
+            .current_version()
+            .iter_segments()
+            .map(|x| x.pinned_bloom_filter_size())
             .sum()
     }
 
@@ -214,9 +207,11 @@ impl AbstractTree for Tree {
     }
 
     fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
+        log::trace!("Registering {} segments", segments.len());
+
         // NOTE: Mind lock order L -> M -> S
         log::trace!("register: Acquiring levels manifest write lock");
-        let mut original_levels = self.levels.write().expect("lock is poisoned");
+        let mut manifest = self.manifest.write().expect("lock is poisoned");
         log::trace!("register: Acquired levels manifest write lock");
 
         // NOTE: Mind lock order L -> M -> S
@@ -224,16 +219,9 @@ impl AbstractTree for Tree {
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
         log::trace!("register: Acquired sealed memtables write lock");
 
-        original_levels.atomic_swap(|recipe| {
-            for segment in segments.iter().cloned() {
-                recipe
-                    .first_mut()
-                    .expect("first level should exist")
-                    .insert(segment);
-            }
-        })?;
+        manifest.atomic_swap(|version| version.with_new_l0_segment(segments))?;
 
-        // eprintln!("{original_levels}");
+        // eprintln!("{manifest}");
 
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
@@ -323,26 +311,35 @@ impl AbstractTree for Tree {
     }
 
     fn segment_count(&self) -> usize {
-        self.levels.read().expect("lock is poisoned").len()
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .segment_count()
     }
 
     fn level_segment_count(&self, idx: usize) -> Option<usize> {
-        self.levels
+        self.manifest
             .read()
             .expect("lock is poisoned")
-            .levels
-            .get(idx)
-            .map(|x| x.len())
+            .current_version()
+            .level(idx)
+            .map(|x| x.segment_count())
     }
 
     #[allow(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
         // NOTE: Mind lock order L -> M -> S
-        let levels = self.levels.read().expect("lock is poisoned");
+        let manifest = self.manifest.read().expect("lock is poisoned");
         let memtable = self.active_memtable.read().expect("lock is poisoned");
         let sealed = self.sealed_memtables.read().expect("lock is poisoned");
 
-        let segments_item_count = levels.iter().map(|x| x.metadata.item_count).sum::<u64>();
+        let segments_item_count = manifest
+            .current_version()
+            .iter_segments()
+            .map(|x| x.metadata.item_count)
+            .sum::<u64>();
+
         let memtable_count = memtable.len() as u64;
         let sealed_count = sealed.iter().map(|(_, mt)| mt.len()).sum::<usize>() as u64;
 
@@ -352,8 +349,13 @@ impl AbstractTree for Tree {
     }
 
     fn disk_space(&self) -> u64 {
-        let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(|x| x.metadata.file_size).sum()
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_levels()
+            .map(|x| x.size())
+            .sum()
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
@@ -376,8 +378,13 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
-        let levels = self.levels.read().expect("lock is poisoned");
-        levels.iter().map(Segment::get_highest_seqno).max()
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::get_highest_seqno)
+            .max()
     }
 
     fn snapshot(&self, seqno: SeqNo) -> Snapshot {
@@ -392,7 +399,7 @@ impl AbstractTree for Tree {
         seqno: Option<SeqNo>,
     ) -> crate::Result<Option<UserValue>> {
         Ok(self
-            .get_internal_entry(key.as_ref(), seqno)?
+            .get_internal_entry(key.as_ref(), seqno.unwrap_or(SeqNo::MAX))?
             .map(|x| x.value))
     }
 
@@ -510,14 +517,14 @@ impl Tree {
         .insert(segment_file_path, created_segment.global_id()); */
 
         let created_segment = Segment::recover(
-            &segment_file_path,
+            segment_file_path,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
             true, // TODO: look at configuration
         )?;
 
-        log::debug!("Flushed segment to {segment_file_path:?}");
+        log::debug!("Flushed segment to {:?}", created_segment.path);
 
         Ok(Some(created_segment))
     }
@@ -553,8 +560,10 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn is_compacting(&self) -> bool {
-        let levels = self.levels.read().expect("lock is poisoned");
-        levels.is_compacting()
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .is_compacting()
     }
 
     /// Write-locks the sealed memtables for exclusive access
@@ -568,7 +577,7 @@ impl Tree {
         &self,
         memtable_lock: &Memtable,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
@@ -585,7 +594,7 @@ impl Tree {
     fn get_internal_entry_from_sealed_memtables(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> Option<InternalValue> {
         let memtable_lock = self.sealed_memtables.read().expect("lock is poisoned");
 
@@ -601,37 +610,34 @@ impl Tree {
     fn get_internal_entry_from_segments(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::segment::filter::standard_bloom::Builder::get_hash(key);
 
-        let level_manifest = self.levels.read().expect("lock is poisoned");
+        let manifest = self.manifest.read().expect("lock is poisoned");
 
-        for level in &level_manifest.levels {
-            // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
-            if level.len() >= 4 {
-                if let Some(level) = level.as_disjoint() {
-                    if let Some(segment) = level.get_segment_containing_key(key) {
+        for level in manifest.current_version().iter_levels() {
+            for run in level.iter() {
+                // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
+                if run.len() >= 4 {
+                    if let Some(segment) = run.get_for_key(key) {
                         if let Some(item) = segment.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
+                } else {
+                    // NOTE: Fallback to linear search
+                    for segment in run.iter() {
+                        if !segment.is_key_in_key_range(key) {
+                            continue;
+                        }
 
-                    // NOTE: Go to next level
-                    continue;
-                }
-            }
-
-            // NOTE: Fallback to linear search
-            for segment in &level.segments {
-                if !segment.is_key_in_key_range(key) {
-                    continue;
-                }
-
-                if let Some(item) = segment.get(key, seqno, key_hash)? {
-                    return Ok(ignore_tombstone_value(item));
+                        if let Some(item) = segment.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
                 }
             }
         }
@@ -643,7 +649,7 @@ impl Tree {
     pub fn get_internal_entry(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         // TODO: consolidate memtable & sealed behind single RwLock
 
@@ -718,7 +724,7 @@ impl Tree {
         // NOTE: Mind lock order L -> M -> S
         log::trace!("range read: acquiring read locks");
 
-        let level_manifest = self.levels.read().expect("lock is poisoned");
+        let manifest = self.manifest.read().expect("lock is poisoned");
 
         let iter_state = {
             let active = self.active_memtable.read().expect("lock is poisoned");
@@ -728,11 +734,11 @@ impl Tree {
                 active: active.clone(),
                 sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
                 ephemeral,
-                levels: level_manifest.levels.clone(),
+                version: manifest.current_version().clone(),
             }
         };
 
-        TreeIter::create_range(iter_state, bounds, seqno, &level_manifest)
+        TreeIter::create_range(iter_state, bounds, seqno, &manifest)
     }
 
     #[doc(hidden)]
@@ -798,13 +804,12 @@ impl Tree {
 
         let tree_id = get_next_tree_id();
 
-        let mut levels = Self::recover_levels(
+        let levels = Self::recover_levels(
             &config.path,
             tree_id,
             &config.cache,
             &config.descriptor_table,
         )?;
-        levels.update_metadata();
 
         let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
 
@@ -813,7 +818,7 @@ impl Tree {
             segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
-            levels: Arc::new(RwLock::new(levels)),
+            manifest: Arc::new(RwLock::new(levels)),
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
@@ -865,18 +870,13 @@ impl Tree {
         cache: &Arc<Cache>,
         descriptor_table: &Arc<DescriptorTable>,
     ) -> crate::Result<LevelManifest> {
-        use crate::{
-            file::fsync_directory,
-            file::{LEVELS_MANIFEST_FILE, SEGMENTS_FOLDER},
-            SegmentId,
-        };
+        use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, SegmentId};
 
         let tree_path = tree_path.as_ref();
 
-        let level_manifest_path = tree_path.join(LEVELS_MANIFEST_FILE);
-        log::info!("Recovering manifest at {level_manifest_path:?}");
+        log::info!("Recovering manifest at {tree_path:?}");
 
-        let segment_id_map = LevelManifest::recover_ids(&level_manifest_path)?;
+        let segment_id_map = LevelManifest::recover_ids(tree_path)?;
         let cnt = segment_id_map.len();
 
         log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
@@ -922,15 +922,16 @@ impl Tree {
 
             if let Some(&_level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
-                    &segment_file_path,
+                    segment_file_path,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
                     true, // TODO: look at configuration
                 )?;
 
+                log::debug!("Recovered segment from {:?}", segment.path);
+
                 segments.push(segment);
-                log::debug!("Recovered segment from {segment_file_path:?}");
 
                 if idx % progress_mod == 0 {
                     log::debug!("Recovered {idx}/{cnt} disk segments");
@@ -951,6 +952,6 @@ impl Tree {
 
         log::debug!("Successfully recovered {} segments", segments.len());
 
-        LevelManifest::recover(&level_manifest_path, segments)
+        LevelManifest::recover(tree_path, &segments)
     }
 }

@@ -8,7 +8,6 @@ pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const MANIFEST_FILE: &str = "manifest";
 pub const SEGMENTS_FOLDER: &str = "segments";
-pub const LEVELS_MANIFEST_FILE: &str = "levels";
 pub const BLOBS_FOLDER: &str = "blobs";
 
 /// Atomically rewrites a file

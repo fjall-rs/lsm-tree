@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{IndexBlock, KeyedBlockHandle};
-use crate::{segment::BlockOffset, Slice};
+use crate::{
+    segment::{data_block::forward_reader::ParsedSlice, BlockOffset},
+    Slice,
+};
 use std::io::Cursor;
 
 #[derive(Default, Debug)]
@@ -22,10 +25,6 @@ pub struct ForwardReader<'a> {
 
     lo_scanner: LoScanner,
 }
-
-/// [start, end] slice indexes
-#[derive(Debug)]
-pub struct ParsedSlice(pub usize, pub usize);
 
 #[derive(Debug)]
 pub struct ParsedItem {
@@ -67,6 +66,11 @@ impl<'a> ForwardReader<'a> {
     pub fn with_offset(mut self, offset: usize) -> Self {
         self.lo_scanner.offset = offset;
         self
+    }
+
+    #[must_use]
+    pub fn offset(&self) -> usize {
+        self.lo_scanner.offset
     }
 
     fn parse_restart_item(
