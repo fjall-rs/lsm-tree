@@ -20,7 +20,7 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
-bytes = ["value-log/bytes"]
+bytes = []                  # TODO: restore
 
 [dependencies]
 byteorder = "1.5.0"
