@@ -238,7 +238,7 @@ impl TreeIter {
                         }
                     }
                 }
-            };
+            }
 
             drop(level_manifest);
 

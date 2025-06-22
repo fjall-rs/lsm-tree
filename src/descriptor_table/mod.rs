@@ -161,7 +161,7 @@ impl FileDescriptorTable {
                             size_now -= oldest_lock.len();
 
                             oldest_lock.clear();
-                        };
+                        }
                     }
                 } else {
                     break;

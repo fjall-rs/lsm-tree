@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub(crate) mod ingest;
+pub mod ingest;
 pub mod inner;
 
 use crate::{
@@ -509,7 +509,7 @@ impl Tree {
         let block_index = Arc::new(BlockIndexImpl::Full(block_index));
 
         let created_segment: Segment = SegmentInner {
-            path: segment_file_path.to_path_buf(),
+            path: segment_file_path.clone(),
 
             tree_id: self.id,
 
@@ -585,7 +585,7 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
-        };
+        }
 
         // Now look in sealed memtables
         if let Some(entry) = self.get_internal_entry_from_sealed_memtables(key, seqno) {
@@ -664,7 +664,7 @@ impl Tree {
 
         if let Some(entry) = memtable_lock.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
-        };
+        }
 
         drop(memtable_lock);
 

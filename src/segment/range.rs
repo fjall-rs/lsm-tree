@@ -135,7 +135,7 @@ impl Iterator for Range {
         if !self.lo_initialized {
             if let Err(e) = self.initialize_lo_bound() {
                 return Some(Err(e));
-            };
+            }
         }
 
         loop {
@@ -192,7 +192,7 @@ impl DoubleEndedIterator for Range {
         if !self.hi_initialized {
             if let Err(e) = self.initialize_hi_bound() {
                 return Some(Err(e));
-            };
+            }
         }
 
         loop {

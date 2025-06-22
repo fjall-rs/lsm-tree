@@ -35,12 +35,12 @@ impl<'a> GcReader<'a> {
 
 impl<'a> value_log::IndexReader for GcReader<'a> {
     fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+        use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};
 
         let Some(item) = self
             .get_internal(key)
-            .map_err(|e| IoError::new(IoErrorKind::Other, e.to_string()))?
+            .map_err(|e| IoError::other(e.to_string()))?
         else {
             return Ok(None);
         };
