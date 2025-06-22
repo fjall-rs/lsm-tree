@@ -5,7 +5,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.75.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.76.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
@@ -23,7 +23,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - [99.9% safe](./UNSAFE.md) & stable Rust
 - Block-based tables with compression support
 - Range & prefix searching with forward and reverse iteration
-- Size-tiered, (concurrent) Leveled and FIFO compaction 
+- Size-tiered, (concurrent) Leveled and FIFO compaction
 - Multi-threaded flushing (immutable/sealed memtables)
 - Partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
 - Block caching to keep hot data in memory
@@ -57,7 +57,7 @@ Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type
 
 ## Stable disk format
 
-The disk format is stable as of 1.0.0. 
+The disk format is stable as of 1.0.0.
 
 2.0.0 uses a new disk format and needs a manual format migration.
 

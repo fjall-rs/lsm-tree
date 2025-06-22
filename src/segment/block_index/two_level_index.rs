@@ -181,15 +181,13 @@ impl TwoLevelBlockIndex {
                 &mut *file_guard.file.lock().expect("lock is poisoned"),
                 offset,
             )
-            .map_err(|e| {
+            .inspect_err(|e| {
                 log::error!(
                     "Failed to load index block {:?}/{:?}: {e:?}",
                     self.segment_id,
                     offset
                 );
-                e
             })?;
-            // TODO: ^ inspect_err instead: 1.76
 
             drop(file_guard);
 
