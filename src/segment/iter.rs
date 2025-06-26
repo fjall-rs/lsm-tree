@@ -2,41 +2,58 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{BlockOffset, DataBlock, GlobalSegmentId, KeyedBlockHandle};
+use super::{
+    data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId, KeyedBlockHandle,
+};
 use crate::{
-    segment::{util::load_block, BlockHandle},
-    Cache, CompressionType, DescriptorTable, InternalValue,
+    segment::{block::ParsedItem, util::load_block, BlockHandle},
+    Cache, CompressionType, DescriptorTable, InternalValue, SeqNo,
 };
 use self_cell::self_cell;
 use std::{path::PathBuf, sync::Arc};
 
-type BoxedIter<'a> = Box<dyn DoubleEndedIterator<Item = InternalValue> + 'a>;
+type InnerIter<'a> = DataBlockIter<'a>;
 
 self_cell!(
-    pub struct DataBlockConsumer {
+    pub struct OwnedDataBlockIter {
         owner: DataBlock,
 
         #[covariant]
-        dependent: BoxedIter,
+        dependent: InnerIter,
     }
 );
 
-pub fn create_data_block_reader(block: DataBlock) -> DataBlockConsumer {
-    DataBlockConsumer::new(block, |block| Box::new(block.iter()))
+impl OwnedDataBlockIter {
+    pub fn seek_lower(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek(needle /* TODO: , seqno */))
+    }
+
+    pub fn seek_upper(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_upper(needle /* TODO: , seqno */))
+    }
 }
 
-impl Iterator for DataBlockConsumer {
+impl Iterator for OwnedDataBlockIter {
     type Item = InternalValue;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.with_dependent_mut(|_, iter| iter.next())
+        self.with_dependent_mut(|block, iter| {
+            iter.next().map(|item| item.materialize(&block.inner.data))
+        })
     }
 }
 
-impl DoubleEndedIterator for DataBlockConsumer {
+impl DoubleEndedIterator for OwnedDataBlockIter {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.with_dependent_mut(|_, iter| iter.next_back())
+        self.with_dependent_mut(|block, iter| {
+            iter.next_back()
+                .map(|item| item.materialize(&block.inner.data))
+        })
     }
+}
+
+pub fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
+    OwnedDataBlockIter::new(block, super::data_block::DataBlock::iter)
 }
 
 pub struct Iter<I>
@@ -53,10 +70,10 @@ where
     compression: CompressionType,
 
     lo_offset: BlockOffset,
-    lo_data_block: Option<DataBlockConsumer>,
+    lo_data_block: Option<OwnedDataBlockIter>,
 
     hi_offset: BlockOffset,
-    hi_data_block: Option<DataBlockConsumer>,
+    hi_data_block: Option<OwnedDataBlockIter>,
 }
 
 impl<I> Iter<I>
@@ -135,6 +152,12 @@ where
         let block = DataBlock::new(block);
 
         let mut reader = create_data_block_reader(block);
+
+        // TODO:
+        /*  // NOTE: This is the first block, seek it
+        if self.lo_data_block.is_none() {
+            reader.seek_lower(self.);
+        } */
 
         let item = reader.next();
 
