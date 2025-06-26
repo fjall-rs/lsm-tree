@@ -333,9 +333,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             return false;
         };
 
-        eprintln!("seeked upper to {idx}");
-        eprintln!("hi scanner offset now {offset}");
-
         self.hi_scanner.offset = offset;
         self.hi_scanner.ptr_idx = idx;
         self.hi_scanner.stack.clear();
@@ -440,7 +437,6 @@ impl<Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Iterator for Decoder<'_,
         if self.hi_scanner.base_key_offset.is_some()
             && self.lo_scanner.offset >= self.hi_scanner.offset
         {
-            eprintln!("damn, hi scanner is already at {}", self.hi_scanner.offset);
             return None;
         }
 
