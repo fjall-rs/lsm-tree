@@ -1,4 +1,4 @@
-//! A fork of https://github.com/dodomorandi/double-ended-peekable
+//! A fork of <https://github.com/dodomorandi/double-ended-peekable>
 //! to allow accessing the inner type
 //!
 //! Also changes the generics a bit so it plays well with `self_cell`.
@@ -48,10 +48,6 @@ impl<T, I> DoubleEndedPeekable<T, I>
 where
     I: Iterator<Item = T>,
 {
-    pub fn inner(&self) -> &I {
-        &self.iter
-    }
-
     pub fn inner_mut(&mut self) -> &mut I {
         &mut self.iter
     }
@@ -83,35 +79,6 @@ where
     ///
     /// Because `peek_back()` returns a reference, and many iterators iterate over references,
     /// there can be a possibly confusing situation where the return value is a double reference.
-    /// You can see this effect in the examples below.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// use double_ended_peekable::DoubleEndedPeekableExt;
-    ///
-    /// let xs = [1, 2, 3];
-    ///
-    /// let mut iter = xs.into_iter().double_ended_peekable();
-    ///
-    /// // peek_back() lets us see into the past of the future
-    /// assert_eq!(iter.peek_back(), Some(&3));
-    /// assert_eq!(iter.next_back(), Some(3));
-    ///
-    /// assert_eq!(iter.next_back(), Some(2));
-    ///
-    /// // The iterator does not advance even if we `peek_back` multiple times
-    /// assert_eq!(iter.peek_back(), Some(&1));
-    /// assert_eq!(iter.peek_back(), Some(&1));
-    ///
-    /// assert_eq!(iter.next_back(), Some(1));
-    ///
-    /// // After the iterator is finished, so is `peek_back()`
-    /// assert_eq!(iter.peek_back(), None);
-    /// assert_eq!(iter.next_back(), None);
-    /// ```
     #[inline]
     pub fn peek_back(&mut self) -> Option<&I::Item> {
         self.back
@@ -137,18 +104,6 @@ where
                 None => self.back.take().into_peeked_value(),
             },
         }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let (lower, upper) = self.iter.size_hint();
-        let additional = match (&self.front, &self.back) {
-            (MaybePeeked::Peeked(_), MaybePeeked::Peeked(_)) => 2,
-            (MaybePeeked::Peeked(_), _) | (_, MaybePeeked::Peeked(_)) => 1,
-            (MaybePeeked::Unpeeked, MaybePeeked::Unpeeked) => 0,
-        };
-
-        (lower + additional, upper.map(|upper| upper + additional))
     }
 }
 
@@ -181,11 +136,11 @@ impl<T> MaybePeeked<T> {
     where
         F: FnOnce() -> Option<T>,
     {
-        if let MaybePeeked::Unpeeked = self {
-            *self = MaybePeeked::Peeked(f());
+        if matches!(self, Self::Unpeeked) {
+            *self = Self::Peeked(f());
         }
 
-        let MaybePeeked::Peeked(peeked) = self else {
+        let Self::Peeked(peeked) = self else {
             // SAFETY: it cannot be `Unpeeked` because that case has been just replaced with
             // `Peeked`, and we only have two possible states.
             #[allow(unsafe_code)]
@@ -198,30 +153,19 @@ impl<T> MaybePeeked<T> {
 
     const fn peeked_value_ref(&self) -> Option<&T> {
         match self {
-            MaybePeeked::Unpeeked | MaybePeeked::Peeked(None) => None,
-            MaybePeeked::Peeked(Some(peeked)) => Some(peeked),
+            Self::Unpeeked | Self::Peeked(None) => None,
+            Self::Peeked(Some(peeked)) => Some(peeked),
         }
-    }
-
-    fn peeked_value_mut(&mut self) -> Option<&mut T> {
-        match self {
-            MaybePeeked::Unpeeked | MaybePeeked::Peeked(None) => None,
-            MaybePeeked::Peeked(Some(peeked)) => Some(peeked),
-        }
-    }
-
-    const fn is_unpeeked(&self) -> bool {
-        matches!(self, MaybePeeked::Unpeeked)
     }
 
     fn take(&mut self) -> Self {
-        mem::replace(self, MaybePeeked::Unpeeked)
+        mem::replace(self, Self::Unpeeked)
     }
 
     fn into_peeked_value(self) -> Option<T> {
         match self {
-            MaybePeeked::Unpeeked | MaybePeeked::Peeked(None) => None,
-            MaybePeeked::Peeked(Some(peeked)) => Some(peeked),
+            Self::Unpeeked | Self::Peeked(None) => None,
+            Self::Peeked(Some(peeked)) => Some(peeked),
         }
     }
 }
