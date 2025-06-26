@@ -6,6 +6,10 @@ use super::{Block, BlockHandle, GlobalSegmentId};
 use crate::{Cache, CompressionType, DescriptorTable};
 use std::{path::Path, sync::Arc};
 
+/// [start, end] slice indexes
+#[derive(Debug)]
+pub struct SliceIndexes(pub usize, pub usize);
+
 pub fn load_block(
     segment_id: GlobalSegmentId,
     path: &Path,
