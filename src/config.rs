@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{path::absolute_path, BlobTree, CompressionType, Cache, DescriptorTable, Tree};
+use crate::{path::absolute_path, BlobTree, Cache, CompressionType, DescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

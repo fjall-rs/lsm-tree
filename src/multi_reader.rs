@@ -76,10 +76,11 @@ mod tests {
         }
 
         let segments = tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
-            .iter()
+            .current_version()
+            .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 

@@ -100,6 +100,7 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 #![warn(clippy::needless_lifetimes)]
+#![warn(clippy::redundant_feature_names)]
 
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
@@ -134,9 +135,11 @@ mod clipping_iter;
 pub mod compaction;
 mod compression;
 mod config;
+mod double_ended_peekable;
 
 mod error;
-// mod export;
+
+pub(crate) mod fallible_clipping_iter;
 
 #[doc(hidden)]
 pub mod file;
@@ -146,8 +149,8 @@ mod key;
 #[doc(hidden)]
 pub mod level_manifest;
 
-mod level_reader;
-mod level_scanner;
+mod run_reader;
+mod run_scanner;
 
 mod manifest;
 mod memtable;
@@ -234,3 +237,13 @@ pub mod gc {
         GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
     };
 }
+
+macro_rules! unwrappy {
+    ($x:expr) => {
+        $x.expect("should read")
+
+        // unsafe { $x.unwrap_unchecked() }
+    };
+}
+
+pub(crate) use unwrappy;

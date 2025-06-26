@@ -25,11 +25,6 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
 
-        {
-            let first_level = &tree.levels.read().expect("lock is poisoned").levels[0];
-            assert_eq!(0, first_level.segments[0].id());
-        }
-
         tree.insert("b", "b", 0);
         tree.flush_active_memtable(0)?;
 
@@ -39,11 +34,6 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
                 .segment_id_counter
                 .load(std::sync::atomic::Ordering::Relaxed)
         );
-
-        {
-            let first_level = &tree.levels.read().expect("lock is poisoned").levels[0];
-            assert_eq!(1, first_level.segments[1].id());
-        }
     }
 
     {

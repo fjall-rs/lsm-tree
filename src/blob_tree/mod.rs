@@ -109,7 +109,7 @@ impl BlobTree {
         seqno: SeqNo,
         gc_watermark: SeqNo,
     ) -> crate::Result<crate::gc::Report> {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+        use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};
 
         while self
@@ -144,8 +144,7 @@ impl BlobTree {
             .blobs
             .scan_for_stats(iter.filter_map(|kv| {
                 let Ok(kv) = kv else {
-                    return Some(Err(IoError::new(
-                        IoErrorKind::Other,
+                    return Some(Err(IoError::other(
                         "Failed to load KV pair from index tree",
                     )));
                 };
@@ -153,7 +152,7 @@ impl BlobTree {
                 let mut cursor = Cursor::new(kv.value);
                 let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                    Err(e) => return Some(Err(IoError::other(e.to_string()))),
                 };
 
                 match value {
@@ -378,7 +377,7 @@ impl AbstractTree for BlobTree {
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
+        log::debug!("=> to LSM segments in {lsm_segment_folder:?}");
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
         let mut segment_writer = SegmentWriter::new(

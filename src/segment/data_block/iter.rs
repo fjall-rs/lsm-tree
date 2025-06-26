@@ -2,331 +2,761 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{forward_reader::ForwardReader, DataBlock};
-use crate::{key::InternalKey, InternalValue, SeqNo, Slice};
-use std::io::Cursor;
+use crate::{
+    double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt},
+    segment::{
+        block::{Decoder, ParsedItem},
+        data_block::DataBlockParsedItem,
+    },
+    InternalValue,
+};
 
-#[derive(Debug)]
-struct HiScanner {
-    offset: usize,
-    ptr_idx: usize,
-    stack: Vec<usize>,
-    base_key_offset: Option<usize>,
-}
-
-/// Double-ended iterator over data blocks
+// TODO: rename
 pub struct Iter<'a> {
-    block: &'a DataBlock,
-    restart_interval: usize,
-
-    lo_scanner: ForwardReader<'a>,
-    hi_scanner: HiScanner,
-}
-
-/// [start, end] slice indexes
-#[derive(Debug)]
-pub struct ParsedSlice(pub usize, pub usize);
-
-#[derive(Debug)]
-pub struct ParsedItem {
-    pub value_type: u8,
-    pub seqno: SeqNo,
-    pub prefix: Option<ParsedSlice>,
-    pub key: ParsedSlice,
-    pub value: Option<ParsedSlice>,
-}
-
-impl ParsedItem {
-    pub fn materialize(&self, bytes: &Slice) -> InternalValue {
-        // NOTE: We consider the prefix and key slice indexes to be trustworthy
-        #[allow(clippy::indexing_slicing)]
-        let key = if let Some(prefix) = &self.prefix {
-            let prefix_key = &bytes[prefix.0..prefix.1];
-            let rest_key = &bytes[self.key.0..self.key.1];
-            Slice::fused(prefix_key, rest_key)
-        } else {
-            bytes.slice(self.key.0..self.key.1)
-        };
-        let key = InternalKey::new(
-            key,
-            self.seqno,
-            // NOTE: Value type is (or should be) checked when reading it
-            #[allow(clippy::expect_used)]
-            self.value_type.try_into().expect("should work"),
-        );
-
-        let value = self
-            .value
-            .as_ref()
-            .map_or_else(Slice::empty, |v| bytes.slice(v.0..v.1));
-
-        InternalValue { key, value }
-    }
+    bytes: &'a [u8],
+    decoder:
+        DoubleEndedPeekable<DataBlockParsedItem, Decoder<'a, InternalValue, DataBlockParsedItem>>,
 }
 
 impl<'a> Iter<'a> {
     #[must_use]
-    pub fn new(block: &'a DataBlock) -> Self {
-        let restart_interval = block.restart_interval.into();
-        let binary_index_len = block.binary_index_len as usize;
+    pub fn new(bytes: &'a [u8], decoder: Decoder<'a, InternalValue, DataBlockParsedItem>) -> Self {
+        let decoder = decoder.double_ended_peekable();
+        Self { bytes, decoder }
+    }
 
-        Self {
-            block,
+    pub fn seek(&mut self, needle: &[u8]) -> bool {
+        if !self
+            .decoder
+            .inner_mut()
+            .seek(needle, |head_key| head_key < needle, false)
+        {
+            return false;
+        }
 
-            restart_interval,
+        // TODO: make sure we only linear scan over the current restart interval
+        // TODO: if we do more steps, something has gone wrong with the seek probably, maybe...?
 
-            lo_scanner: ForwardReader::new(block),
+        // Linear scan
+        loop {
+            let Some(item) = self.decoder.peek() else {
+                return false;
+            };
 
-            /* lo_scanner: LoScanner::default(), */
-            hi_scanner: HiScanner {
-                offset: 0,
-                ptr_idx: binary_index_len,
-                stack: Vec::new(),
-                base_key_offset: None,
-            },
+            match item.compare_key(needle, self.bytes) {
+                std::cmp::Ordering::Equal => {
+                    return true;
+                }
+                std::cmp::Ordering::Greater => {
+                    return false;
+                }
+                std::cmp::Ordering::Less => {
+                    // Continue
+
+                    self.decoder.next().expect("should exist");
+                }
+            }
         }
     }
 
-    /* pub fn with_offset(mut self, offset: usize) -> Self {
-        self.lo_scanner.offset = offset;
-        self
-    } */
+    pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
+        if !self
+            .decoder
+            .inner_mut()
+            .seek_upper(|head_key| head_key <= needle, false)
+        {
+            return false;
+        }
 
-    fn parse_restart_item(
-        block: &DataBlock,
-        offset: &mut usize,
-        base_key_offset: &mut Option<usize>,
-    ) -> Option<ParsedItem> {
-        let bytes = block.bytes();
+        // Linear scan
+        loop {
+            let Some(item) = self.decoder.peek_back() else {
+                return false;
+            };
 
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(*offset..) });
+            match item.compare_key(needle, self.bytes) {
+                std::cmp::Ordering::Equal => {
+                    return true;
+                }
+                std::cmp::Ordering::Less => {
+                    return false;
+                }
+                std::cmp::Ordering::Greater => {
+                    // Continue
 
-        let item = DataBlock::parse_restart_item(&mut reader, *offset)?;
-
-        *offset += reader.position() as usize;
-        *base_key_offset = Some(item.key.0);
-
-        Some(item)
-    }
-
-    fn parse_truncated_item(
-        block: &DataBlock,
-        offset: &mut usize,
-        base_key_offset: usize,
-    ) -> Option<ParsedItem> {
-        let bytes = block.bytes();
-
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
-        let mut reader = Cursor::new(unsafe { bytes.get_unchecked(*offset..) });
-
-        let item = DataBlock::parse_truncated_item(&mut reader, *offset, base_key_offset)?;
-
-        *offset += reader.position() as usize;
-
-        Some(item)
-    }
-
-    fn consume_stack_top(&mut self) -> Option<ParsedItem> {
-        if let Some(offset) = self.hi_scanner.stack.pop() {
-            if self.lo_scanner.offset() > 0 && offset < self.lo_scanner.offset() {
-                return None;
+                    self.decoder.next_back().expect("should exist");
+                }
             }
-
-            self.hi_scanner.offset = offset;
-
-            let is_restart = self.hi_scanner.stack.is_empty();
-
-            if is_restart {
-                Self::parse_restart_item(
-                    self.block,
-                    &mut self.hi_scanner.offset,
-                    &mut self.hi_scanner.base_key_offset,
-                )
-            } else {
-                Self::parse_truncated_item(
-                    self.block,
-                    &mut self.hi_scanner.offset,
-                    self.hi_scanner.base_key_offset.expect("should exist"),
-                )
-            }
-        } else {
-            None
         }
     }
 }
 
 impl Iterator for Iter<'_> {
-    type Item = ParsedItem;
+    type Item = DataBlockParsedItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.hi_scanner.base_key_offset.is_some()
-            && self.lo_scanner.offset() >= self.hi_scanner.offset
-        {
-            return None;
-        }
-
-        /* let is_restart = self.lo_scanner.remaining_in_interval == 0;
-
-        let item = if is_restart {
-            self.lo_scanner.remaining_in_interval = self.restart_interval;
-
-            Self::parse_restart_item(
-                self.block,
-                &mut self.lo_scanner.offset,
-                &mut self.lo_scanner.base_key_offset,
-            )
-        } else {
-            Self::parse_truncated_item(
-                self.block,
-                &mut self.lo_scanner.offset,
-                self.lo_scanner.base_key_offset.expect("should exist"),
-            )
-        };
-
-        self.lo_scanner.remaining_in_interval -= 1; */
-
-        let item = self.lo_scanner.next();
-
-        if self.hi_scanner.base_key_offset.is_some()
-            && self.lo_scanner.offset() >= self.hi_scanner.offset
-        {
-            return None;
-        }
-
-        item
+        self.decoder.next()
     }
 }
 
 impl DoubleEndedIterator for Iter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if let Some(top) = self.consume_stack_top() {
-            return Some(top);
-        }
-
-        self.hi_scanner.ptr_idx = self.hi_scanner.ptr_idx.wrapping_sub(1);
-
-        // NOTE: If we wrapped, we are at the end
-        // This is safe to do, because there cannot be that many restart intervals
-        if self.hi_scanner.ptr_idx == usize::MAX {
-            return None;
-        }
-
-        let binary_index = self.block.get_binary_index_reader();
-
-        {
-            self.hi_scanner.offset = binary_index.get(self.hi_scanner.ptr_idx);
-            let offset = self.hi_scanner.offset;
-
-            if Self::parse_restart_item(
-                self.block,
-                &mut self.hi_scanner.offset,
-                &mut self.hi_scanner.base_key_offset,
-            )
-            .is_some()
-            {
-                self.hi_scanner.stack.push(offset);
-            }
-        }
-
-        for _ in 1..self.restart_interval {
-            let offset = self.hi_scanner.offset;
-
-            if Self::parse_truncated_item(
-                self.block,
-                &mut self.hi_scanner.offset,
-                self.hi_scanner.base_key_offset.expect("should exist"),
-            )
-            .is_some()
-            {
-                self.hi_scanner.stack.push(offset);
-            }
-        }
-
-        if self.hi_scanner.stack.is_empty() {
-            return None;
-        }
-
-        self.consume_stack_top()
+        self.decoder.next_back()
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::*;
     use crate::{
         segment::{
-            block::{BlockOffset, Checksum, Header},
-            Block,
+            block::{Header, ParsedItem},
+            Block, BlockOffset, DataBlock,
         },
-        InternalValue,
-        ValueType::Value,
+        Checksum, InternalValue, Slice,
+        ValueType::{Tombstone, Value},
     };
     use test_log::test;
 
     #[test]
-    fn v3_data_block_consume_last_back() -> crate::Result<()> {
+    fn v3_data_block_iter_forward() -> crate::Result<()> {
         let items = [
-            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
-            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
-            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
-            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
-            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
 
-        let data_block = DataBlock::new(Block {
-            data: bytes.into(),
-            header: Header {
-                checksum: Checksum::from_raw(0),
-                data_length: 0,
-                uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
-            },
-        });
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
 
-        assert_eq!(data_block.len(), items.len());
-        assert!(data_block.hash_bucket_count().is_none());
+            let iter = data_block
+                .iter()
+                .map(|item| item.materialize(&data_block.inner.data));
 
-        {
-            let mut iter = data_block.iter();
-            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
-            assert_eq!(
-                b"pla:jupiter:radius",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert!(iter.next_back().is_none());
-            assert!(iter.next().is_none());
-        }
+            let real_items: Vec<_> = iter.collect();
 
-        {
-            let mut iter = data_block.iter();
-            assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
-            assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
-            assert_eq!(
-                b"pla:jupiter:radius",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert!(iter.next().is_none());
-            assert!(iter.next_back().is_none());
+            assert_eq!(items, &*real_items);
         }
 
         Ok(())
     }
 
     #[test]
-    fn v3_data_block_consume_last_forwards() -> crate::Result<()> {
+    fn v3_data_block_iter_rev() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let iter = data_block
+                .iter()
+                .rev()
+                .map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(
+                items.iter().rev().cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_rev_seek_back() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek_upper(b"d"), "should seek");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.rev().collect();
+
+            assert_eq!(
+                items.iter().rev().skip(2).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_range_edges() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(!iter.seek(b"a"), "should not seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(items.to_vec(), &*real_items);
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(!iter.seek_upper(b"g"), "should not seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(items.to_vec(), &*real_items);
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek_upper(b"b"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(
+                    items.iter().take(1).cloned().collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek(b"f"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(
+                    items.iter().rev().take(1).cloned().collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_range() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek(b"c"), "should seek");
+            assert!(iter.seek_upper(b"d"), "should seek");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(
+                items.iter().skip(1).take(2).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_only_first() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek_upper(b"b"), "should seek");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(
+                items.iter().take(1).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_range_same_key() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek(b"d"), "should seek");
+                assert!(iter.seek_upper(b"d"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(
+                    items.iter().skip(2).take(1).cloned().collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek_upper(b"d"), "should seek");
+                assert!(iter.seek(b"d"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.collect();
+
+                assert_eq!(
+                    items.iter().skip(2).take(1).cloned().collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek(b"d"), "should seek");
+                assert!(iter.seek_upper(b"d"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.rev().collect();
+
+                assert_eq!(
+                    items
+                        .iter()
+                        .rev()
+                        .skip(2)
+                        .take(1)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek_upper(b"d"), "should seek");
+                assert!(iter.seek(b"d"), "should seek");
+
+                let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                let real_items: Vec<_> = iter.rev().collect();
+
+                assert_eq!(
+                    items
+                        .iter()
+                        .rev()
+                        .skip(2)
+                        .take(1)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    &*real_items,
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_range_empty() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek(b"f"), "should seek");
+                iter.seek_upper(b"e");
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                assert!(iter.next().is_none(), "iter should be empty");
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek(b"f"), "should seek");
+                iter.seek_upper(b"e");
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                assert!(iter.next_back().is_none(), "iter should be empty");
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek_upper(b"e"), "should seek");
+                iter.seek(b"f");
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                assert!(iter.next_back().is_none(), "iter should be empty");
+            }
+
+            {
+                let mut iter = data_block.iter();
+
+                assert!(iter.seek_upper(b"e"), "should seek");
+                iter.seek(b"f");
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+                assert!(iter.next_back().is_none(), "iter should be empty");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_seek_restart_head() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek(b"b"), "should seek correctly");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(items, &*real_items);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_seek_in_interval() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek(b"d"), "should seek correctly");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(
+                items.iter().skip(2).cloned().collect::<Vec<_>>(),
+                real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_seek_last() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(iter.seek(b"f"), "should seek correctly");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(
+                items.iter().skip(4).cloned().collect::<Vec<_>>(),
+                real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_seek_before_first() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(!iter.seek(b"a"), "should not find exact match");
+
+            let iter = iter.map(|item| item.materialize(&data_block.inner.data));
+
+            let real_items: Vec<_> = iter.collect();
+
+            assert_eq!(items, &*real_items);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_forward_seek_after_last() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 1, Tombstone),
+            InternalValue::from_components("e", "e", 0, Value),
+            InternalValue::from_components("f", "f", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+
+            assert!(!iter.seek(b"g"), "should not find exact match");
+
+            assert!(iter.next().is_none(), "should not collect any items");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_iter_consume_last_back() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
             InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
@@ -335,7 +765,248 @@ mod tests {
             InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            assert_eq!(data_block.len(), items.len());
+            assert!(data_block.hash_bucket_count().is_none());
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert!(iter.next_back().is_none());
+                assert!(iter.next().is_none());
+            }
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:jupiter:radius",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert!(iter.next().is_none());
+                assert!(iter.next_back().is_none());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_iter_consume_last_forwards() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
+            InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
+            InternalValue::from_components("pla:jupiter:mass", "Massive", 0, Value),
+            InternalValue::from_components("pla:jupiter:name", "Jupiter", 0, Value),
+            InternalValue::from_components("pla:jupiter:radius", "Big", 0, Value),
+        ];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            assert_eq!(data_block.len(), items.len());
+            assert!(data_block.hash_bucket_count().is_none());
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .rev()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:jupiter:fact",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(
+                    b"pla:jupiter:mass",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(
+                    b"pla:jupiter:name",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert!(iter.next().is_none());
+                assert!(iter.next_back().is_none());
+            }
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .rev()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:jupiter:fact",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(
+                    b"pla:jupiter:mass",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(
+                    b"pla:jupiter:name",
+                    &*iter.next_back().unwrap().key.user_key
+                );
+                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert!(iter.next_back().is_none());
+                assert!(iter.next().is_none());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_data_block_iter_ping_pong_exhaust() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components("a", "a", 0, Value),
+            InternalValue::from_components("b", "b", 0, Value),
+            InternalValue::from_components("c", "c", 0, Value),
+            InternalValue::from_components("d", "d", 0, Value),
+            InternalValue::from_components("e", "e", 0, Value),
+        ];
+
+        for restart_interval in 1..=u8::MAX {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            assert_eq!(data_block.len(), items.len());
+            assert!(data_block.hash_bucket_count().is_none());
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"a", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"b", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"c", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"d", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"e", &*iter.next().unwrap().key.user_key);
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+            }
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"e", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"d", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"c", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"b", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"a", &*iter.next_back().unwrap().key.user_key);
+                assert!(iter.next_back().is_none());
+                assert!(iter.next_back().is_none());
+            }
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"a", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"b", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"c", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"d", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"e", &*iter.next().unwrap().key.user_key);
+                assert!(iter.next_back().is_none());
+                assert!(iter.next_back().is_none());
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+            }
+
+            {
+                let mut iter = data_block
+                    .iter()
+                    .map(|item| item.materialize(&data_block.inner.data));
+
+                assert_eq!(b"e", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"d", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"c", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"b", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"a", &*iter.next_back().unwrap().key.user_key);
+                assert!(iter.next().is_none());
+                assert!(iter.next().is_none());
+                assert!(iter.next_back().is_none());
+                assert!(iter.next_back().is_none());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_fuzz_3() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(
+                Slice::from([
+                    255, 255, 255, 255, 5, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                    255, 255, 255, 255, 255,
+                ]),
+                Slice::from([0, 0, 192]),
+                18_446_744_073_701_163_007,
+                Tombstone,
+            ),
+            InternalValue::from_components(
+                Slice::from([255, 255, 255, 255, 255, 255, 0]),
+                Slice::from([]),
+                0,
+                Value,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 5, 1.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -348,47 +1019,76 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
-        assert!(data_block.hash_bucket_count().is_none());
+        assert!(
+            data_block
+                .hash_bucket_count()
+                .expect("should have built hash index")
+                > 0,
+        );
 
-        {
-            let mut iter = data_block.iter().rev();
-            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
-            assert_eq!(
-                b"pla:jupiter:fact",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(
-                b"pla:jupiter:mass",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(
-                b"pla:jupiter:name",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
-            assert!(iter.next().is_none());
-            assert!(iter.next_back().is_none());
-        }
+        assert_eq!(
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
+            items.len(),
+        );
 
-        {
-            let mut iter = data_block.iter().rev();
-            assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
-            assert_eq!(
-                b"pla:jupiter:fact",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(
-                b"pla:jupiter:mass",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(
-                b"pla:jupiter:name",
-                &*iter.next_back().unwrap().key.user_key
-            );
-            assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
-            assert!(iter.next_back().is_none());
-            assert!(iter.next().is_none());
-        }
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_iter_fuzz_4() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(
+                Slice::new(&[0]),
+                Slice::new(&[]),
+                3_834_029_160_418_063_669,
+                Value,
+            ),
+            InternalValue::from_components(Slice::new(&[0]), Slice::new(&[]), 127, Tombstone),
+            InternalValue::from_components(
+                Slice::new(&[53, 53, 53]),
+                Slice::new(&[]),
+                18_446_744_073_709_551_615,
+                Tombstone,
+            ),
+            InternalValue::from_components(
+                Slice::new(&[255]),
+                Slice::new(&[]),
+                18_446_744_069_414_584_831,
+                Tombstone,
+            ),
+            InternalValue::from_components(Slice::new(&[255, 255]), Slice::new(&[]), 47, Value),
+        ];
+
+        let bytes = DataBlock::encode_items(&items, 2, 1.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert!(
+            data_block
+                .hash_bucket_count()
+                .expect("should have built hash index")
+                > 0,
+        );
+
+        assert_eq!(
+            {
+                #[allow(clippy::suspicious_map)]
+                data_block.iter().count()
+            },
+            items.len(),
+        );
 
         Ok(())
     }

@@ -4,6 +4,7 @@
 
 pub(crate) mod binary_index;
 mod checksum;
+pub mod decoder;
 mod encoder;
 pub mod hash_index;
 mod header;
@@ -11,6 +12,7 @@ mod offset;
 mod trailer;
 
 pub use checksum::Checksum;
+pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
 pub use header::Header;
 pub use offset::BlockOffset;
@@ -18,6 +20,7 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
+    segment::BlockHandle,
     CompressionType, Slice,
 };
 use std::fs::File;
@@ -88,7 +91,12 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
+                #[cfg(feature = "use_unsafe")]
+                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
+
+                #[cfg(not(feature = "use_unsafe"))]
+                let mut data = Slice::with_size(header.uncompressed_length as usize);
+
                 {
                     // NOTE: We know that we are the owner
                     #[allow(clippy::expect_used)]
@@ -97,7 +105,8 @@ impl Block {
                     lz4_flex::decompress_into(&raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
-                data.into()
+
+                data
             }
 
             #[cfg(feature = "miniz")]
@@ -116,21 +125,19 @@ impl Block {
         Ok(Self { header, data })
     }
 
-    // TODO: take non-keyed block handle
     /// Reads a block from a file without needing to seek the file.
     pub fn from_file(
         file: &File,
-        offset: BlockOffset,
-        size: u32,
+        handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         // TODO: toggle with use_unsafe and add bench
 
         #[cfg(feature = "use_unsafe")]
-        let mut buf = byteview::ByteView::with_size_unzeroed(size as usize);
+        let mut buf = Slice::with_size_unzeroed(handle.size() as usize);
 
         #[cfg(not(feature = "use_unsafe"))]
-        let mut buf = byteview::ByteView::with_size(size as usize);
+        let mut buf = Slice::with_size(handle.size() as usize);
 
         {
             let mut mutator = buf.get_mut().expect("should be the owner");
@@ -139,10 +146,11 @@ impl Block {
             {
                 use std::os::unix::fs::FileExt;
 
-                let bytes_read = file.read_at(&mut mutator, *offset)?;
+                let bytes_read = file.read_at(&mut mutator, *handle.offset())?;
+
                 assert_eq!(
                     bytes_read,
-                    size as usize,
+                    handle.size() as usize,
                     "not enough bytes read: file has length {}",
                     file.metadata()?.len(),
                 );
@@ -150,8 +158,16 @@ impl Block {
 
             #[cfg(windows)]
             {
-                todo!();
-                // assert_eq!(bytes_read, size as usize);
+                use std::os::windows::fs::FileExt;
+
+                let bytes_read = file.seek_read(&mut mutator, *handle.offset())?;
+
+                assert_eq!(
+                    bytes_read,
+                    handle.size() as usize,
+                    "not enough bytes read: file has length {}",
+                    file.metadata()?.len(),
+                );
             }
 
             #[cfg(not(any(unix, windows)))]
@@ -173,7 +189,12 @@ impl Block {
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
+                #[cfg(feature = "use_unsafe")]
+                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
+
+                #[cfg(not(feature = "use_unsafe"))]
+                let mut data = Slice::with_size(header.uncompressed_length as usize);
+
                 {
                     // NOTE: We know that we are the owner
                     #[allow(clippy::expect_used)]
@@ -182,6 +203,7 @@ impl Block {
                     lz4_flex::decompress_into(raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
+
                 data
             }
 
@@ -205,9 +227,6 @@ impl Block {
             debug_assert_eq!(header.uncompressed_length, data.len() as u32);
         }
 
-        Ok(Self {
-            header,
-            data: Slice::from(data),
-        })
+        Ok(Self { header, data })
     }
 }

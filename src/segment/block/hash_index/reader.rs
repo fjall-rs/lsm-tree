@@ -33,7 +33,7 @@ impl<'a> Reader<'a> {
         Self(&bytes[offset..end])
     }
 
-    // NOTE: Not used for performance reasons, so no need to be hyper-optimized
+    // NOTE: Only used in metrics, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
     /// Returns the amount of empty slots in the hash index.
     #[must_use]
@@ -41,10 +41,10 @@ impl<'a> Reader<'a> {
         self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
     }
 
-    // NOTE: Not used for performance reasons, so no need to be hyper-optimized
-    #[allow(clippy::naive_bytecount)]
+    // NOTE: Only used in metrics, so no need to be hyper-optimized
     /// Returns the amount of conflict markers in the hash index.
     #[must_use]
+    #[allow(clippy::naive_bytecount)]
     pub fn conflict_count(&self) -> usize {
         self.0
             .iter()
@@ -64,7 +64,13 @@ impl<'a> Reader<'a> {
 
         // SAFETY: We use modulo in `calculate_bucket_position`
         #[allow(unsafe_code)]
+        #[cfg(feature = "use_unsafe")]
         let marker = unsafe { *self.0.get_unchecked(bucket_pos) };
+
+        // SAFETY: We use modulo in `calculate_bucket_position`
+        #[allow(clippy::indexing_slicing)]
+        #[cfg(not(feature = "use_unsafe"))]
+        let marker = self.0[bucket_pos];
 
         match marker {
             MARKER_CONFLICT => Lookup::Conflicted,

@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
-    stop_signal::StopSignal, SegmentId,
+    config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
+    SegmentId,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -64,9 +64,9 @@ pub struct TreeInner {
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Level manifest
+    /// Current tree version
     #[doc(hidden)]
-    pub levels: Arc<RwLock<LevelManifest>>,
+    pub manifest: Arc<RwLock<LevelManifest>>,
 
     /// Tree configuration
     pub config: Config,
@@ -80,8 +80,7 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let levels =
-            LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
+        let manifest = LevelManifest::create_new(&config.path)?;
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -89,7 +88,7 @@ impl TreeInner {
             config,
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
-            levels: Arc::new(RwLock::new(levels)),
+            manifest: Arc::new(RwLock::new(manifest)),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
         })

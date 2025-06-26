@@ -2,7 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod iter;
+
 use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
+use crate::segment::block::ParsedItem;
 
 #[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {
@@ -42,7 +45,7 @@ pub trait BlockIndex {
 /// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
 /// In the diagram above, searching for 'J' yields the block starting with 'G'.
 /// 'J' must be in that block, because the next block starts with 'M').
-#[enum_dispatch::enum_dispatch(BlockIndex)]
+// #[enum_dispatch::enum_dispatch(BlockIndex)]
 #[allow(clippy::module_name_repetitions)]
 pub enum BlockIndexImpl {
     Full(FullBlockIndex),
@@ -63,11 +66,21 @@ impl FullBlockIndex {
         &self,
         needle: &[u8],
     ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
-        self.0.forward_reader(needle)
+        let mut iter = self.0.iter();
+
+        if iter.seek(needle) {
+            Some(iter.map(|x| x.materialize(&self.0.inner.data)))
+        } else {
+            None
+        }
+    }
+
+    pub fn inner(&self) -> &IndexBlock {
+        &self.0
     }
 }
 
-impl BlockIndex for FullBlockIndex {
+/* impl BlockIndex for FullBlockIndex {
     fn get_last_block_containing_key(
         &self,
         key: &[u8],
@@ -87,7 +100,7 @@ impl BlockIndex for FullBlockIndex {
     fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<KeyedBlockHandle> {
         todo!()
     }
-}
+} */
 
 /* impl std::ops::Deref for FullBlockIndex {
     type Target = Box<[KeyedBlockHandle]>;
