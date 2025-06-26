@@ -377,7 +377,7 @@ impl AbstractTree for BlobTree {
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
+        log::debug!("=> to LSM segments in {lsm_segment_folder:?}");
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
         let mut segment_writer = SegmentWriter::new(
