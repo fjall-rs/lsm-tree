@@ -80,14 +80,9 @@ impl IndexBlock {
 
     /// Returns the amount of items in the block.
     #[must_use]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
-    }
-
-    /// Always returns false: a block is never empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        false
     }
 
     #[must_use]

@@ -413,14 +413,9 @@ impl DataBlock {
 
     /// Returns the amount of items in the block.
     #[must_use]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
-    }
-
-    /// Always returns false: a block is never empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        false
     }
 
     pub fn encode_items(
@@ -596,7 +591,6 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
-        assert!(!data_block.is_empty());
         assert_eq!(data_block.inner.size(), serialized_len);
         assert_eq!(1, data_block.binary_index_len());
 
@@ -636,7 +630,6 @@ mod tests {
             });
 
             assert_eq!(data_block.len(), items.len());
-            assert!(!data_block.is_empty());
             assert_eq!(data_block.inner.size(), serialized_len);
 
             assert_eq!(Some(items[0].clone()), data_block.point_read(b"hello", 777));
