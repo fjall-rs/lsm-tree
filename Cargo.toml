@@ -25,7 +25,6 @@ bytes = []                  # TODO: restore
 [dependencies]
 byteorder = "1.5.0"
 crossbeam-skiplist = "0.1.3"
-double-ended-peekable = "0.1.0"
 enum_dispatch = "0.3.13"
 interval-heap = "0.0.5"
 log = "0.4.22"

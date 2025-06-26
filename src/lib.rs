@@ -134,6 +134,7 @@ mod clipping_iter;
 pub mod compaction;
 mod compression;
 mod config;
+mod double_ended_peekable;
 
 mod error;
 // mod export;
