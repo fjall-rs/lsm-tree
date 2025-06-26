@@ -237,3 +237,13 @@ pub mod gc {
         GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
     };
 }
+
+macro_rules! unwrappy {
+    ($x:expr) => {
+        $x.expect("should read")
+
+        // unsafe { $x.unwrap_unchecked() }
+    };
+}
+
+pub(crate) use unwrappy;

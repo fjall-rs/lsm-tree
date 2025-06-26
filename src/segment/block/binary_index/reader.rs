@@ -2,15 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::unwrappy;
 use byteorder::{LittleEndian, ReadBytesExt};
-
-macro_rules! unwrappy {
-    ($x:expr) => {
-        // $x.expect("should read")
-
-        unsafe { $x.unwrap_unchecked() }
-    };
-}
 
 pub struct Reader<'a> {
     bytes: &'a [u8],
