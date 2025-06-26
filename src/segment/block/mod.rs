@@ -4,6 +4,7 @@
 
 pub(crate) mod binary_index;
 mod checksum;
+pub mod decoder;
 mod encoder;
 pub mod hash_index;
 mod header;
@@ -11,6 +12,7 @@ mod offset;
 mod trailer;
 
 pub use checksum::Checksum;
+pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
 pub use header::Header;
 pub use offset::BlockOffset;
