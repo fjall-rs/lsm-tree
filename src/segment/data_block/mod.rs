@@ -295,33 +295,6 @@ impl DataBlock {
     // TODO: handle seqno more nicely (make Key generic, so we can do binary search over (key, seqno))
     #[must_use]
     pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
-        // TODO: hash index lookup, impl in Decoder
-        /*
-            // NOTE: Try hash index if it exists
-            if let Some(lookup) = self
-                .block
-                .get_hash_index_reader()
-                .map(|reader| reader.get(needle))
-            {
-                use super::super::block::hash_index::Lookup::{Conflicted, Found, NotFound};
-
-                match lookup {
-                    Found(bucket_value) => {
-                        let offset = binary_index.get(usize::from(bucket_value));
-                        self.offset = offset;
-                        self.linear_probe(needle, seqno);
-                        return true;
-                    }
-                    NotFound => {
-                        return false;
-                    }
-                    Conflicted => {
-                        // NOTE: Fallback to binary search
-                    }
-                }
-            }
-        */
-
         let mut iter = self.iter();
 
         if !iter.seek(needle) {
@@ -343,8 +316,8 @@ impl DataBlock {
         None
     }
 
-    // TODO: rename iter()
     #[must_use]
+    #[allow(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Iter {
         Iter::new(
             &self.inner.data,
