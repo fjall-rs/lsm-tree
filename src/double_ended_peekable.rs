@@ -148,6 +148,7 @@ impl<T> MaybePeeked<T> {
                 unreachable_unchecked()
             }
         };
+
         peeked
     }
 

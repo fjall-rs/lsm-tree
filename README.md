@@ -19,15 +19,15 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 This is the most feature-rich LSM-tree implementation in Rust! It features:
 
-- Thread-safe BTreeMap-like API
+- Thread-safe `BTreeMap`-like API
 - Mostly [safe](./UNSAFE.md) & 100% stable Rust
 - Block-based tables with compression support & prefix truncation
   - Optional block hash indexes in blocks for faster point lookups [[3]](#footnotes)
   - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
 - Block caching to keep hot data in memory
-- AMQ filters (currently Bloom filters) to increase point lookup performance
-- Snapshots (MVCC)
+- *AMQ* filters (currently Bloom filters) to improve point lookup performance
+- Snapshots (*MVCC*)
 - Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
