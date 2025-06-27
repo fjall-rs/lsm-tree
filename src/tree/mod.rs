@@ -111,6 +111,8 @@ impl AbstractTree for Tree {
     }
 
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+        // NOTE: We know that values are u32 max
+        #[allow(clippy::cast_possible_truncation)]
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
@@ -120,7 +122,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .current_version()
             .iter_segments()
-            .map(|x| x.pinned_bloom_filter_size())
+            .map(Segment::pinned_bloom_filter_size)
             .sum()
     }
 
