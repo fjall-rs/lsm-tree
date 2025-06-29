@@ -258,21 +258,9 @@ impl Segment {
             todo!();
         };
 
-        let mut index_iter = create_index_block_reader(block_index.inner().clone());
+        let index_iter = create_index_block_reader(block_index.inner().clone());
 
-        // TODO: this should probably happen lazily on first read
-        if let Bound::Excluded(key) | Bound::Included(key) = range.start_bound() {
-            index_iter.seek_lower(key);
-        }
-
-        // TODO: this should probably happen lazily on first read
-        if let Bound::Excluded(key) | Bound::Included(key) = range.end_bound() {
-            index_iter.seek_upper(key);
-        }
-
-        // TODO: need a Range struct that wraps Iter, so we can seek in first and last DATA blocks
-
-        let iter = Iter::new(
+        let mut iter = Iter::new(
             self.global_id(),
             self.path.clone(),
             index_iter,
@@ -280,6 +268,21 @@ impl Segment {
             self.cache.clone(),
             self.metadata.data_block_compression,
         );
+        );
+
+        match range.start_bound() {
+            Bound::Excluded(key) | Bound::Included(key) => {
+                iter.set_lower_bound(key.clone());
+            }
+            Bound::Unbounded => {}
+        }
+
+        match range.end_bound() {
+            Bound::Excluded(key) | Bound::Included(key) => {
+                iter.set_upper_bound(key.clone());
+            }
+            Bound::Unbounded => {}
+        }
 
         FallibleClippingIter::new(iter, range)
     }
