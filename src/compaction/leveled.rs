@@ -168,12 +168,12 @@ pub struct Strategy {
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
-    /// Default = 10
-    ///
     /// This is the exponential growth of the from one.
     /// level to the next
     ///
     /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
+    ///
+    /// Default = 10
     #[allow(clippy::doc_markdown)]
     pub level_ratio: u8,
 }
