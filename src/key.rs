@@ -13,12 +13,37 @@ use std::{
 };
 use varint_rs::{VarintReader, VarintWriter};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 #[allow(clippy::module_name_repetitions)]
 pub struct InternalKey {
     pub user_key: UserKey,
     pub seqno: SeqNo,
     pub value_type: ValueType,
+}
+
+/* impl<'a> From<&InternalKeyRef<'a>> for InternalKey {
+    fn from(value: &InternalKeyRef<'a>) -> Self {
+        Self::new(value.user_key, value.seqno, value.value_type)
+    }
+} */
+
+impl AsRef<[u8]> for InternalKey {
+    fn as_ref(&self) -> &[u8] {
+        &self.user_key
+    }
+}
+
+impl PartialEq for InternalKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl std::hash::Hash for InternalKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(&self.user_key);
+        state.write_u64(self.seqno);
+    }
 }
 
 impl std::fmt::Debug for InternalKey {
@@ -58,11 +83,12 @@ impl InternalKey {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Encode for InternalKey {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u64_varint(self.seqno)?;
-
         writer.write_u8(u8::from(self.value_type))?;
+
+        writer.write_u64_varint(self.seqno)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
@@ -73,14 +99,15 @@ impl Encode for InternalKey {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Decode for InternalKey {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let seqno = reader.read_u64_varint()?;
-
         let value_type = reader.read_u8()?;
         let value_type = value_type
             .try_into()
             .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
+
+        let seqno = reader.read_u64_varint()?;
 
         let key_len = reader.read_u16_varint()?;
         let key = UserKey::from_reader(reader, key_len.into())?;
@@ -119,39 +146,45 @@ impl Ord for InternalKey {
 //     }
 // }
 
-// Temporary internal key without heap allocation
-// #[derive(Debug, Eq)]
-// pub struct InternalKeyRef<'a> {
-//     pub user_key: &'a [u8],
-//     pub seqno: SeqNo,
-//     pub value_type: ValueType,
-// }
+/* /// Temporary internal key without heap allocation
+#[derive(Clone, Debug, Eq)]
+pub struct InternalKeyRef<'a> {
+    pub user_key: &'a [u8],
+    pub seqno: SeqNo,
+    pub value_type: ValueType,
+}
 
-// impl<'a> InternalKeyRef<'a> {
-//     // Constructor for InternalKeyRef
-//     pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
-//         InternalKeyRef {
-//             user_key,
-//             seqno,
-//             value_type,
-//         }
-//     }
-// }
+impl<'a> AsRef<[u8]> for InternalKeyRef<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.user_key
+    }
+}
 
-// impl<'a> PartialEq for InternalKeyRef<'a> {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.user_key == other.user_key && self.seqno == other.seqno
-//     }
-// }
+impl<'a> InternalKeyRef<'a> {
+    // Constructor for InternalKeyRef
+    pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
+        InternalKeyRef {
+            user_key,
+            seqno,
+            value_type,
+        }
+    }
+}
 
-// impl<'a> PartialOrd for InternalKeyRef<'a> {
-//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
+impl<'a> PartialEq for InternalKeyRef<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
 
-// impl<'a> Ord for InternalKeyRef<'a> {
-//     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-//         (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
-//     }
-// }
+impl<'a> PartialOrd for InternalKeyRef<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> Ord for InternalKeyRef<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+    }
+} */

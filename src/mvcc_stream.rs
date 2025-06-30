@@ -2,15 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 use crate::{InternalValue, UserKey};
-use double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt};
 
 /// Consumes a stream of KVs and emits a new stream according to MVCC and tombstone rules
 ///
 /// This iterator is used for read operations.
 #[allow(clippy::module_name_repetitions)]
 pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
-    inner: DoubleEndedPeekable<I>,
+    inner: DoubleEndedPeekable<crate::Result<InternalValue>, I>,
 }
 
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {

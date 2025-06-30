@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -20,17 +20,17 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
     assert_eq!(1, tree.segment_count());
 
-    let item = tree.get_internal_entry(b"a", None)?.unwrap();
+    let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 0);
 
-    let item = tree.get_internal_entry(b"b", None)?.unwrap();
+    let item = tree.get_internal_entry(b"b", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "b".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 1);
 
-    let item = tree.get_internal_entry(b"c", None)?.unwrap();
+    let item = tree.get_internal_entry(b"c", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "c".as_bytes());
     assert!(!item.is_tombstone());
     assert_eq!(item.key.seqno, 2);
