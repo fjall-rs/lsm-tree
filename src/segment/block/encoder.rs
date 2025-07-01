@@ -37,6 +37,27 @@ pub trait Encodable<Context: Default> {
 ///
 /// The block encoder accepts an ascending stream of items, encodes them into
 /// restart intervals and builds binary index (and optionally a hash index).
+///
+/// # Example
+///
+/// A block with `restart_interval=4`
+///
+/// ```                                                         
+///                                                                         _______________
+///                                                              __________|__________     |
+///                                                             v          v          |    |
+/// [h][t][t][t][h][t][t][t][h][t][t][t][h][t][t][t][h][t][t][t][0,1,2,3,4][0 C F F 3][ptr][ptr]
+/// ^           ^           ^           ^           ^           ^          ^
+/// 0           1           2           3           4           bin index  hash index
+///
+/// h = restart head
+/// t = truncated item
+/// ```
+///
+/// The binary index holds pointers to all restart heads.
+/// Because restart heads hold a full key, they can be used to compare to a needle key.
+///
+/// For explanation of hash index, see `hash_index/mod.rs`.
 pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
     pub(crate) phantom: PhantomData<(Context, Item)>,
 
