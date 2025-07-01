@@ -338,11 +338,10 @@ impl Writer {
 
             #[cfg(debug_assertions)]
             {
-                let mut sorted_copy = meta_items.clone();
-                sorted_copy.sort();
+                let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
 
                 // Just to make sure the items are definitely sorted
-                assert_eq!(meta_items, sorted_copy, "meta items not sorted correctly");
+                assert!(is_sorted, "meta items not sorted correctly");
             }
 
             log::trace!("Encoding metadata block: {meta_items:#?}");
