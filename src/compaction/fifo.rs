@@ -45,74 +45,10 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        // NOTE: First level always exists, trivial
-        #[allow(clippy::expect_used)]
-        let first_level = resolved_view.first().expect("L0 should always exist");
-
-        let mut segment_ids_to_delete = HashSet::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
-
-        if let Some(ttl_seconds) = self.ttl_seconds {
-            if ttl_seconds > 0 {
-                let now = unix_timestamp().as_micros();
-
-                for segment in resolved_view.iter().flat_map(|lvl| &lvl.segments) {
-                    let lifetime_us = now - segment.metadata.created_at;
-                    let lifetime_sec = lifetime_us / 1000 / 1000;
-
-                    if lifetime_sec > ttl_seconds.into() {
-                        log::warn!("segment is older than configured TTL: {:?}", segment.id(),);
-                        segment_ids_to_delete.insert(segment.id());
-                    }
-                }
-            }
-        }
-
-        let db_size = levels.size();
-
-        if db_size > self.limit {
-            let mut bytes_to_delete = db_size - self.limit;
-
-            // NOTE: Sort the level by oldest to newest
-            // levels are sorted from newest to oldest, so we can just reverse
-            let mut first_level = first_level.clone();
-            first_level.sort_by_seqno();
-            first_level.segments.reverse();
-
-            for segment in first_level.iter() {
-                if bytes_to_delete == 0 {
-                    break;
-                }
-
-                bytes_to_delete = bytes_to_delete.saturating_sub(segment.metadata.file_size);
-
-                segment_ids_to_delete.insert(segment.id());
-
-                log::debug!(
-                    "dropping segment to reach configured size limit: {:?}",
-                    segment.id(),
-                );
-            }
-        }
-
-        if segment_ids_to_delete.is_empty() {
-            // NOTE: Only try to merge segments if they are not disjoint
-            // to improve read performance
-            // But ideally FIFO is only used for monotonic workloads
-            // so there's nothing we need to do
-            if first_level.is_disjoint {
-                Choice::DoNothing
-            } else {
-                super::maintenance::Strategy.choose(levels, config)
-            }
-        } else {
-            let ids = segment_ids_to_delete.into_iter().collect();
-            Choice::Drop(ids)
-        }
+        todo!()
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::Strategy;
@@ -128,8 +64,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         time::unix_timestamp,
         HashSet, KeyRange,
     };
@@ -139,7 +76,9 @@ mod tests {
     #[allow(clippy::expect_used)]
     #[allow(clippy::cast_possible_truncation)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -184,7 +123,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]
@@ -273,3 +212,4 @@ mod tests {
         Ok(())
     }
 }
+ */

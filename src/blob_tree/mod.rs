@@ -13,9 +13,10 @@ use crate::{
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
+    segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
 use cache::MyBlobCache;
 use compression::MyCompressor;
@@ -329,20 +330,20 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    fn bloom_filter_size(&self) -> usize {
-        self.index.bloom_filter_size()
+    fn pinned_bloom_filter_size(&self) -> usize {
+        self.index.pinned_bloom_filter_size()
     }
 
     fn sealed_memtable_count(&self) -> usize {
         self.index.sealed_memtable_count()
     }
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
         let vlog_sum = self.blobs.verify()?;
         Ok(index_tree_sum + vlog_sum)
-    }
+    } */
 
     fn keys(
         &self,
@@ -368,7 +369,8 @@ impl AbstractTree for BlobTree {
     ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
-            segment::writer::{Options, Writer as SegmentWriter},
+            //segment::writer::{Options, Writer as SegmentWriter},
+            segment::Writer as SegmentWriter,
         };
         use value::MaybeInlineValue;
 
@@ -378,17 +380,21 @@ impl AbstractTree for BlobTree {
         log::debug!("=> to LSM segments in {lsm_segment_folder:?}");
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
-        let mut segment_writer = SegmentWriter::new(Options {
+        let mut segment_writer = SegmentWriter::new(
+            lsm_segment_folder.join(segment_id.to_string()),
             segment_id,
-            data_block_size: self.index.config.data_block_size,
-            index_block_size: self.index.config.index_block_size,
-            folder: lsm_segment_folder,
-        })?
+            /* Options {
+                segment_id,
+                data_block_size: self.index.config.data_block_size,
+                index_block_size: self.index.config.index_block_size,
+                folder: lsm_segment_folder,
+            } */
+        )?
         .use_compression(self.index.config.compression);
 
-        segment_writer = segment_writer.use_bloom_policy(
+        /* segment_writer = segment_writer.use_bloom_policy(
             crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-        );
+        ); */
 
         let mut blob_writer = self.blobs.get_writer()?;
 
@@ -458,7 +464,7 @@ impl AbstractTree for BlobTree {
         self.blobs.register_writer(blob_writer)?;
 
         log::trace!("Creating LSM-tree segment {segment_id}");
-        let segment = self.index.consume_writer(segment_id, segment_writer)?;
+        let segment = self.index.consume_writer(segment_writer)?;
 
         // TODO: this can probably solved in a nicer way
         if segment.is_some() {
@@ -521,7 +527,7 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_seqno()
     }
 
-    fn active_memtable_size(&self) -> u32 {
+    fn active_memtable_size(&self) -> u64 {
         self.index.active_memtable_size()
     }
 
@@ -610,7 +616,7 @@ impl AbstractTree for BlobTree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32) {
+    ) -> (u64, u64) {
         use value::MaybeInlineValue;
 
         // NOTE: Initially, we always write an inline value
@@ -650,11 +656,11 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove(key, seqno)
     }
 
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
 }
