@@ -24,9 +24,9 @@ bytes = ["value-log/bytes"]
 
 [dependencies]
 byteorder = "1.5.0"
-crossbeam-skiplist = "0.1.3"
 double-ended-peekable = "0.1.0"
 enum_dispatch = "0.3.13"
+equivalent = "1.0.2"
 guardian = "1.1.0"
 interval-heap = "0.0.5"
 log = "0.4.22"
@@ -47,6 +47,7 @@ fs_extra = "1.3.0"
 nanoid = "0.4.0"
 rand = "0.9.0"
 test-log = "0.2.16"
+quickcheck = "1.0.3"
 
 # half 2.5.0 has MSRV 1.81
 half = "=2.4.0"
