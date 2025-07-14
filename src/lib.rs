@@ -238,7 +238,7 @@ pub mod gc {
     };
 }
 
-macro_rules! unwrappy {
+macro_rules! unwrap {
     ($x:expr) => {
         $x.expect("should read")
 
@@ -246,4 +246,4 @@ macro_rules! unwrappy {
     };
 }
 
-pub(crate) use unwrappy;
+pub(crate) use unwrap;
