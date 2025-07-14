@@ -7,15 +7,15 @@ use crate::{
     config::Config,
     level_manifest::{hidden_set::HiddenSet, LevelManifest},
     segment::Segment,
-    version::Run,
+    version::{run::Ranged, Run},
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, KeyRange, SegmentId,
 };
 
-// TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
-/// Aggregates the key range of a list of segments.
-fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
-    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
+pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
+    let lo = segments.first().expect("run should never be empty");
+    let hi = segments.last().expect("run should never be empty");
+    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
 /// Tries to find the most optimal compaction set from
@@ -72,7 +72,7 @@ fn pick_minimal_compaction(
                 continue;
             }
 
-            let key_range = aggregate_key_range(window);
+            let key_range = aggregate_run_key_range(window);
 
             // Pull in all segments in current level into compaction
             let curr_level_pull_in: Vec<_> = curr_run.get_contained(&key_range).collect();
@@ -109,7 +109,7 @@ fn pick_minimal_compaction(
 
     // NOTE: Find largest trivial move (if it exists)
     for window in curr_run.shrinking_windows() {
-        let key_range = aggregate_key_range(window);
+        let key_range = aggregate_run_key_range(window);
 
         if let Some(next_run) = &next_run {
             if next_run.get_overlapping(&key_range).next().is_none() {
