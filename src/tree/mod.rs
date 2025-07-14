@@ -549,9 +549,9 @@ impl Tree {
     /// Synchronously flushes the active memtable to a disk segment.
     ///
     /// The function may not return a result, if, during concurrent workloads, the memtable
-    /// ends up being empty before the flush thread is set up.
+    /// ends up being empty before the flush is set up.
     ///
-    /// The result will contain the disk segment's path, relative to the tree's base path.
+    /// The result will contain the [`Segment`].
     ///
     /// # Errors
     ///
