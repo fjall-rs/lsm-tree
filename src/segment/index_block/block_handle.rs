@@ -9,7 +9,7 @@ use crate::{
         index_block::IndexBlockParsedItem,
         util::SliceIndexes,
     },
-    unwrappy,
+    unwrap,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Seek};
@@ -214,19 +214,19 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
 
 impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
     fn parse_full(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<IndexBlockParsedItem> {
-        let marker = unwrappy!(reader.read_u8());
+        let marker = unwrap!(reader.read_u8());
 
         if marker == TRAILER_START_MARKER {
             return None;
         }
 
-        let file_offset = unwrappy!(reader.read_u64_varint());
-        let size = unwrappy!(reader.read_u32_varint());
+        let file_offset = unwrap!(reader.read_u64_varint());
+        let size = unwrap!(reader.read_u32_varint());
 
-        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
 
-        unwrappy!(reader.seek_relative(key_len as i64));
+        unwrap!(reader.seek_relative(key_len as i64));
 
         Some(IndexBlockParsedItem {
             prefix: None,
@@ -241,19 +241,19 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         offset: usize,
         data: &'a [u8],
     ) -> Option<&'a [u8]> {
-        let marker = unwrappy!(reader.read_u8());
+        let marker = unwrap!(reader.read_u8());
 
         if marker == TRAILER_START_MARKER {
             return None;
         }
 
-        let _file_offset = unwrappy!(reader.read_u64_varint());
-        let _size = unwrappy!(reader.read_u32_varint());
+        let _file_offset = unwrap!(reader.read_u64_varint());
+        let _size = unwrap!(reader.read_u32_varint());
 
-        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
 
-        unwrappy!(reader.seek_relative(key_len as i64));
+        unwrap!(reader.seek_relative(key_len as i64));
 
         data.get(key_start..(key_start + key_len))
     }
