@@ -251,6 +251,9 @@ impl CompactionStrategy for Strategy {
                     break;
                 };
 
+                debug_assert!(level.is_disjoint(), "level should be disjoint");
+                debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
+
                 let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
                     level.first_run().expect("should have exactly one run"),
                     next_level.first_run().map(std::ops::Deref::deref),
