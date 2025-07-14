@@ -4,10 +4,13 @@
 
 use super::{
     data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId, KeyedBlockHandle,
-};
+
+use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
 use crate::{
-    segment::{block::ParsedItem, util::load_block, BlockHandle},
-    Cache, CompressionType, DescriptorTable, InternalValue, SeqNo,
+    segment::{
+        block::ParsedItem, block_index::iter::OwnedIndexBlockIter, util::load_block, BlockHandle,
+    },
+    Cache, CompressionType, DescriptorTable, InternalValue, SeqNo, UserKey,
 };
 use self_cell::self_cell;
 use std::{path::PathBuf, sync::Arc};
@@ -56,15 +59,12 @@ pub fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
     OwnedDataBlockIter::new(block, super::data_block::DataBlock::iter)
 }
 
-pub struct Iter<I>
-where
-    I: DoubleEndedIterator<Item = KeyedBlockHandle>,
-{
+pub struct Iter {
     segment_id: GlobalSegmentId,
     path: Arc<PathBuf>,
 
     #[allow(clippy::struct_field_names)]
-    index_iter: I,
+    index_iter: OwnedIndexBlockIter,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
@@ -74,16 +74,15 @@ where
 
     hi_offset: BlockOffset,
     hi_data_block: Option<OwnedDataBlockIter>,
+
+    range: (Option<UserKey>, Option<UserKey>),
 }
 
-impl<I> Iter<I>
-where
-    I: DoubleEndedIterator<Item = KeyedBlockHandle>,
-{
+impl Iter {
     pub fn new(
         segment_id: GlobalSegmentId,
         path: Arc<PathBuf>,
-        index_iter: I,
+        index_iter: OwnedIndexBlockIter,
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
         compression: CompressionType,
@@ -102,20 +101,33 @@ where
 
             hi_offset: BlockOffset(u64::MAX),
             hi_data_block: None,
+
+            range: (None, None),
         }
+    }
+
+    pub fn set_lower_bound(&mut self, key: UserKey) {
+        self.range.0 = Some(key);
+    }
+
+    pub fn set_upper_bound(&mut self, key: UserKey) {
+        self.range.1 = Some(key);
     }
 }
 
-impl<I> Iterator for Iter<I>
-where
-    I: DoubleEndedIterator<Item = KeyedBlockHandle>,
-{
+impl Iterator for Iter {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(block) = &mut self.lo_data_block {
             if let Some(item) = block.next().map(Ok) {
                 return Some(item);
+            }
+        }
+
+        if self.lo_data_block.is_none() {
+            if let Some(key) = &self.range.0 {
+                self.index_iter.seek_lower(key);
             }
         }
 
@@ -145,7 +157,7 @@ where
                     &self.descriptor_table,
                     &self.cache,
                     &BlockHandle::new(handle.offset(), handle.size()),
-                    self.compression
+                    self.compression,
                 ))
             }
         };
@@ -153,11 +165,12 @@ where
 
         let mut reader = create_data_block_reader(block);
 
-        // TODO:
-        /*  // NOTE: This is the first block, seek it
+        // NOTE: This is the first block, seek in it
         if self.lo_data_block.is_none() {
-            reader.seek_lower(self.);
-        } */
+            if let Some(key) = &self.range.0 {
+                reader.seek_lower(key, SeqNo::MAX);
+            }
+        }
 
         let item = reader.next();
 
@@ -168,14 +181,17 @@ where
     }
 }
 
-impl<I> DoubleEndedIterator for Iter<I>
-where
-    I: DoubleEndedIterator<Item = KeyedBlockHandle>,
-{
+impl DoubleEndedIterator for Iter {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(block) = &mut self.hi_data_block {
             if let Some(item) = block.next_back().map(Ok) {
                 return Some(item);
+            }
+        }
+
+        if self.hi_data_block.is_none() {
+            if let Some(key) = &self.range.1 {
+                self.index_iter.seek_upper(key);
             }
         }
 
@@ -214,13 +230,20 @@ where
                     &self.descriptor_table,
                     &self.cache,
                     &BlockHandle::new(handle.offset(), handle.size()),
-                    self.compression
+                    self.compression,
                 ))
             }
         };
         let block = DataBlock::new(block);
 
         let mut reader = create_data_block_reader(block);
+
+        // NOTE: This is the first block, seek in it
+        if self.hi_data_block.is_none() {
+            if let Some(key) = &self.range.1 {
+                reader.seek_upper(key, SeqNo::MAX);
+            }
+        }
 
         let item = reader.next_back();
 
