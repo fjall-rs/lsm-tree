@@ -7,12 +7,11 @@ mod iter;
 pub use iter::Iter;
 
 use super::block::{
-    Block, Decodable, Decoder, Encodable, Encoder, ParsedItem as Parsy, Trailer,
-    TRAILER_START_MARKER,
+    Block, Decodable, Decoder, Encodable, Encoder, ParsedItem, Trailer, TRAILER_START_MARKER,
 };
 use crate::key::InternalKey;
 use crate::segment::util::{compare_prefixed_slice, SliceIndexes};
-use crate::{unwrappy, InternalValue, SeqNo, Slice, ValueType};
+use crate::{unwrap, InternalValue, SeqNo, Slice, ValueType};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
@@ -25,41 +24,41 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         offset: usize,
         data: &'a [u8],
     ) -> Option<&'a [u8]> {
-        let value_type = unwrappy!(reader.read_u8());
+        let value_type = unwrap!(reader.read_u8());
 
         if value_type == TRAILER_START_MARKER {
             return None;
         }
 
-        let _seqno = unwrappy!(reader.read_u64_varint());
+        let _seqno = unwrap!(reader.read_u64_varint());
 
-        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
-        unwrappy!(reader.seek_relative(key_len as i64));
+        unwrap!(reader.seek_relative(key_len as i64));
 
         data.get(key_start..(key_start + key_len))
     }
 
     fn parse_full(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<DataBlockParsedItem> {
-        let value_type = unwrappy!(reader.read_u8());
+        let value_type = unwrap!(reader.read_u8());
 
         if value_type == TRAILER_START_MARKER {
             return None;
         }
 
-        let seqno = unwrappy!(reader.read_u64_varint());
+        let seqno = unwrap!(reader.read_u64_varint());
 
-        let key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
-        unwrappy!(reader.seek_relative(key_len as i64));
+        unwrap!(reader.seek_relative(key_len as i64));
 
         let val_len: usize = if value_type == u8::from(ValueType::Value) {
-            unwrappy!(reader.read_u32_varint()) as usize
+            unwrap!(reader.read_u32_varint()) as usize
         } else {
             0
         };
         let val_offset = offset + reader.position() as usize;
-        unwrappy!(reader.seek_relative(val_len as i64));
+        unwrap!(reader.seek_relative(val_len as i64));
 
         Some(if value_type == u8::from(ValueType::Value) {
             DataBlockParsedItem {
@@ -85,28 +84,28 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         offset: usize,
         base_key_offset: usize,
     ) -> Option<DataBlockParsedItem> {
-        let value_type = unwrappy!(reader.read_u8());
+        let value_type = unwrap!(reader.read_u8());
 
         if value_type == TRAILER_START_MARKER {
             return None;
         }
 
-        let seqno = unwrappy!(reader.read_u64_varint());
+        let seqno = unwrap!(reader.read_u64_varint());
 
-        let shared_prefix_len: usize = unwrappy!(reader.read_u16_varint()).into();
-        let rest_key_len: usize = unwrappy!(reader.read_u16_varint()).into();
+        let shared_prefix_len: usize = unwrap!(reader.read_u16_varint()).into();
+        let rest_key_len: usize = unwrap!(reader.read_u16_varint()).into();
 
         let key_offset = offset + reader.position() as usize;
 
-        unwrappy!(reader.seek_relative(rest_key_len as i64));
+        unwrap!(reader.seek_relative(rest_key_len as i64));
 
         let val_len: usize = if value_type == u8::from(ValueType::Value) {
-            unwrappy!(reader.read_u32_varint()) as usize
+            unwrap!(reader.read_u32_varint()) as usize
         } else {
             0
         };
         let val_offset = offset + reader.position() as usize;
-        unwrappy!(reader.seek_relative(val_len as i64));
+        unwrap!(reader.seek_relative(val_len as i64));
 
         Some(if value_type == u8::from(ValueType::Value) {
             DataBlockParsedItem {
@@ -215,13 +214,7 @@ pub struct DataBlockParsedItem {
     pub value: Option<SliceIndexes>,
 }
 
-impl Parsy<InternalValue> for DataBlockParsedItem {
-    fn key<'a>(&self, bytes: &'a [u8]) -> &'a [u8] {
-        debug_assert!(self.prefix.is_none(), "can only get key of restart heads");
-
-        unwrappy!(bytes.get(self.key.0..self.key.1))
-    }
-
+impl ParsedItem<InternalValue> for DataBlockParsedItem {
     fn compare_key(&self, needle: &[u8], bytes: &[u8]) -> std::cmp::Ordering {
         if let Some(prefix) = &self.prefix {
             let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
@@ -337,9 +330,9 @@ impl DataBlock {
         let offset = std::mem::size_of::<u32>()
             + (2 * std::mem::size_of::<u8>())
             + std::mem::size_of::<u32>();
-        let mut reader = unwrappy!(trailer.as_slice().get(offset..));
+        let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
-        unwrappy!(reader.read_u32::<LittleEndian>())
+        unwrap!(reader.read_u32::<LittleEndian>())
     }
 
     /// Returns the number of hash buckets.
@@ -353,10 +346,10 @@ impl DataBlock {
             + (2 * std::mem::size_of::<u8>())
             + (2 * std::mem::size_of::<u32>());
 
-        let mut reader = unwrappy!(trailer.as_slice().get(offset..));
+        let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
-        let hash_index_offset = unwrappy!(reader.read_u32::<LittleEndian>());
-        let hash_index_len = unwrappy!(reader.read_u32::<LittleEndian>());
+        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+        let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
         if hash_index_offset > 0 {
             Some(hash_index_len)
