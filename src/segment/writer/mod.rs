@@ -299,6 +299,7 @@ impl Writer {
             let meta_items = [
                 meta("#checksum_type", b"xxh3"),
                 meta("#compression#data", &self.compression.encode_into_vec()),
+                meta("#compression#index", &self.compression.encode_into_vec()),
                 meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
                     "#data_block_count",
@@ -320,6 +321,8 @@ impl Writer {
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
+                meta("#prefix_truncation#data", &[1]),
+                meta("#prefix_truncation#index", &[0]),
                 meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
                 meta("#size", &self.meta.file_pos.to_le_bytes()),
@@ -332,15 +335,14 @@ impl Writer {
                     &self.meta.uncompressed_size.to_le_bytes(),
                 ),
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("v#table", b"3.0"),
+                meta("v#table", b"3"),
                 // TODO: tli_handle_count
             ];
 
+            // NOTE: Just to make sure the items are definitely sorted
             #[cfg(debug_assertions)]
             {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
-
-                // Just to make sure the items are definitely sorted
                 assert!(is_sorted, "meta items not sorted correctly");
             }
 
