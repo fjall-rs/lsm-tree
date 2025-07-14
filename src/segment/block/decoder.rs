@@ -5,20 +5,15 @@
 use super::{binary_index::Reader as BinaryIndexReader, hash_index::Reader as HashIndexReader};
 use crate::{
     segment::{block::Trailer, Block},
-    unwrappy, Slice,
+    unwrap, Slice,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{io::Cursor, marker::PhantomData};
 
+/// Represents an object that was parsed from a byte array
+///
+/// Parsed items only hold references to their keys and values, use `materialize` to create an owned value.
 pub trait ParsedItem<M> {
-    /// Returns the key as byte slice.
-    ///
-    /// # Warning
-    ///
-    /// May only be called on a restart head as a prefix-truncated item cannot be
-    /// represented by a single byte slice.
-    fn key<'a>(&self, bytes: &'a [u8]) -> &'a [u8];
-
     /// Compares this item's key with a needle.
     ///
     /// We can not access the key directly because it may be comprised of prefix + suffix.
@@ -31,8 +26,11 @@ pub trait ParsedItem<M> {
     fn materialize(&self, bytes: &Slice) -> M;
 }
 
+/// Describes an object that can be parsed from a block, either a full item (restart head), or a truncated item
 pub trait Decodable<ParsedItem> {
     /// Parses the key of the next restart head from a reader.
+    ///
+    /// This is used for the binary search index.
     fn parse_restart_key<'a>(
         reader: &mut Cursor<&[u8]>,
         offset: usize,
@@ -67,6 +65,9 @@ struct HiScanner {
     base_key_offset: Option<usize>,
 }
 
+/// Generic block decoder for RocksDB-style blocks
+///
+/// Supports prefix truncation, binary search index (through restart intervals) and optionally hash indexes.
 pub struct Decoder<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> {
     block: &'a Block,
     phantom: PhantomData<(Item, Parsed)>,
@@ -93,20 +94,20 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
         let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
 
-        let restart_interval = unwrappy!(reader.read_u8());
+        let restart_interval = unwrap!(reader.read_u8());
 
-        let binary_index_step_size = unwrappy!(reader.read_u8());
+        let binary_index_step_size = unwrap!(reader.read_u8());
 
         debug_assert!(
             binary_index_step_size == 2 || binary_index_step_size == 4,
             "invalid binary index step size",
         );
 
-        let binary_index_offset = unwrappy!(reader.read_u32::<LittleEndian>());
-        let binary_index_len = unwrappy!(reader.read_u32::<LittleEndian>());
+        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+        let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
-        let hash_index_offset = unwrappy!(reader.read_u32::<LittleEndian>());
-        let hash_index_len = unwrappy!(reader.read_u32::<LittleEndian>());
+        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+        let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
         Self {
             block,
