@@ -109,12 +109,21 @@ impl Level {
     }
 
     pub fn aggregate_key_range(&self) -> KeyRange {
-        let key_ranges = self
-            .iter()
-            .map(|x| Run::aggregate_key_range(x))
-            .collect::<Vec<_>>();
+        if self.run_count() == 1 {
+            // NOTE: We check for run_count, so the first run must exist
+            #[allow(clippy::expect_used)]
+            self.runs
+                .first()
+                .expect("should exist")
+                .aggregate_key_range()
+        } else {
+            let key_ranges = self
+                .iter()
+                .map(|x| Run::aggregate_key_range(x))
+                .collect::<Vec<_>>();
 
-        KeyRange::aggregate(key_ranges.iter())
+            KeyRange::aggregate(key_ranges.iter())
+        }
     }
 }
 

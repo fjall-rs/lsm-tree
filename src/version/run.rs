@@ -88,8 +88,8 @@ impl<T: Ranged> Run<T> {
     }
 
     pub fn aggregate_key_range(&self) -> KeyRange {
-        let lo = self.first().expect("runs are never empty");
-        let hi = self.last().expect("runs are never empty");
+        let lo = self.first().expect("run should never be empty");
+        let hi = self.last().expect("run should never be empty");
         KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
     }
 
