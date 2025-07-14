@@ -43,7 +43,7 @@ impl SealedMemtables {
     }
 }
 
-/// Hands out a unique (monotonically increasing) tree ID
+/// Hands out a unique (monotonically increasing) tree ID.
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
