@@ -269,13 +269,13 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
-                eprintln!(
+                /* eprintln!(
                     "{} {} segments, L{}->L{next_level_index}: {:?}",
                     if can_trivial_move { "move" } else { "merge" },
                     choice.segment_ids.len(),
                     next_level_index - 1,
                     choice.segment_ids,
-                );
+                ); */
 
                 if can_trivial_move && level.is_disjoint() {
                     return Choice::Move(choice);
@@ -352,11 +352,11 @@ impl CompactionStrategy for Strategy {
                         target_size: u64::from(self.target_size),
                     };
 
-                    eprintln!(
+                    /* eprintln!(
                         "merge {} segments, L0->L1: {:?}",
                         choice.segment_ids.len(),
                         choice.segment_ids,
-                    );
+                    ); */
 
                     if next_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
                         return Choice::Move(choice);
