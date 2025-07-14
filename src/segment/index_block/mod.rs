@@ -12,14 +12,11 @@ use super::{
     block::{BlockOffset, Encoder, Trailer},
     Block,
 };
-use crate::Slice;
-use crate::{
-    segment::{
-        block::{Decoder, ParsedItem as Parsy},
-        util::{compare_prefixed_slice, SliceIndexes},
-    },
-    unwrappy,
+use crate::segment::{
+    block::{Decoder, ParsedItem},
+    util::{compare_prefixed_slice, SliceIndexes},
 };
+use crate::Slice;
 
 #[derive(Debug)]
 pub struct IndexBlockParsedItem {
@@ -29,7 +26,7 @@ pub struct IndexBlockParsedItem {
     pub end_key: SliceIndexes,
 }
 
-impl Parsy<KeyedBlockHandle> for IndexBlockParsedItem {
+impl ParsedItem<KeyedBlockHandle> for IndexBlockParsedItem {
     fn compare_key(&self, needle: &[u8], bytes: &[u8]) -> std::cmp::Ordering {
         if let Some(prefix) = &self.prefix {
             let prefix = unsafe { bytes.get_unchecked(prefix.0..prefix.1) };
@@ -39,12 +36,6 @@ impl Parsy<KeyedBlockHandle> for IndexBlockParsedItem {
             let key = unsafe { bytes.get_unchecked(self.end_key.0..self.end_key.1) };
             key.cmp(needle)
         }
-    }
-
-    fn key<'a>(&self, bytes: &'a [u8]) -> &'a [u8] {
-        debug_assert!(self.prefix.is_none(), "can only get key of restart heads");
-
-        unwrappy!(bytes.get(self.end_key.0..self.end_key.1))
     }
 
     fn key_offset(&self) -> usize {
@@ -95,13 +86,13 @@ impl IndexBlock {
 
     pub fn encode_items(
         items: &[KeyedBlockHandle],
-        restart_interval: u8,
+        // restart_interval: u8, // TODO: support prefix truncation + delta encoding
     ) -> crate::Result<Vec<u8>> {
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
             items.len(),
-            restart_interval,
+            1,   // TODO: hard coded for now
             0.0, // NOTE: Index blocks do not support hash index
             first_key,
         );
