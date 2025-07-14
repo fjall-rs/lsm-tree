@@ -44,16 +44,7 @@ fn pick_minimal_compaction(
         } else {
             // TODO: this should not consider the number of segments, but the amount of rewritten data
             // which corresponds to the amount of temporary space amp
-
-            // NOTE: Keep compactions with N or less segments
-            // to make compactions not too large
-            //
-            // This value is currently manually fine-tuned based on benchmarks
-            // with 50%/50% read-write workload
-            //
-            // Making compactions too granular heavily increases read tail latencies
-            choice.segment_ids.len() < 100
-            // true
+            choice.segment_ids.len() <= 100
         };
 
         if valid_choice {
