@@ -26,9 +26,6 @@ fn pick_minimal_compaction(
     hidden_set: &HiddenSet,
     overshoot: u64,
 ) -> Option<(HashSet<SegmentId>, bool)> {
-    // assert!(curr_level.is_disjoint, "Lx is not disjoint");
-    // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
-
     struct Choice {
         write_amp: f32,
         segment_ids: HashSet<SegmentId>,
