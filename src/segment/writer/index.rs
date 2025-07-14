@@ -70,8 +70,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
     ) -> crate::Result<(BlockHandle, Option<BlockHandle>)> {
         let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
 
-        let bytes =
-            IndexBlock::encode_items(&self.block_handles, 1 /* TODO: hard coded for now */)?;
+        let bytes = IndexBlock::encode_items(&self.block_handles)?;
 
         let header = Block::to_writer(block_file_writer, &bytes, self.compression)?;
 
