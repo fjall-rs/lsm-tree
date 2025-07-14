@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use crate::{
     config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
     SegmentId,
@@ -76,6 +79,10 @@ pub struct TreeInner {
     pub(crate) stop_signal: StopSignal,
 
     pub(crate) major_compaction_lock: RwLock<()>,
+
+    #[doc(hidden)]
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<Metrics>,
 }
 
 impl TreeInner {
@@ -91,6 +98,8 @@ impl TreeInner {
             manifest: Arc::new(RwLock::new(manifest)),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
+            #[cfg(feature = "metrics")]
+            metrics: Metrics::default().into(),
         })
     }
 

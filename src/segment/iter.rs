@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{
-    data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId, KeyedBlockHandle,
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
 use crate::{
@@ -76,6 +76,9 @@ pub struct Iter {
     hi_data_block: Option<OwnedDataBlockIter>,
 
     range: (Option<UserKey>, Option<UserKey>),
+
+    #[cfg(feature = "metrics")]
+    metrics: Arc<Metrics>,
 }
 
 impl Iter {
@@ -86,6 +89,7 @@ impl Iter {
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
         compression: CompressionType,
+        #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> Self {
         Self {
             segment_id,
@@ -103,6 +107,9 @@ impl Iter {
             hi_data_block: None,
 
             range: (None, None),
+
+            #[cfg(feature = "metrics")]
+            metrics,
         }
     }
 
@@ -158,6 +165,8 @@ impl Iterator for Iter {
                     &self.cache,
                     &BlockHandle::new(handle.offset(), handle.size()),
                     self.compression,
+                    #[cfg(feature = "metrics")]
+                    &self.metrics,
                 ))
             }
         };
@@ -231,6 +240,8 @@ impl DoubleEndedIterator for Iter {
                     &self.cache,
                     &BlockHandle::new(handle.offset(), handle.size()),
                     self.compression,
+                    #[cfg(feature = "metrics")]
+                    &self.metrics,
                 ))
             }
         };

@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::{stream::CompactionStream, Choice},
@@ -42,6 +45,9 @@ pub struct Options {
 
     /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
+
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<Metrics>,
 }
 
 impl Options {
@@ -54,6 +60,8 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
+            #[cfg(feature = "metrics")]
+            metrics: tree.metrics.clone(),
         }
     }
 }
@@ -352,6 +360,8 @@ fn merge_segments(
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
                 payload.dest_level <= 2, // TODO: look at configuration
+                #[cfg(feature = "metrics")]
+                opts.metrics.clone(),
             )
 
             /* let segment_id = trailer.metadata.id;

@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use super::{Block, BlockHandle, GlobalSegmentId};
 use crate::{Cache, CompressionType, DescriptorTable};
 use std::{path::Path, sync::Arc};
@@ -17,10 +20,17 @@ pub fn load_block(
     cache: &Cache,
     handle: &BlockHandle,
     compression: CompressionType,
+    #[cfg(feature = "metrics")] metrics: &Metrics,
 ) -> crate::Result<Block> {
+    #[cfg(feature = "metrics")]
+    use std::sync::atomic::Ordering::Relaxed;
+
     log::trace!("load block {handle:?}");
 
     if let Some(block) = cache.get_block(segment_id, handle.offset()) {
+        #[cfg(feature = "metrics")]
+        metrics.block_load_cached.fetch_add(1, Relaxed);
+
         return Ok(block);
     }
 
@@ -34,6 +44,9 @@ pub fn load_block(
     };
 
     let block = Block::from_file(&fd, *handle, compression)?;
+
+    #[cfg(feature = "metrics")]
+    metrics.block_load_io.fetch_add(1, Relaxed);
 
     // Cache FD
     if fd_cache_miss {

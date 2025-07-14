@@ -3,12 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::Tree;
-use crate::{
+use crate::{segment::multi_writer::MultiWriter, AbstractTree, UserKey, UserValue};
 use std::path::PathBuf;
-    segment::{multi_writer::MultiWriter, Segment},
-    AbstractTree, UserKey, UserValue, ValueType,
-};
-use std::{path::PathBuf, sync::Arc};
 
 pub struct Ingestion<'a> {
     folder: PathBuf,
@@ -51,7 +47,8 @@ impl<'a> Ingestion<'a> {
     }
 
     pub fn finish(self) -> crate::Result<()> {
-        use crate::compaction::MoveDown;
+        use crate::{compaction::MoveDown, Segment};
+        use std::sync::Arc;
 
         let results = self.writer.finish()?;
 
@@ -60,51 +57,22 @@ impl<'a> Ingestion<'a> {
         let created_segments = results
             .into_iter()
             .map(|segment_id| -> crate::Result<Segment> {
+                // TODO: look at tree configuration
+
+                // TODO: segment recoverer struct w/ builder pattern
+                // Segment::recover()
+                //  .pin_filters(true)
+                //  .with_metrics(metrics)
+                //  .run(path, tree_id, cache, descriptor_table);
                 Segment::recover(
                     self.folder.join(segment_id.to_string()),
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
                     true,
-                ) // TODO: look at configuration
-
-                // todo!()
-
-                /* let segment_id = trailer.metadata.id;
-                let segment_file_path = self.folder.join(segment_id.to_string());
-
-                let block_index = TwoLevelBlockIndex::from_file(
-                    &segment_file_path,
-                    &trailer.metadata,
-                    trailer.offsets.tli_ptr,
-                    (self.tree.id, segment_id).into(),
-                    self.tree.config.descriptor_table.clone(),
-                    self.tree.config.cache.clone(),
-                )?;
-                let block_index = BlockIndexImpl::TwoLevel(block_index);
-                let block_index = Arc::new(block_index);
-
-                Ok(SegmentInner {
-                    tree_id: self.tree.id,
-
-                    descriptor_table: self.tree.config.descriptor_table.clone(),
-                    cache: self.tree.config.cache.clone(),
-
-                    metadata: trailer.metadata,
-                    offsets: trailer.offsets,
-
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    block_index,
-
-                    bloom_filter: Segment::load_bloom(
-                        &segment_file_path,
-                        trailer.offsets.bloom_ptr,
-                    )?,
-
-                    path: segment_file_path,
-                    is_deleted: AtomicBool::default(),
-                }
-                .into()) */
+                    #[cfg(feature = "metrics")]
+                    self.tree.metrics.clone(),
+                )
             })
             .collect::<crate::Result<Vec<_>>>()?;
 

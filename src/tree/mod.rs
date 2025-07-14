@@ -5,6 +5,9 @@
 pub mod ingest;
 pub mod inner;
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use crate::{
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
@@ -534,6 +537,8 @@ impl Tree {
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
             true, // TODO: look at configuration
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
         )?;
 
         log::debug!("Flushed segment to {:?}", created_segment.path);
@@ -816,11 +821,16 @@ impl Tree {
 
         let tree_id = get_next_tree_id();
 
+        #[cfg(feature = "metrics")]
+        let metrics = Arc::new(Metrics::default());
+
         let levels = Self::recover_levels(
             &config.path,
             tree_id,
             &config.cache,
             &config.descriptor_table,
+            #[cfg(feature = "metrics")]
+            &metrics,
         )?;
 
         let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
@@ -834,6 +844,8 @@ impl Tree {
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
+            #[cfg(feature = "metrics")]
+            metrics,
         };
 
         Ok(Self(Arc::new(inner)))
@@ -881,6 +893,7 @@ impl Tree {
         tree_id: TreeId,
         cache: &Arc<Cache>,
         descriptor_table: &Arc<DescriptorTable>,
+        #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<LevelManifest> {
         use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, SegmentId};
 
@@ -939,6 +952,8 @@ impl Tree {
                     cache.clone(),
                     descriptor_table.clone(),
                     true, // TODO: look at configuration
+                    #[cfg(feature = "metrics")]
+                    metrics.clone(),
                 )?;
 
                 log::debug!("Recovered segment from {:?}", segment.path);

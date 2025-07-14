@@ -22,28 +22,26 @@ pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
 pub use id::{GlobalSegmentId, SegmentId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
-use regions::ParsedRegions;
 pub use scanner::Scanner;
-use util::load_block;
 pub use writer::Writer;
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, fallible_clipping_iter::FallibleClippingIter,
-    segment::block_index::iter::create_index_block_reader, CompressionType, InternalValue, SeqNo,
-    TreeId, UserKey,
+    cache::Cache, descriptor_table::DescriptorTable, CompressionType, InternalValue, SeqNo, TreeId,
+    UserKey,
 };
-use block_index::{BlockIndexImpl, FullBlockIndex};
-use filter::standard_bloom::{CompositeHash, StandardBloomFilterReader};
+use block_index::BlockIndexImpl;
+use filter::standard_bloom::CompositeHash;
 use inner::Inner;
 use iter::Iter;
-use meta::ParsedMeta;
 use std::{
     ops::{Bound, RangeBounds},
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
+    sync::Arc,
 };
-
-// todo
+use util::load_block;
 
 // TODO: segment iter:
 // TODO:    we only need to truncate items from blocks that are not the first and last block
@@ -142,6 +140,8 @@ impl Segment {
             &self.cache,
             handle,
             compression,
+            #[cfg(feature = "metrics")]
+            &self.metrics,
         )
     }
 
@@ -156,6 +156,10 @@ impl Segment {
         seqno: SeqNo,
         key_hash: CompositeHash,
     ) -> crate::Result<Option<InternalValue>> {
+        use filter::standard_bloom::StandardBloomFilterReader;
+        #[cfg(feature = "metrics")]
+        use std::sync::atomic::Ordering::Relaxed;
+
         if self.metadata.seqnos.0 >= seqno {
             return Ok(None);
         }
@@ -163,14 +167,26 @@ impl Segment {
         if let Some(block) = &self.pinned_filter_block {
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
+            #[cfg(feature = "metrics")]
+            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+
             if !filter.contains_hash(key_hash) {
+                #[cfg(feature = "metrics")]
+                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+
                 return Ok(None);
             }
         } else if let Some(filter_block_handle) = &self.regions.filter {
             let block = self.load_block(filter_block_handle, CompressionType::None)?;
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
+            #[cfg(feature = "metrics")]
+            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+
             if !filter.contains_hash(key_hash) {
+                #[cfg(feature = "metrics")]
+                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+
                 return Ok(None);
             }
         }
@@ -263,6 +279,9 @@ impl Segment {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+        use crate::fallible_clipping_iter::FallibleClippingIter;
+        use block_index::iter::create_index_block_reader;
+
         let BlockIndexImpl::Full(block_index) = &*self.block_index else {
             todo!();
         };
@@ -276,7 +295,8 @@ impl Segment {
             self.descriptor_table.clone(),
             self.cache.clone(),
             self.metadata.data_block_compression,
-        );
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
         );
 
         match range.start_bound() {
@@ -303,7 +323,12 @@ impl Segment {
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
         pin_filter: bool,
+        #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
+        use block_index::FullBlockIndex;
+        use meta::ParsedMeta;
+        use regions::ParsedRegions;
+        use std::sync::atomic::AtomicBool;
         use trailer::Trailer;
 
         log::debug!("Recovering segment from file {file_path:?}");
@@ -386,6 +411,9 @@ impl Segment {
             pinned_filter_block,
 
             is_deleted: AtomicBool::default(),
+
+            #[cfg(feature = "metrics")]
+            metrics,
         }));
 
         Ok(segment)
@@ -456,12 +484,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());
@@ -546,12 +579,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());
@@ -597,12 +635,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());
@@ -647,12 +690,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());
@@ -710,12 +758,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());
@@ -773,12 +826,17 @@ mod tests {
         }
 
         {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
             let segment = Segment::recover(
                 file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
+                #[cfg(feature = "metrics")]
+                metrics,
             )?;
 
             assert_eq!(5, segment.id());

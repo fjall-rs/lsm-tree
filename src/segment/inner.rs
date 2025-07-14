@@ -2,6 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
 use crate::{
     cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
@@ -44,6 +47,9 @@ pub struct Inner {
     // #[doc(hidden)]
     // pub bloom_filter: Option<crate::bloom::BloomFilter>,
     pub is_deleted: AtomicBool,
+
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl Drop for Inner {
