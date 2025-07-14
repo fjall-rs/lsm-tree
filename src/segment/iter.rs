@@ -138,55 +138,59 @@ impl Iterator for Iter {
             }
         }
 
-        let Some(handle) = self.index_iter.next() else {
-            // NOTE: No more block handles from index,
-            // Now check hi buffer if it exists
-            if let Some(block) = &mut self.hi_data_block {
-                if let Some(item) = block.next().map(Ok) {
-                    return Some(item);
+        loop {
+            let Some(handle) = self.index_iter.next() else {
+                // NOTE: No more block handles from index,
+                // Now check hi buffer if it exists
+                if let Some(block) = &mut self.hi_data_block {
+                    if let Some(item) = block.next().map(Ok) {
+                        return Some(item);
+                    }
+                }
+
+                // NOTE: If there is no more item, we are done
+                self.lo_data_block = None;
+                self.hi_data_block = None;
+                return None;
+            };
+
+            // NOTE: Load next lo block
+            #[allow(clippy::single_match_else)]
+            let block = match self.cache.get_block(self.segment_id, handle.offset()) {
+                Some(block) => block,
+                None => {
+                    fail_iter!(load_block(
+                        self.segment_id,
+                        &self.path,
+                        &self.descriptor_table,
+                        &self.cache,
+                        &BlockHandle::new(handle.offset(), handle.size()),
+                        self.compression,
+                        #[cfg(feature = "metrics")]
+                        &self.metrics,
+                    ))
+                }
+            };
+            let block = DataBlock::new(block);
+
+            let mut reader = create_data_block_reader(block);
+
+            // NOTE: This is the first block, seek in it
+            if self.lo_data_block.is_none() {
+                if let Some(key) = &self.range.0 {
+                    reader.seek_lower(key, SeqNo::MAX);
                 }
             }
 
-            // NOTE: If there is no more item, we are done
-            self.lo_data_block = None;
-            self.hi_data_block = None;
-            return None;
-        };
+            let item = reader.next();
 
-        // NOTE: Load next lo block
-        #[allow(clippy::single_match_else)]
-        let block = match self.cache.get_block(self.segment_id, handle.offset()) {
-            Some(block) => block,
-            None => {
-                fail_iter!(load_block(
-                    self.segment_id,
-                    &self.path,
-                    &self.descriptor_table,
-                    &self.cache,
-                    &BlockHandle::new(handle.offset(), handle.size()),
-                    self.compression,
-                    #[cfg(feature = "metrics")]
-                    &self.metrics,
-                ))
-            }
-        };
-        let block = DataBlock::new(block);
+            self.lo_offset = handle.offset();
+            self.lo_data_block = Some(reader);
 
-        let mut reader = create_data_block_reader(block);
-
-        // NOTE: This is the first block, seek in it
-        if self.lo_data_block.is_none() {
-            if let Some(key) = &self.range.0 {
-                reader.seek_lower(key, SeqNo::MAX);
+            if let Some(item) = item {
+                return Some(Ok(item));
             }
         }
-
-        let item = reader.next();
-
-        self.lo_offset = handle.offset();
-        self.lo_data_block = Some(reader);
-
-        item.map(Ok)
     }
 }
 
@@ -204,63 +208,67 @@ impl DoubleEndedIterator for Iter {
             }
         }
 
-        let Some(handle) = self.index_iter.next_back() else {
-            // NOTE: No more block handles from index,
-            // Now check lo buffer if it exists
-            if let Some(block) = &mut self.lo_data_block {
-                // eprintln!("=== lo block ===");
+        loop {
+            let Some(handle) = self.index_iter.next_back() else {
+                // NOTE: No more block handles from index,
+                // Now check lo buffer if it exists
+                if let Some(block) = &mut self.lo_data_block {
+                    // eprintln!("=== lo block ===");
 
-                // for item in block.borrow_owner().iter() {
-                //     eprintln!(
-                //         r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
-                //         item.key.user_key, item.value, item.key.seqno, item.key.value_type,
-                //     );
-                // }
+                    // for item in block.borrow_owner().iter() {
+                    //     eprintln!(
+                    //         r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
+                    //         item.key.user_key, item.value, item.key.seqno, item.key.value_type,
+                    //     );
+                    // }
 
-                if let Some(item) = block.next_back().map(Ok) {
-                    return Some(item);
+                    if let Some(item) = block.next_back().map(Ok) {
+                        return Some(item);
+                    }
+                }
+
+                // NOTE: If there is no more item, we are done
+                self.lo_data_block = None;
+                self.hi_data_block = None;
+                return None;
+            };
+
+            // NOTE: Load next hi block
+            #[allow(clippy::single_match_else)]
+            let block = match self.cache.get_block(self.segment_id, handle.offset()) {
+                Some(block) => block,
+                None => {
+                    fail_iter!(load_block(
+                        self.segment_id,
+                        &self.path,
+                        &self.descriptor_table,
+                        &self.cache,
+                        &BlockHandle::new(handle.offset(), handle.size()),
+                        self.compression,
+                        #[cfg(feature = "metrics")]
+                        &self.metrics,
+                    ))
+                }
+            };
+            let block = DataBlock::new(block);
+
+            let mut reader = create_data_block_reader(block);
+
+            // NOTE: This is the first block, seek in it
+            if self.hi_data_block.is_none() {
+                if let Some(key) = &self.range.1 {
+                    reader.seek_upper(key, SeqNo::MAX);
                 }
             }
 
-            // NOTE: If there is no more item, we are done
-            self.lo_data_block = None;
-            self.hi_data_block = None;
-            return None;
-        };
+            let item = reader.next_back();
 
-        // NOTE: Load next hi block
-        #[allow(clippy::single_match_else)]
-        let block = match self.cache.get_block(self.segment_id, handle.offset()) {
-            Some(block) => block,
-            None => {
-                fail_iter!(load_block(
-                    self.segment_id,
-                    &self.path,
-                    &self.descriptor_table,
-                    &self.cache,
-                    &BlockHandle::new(handle.offset(), handle.size()),
-                    self.compression,
-                    #[cfg(feature = "metrics")]
-                    &self.metrics,
-                ))
-            }
-        };
-        let block = DataBlock::new(block);
+            self.hi_offset = handle.offset();
+            self.hi_data_block = Some(reader);
 
-        let mut reader = create_data_block_reader(block);
-
-        // NOTE: This is the first block, seek in it
-        if self.hi_data_block.is_none() {
-            if let Some(key) = &self.range.1 {
-                reader.seek_upper(key, SeqNo::MAX);
+            if let Some(item) = item {
+                return Some(Ok(item));
             }
         }
-
-        let item = reader.next_back();
-
-        self.hi_offset = handle.offset();
-        self.hi_data_block = Some(reader);
-
-        item.map(Ok)
     }
 }
