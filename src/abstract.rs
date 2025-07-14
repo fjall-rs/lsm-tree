@@ -45,6 +45,9 @@ pub trait AbstractTree {
     /// Gets the memory usage of all pinned bloom filters in the tree.
     fn pinned_bloom_filter_size(&self) -> usize;
 
+    /// Gets the memory usage of all pinned index blocks in the tree.
+    fn pinned_block_index_size(&self) -> usize;
+
     // TODO:?
     /* #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize>; */

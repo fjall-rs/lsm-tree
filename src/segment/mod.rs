@@ -112,6 +112,15 @@ impl Segment {
             .unwrap_or_default()
     }
 
+    #[must_use]
+    pub fn pinned_block_index_size(&self) -> usize {
+        if let BlockIndexImpl::Full(full_block_index) = &*self.block_index {
+            full_block_index.inner().inner.size()
+        } else {
+            unimplemented!();
+        }
+    }
+
     /// Gets the segment ID.
     ///
     /// The segment ID is unique for this tree, but not

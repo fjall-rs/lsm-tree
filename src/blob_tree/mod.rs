@@ -322,6 +322,8 @@ impl AbstractTree for BlobTree {
         let vhandle = self.index.get_vhandle(key.as_ref(), seqno)?;
 
         Ok(vhandle.map(|x| match x {
+            // NOTE: Values are u32 length max
+            #[allow(clippy::cast_possible_truncation)]
             MaybeInlineValue::Inline(v) => v.len() as u32,
 
             // NOTE: We skip reading from the value log
@@ -332,6 +334,10 @@ impl AbstractTree for BlobTree {
 
     fn pinned_bloom_filter_size(&self) -> usize {
         self.index.pinned_bloom_filter_size()
+    }
+
+    fn pinned_block_index_size(&self) -> usize {
+        self.index.pinned_block_index_size()
     }
 
     fn sealed_memtable_count(&self) -> usize {

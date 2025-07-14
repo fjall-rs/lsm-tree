@@ -126,6 +126,16 @@ impl AbstractTree for Tree {
             .sum()
     }
 
+    fn pinned_block_index_size(&self) -> usize {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::pinned_block_index_size)
+            .sum()
+    }
+
     fn sealed_memtable_count(&self) -> usize {
         self.sealed_memtables
             .read()
