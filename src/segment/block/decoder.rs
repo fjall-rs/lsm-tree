@@ -67,7 +67,7 @@ struct HiScanner {
 
 /// Generic block decoder for RocksDB-style blocks
 ///
-/// Supports prefix truncation, binary search index (through restart intervals) and optionally hash indexes.
+/// Supports prefix truncation and binary search index (through restart intervals).
 pub struct Decoder<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> {
     block: &'a Block,
     phantom: PhantomData<(Item, Parsed)>,
@@ -81,9 +81,6 @@ pub struct Decoder<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> {
     binary_index_step_size: u8,
     binary_index_offset: u32,
     binary_index_len: u32,
-
-    hash_index_offset: u32,
-    hash_index_len: u32,
 }
 
 impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Parsed> {
@@ -105,9 +102,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
         let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
-
-        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
-        let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
         Self {
             block,
@@ -131,9 +125,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             binary_index_step_size,
             binary_index_offset,
             binary_index_len,
-
-            hash_index_offset,
-            hash_index_len,
         }
     }
 
@@ -161,21 +152,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             self.binary_index_len,
             self.binary_index_step_size,
         )
-    }
-
-    /// Returns the number of hash buckets.
-    #[must_use]
-    pub fn hash_bucket_count(&self) -> Option<u32> {
-        if self.hash_index_offset > 0 {
-            Some(self.hash_index_len)
-        } else {
-            None
-        }
-    }
-
-    fn get_hash_index_reader(&self) -> Option<HashIndexReader> {
-        self.hash_bucket_count()
-            .map(|offset| HashIndexReader::new(&self.block.data, self.hash_index_offset, offset))
     }
 
     fn get_key_at(&self, pos: usize) -> &[u8] {
@@ -272,6 +248,10 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         let offset = binary_index.get(left);
 
         Some((offset, left))
+    }
+
+    pub fn set_lo_offset(&mut self, offset: usize) {
+        self.lo_scanner.offset = offset;
     }
 
     /// Seeks using the given predicate.

@@ -33,6 +33,12 @@ impl<'a> Reader<'a> {
         Self(&bytes[offset..end])
     }
 
+    /// Returns the number of buckets.
+    #[must_use]
+    pub fn bucket_count(&self) -> usize {
+        self.0.len()
+    }
+
     // NOTE: Only used in metrics, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
     /// Returns the amount of empty slots in the hash index.

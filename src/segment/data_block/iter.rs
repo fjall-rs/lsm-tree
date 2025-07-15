@@ -25,6 +25,31 @@ impl<'a> Iter<'a> {
         Self { bytes, decoder }
     }
 
+    pub fn seek_to_offset(&mut self, offset: usize, needle: &[u8]) -> bool {
+        self.decoder.inner_mut().set_lo_offset(offset);
+
+        // Linear scan
+        loop {
+            let Some(item) = self.decoder.peek() else {
+                return false;
+            };
+
+            match item.compare_key(needle, self.bytes) {
+                std::cmp::Ordering::Equal => {
+                    return true;
+                }
+                std::cmp::Ordering::Greater => {
+                    return false;
+                }
+                std::cmp::Ordering::Less => {
+                    // Continue
+
+                    self.decoder.next().expect("should exist");
+                }
+            }
+        }
+    }
+
     pub fn seek(&mut self, needle: &[u8]) -> bool {
         if !self
             .decoder

@@ -7,7 +7,8 @@ mod iter;
 pub use iter::Iter;
 
 use super::block::{
-    Block, Decodable, Decoder, Encodable, Encoder, ParsedItem, Trailer, TRAILER_START_MARKER,
+    binary_index::Reader as BinaryIndexReader, hash_index::Reader as HashIndexReader, Block,
+    Decodable, Decoder, Encodable, Encoder, ParsedItem, Trailer, TRAILER_START_MARKER,
 };
 use crate::key::InternalKey;
 use crate::segment::util::{compare_prefixed_slice, SliceIndexes};
@@ -240,6 +241,7 @@ impl ParsedItem<InternalValue> for DataBlockParsedItem {
         } else {
             bytes.slice(self.key.0..self.key.1)
         };
+
         let key = InternalKey::new(
             key,
             self.seqno,
@@ -285,13 +287,97 @@ impl DataBlock {
         self.inner.size()
     }
 
+    fn get_binary_index_reader(&self) -> BinaryIndexReader {
+        let trailer = Trailer::new(&self.inner);
+        let mut reader = trailer.as_slice();
+
+        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
+
+        let _restart_interval = unwrap!(reader.read_u8());
+
+        let binary_index_step_size = unwrap!(reader.read_u8());
+
+        debug_assert!(
+            binary_index_step_size == 2 || binary_index_step_size == 4,
+            "invalid binary index step size",
+        );
+
+        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+        let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+
+        BinaryIndexReader::new(
+            &self.inner.data,
+            binary_index_offset,
+            binary_index_len,
+            binary_index_step_size,
+        )
+    }
+
+    fn get_hash_index_reader(&self) -> Option<HashIndexReader> {
+        let trailer = Trailer::new(&self.inner);
+
+        // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8)
+        // and binary stuff (2x u32)
+        let offset = std::mem::size_of::<u32>()
+            + std::mem::size_of::<u8>()
+            + std::mem::size_of::<u8>()
+            + std::mem::size_of::<u32>()
+            + std::mem::size_of::<u32>();
+
+        let mut reader = unwrap!(trailer.as_slice().get(offset..));
+
+        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+        let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+
+        if hash_index_len > 0 {
+            Some(HashIndexReader::new(
+                &self.inner.data,
+                hash_index_offset,
+                hash_index_len,
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the number of hash buckets.
+    #[must_use]
+    pub fn hash_bucket_count(&self) -> Option<usize> {
+        self.get_hash_index_reader()
+            .map(|reader| reader.bucket_count())
+    }
+
     // TODO: handle seqno more nicely (make Key generic, so we can do binary search over (key, seqno))
     #[must_use]
     pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
         let mut iter = self.iter();
 
-        if !iter.seek(needle) {
-            return None;
+        if let Some(hash_index_reader) = self.get_hash_index_reader() {
+            use super::block::hash_index::Lookup::{Conflicted, Found, NotFound};
+
+            match hash_index_reader.get(needle) {
+                Found(idx) => {
+                    let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
+
+                    if !iter.seek_to_offset(offset, needle) {
+                        return None;
+                    }
+                }
+                NotFound => {
+                    return None;
+                }
+                Conflicted => {
+                    // NOTE: Fallback to binary search
+                    if !iter.seek(needle) {
+                        return None;
+                    }
+                }
+            }
+        } else {
+            // NOTE: Fallback to binary search
+            if !iter.seek(needle) {
+                return None;
+            }
         }
 
         for item in iter {
@@ -334,48 +420,6 @@ impl DataBlock {
 
         unwrap!(reader.read_u32::<LittleEndian>())
     }
-
-    /// Returns the number of hash buckets.
-    #[must_use]
-    pub fn hash_bucket_count(&self) -> Option<u32> {
-        let trailer = Trailer::new(&self.inner);
-
-        // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8),
-        // and binary index offset+len (2x u32)
-        let offset = std::mem::size_of::<u32>()
-            + (2 * std::mem::size_of::<u8>())
-            + (2 * std::mem::size_of::<u32>());
-
-        let mut reader = unwrap!(trailer.as_slice().get(offset..));
-
-        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
-        let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
-
-        if hash_index_offset > 0 {
-            Some(hash_index_len)
-        } else {
-            None
-        }
-    }
-
-    /* fn get_hash_index_reader(&self) -> Option<HashIndexReader> {
-        self.hash_bucket_count()
-            .map(|offset| HashIndexReader::new(&self.inner.data, self.hash_index_offset, offset))
-    } */
-
-    /* /// Returns the amount of conflicts in the hash buckets.
-    #[must_use]
-    pub fn hash_bucket_conflict_count(&self) -> Option<usize> {
-        self.get_hash_index_reader()
-            .map(|reader| reader.conflict_count())
-    } */
-
-    /*  /// Returns the amount of empty hash buckets.
-    #[must_use]
-    pub fn hash_bucket_free_count(&self) -> Option<usize> {
-        self.get_hash_index_reader()
-            .map(|reader| reader.free_count())
-    } */
 
     /// Returns the amount of items in the block.
     #[must_use]
