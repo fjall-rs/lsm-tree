@@ -70,9 +70,10 @@ impl Block {
         writer.write_all(data)?;
 
         log::trace!(
-            "Writing block with size {}B (compressed: {}B)",
+            "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
             header.uncompressed_length,
             header.data_length,
+            Header::serialized_len(),
         );
 
         Ok(header)

@@ -143,6 +143,242 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn v3_data_block_wtf() -> crate::Result<()> {
+        let keys = [
+            [0, 0, 0, 0, 0, 0, 0, 108],
+            [0, 0, 0, 0, 0, 0, 0, 109],
+            [0, 0, 0, 0, 0, 0, 0, 110],
+            [0, 0, 0, 0, 0, 0, 0, 111],
+            [0, 0, 0, 0, 0, 0, 0, 112],
+            [0, 0, 0, 0, 0, 0, 0, 113],
+            [0, 0, 0, 0, 0, 0, 0, 114],
+            [0, 0, 0, 0, 0, 0, 0, 115],
+            [0, 0, 0, 0, 0, 0, 0, 116],
+            [0, 0, 0, 0, 0, 0, 0, 117],
+            [0, 0, 0, 0, 0, 0, 0, 118],
+            [0, 0, 0, 0, 0, 0, 0, 119],
+            [0, 0, 0, 0, 0, 0, 0, 120],
+            [0, 0, 0, 0, 0, 0, 0, 121],
+            [0, 0, 0, 0, 0, 0, 0, 122],
+            [0, 0, 0, 0, 0, 0, 0, 123],
+            [0, 0, 0, 0, 0, 0, 0, 124],
+            [0, 0, 0, 0, 0, 0, 0, 125],
+            [0, 0, 0, 0, 0, 0, 0, 126],
+            [0, 0, 0, 0, 0, 0, 0, 127],
+            [0, 0, 0, 0, 0, 0, 0, 128],
+            [0, 0, 0, 0, 0, 0, 0, 129],
+            [0, 0, 0, 0, 0, 0, 0, 130],
+            [0, 0, 0, 0, 0, 0, 0, 131],
+            [0, 0, 0, 0, 0, 0, 0, 132],
+            [0, 0, 0, 0, 0, 0, 0, 133],
+            [0, 0, 0, 0, 0, 0, 0, 134],
+            [0, 0, 0, 0, 0, 0, 0, 135],
+            [0, 0, 0, 0, 0, 0, 0, 136],
+            [0, 0, 0, 0, 0, 0, 0, 137],
+            [0, 0, 0, 0, 0, 0, 0, 138],
+            [0, 0, 0, 0, 0, 0, 0, 139],
+            [0, 0, 0, 0, 0, 0, 0, 140],
+            [0, 0, 0, 0, 0, 0, 0, 141],
+            [0, 0, 0, 0, 0, 0, 0, 142],
+            [0, 0, 0, 0, 0, 0, 0, 143],
+        ];
+
+        let items = keys
+            .into_iter()
+            .map(|key| InternalValue::from_components(key, "", 0, Value))
+            .collect::<Vec<_>>();
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            {
+                let mut iter = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&110u64.to_be_bytes());
+                let iter = iter.map(|x| x.materialize(data_block.as_slice()));
+
+                assert_eq!(
+                    items.iter().take(3).cloned().collect::<Vec<_>>(),
+                    iter.collect::<Vec<_>>(),
+                );
+            }
+
+            {
+                let mut iter: crate::segment::data_block::Iter<'_> = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&110u64.to_be_bytes());
+                let iter = iter.map(|x| x.materialize(data_block.as_slice()));
+
+                assert_eq!(
+                    items.iter().take(3).rev().cloned().collect::<Vec<_>>(),
+                    iter.rev().collect::<Vec<_>>(),
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&110u64.to_be_bytes());
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+                let mut count = 0;
+
+                for x in 0.. {
+                    if x % 2 == 0 {
+                        let Some(_) = iter.next() else {
+                            break;
+                        };
+
+                        count += 1;
+                    } else {
+                        let Some(_) = iter.next_back() else {
+                            break;
+                        };
+
+                        count += 1;
+                    }
+                }
+
+                assert_eq!(3, count);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_range() -> crate::Result<()> {
+        let items = (100u64..110)
+            .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, Value))
+            .collect::<Vec<_>>();
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            {
+                let mut iter = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&109u64.to_be_bytes());
+                let iter = iter.map(|x| x.materialize(data_block.as_slice()));
+
+                assert_eq!(
+                    items.iter().take(10).cloned().collect::<Vec<_>>(),
+                    iter.collect::<Vec<_>>(),
+                );
+            }
+
+            {
+                let mut iter: crate::segment::data_block::Iter<'_> = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&109u64.to_be_bytes());
+                let iter = iter.map(|x| x.materialize(data_block.as_slice()));
+
+                assert_eq!(
+                    items.iter().take(10).rev().cloned().collect::<Vec<_>>(),
+                    iter.rev().collect::<Vec<_>>(),
+                );
+            }
+
+            {
+                let mut iter = data_block.iter();
+                iter.seek(&10u64.to_be_bytes());
+                iter.seek_upper(&109u64.to_be_bytes());
+
+                let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+                let mut count = 0;
+
+                for x in 0.. {
+                    if x % 2 == 0 {
+                        let Some(_) = iter.next() else {
+                            break;
+                        };
+
+                        count += 1;
+                    } else {
+                        let Some(_) = iter.next_back() else {
+                            break;
+                        };
+
+                        count += 1;
+                    }
+                }
+
+                assert_eq!(10, count);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_range_ping_pong() -> crate::Result<()> {
+        let items = (0u64..100)
+            .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, Value))
+            .collect::<Vec<_>>();
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                    previous_block_offset: BlockOffset(0),
+                },
+            });
+
+            let mut iter = data_block.iter();
+            iter.seek(&5u64.to_be_bytes());
+            iter.seek_upper(&9u64.to_be_bytes());
+
+            let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
+            let mut count = 0;
+
+            for x in 0.. {
+                if x % 2 == 0 {
+                    let Some(_) = iter.next() else {
+                        break;
+                    };
+
+                    count += 1;
+                } else {
+                    let Some(_) = iter.next_back() else {
+                        break;
+                    };
+
+                    count += 1;
+                }
+            }
+
+            assert_eq!(5, count);
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn v3_data_block_iter_forward() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),

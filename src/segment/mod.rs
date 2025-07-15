@@ -735,6 +735,78 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_ping_pong() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = (0u64..10)
+            .map(|i| {
+                InternalValue::from_components(i.to_be_bytes(), "", 0, crate::ValueType::Value)
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(10, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            let mut iter = segment
+                .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()));
+
+            let mut count = 0;
+
+            for x in 0.. {
+                if x % 2 == 0 {
+                    let Some(_) = iter.next() else {
+                        break;
+                    };
+
+                    count += 1;
+                } else {
+                    let Some(_) = iter.next_back() else {
+                        break;
+                    };
+
+                    count += 1;
+                }
+            }
+
+            assert_eq!(5, count);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
     fn v3_segment_range_multiple_data_blocks() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");

@@ -398,4 +398,67 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn v3_index_block_iter_range_1() -> crate::Result<()> {
+        let items = [
+            KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"c".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"e".into(), BlockOffset(13_000), 5_000),
+        ];
+
+        let bytes = IndexBlock::encode_items(&items)?;
+
+        let index_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+                previous_block_offset: BlockOffset(0),
+            },
+        });
+
+        assert_eq!(index_block.len(), items.len());
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"b"), "should seek");
+            assert!(iter.seek_upper(b"c"), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"b"), "should seek");
+            assert!(iter.seek_upper(b"c"), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(1)
+                    .take(3)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
 }
