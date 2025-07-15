@@ -42,7 +42,7 @@ pub trait Encodable<Context: Default> {
 ///
 /// A block with `restart_interval=4`
 ///
-/// ```                                                         
+/// ```js
 ///                                                                         _______________
 ///                                                              __________|__________     |
 ///                                                             v          v          |    |
