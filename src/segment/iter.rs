@@ -69,6 +69,8 @@ pub struct Iter {
     cache: Arc<Cache>,
     compression: CompressionType,
 
+    index_initialized: bool,
+
     lo_offset: BlockOffset,
     lo_data_block: Option<OwnedDataBlockIter>,
 
@@ -99,6 +101,8 @@ impl Iter {
             descriptor_table,
             cache,
             compression,
+
+            index_initialized: false,
 
             lo_offset: BlockOffset(0),
             lo_data_block: None,
@@ -132,10 +136,14 @@ impl Iterator for Iter {
             }
         }
 
-        if self.lo_data_block.is_none() {
+        if !self.index_initialized {
             if let Some(key) = &self.range.0 {
                 self.index_iter.seek_lower(key);
             }
+            if let Some(key) = &self.range.1 {
+                self.index_iter.seek_upper(key);
+            }
+            self.index_initialized = true;
         }
 
         loop {
@@ -175,11 +183,11 @@ impl Iterator for Iter {
 
             let mut reader = create_data_block_reader(block);
 
-            // NOTE: This is the first block, seek in it
-            if self.lo_data_block.is_none() {
-                if let Some(key) = &self.range.0 {
-                    reader.seek_lower(key, SeqNo::MAX);
-                }
+            if let Some(key) = &self.range.0 {
+                reader.seek_lower(key, SeqNo::MAX);
+            }
+            if let Some(key) = &self.range.1 {
+                reader.seek_upper(key, SeqNo::MAX);
             }
 
             let item = reader.next();
@@ -202,10 +210,14 @@ impl DoubleEndedIterator for Iter {
             }
         }
 
-        if self.hi_data_block.is_none() {
+        if !self.index_initialized {
+            if let Some(key) = &self.range.0 {
+                self.index_iter.seek_lower(key);
+            }
             if let Some(key) = &self.range.1 {
                 self.index_iter.seek_upper(key);
             }
+            self.index_initialized = true;
         }
 
         loop {
@@ -213,15 +225,6 @@ impl DoubleEndedIterator for Iter {
                 // NOTE: No more block handles from index,
                 // Now check lo buffer if it exists
                 if let Some(block) = &mut self.lo_data_block {
-                    // eprintln!("=== lo block ===");
-
-                    // for item in block.borrow_owner().iter() {
-                    //     eprintln!(
-                    //         r#"InternalValue::from_components({:?}, {:?}, {}, {:?}),"#,
-                    //         item.key.user_key, item.value, item.key.seqno, item.key.value_type,
-                    //     );
-                    // }
-
                     if let Some(item) = block.next_back().map(Ok) {
                         return Some(item);
                     }
@@ -254,11 +257,11 @@ impl DoubleEndedIterator for Iter {
 
             let mut reader = create_data_block_reader(block);
 
-            // NOTE: This is the first block, seek in it
-            if self.hi_data_block.is_none() {
-                if let Some(key) = &self.range.1 {
-                    reader.seek_upper(key, SeqNo::MAX);
-                }
+            if let Some(key) = &self.range.0 {
+                reader.seek_lower(key, SeqNo::MAX);
+            }
+            if let Some(key) = &self.range.1 {
+                reader.seek_upper(key, SeqNo::MAX);
             }
 
             let item = reader.next_back();

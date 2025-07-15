@@ -283,21 +283,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         pred: impl Fn(&[u8]) -> bool,
         second_partition: bool,
     ) -> bool {
-        // Try hash index lookup
-        if let Some(hash_index) = self.get_hash_index_reader() {
-            match hash_index.get(needle) {
-                super::hash_index::Lookup::Found(idx) => {
-                    let offset = self.get_binary_index_reader().get(idx.into());
-                    self.lo_scanner.offset = offset;
-                    return true;
-                }
-                super::hash_index::Lookup::NotFound => return false,
-                super::hash_index::Lookup::Conflicted => {
-                    // Fall back to binary search
-                }
-            }
-        }
-
         // TODO: make this nicer, maybe predicate that can affect the resulting index...?
         let result = if second_partition {
             self.partition_point_2(pred)
