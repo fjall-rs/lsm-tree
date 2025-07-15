@@ -30,7 +30,17 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
 
     assert_eq!(
         0,
-        tree0.levels.read().expect("lock is poisoned").levels[0].segments[0]
+        tree0
+            .manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .level(0)
+            .expect("level should exist")
+            .first()
+            .expect("run should exist")
+            .first()
+            .expect("segment should exist")
             .metadata
             .id
     );
@@ -59,7 +69,17 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
 
     assert_eq!(
         0,
-        tree1.levels.read().expect("lock is poisoned").levels[0].segments[0]
+        tree1
+            .manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .level(0)
+            .expect("level should exist")
+            .first()
+            .expect("run should exist")
+            .first()
+            .expect("segment should exist")
             .metadata
             .id
     );

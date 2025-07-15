@@ -1,4 +1,4 @@
-use crate::cache::Cache;
+use crate::Cache;
 use std::sync::Arc;
 use value_log::BlobCache;
 
