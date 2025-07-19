@@ -123,6 +123,16 @@ impl Block {
             }
         });
 
+        let checksum = Checksum::from_raw(xxh3_64(&data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+        }
+
         Ok(Self { header, data })
     }
 
@@ -132,8 +142,6 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        // TODO: toggle with use_unsafe and add bench
-
         #[cfg(feature = "use_unsafe")]
         let mut buf = Slice::with_size_unzeroed(handle.size() as usize);
 
@@ -221,11 +229,19 @@ impl Block {
             }
         };
 
-        // TODO: check checksum
-
         #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
         {
             debug_assert_eq!(header.uncompressed_length, data.len() as u32);
+        }
+
+        let checksum = Checksum::from_raw(xxh3_64(&data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
         Ok(Self { header, data })
