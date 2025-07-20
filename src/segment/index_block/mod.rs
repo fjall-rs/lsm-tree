@@ -84,13 +84,24 @@ impl IndexBlock {
         ))
     }
 
-    pub fn encode_items(
+    #[cfg(test)]
+    pub fn encode_into_vec(items: &[KeyedBlockHandle]) -> crate::Result<Vec<u8>> {
+        let mut buf = vec![];
+
+        Self::encode_into(&mut buf, items)?;
+
+        Ok(buf)
+    }
+
+    pub fn encode_into(
+        writer: &mut Vec<u8>,
         items: &[KeyedBlockHandle],
         // restart_interval: u8, // TODO: support prefix truncation + delta encoding
-    ) -> crate::Result<Vec<u8>> {
+    ) -> crate::Result<()> {
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
+            writer,
             items.len(),
             1,   // TODO: hard coded for now
             0.0, // NOTE: Index blocks do not support hash index
