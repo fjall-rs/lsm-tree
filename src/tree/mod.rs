@@ -926,7 +926,7 @@ impl Tree {
             }
 
             // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
-            if file_name.starts_with("._") {
+            if file_name.to_string_lossy().starts_with("._") {
                 continue;
             }
 
