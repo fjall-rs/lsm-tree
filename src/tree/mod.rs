@@ -88,6 +88,8 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
+    // TODO: clear() with Nuke compaction strategy (write lock)
+
     #[doc(hidden)]
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
@@ -945,13 +947,13 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&_level_idx) = segment_id_map.get(&segment_id) {
+            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
                 let segment = Segment::recover(
                     segment_file_path,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    true, // TODO: look at configuration
+                    level_idx <= 1, // TODO: look at configuration
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;
