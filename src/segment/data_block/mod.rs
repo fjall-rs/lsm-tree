@@ -428,11 +428,24 @@ impl DataBlock {
         Trailer::new(&self.inner).item_count()
     }
 
-    pub fn encode_items(
+    pub fn encode_into_vec(
         items: &[InternalValue],
         restart_interval: u8,
         hash_index_ratio: f32,
     ) -> crate::Result<Vec<u8>> {
+        let mut buf = vec![];
+
+        Self::encode_into(&mut buf, items, restart_interval, hash_index_ratio)?;
+
+        Ok(buf)
+    }
+
+    pub fn encode_into(
+        writer: &mut Vec<u8>,
+        items: &[InternalValue],
+        restart_interval: u8,
+        hash_index_ratio: f32,
+    ) -> crate::Result<()> {
         let first_key = &items
             .first()
             .expect("chunk should not be empty")
@@ -440,6 +453,7 @@ impl DataBlock {
             .user_key;
 
         let mut serializer = Encoder::<'_, (), InternalValue>::new(
+            writer,
             items.len(),
             restart_interval,
             hash_index_ratio,
@@ -486,7 +500,7 @@ mod tests {
 
         let ping_pong_code = [1, 0];
 
-        let bytes: Vec<u8> = DataBlock::encode_items(&items, 1, 0.0)?;
+        let bytes: Vec<u8> = DataBlock::encode_into_vec(&items, 1, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -547,7 +561,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes: Vec<u8> = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes: Vec<u8> = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -587,7 +601,7 @@ mod tests {
             crate::ValueType::Value,
         )];
 
-        let bytes = DataBlock::encode_items(&items, 16, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 16, 0.0)?;
         let serialized_len = bytes.len();
 
         let data_block = DataBlock::new(Block {
@@ -626,7 +640,7 @@ mod tests {
         )];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
             let serialized_len = bytes.len();
 
             let data_block = DataBlock::new(Block {
@@ -655,7 +669,7 @@ mod tests {
             InternalValue::from_components([0], b"", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
+        let bytes = DataBlock::encode_into_vec(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -696,7 +710,7 @@ mod tests {
             InternalValue::from_components([0], [], 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -732,7 +746,7 @@ mod tests {
             InternalValue::from_components(b"d", b"d", 65, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 1, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -767,7 +781,7 @@ mod tests {
             InternalValue::from_components(b"b", b"b", 65, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
+        let bytes = DataBlock::encode_into_vec(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -813,7 +827,7 @@ mod tests {
             ),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -858,7 +872,7 @@ mod tests {
             ),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -907,7 +921,7 @@ mod tests {
             ),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 2, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -956,7 +970,7 @@ mod tests {
             ),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 1, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -992,7 +1006,7 @@ mod tests {
             InternalValue::from_components(b"b", b"b", 65, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 0.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 1, 0.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1029,7 +1043,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 16, 1.33)?;
+        let bytes = DataBlock::encode_into_vec(&items, 16, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1072,7 +1086,7 @@ mod tests {
             InternalValue::from_components("pla:venus:name", "Venus", 0, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 1, 1.33)?;
+        let bytes = DataBlock::encode_into_vec(&items, 1, 1.33)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
