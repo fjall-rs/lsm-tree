@@ -43,7 +43,7 @@ impl Block {
     }
 
     /// Encodes a block into a writer.
-    pub fn to_writer<W: std::io::Write>(
+    pub fn write_into<W: std::io::Write>(
         mut writer: &mut W,
         data: &[u8],
         compression: CompressionType,
