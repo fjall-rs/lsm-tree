@@ -61,7 +61,7 @@ pub trait Encodable<Context: Default> {
 pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
     pub(crate) phantom: PhantomData<(Context, Item)>,
 
-    pub(crate) writer: Vec<u8>,
+    pub(crate) writer: &'a mut Vec<u8>,
 
     pub(crate) state: Context,
 
@@ -82,6 +82,7 @@ pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
 
 impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> {
     pub fn new(
+        writer: &'a mut Vec<u8>,
         item_count: usize,
         restart_interval: u8, // TODO: should be NonZero
         hash_index_ratio: f32,
@@ -93,7 +94,7 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
         Self {
             phantom: PhantomData,
 
-            writer: Vec::new(),
+            writer,
 
             state: Context::default(),
 
@@ -130,7 +131,7 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
                 self.binary_index_builder.insert(self.writer.len() as u32);
             }
 
-            item.encode_full_into(&mut self.writer, &mut self.state)?;
+            item.encode_full_into(&mut *self.writer, &mut self.state)?;
 
             self.base_key = item.key();
         } else {
@@ -138,7 +139,7 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
             #[allow(clippy::cast_possible_truncation)]
             let shared_prefix_len = longest_shared_prefix_length(self.base_key, item.key());
 
-            item.encode_truncated_into(&mut self.writer, &mut self.state, shared_prefix_len)?;
+            item.encode_truncated_into(&mut *self.writer, &mut self.state, shared_prefix_len)?;
         }
 
         let restart_idx = self.restart_count - 1;
@@ -154,7 +155,7 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
         Ok(())
     }
 
-    pub fn finish(self) -> crate::Result<Vec<u8>> {
+    pub fn finish(self) -> crate::Result<()> {
         Trailer::write(self)
     }
 }
