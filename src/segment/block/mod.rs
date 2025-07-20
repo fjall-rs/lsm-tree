@@ -237,7 +237,7 @@ impl Block {
         let checksum = Checksum::from_raw(xxh3_64(&data));
         if checksum != header.checksum {
             log::error!(
-                "Checksum mismatch for block, got={}, expected={}",
+                "Checksum mismatch for block {handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
