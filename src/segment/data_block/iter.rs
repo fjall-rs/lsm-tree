@@ -189,7 +189,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -263,7 +263,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -337,7 +337,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -389,7 +389,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -424,7 +424,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -463,7 +463,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -503,7 +503,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -584,7 +584,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -625,7 +625,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -665,7 +665,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -768,7 +768,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -839,7 +839,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -876,7 +876,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -916,7 +916,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -956,7 +956,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -993,7 +993,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 1.33)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -1027,7 +1027,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -1089,7 +1089,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=16 {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -1168,7 +1168,7 @@ mod tests {
         ];
 
         for restart_interval in 1..=u8::MAX {
-            let bytes = DataBlock::encode_items(&items, restart_interval, 0.0)?;
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
@@ -1267,7 +1267,7 @@ mod tests {
             ),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 5, 1.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 5, 1.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
@@ -1323,7 +1323,7 @@ mod tests {
             InternalValue::from_components(Slice::new(&[255, 255]), Slice::new(&[]), 47, Value),
         ];
 
-        let bytes = DataBlock::encode_items(&items, 2, 1.0)?;
+        let bytes = DataBlock::encode_into_vec(&items, 2, 1.0)?;
 
         let data_block = DataBlock::new(Block {
             data: bytes.into(),

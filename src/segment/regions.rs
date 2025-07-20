@@ -106,6 +106,6 @@ impl ParsedRegions {
         }
 
         // TODO: no binary index
-        DataBlock::encode_items(&items, 1, 0.0)
+        DataBlock::encode_into_vec(&items, 1, 0.0)
     }
 }

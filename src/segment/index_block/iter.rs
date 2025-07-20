@@ -63,7 +63,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -99,7 +99,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -133,7 +133,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -170,7 +170,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -204,7 +204,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -238,7 +238,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -276,7 +276,7 @@ mod tests {
             KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -310,7 +310,7 @@ mod tests {
             KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -360,7 +360,7 @@ mod tests {
             KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
@@ -409,7 +409,7 @@ mod tests {
             KeyedBlockHandle::new(b"e".into(), BlockOffset(13_000), 5_000),
         ];
 
-        let bytes = IndexBlock::encode_items(&items)?;
+        let bytes = IndexBlock::encode_into_vec(&items)?;
 
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),

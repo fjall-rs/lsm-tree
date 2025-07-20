@@ -32,6 +32,9 @@ pub struct Writer {
     /// Compression to use
     compression: CompressionType,
 
+    /// Buffer to serialize blocks into
+    block_buffer: Vec<u8>,
+
     /// Writer of data blocks
     #[allow(clippy::struct_field_names)]
     block_writer: BufWriter<File>,
@@ -55,7 +58,7 @@ pub struct Writer {
     /// Hashes for bloom filter
     ///
     /// using enhanced double hashing, so we got two u64s
-    bloom_hash_buffer: Vec<(u64, u64)>,
+    pub bloom_hash_buffer: Vec<(u64, u64)>,
 }
 
 impl Writer {
@@ -77,6 +80,7 @@ impl Writer {
 
             index_writer: Box::new(FullIndexWriter::new()),
 
+            block_buffer: Vec::new(),
             block_writer,
             chunk: Vec::new(),
 
@@ -93,7 +97,7 @@ impl Writer {
     }
 
     #[must_use]
-    pub(crate) fn use_data_block_size(mut self, size: u32) -> Self {
+    pub fn use_data_block_size(mut self, size: u32) -> Self {
         assert!(
             size <= 4 * 1_024 * 1_024,
             "data block size must be <= 4 MiB",
@@ -103,14 +107,14 @@ impl Writer {
     }
 
     #[must_use]
-    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
         self.index_writer.use_compression(compression);
         self
     }
 
     #[must_use]
-    pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+    pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self
     }
@@ -171,10 +175,25 @@ impl Writer {
             return Ok(());
         };
 
-        let bytes = DataBlock::encode_items(&self.chunk, 16, 1.33)?;
+        self.block_buffer.clear();
+
+        DataBlock::encode_into(
+            &mut self.block_buffer,
+            &self.chunk,
+            16,   // TODO: config
+            1.33, // TODO: config
+        )?;
+
+        // log::warn!("encoding {:?}", self.chunk);
+        // log::warn!(
+        //     "encoded 0x{:#X?} -> {:?}",
+        //     self.meta.file_pos,
+        //     self.block_buffer
+        // );
 
         // TODO: prev block offset
-        let header = Block::to_writer(&mut self.block_writer, &bytes, self.compression)?;
+        let header =
+            Block::write_into(&mut self.block_writer, &self.block_buffer, self.compression)?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
@@ -253,7 +272,7 @@ impl Writer {
                 let filter_bytes = {
                     let mut builder = self.bloom_policy.init(n);
 
-                    for hash in std::mem::take(&mut self.bloom_hash_buffer) {
+                    for hash in self.bloom_hash_buffer {
                         builder.set_with_hash(hash);
                     }
 
@@ -266,10 +285,13 @@ impl Writer {
                     start.elapsed(),
                 );
 
-                let block =
-                    Block::to_writer(&mut self.block_writer, &filter_bytes, CompressionType::None)?;
+                let header = Block::write_into(
+                    &mut self.block_writer,
+                    &filter_bytes,
+                    CompressionType::None,
+                )?;
 
-                let bytes_written = (BlockHeader::serialized_len() as u32) + block.data_length;
+                let bytes_written = (BlockHeader::serialized_len() as u32) + header.data_length;
 
                 Some(BlockHandle::new(BlockOffset(filter_ptr), bytes_written))
             }
@@ -348,13 +370,20 @@ impl Writer {
 
             log::trace!("Encoding metadata block: {meta_items:#?}");
 
+            self.block_buffer.clear();
+
             // TODO: no binary index
-            let bytes = DataBlock::encode_items(&meta_items, 1, 0.0)?;
-            let header = Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
+            DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
+
+            let header = Block::write_into(
+                &mut self.block_writer,
+                &self.block_buffer,
+                CompressionType::None,
+            )?;
 
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
-            BlockHandle::new(metadata_start, bytes_written as u32)
+            BlockHandle::new(metadata_start, bytes_written)
         };
 
         // Write regions block
@@ -371,7 +400,7 @@ impl Writer {
             log::trace!("Encoding regions: {regions:#?}");
 
             let bytes = regions.encode_into_vec()?;
-            let header = Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
+            let header = Block::write_into(&mut self.block_writer, &bytes, CompressionType::None)?;
 
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
