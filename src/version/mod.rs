@@ -49,7 +49,7 @@ impl<T: Ranged> GenericLevel<T> {
         self.runs.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Arc<Run<T>>> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<Run<T>>> {
         self.runs.iter()
     }
 
