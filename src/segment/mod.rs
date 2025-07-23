@@ -392,8 +392,14 @@ impl Segment {
             None
         };
 
+        // TODO: Maybe only in L0/L1
+        // For larger levels, this will
+        // cache possibly many FDs
+        // causing kick-out of other
+        // FDs in the cache
+        //
         // NOTE: We already have a file descriptor open, so let's just cache it immediately
-        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
+        // descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         let segment = Self(Arc::new(Inner {
             path: Arc::new(file_path),
