@@ -51,9 +51,7 @@ impl std::fmt::Display for LevelManifest {
             for run in level.iter() {
                 write!(f, "  ")?;
 
-                if run.is_empty() {
-                    writeln!(f, "<empty>")?;
-                } else if run.len() >= 30 {
+                if run.len() >= 30 {
                     #[allow(clippy::indexing_slicing)]
                     for segment in run.iter().take(2) {
                         let id = segment.id();
