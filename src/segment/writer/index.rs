@@ -73,7 +73,12 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         let mut bytes = vec![];
         IndexBlock::encode_into(&mut bytes, &self.block_handles)?;
 
-        let header = Block::write_into(block_file_writer, &bytes, self.compression)?;
+        let header = Block::write_into(
+            block_file_writer,
+            &bytes,
+            crate::segment::block::BlockType::Index,
+            self.compression,
+        )?;
 
         // NOTE: We know that blocks never even approach u32 size
         #[allow(clippy::cast_possible_truncation)]

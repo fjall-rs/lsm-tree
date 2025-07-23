@@ -48,7 +48,7 @@ impl DoubleEndedIterator for Iter<'_> {
 mod tests {
     use crate::{
         segment::{
-            block::{Header, ParsedItem},
+            block::{BlockType, Header, ParsedItem},
             Block, BlockOffset, IndexBlock, KeyedBlockHandle,
         },
         Checksum,
@@ -68,6 +68,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -104,6 +105,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -138,6 +140,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -175,6 +178,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -209,6 +213,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -243,6 +248,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -281,6 +287,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -315,6 +322,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -365,6 +373,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -414,6 +423,7 @@ mod tests {
         let index_block = IndexBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Index,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,

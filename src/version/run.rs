@@ -45,7 +45,7 @@ impl<T: Ranged> std::ops::Deref for Indexed<T> {
 }
 
 /// A disjoint run of disk segments
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Run<T: Ranged>(Vec<T>);
 
 impl<T: Ranged> std::ops::Deref for Run<T> {

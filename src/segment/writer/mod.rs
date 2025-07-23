@@ -192,8 +192,12 @@ impl Writer {
         // );
 
         // TODO: prev block offset
-        let header =
-            Block::write_into(&mut self.block_writer, &self.block_buffer, self.compression)?;
+        let header = Block::write_into(
+            &mut self.block_writer,
+            &self.block_buffer,
+            super::block::BlockType::Data,
+            self.compression,
+        )?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
@@ -288,6 +292,7 @@ impl Writer {
                 let header = Block::write_into(
                     &mut self.block_writer,
                     &filter_bytes,
+                    crate::segment::block::BlockType::Filter,
                     CompressionType::None,
                 )?;
 
@@ -378,6 +383,7 @@ impl Writer {
             let header = Block::write_into(
                 &mut self.block_writer,
                 &self.block_buffer,
+                crate::segment::block::BlockType::Meta,
                 CompressionType::None,
             )?;
 
@@ -400,7 +406,12 @@ impl Writer {
             log::trace!("Encoding regions: {regions:#?}");
 
             let bytes = regions.encode_into_vec()?;
-            let header = Block::write_into(&mut self.block_writer, &bytes, CompressionType::None)?;
+            let header = Block::write_into(
+                &mut self.block_writer,
+                &bytes,
+                crate::segment::block::BlockType::Regions,
+                CompressionType::None,
+            )?;
 
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 

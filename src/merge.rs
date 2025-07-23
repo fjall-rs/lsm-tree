@@ -117,3 +117,61 @@ impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> 
         Some(Ok(max_item.1))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ValueType::Value;
+    use test_log::test;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn merge_simple() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let a = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+        #[rustfmt::skip]
+        let b = vec![
+            Ok(InternalValue::from_components("b", b"", 0, Value)),
+        ];
+
+        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("a", b"", 0, Value),
+        );
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("b", b"", 0, Value),
+        );
+        assert!(iter.next().is_none(), "iter should be closed");
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    #[allow(clippy::unwrap_used)]
+    fn merge_dup() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let a = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+        #[rustfmt::skip]
+        let b = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+
+        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("a", b"", 0, Value),
+        );
+        assert!(iter.next().is_none(), "iter should be closed");
+
+        Ok(())
+    }
+}

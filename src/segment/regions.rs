@@ -21,7 +21,12 @@ pub struct ParsedRegions {
 
 impl ParsedRegions {
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
-        let block = Block::from_file(file, *handle, CompressionType::None)?;
+        let block = Block::from_file(
+            file,
+            *handle,
+            crate::segment::block::BlockType::Regions,
+            CompressionType::None,
+        )?;
         let block = DataBlock::new(block);
 
         let tli = {

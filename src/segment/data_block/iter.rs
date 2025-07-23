@@ -134,7 +134,7 @@ impl DoubleEndedIterator for Iter<'_> {
 mod tests {
     use crate::{
         segment::{
-            block::{Header, ParsedItem},
+            block::{BlockType, Header, ParsedItem},
             Block, BlockOffset, DataBlock,
         },
         Checksum, InternalValue, Slice,
@@ -194,6 +194,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -268,6 +269,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -342,6 +344,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -394,6 +397,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -429,6 +433,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -468,6 +473,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -508,6 +514,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -589,6 +596,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -630,6 +638,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -670,6 +679,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -773,6 +783,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -844,6 +855,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -881,6 +893,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -921,6 +934,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -961,6 +975,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -998,6 +1013,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -1032,6 +1048,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -1094,6 +1111,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -1173,6 +1191,7 @@ mod tests {
             let data_block = DataBlock::new(Block {
                 data: bytes.into(),
                 header: Header {
+                    block_type: BlockType::Data,
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
@@ -1272,6 +1291,7 @@ mod tests {
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Data,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
@@ -1328,6 +1348,7 @@ mod tests {
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
             header: Header {
+                block_type: BlockType::Data,
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,

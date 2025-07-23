@@ -14,17 +14,17 @@ mod trailer;
 pub use checksum::Checksum;
 pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
-pub use header::Header;
+pub use header::{BlockType, Header};
 pub use offset::BlockOffset;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
-    segment::BlockHandle,
+    segment::{BlockHandle, DataBlock},
     CompressionType, Slice,
 };
 use std::fs::File;
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 /// A block on disk
 ///
@@ -46,10 +46,12 @@ impl Block {
     pub fn write_into<W: std::io::Write>(
         mut writer: &mut W,
         data: &[u8],
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Header> {
         let mut header = Header {
-            checksum: Checksum::from_raw(xxh3_64(data)),
+            block_type,
+            checksum: Checksum::from_raw(xxh3_128(data)),
             data_length: 0, // <-- NOTE: Is set later on
             uncompressed_length: data.len() as u32,
             previous_block_offset: BlockOffset(0), // <-- TODO:
@@ -82,6 +84,7 @@ impl Block {
     /// Reads a block from a reader.
     pub fn from_reader<R: std::io::Read>(
         reader: &mut R,
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
@@ -123,7 +126,20 @@ impl Block {
             }
         });
 
-        let checksum = Checksum::from_raw(xxh3_64(&data));
+        if header.block_type != block_type {
+            log::error!(
+                "Block type mismatch, got={:?}, expected={:?}",
+                header.block_type,
+                block_type,
+            );
+
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                header.block_type.into(),
+            ))));
+        }
+
+        let checksum = Checksum::from_raw(xxh3_128(&data));
         if checksum != header.checksum {
             log::error!(
                 "Checksum mismatch for block, got={}, expected={}",
@@ -136,10 +152,11 @@ impl Block {
         Ok(Self { header, data })
     }
 
-    /// Reads a block from a file without needing to seek the file.
+    /// Reads a block from a file.
     pub fn from_file(
         file: &File,
         handle: BlockHandle,
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         #[cfg(feature = "use_unsafe")]
@@ -234,7 +251,20 @@ impl Block {
             debug_assert_eq!(header.uncompressed_length, data.len() as u32);
         }
 
-        let checksum = Checksum::from_raw(xxh3_64(&data));
+        if header.block_type != block_type {
+            log::error!(
+                "Block type mismatch, got={:?}, expected={:?}",
+                header.block_type,
+                block_type,
+            );
+
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                header.block_type.into(),
+            ))));
+        }
+
+        let checksum = Checksum::from_raw(xxh3_128(&data));
         if checksum != header.checksum {
             log::error!(
                 "Checksum mismatch for block {handle:?}, got={}, expected={}",

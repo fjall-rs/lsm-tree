@@ -10,14 +10,52 @@ use byteorder::LittleEndian;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BlockType {
+    Data,
+    Index,
+    Filter,
+    Meta,
+    Regions,
+}
+
+impl From<BlockType> for u8 {
+    fn from(val: BlockType) -> Self {
+        match val {
+            BlockType::Data => 0,
+            BlockType::Index => 1,
+            BlockType::Filter => 2,
+            BlockType::Meta => 3,
+            BlockType::Regions => 4,
+        }
+    }
+}
+
+impl TryFrom<u8> for BlockType {
+    type Error = DecodeError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Data),
+            1 => Ok(Self::Index),
+            2 => Ok(Self::Filter),
+            3 => Ok(Self::Meta),
+            4 => Ok(Self::Regions),
+            _ => Err(DecodeError::InvalidTag(("BlockType", value))),
+        }
+    }
+}
+
 /// Header of a disk-based block
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Header {
+    pub block_type: BlockType,
+
     /// Checksum value to verify integrity of data
     pub checksum: Checksum,
 
     /// File offset of previous block - only used for data blocks
-    pub previous_block_offset: BlockOffset,
+    pub previous_block_offset: BlockOffset, // TODO: remove?
 
     /// On-disk size of data segment
     pub data_length: u32,
@@ -29,7 +67,9 @@ pub struct Header {
 impl Header {
     #[must_use]
     pub const fn serialized_len() -> usize {
-        MAGIC_BYTES.len()
+        MAGIC_BYTES.len() 
+            // Block type
+            + std::mem::size_of::<BlockType>()
             // Checksum
             + std::mem::size_of::<Checksum>()
             // Backlink
@@ -46,8 +86,11 @@ impl Encode for Header {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;
 
+        // Write block type
+        writer.write_u8(self.block_type .into())?;
+
         // Write checksum
-        writer.write_u64::<LittleEndian>(*self.checksum)?;
+        writer.write_u128::<LittleEndian>(*self.checksum)?;
 
         // Write prev offset
         writer.write_u64::<LittleEndian>(*self.previous_block_offset)?;
@@ -72,8 +115,12 @@ impl Decode for Header {
             return Err(DecodeError::InvalidHeader("Block"));
         }
 
+        // Read block type
+        let block_type = reader.read_u8()?;
+        let block_type = BlockType::try_from(block_type)?;
+
         // Read checksum
-        let checksum = reader.read_u64::<LittleEndian>()?;
+        let checksum = reader.read_u128::<LittleEndian>()?;
 
         // Read prev offset
         let previous_block_offset = reader.read_u64::<LittleEndian>()?;
@@ -85,6 +132,7 @@ impl Decode for Header {
         let uncompressed_length = reader.read_u32::<LittleEndian>()?;
 
         Ok(Self {
+            block_type,
             checksum: Checksum::from_raw(checksum),
             previous_block_offset: BlockOffset(previous_block_offset),
             data_length,

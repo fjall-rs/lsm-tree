@@ -6,7 +6,7 @@
 use crate::metrics::Metrics;
 
 use super::{Block, BlockHandle, GlobalSegmentId};
-use crate::{Cache, CompressionType, DescriptorTable};
+use crate::{segment::block::BlockType, Cache, CompressionType, DescriptorTable};
 use std::{path::Path, sync::Arc};
 
 /// [start, end] slice indexes
@@ -19,6 +19,7 @@ pub fn load_block(
     descriptor_table: &DescriptorTable,
     cache: &Cache,
     handle: &BlockHandle,
+    block_type: BlockType,
     compression: CompressionType,
     #[cfg(feature = "metrics")] metrics: &Metrics,
 ) -> crate::Result<Block> {
@@ -43,7 +44,7 @@ pub fn load_block(
         Arc::new(std::fs::File::open(path)?)
     };
 
-    let block = Block::from_file(&fd, *handle, compression)?;
+    let block = Block::from_file(&fd, *handle, block_type, compression)?;
 
     #[cfg(feature = "metrics")]
     metrics.block_load_io.fetch_add(1, Relaxed);

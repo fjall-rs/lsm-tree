@@ -49,7 +49,12 @@ pub struct ParsedMeta {
 impl ParsedMeta {
     #[allow(clippy::expect_used, clippy::too_many_lines)]
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
-        let block = Block::from_file(file, *handle, CompressionType::None)?;
+        let block = Block::from_file(
+            file,
+            *handle,
+            crate::segment::block::BlockType::Meta,
+            CompressionType::None,
+        )?;
         let block = DataBlock::new(block);
 
         assert_eq!(

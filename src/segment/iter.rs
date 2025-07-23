@@ -173,6 +173,7 @@ impl Iterator for Iter {
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
+                        crate::segment::block::BlockType::Data,
                         self.compression,
                         #[cfg(feature = "metrics")]
                         &self.metrics,
@@ -247,6 +248,7 @@ impl DoubleEndedIterator for Iter {
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
+                        crate::segment::block::BlockType::Data,
                         self.compression,
                         #[cfg(feature = "metrics")]
                         &self.metrics,

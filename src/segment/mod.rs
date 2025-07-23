@@ -29,8 +29,10 @@ pub use writer::Writer;
 use crate::metrics::Metrics;
 
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, CompressionType, InternalValue, SeqNo, TreeId,
-    UserKey,
+    cache::Cache,
+    descriptor_table::DescriptorTable,
+    segment::block::{BlockType, ParsedItem},
+    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use filter::standard_bloom::CompositeHash;
@@ -131,6 +133,7 @@ impl Segment {
     fn load_block(
         &self,
         handle: &BlockHandle,
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Block> {
         load_block(
@@ -139,6 +142,7 @@ impl Segment {
             &self.descriptor_table,
             &self.cache,
             handle,
+            block_type,
             compression,
             #[cfg(feature = "metrics")]
             &self.metrics,
@@ -146,8 +150,12 @@ impl Segment {
     }
 
     fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
-        self.load_block(handle, self.metadata.data_block_compression)
-            .map(DataBlock::new)
+        self.load_block(
+            handle,
+            BlockType::Data,
+            self.metadata.data_block_compression,
+        )
+        .map(DataBlock::new)
     }
 
     pub fn get(
@@ -177,7 +185,11 @@ impl Segment {
                 return Ok(None);
             }
         } else if let Some(filter_block_handle) = &self.regions.filter {
-            let block = self.load_block(filter_block_handle, CompressionType::None)?;
+            let block = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None,
+            )?;
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
             #[cfg(feature = "metrics")]
@@ -352,6 +364,7 @@ impl Segment {
             let block = Block::from_file(
                 &file,
                 regions.tli,
+                crate::segment::block::BlockType::Index,
                 metadata.data_block_compression, // TODO: index blocks may get their own compression level
             )?;
 
@@ -384,6 +397,7 @@ impl Segment {
                     Block::from_file(
                         &file,
                         filter_handle,
+                        crate::segment::block::BlockType::Filter,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                     )
                 })

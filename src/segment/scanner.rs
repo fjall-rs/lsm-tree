@@ -42,7 +42,8 @@ impl Scanner {
         reader: &mut BufReader<File>,
         compression: CompressionType,
     ) -> crate::Result<DataBlock> {
-        Block::from_reader(reader, compression).map(DataBlock::new)
+        Block::from_reader(reader, crate::segment::block::BlockType::Data, compression)
+            .map(DataBlock::new)
     }
 }
 
