@@ -67,7 +67,7 @@ pub struct Header {
 impl Header {
     #[must_use]
     pub const fn serialized_len() -> usize {
-        MAGIC_BYTES.len() 
+        MAGIC_BYTES.len()
             // Block type
             + std::mem::size_of::<BlockType>()
             // Checksum
@@ -87,7 +87,7 @@ impl Encode for Header {
         writer.write_all(&MAGIC_BYTES)?;
 
         // Write block type
-        writer.write_u8(self.block_type .into())?;
+        writer.write_u8(self.block_type.into())?;
 
         // Write checksum
         writer.write_u128::<LittleEndian>(*self.checksum)?;
