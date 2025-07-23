@@ -928,7 +928,13 @@ impl Tree {
 
             let file_name = dirent.file_name();
 
+            // https://en.wikipedia.org/wiki/.DS_Store
             if file_name == ".DS_Store" {
+                continue;
+            }
+
+            // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
+            if file_name.to_string_lossy().starts_with("._") {
                 continue;
             }
 
