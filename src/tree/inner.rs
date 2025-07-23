@@ -2,9 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use crate::{
-    config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
-    segment::meta::SegmentId, stop_signal::StopSignal,
+    config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
+    SegmentId,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -43,7 +46,7 @@ impl SealedMemtables {
     }
 }
 
-/// Hands out a unique (monotonically increasing) tree ID
+/// Hands out a unique (monotonically increasing) tree ID.
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -64,9 +67,9 @@ pub struct TreeInner {
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
-    /// Level manifest
+    /// Current tree version
     #[doc(hidden)]
-    pub levels: Arc<RwLock<LevelManifest>>,
+    pub manifest: Arc<RwLock<LevelManifest>>,
 
     /// Tree configuration
     pub config: Config,
@@ -76,12 +79,15 @@ pub struct TreeInner {
     pub(crate) stop_signal: StopSignal,
 
     pub(crate) major_compaction_lock: RwLock<()>,
+
+    #[doc(hidden)]
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<Metrics>,
 }
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let levels =
-            LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
+        let manifest = LevelManifest::create_new(&config.path)?;
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -89,9 +95,11 @@ impl TreeInner {
             config,
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
-            levels: Arc::new(RwLock::new(levels)),
+            manifest: Arc::new(RwLock::new(manifest)),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
+            #[cfg(feature = "metrics")]
+            metrics: Metrics::default().into(),
         })
     }
 

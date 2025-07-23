@@ -2,13 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    cache::Cache,
-    descriptor_table::FileDescriptorTable,
-    path::absolute_path,
-    segment::meta::{CompressionType, TableType},
-    BlobTree, Tree,
-};
+use crate::{path::absolute_path, BlobTree, Cache, CompressionType, DescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -64,10 +58,9 @@ pub struct Config {
     /// What type of compression is used for blobs
     pub blob_compression: CompressionType,
 
-    /// Table type (unused)
-    #[allow(unused)]
-    pub(crate) table_type: TableType,
-
+    // /// Table type (unused)
+    // #[allow(unused)]
+    // pub(crate) table_type: TableType,
     /// Block size of data blocks
     pub data_block_size: u32,
 
@@ -97,14 +90,14 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
+            descriptor_table: Arc::new(DescriptorTable::new(256)),
 
             cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
 
@@ -112,7 +105,7 @@ impl Default for Config {
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
             tree_type: TreeType::Standard,
-            table_type: TableType::Block,
+            // table_type: TableType::Block,
             compression: CompressionType::None,
             blob_compression: CompressionType::None,
             bloom_bits_per_key: 10,
@@ -280,7 +273,7 @@ impl Config {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn descriptor_table(mut self, descriptor_table: Arc<FileDescriptorTable>) -> Self {
+    pub fn descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

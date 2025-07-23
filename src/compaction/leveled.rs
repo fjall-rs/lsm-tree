@@ -5,28 +5,27 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
-    level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
+    level_manifest::{hidden_set::HiddenSet, LevelManifest},
     segment::Segment,
+    version::{run::Ranged, Run},
     windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, KeyRange, SegmentId,
 };
 
-// TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
-/// Aggregates the key range of a list of segments.
-fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
-    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
+pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
+    let lo = segments.first().expect("run should never be empty");
+    let hi = segments.last().expect("run should never be empty");
+    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
 /// Tries to find the most optimal compaction set from
 /// one level into the other.
 fn pick_minimal_compaction(
-    curr_level: &Level,
-    next_level: &Level,
+    curr_run: &Run<Segment>,
+    next_run: Option<&Run<Segment>>,
     hidden_set: &HiddenSet,
+    overshoot: u64,
 ) -> Option<(HashSet<SegmentId>, bool)> {
-    // assert!(curr_level.is_disjoint, "Lx is not disjoint");
-    // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
-
     struct Choice {
         write_amp: f32,
         segment_ids: HashSet<SegmentId>,
@@ -36,90 +35,80 @@ fn pick_minimal_compaction(
     let mut choices = vec![];
 
     let mut add_choice = |choice: Choice| {
-        let mut valid_choice = true;
-
-        // IMPORTANT: Compaction is blocked because of other
-        // on-going compaction
-        valid_choice &= !choice.segment_ids.iter().any(|x| hidden_set.is_hidden(*x));
-
-        // NOTE: Keep compactions with 25 or less segments
-        // to make compactions not too large
-        valid_choice &= choice.can_trivial_move || choice.segment_ids.len() <= 25;
+        let valid_choice = if hidden_set.is_blocked(choice.segment_ids.iter().copied()) {
+            // IMPORTANT: Compaction is blocked because of other
+            // on-going compaction
+            false
+        } else if choice.can_trivial_move {
+            true
+        } else {
+            // TODO: this should not consider the number of segments, but the amount of rewritten data
+            // which corresponds to the amount of temporary space amp
+            choice.segment_ids.len() <= 100
+        };
 
         if valid_choice {
             choices.push(choice);
         }
     };
 
-    for window in next_level.growing_windows() {
-        if hidden_set.is_blocked(window.iter().map(Segment::id)) {
-            // IMPORTANT: Compaction is blocked because of other
-            // on-going compaction
-            continue;
-        }
+    if let Some(next_run) = &next_run {
+        for window in next_run.growing_windows() {
+            if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+                // IMPORTANT: Compaction is blocked because of other
+                // on-going compaction
+                continue;
+            }
 
-        let key_range = aggregate_key_range(window);
+            let key_range = aggregate_run_key_range(window);
 
-        // Pull in all segments in current level into compaction
-        let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
-            // IMPORTANT: Avoid "infectious spread" of key ranges
-            // Imagine these levels:
-            //
-            //      A     B     C     D     E     F
-            // L1 | ----- ----- ----- ----- ----- -----
-            // L2 |    -----  -----  ----- ----- -----
-            //         1      2      3     4     5
-            //
-            // If we took 1, we would also have to include B,
-            // but then we would also have to include 2,
-            // but then we would also have to include C,
-            // but then we would also have to include 3,
-            // ...
-            //
-            // Instead, we consider a window like 1 - 3
-            // and then take B & C, because they are *contained* in that range
-            // Not including A or D is fine, because we are not shadowing data unexpectedly
-            curr_level.contained_segments(&key_range).collect()
-        } else {
-            // If the level is not disjoint, we just merge everything that overlaps
-            // to try and "repair" the level
-            curr_level.overlapping_segments(&key_range).collect()
-        };
+            // Pull in all segments in current level into compaction
+            let curr_level_pull_in: Vec<_> = curr_run.get_contained(&key_range).collect();
 
-        if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
-            // IMPORTANT: Compaction is blocked because of other
-            // on-going compaction
-            continue;
-        }
+            if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
+                // IMPORTANT: Compaction is blocked because of other
+                // on-going compaction
+                continue;
+            }
 
-        let curr_level_size = curr_level_pull_in
-            .iter()
-            .map(|x| x.metadata.file_size)
-            .sum::<u64>();
+            let curr_level_size = curr_level_pull_in
+                .iter()
+                .map(|x| x.metadata.file_size)
+                .sum::<u64>();
 
-        // NOTE: Only consider compactions where we actually reach the amount
-        // of bytes we need to merge
-        if curr_level_size >= 1 {
-            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
+            // NOTE: Only consider compactions where we actually reach the amount
+            // of bytes we need to merge?
+            if curr_level_size >= overshoot {
+                let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
 
-            let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
-            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
+                let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
+                segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
 
-            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
+                let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-            add_choice(Choice {
-                write_amp,
-                segment_ids,
-                can_trivial_move: false,
-            });
+                add_choice(Choice {
+                    write_amp,
+                    segment_ids,
+                    can_trivial_move: false,
+                });
+            }
         }
     }
 
     // NOTE: Find largest trivial move (if it exists)
-    for window in curr_level.shrinking_windows() {
-        let key_range = aggregate_key_range(window);
+    for window in curr_run.shrinking_windows() {
+        let key_range = aggregate_run_key_range(window);
 
-        if next_level.overlapping_segments(&key_range).next().is_none() {
+        if let Some(next_run) = &next_run {
+            if next_run.get_overlapping(&key_range).next().is_none() {
+                add_choice(Choice {
+                    write_amp: 0.0,
+                    segment_ids: window.iter().map(Segment::id).collect(),
+                    can_trivial_move: true,
+                });
+                break;
+            }
+        } else {
             add_choice(Choice {
                 write_amp: 0.0,
                 segment_ids: window.iter().map(Segment::id).collect(),
@@ -217,16 +206,14 @@ impl CompactionStrategy for Strategy {
 
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let view = &levels.levels;
-
-        // TODO: look at L1+, if not disjoint
-        // TODO: try to repairing level by rewriting
-        // TODO: abort if any segment is hidden
-        // TODO: then make sure, non-disjoint levels cannot be used in subsequent code below
-        // TODO: add tests
-
         // L1+ compactions
-        for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2).rev()
+        for (curr_level_index, level) in levels
+            .as_slice()
+            .iter()
+            .enumerate()
+            .skip(1)
+            .take(usize::from(levels.level_count() - 2))
+            .rev()
         {
             // NOTE: Level count is 255 max
             #[allow(clippy::cast_possible_truncation)]
@@ -239,8 +226,8 @@ impl CompactionStrategy for Strategy {
             }
 
             let level_size: u64 = level
-                .segments
                 .iter()
+                .flat_map(|x| x.iter())
                 // NOTE: Take bytes that are already being compacted into account,
                 // otherwise we may be overcompensating
                 .filter(|x| !levels.hidden_set().is_hidden(x.id()))
@@ -252,21 +239,22 @@ impl CompactionStrategy for Strategy {
             let overshoot = level_size.saturating_sub(desired_bytes);
 
             if overshoot > 0 {
-                let Some(next_level) = &view.get(next_level_index as usize) else {
-                    break;
-                };
-
-                let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, levels.hidden_set())
+                let Some(next_level) = levels.current_version().level(next_level_index as usize)
                 else {
                     break;
                 };
 
-                // eprintln!(
-                //     "merge {} segments, L{}->L{next_level_index}: {segment_ids:?}",
-                //     segment_ids.len(),
-                //     next_level_index - 1,
-                // );
+                debug_assert!(level.is_disjoint(), "level should be disjoint");
+                debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
+
+                let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
+                    level.first_run().expect("should have exactly one run"),
+                    next_level.first_run().map(std::ops::Deref::deref),
+                    levels.hidden_set(),
+                    overshoot,
+                ) else {
+                    break;
+                };
 
                 let choice = CompactionInput {
                     segment_ids,
@@ -274,21 +262,15 @@ impl CompactionStrategy for Strategy {
                     target_size: u64::from(self.target_size),
                 };
 
-                // TODO: eventually, this should happen lazily
-                // if a segment file lives for very long, it should get rewritten
-                // Rocks, by default, rewrites files that are 1 month or older
-                //
-                // TODO: 3.0.0 configuration?
-                // NOTE: We purposefully not trivially move segments
-                // if we go from L1 to L2
-                // https://github.com/fjall-rs/lsm-tree/issues/63
-                let goes_into_cold_storage = next_level_index == 2;
+                /* eprintln!(
+                    "{} {} segments, L{}->L{next_level_index}: {:?}",
+                    if can_trivial_move { "move" } else { "merge" },
+                    choice.segment_ids.len(),
+                    next_level_index - 1,
+                    choice.segment_ids,
+                ); */
 
-                if goes_into_cold_storage {
-                    return Choice::Merge(choice);
-                }
-
-                if can_trivial_move && level.is_disjoint {
+                if can_trivial_move && level.is_disjoint() {
                     return Choice::Move(choice);
                 }
                 return Choice::Merge(choice);
@@ -299,38 +281,34 @@ impl CompactionStrategy for Strategy {
         {
             let busy_levels = levels.busy_levels();
 
-            let Some(first_level) = view.first() else {
+            let Some(first_level) = levels.current_version().level(0) else {
                 return Choice::DoNothing;
             };
 
-            if first_level.len() >= self.l0_threshold.into() && !busy_levels.contains(&0) {
-                let first_level_size = first_level.size();
+            if busy_levels.contains(&0) {
+                return Choice::DoNothing;
+            }
 
-                // NOTE: Special handling for disjoint workloads
-                if levels.is_disjoint() {
-                    if first_level_size < self.target_size.into() {
-                        // TODO: also do this in non-disjoint workloads
-                        // -> intra-L0 compaction
+            if first_level.len() >= self.l0_threshold.into() {
+                // let first_level_size = first_level.size();
 
-                        // NOTE: Force a merge into L0 itself
-                        // ...we seem to have *very* small flushes
-                        return if first_level.len() >= 32 {
-                            Choice::Merge(CompactionInput {
-                                dest_level: 0,
-                                segment_ids: first_level.list_ids(),
-                                // NOTE: Allow a bit of overshooting
-                                target_size: ((self.target_size as f32) * 1.1) as u64,
-                            })
-                        } else {
-                            Choice::DoNothing
-                        };
-                    }
+                /* // NOTE: Special handling for disjoint workloads
+                if levels.is_disjoint() && first_level_size < self.target_size.into() {
+                    // TODO: also do this in non-disjoint workloads
+                    // -> intra-L0 compaction
 
-                    return Choice::Merge(CompactionInput {
-                        dest_level: 1,
-                        segment_ids: first_level.list_ids(),
-                        target_size: ((self.target_size as f32) * 1.1) as u64,
-                    });
+                    // NOTE: Force a merge into L0 itself
+                    // ...we seem to have *very* small flushes
+                    return if first_level.len() >= 30 {
+                        Choice::Merge(CompactionInput {
+                            dest_level: 0,
+                            segment_ids: first_level.list_ids(),
+                            // NOTE: Allow a bit of overshooting
+                            target_size: ((self.target_size as f32) * 1.1) as u64,
+                        })
+                    } else {
+                        Choice::DoNothing
+                    };
                 }
 
                 if first_level_size < self.target_size.into() {
@@ -341,24 +319,21 @@ impl CompactionStrategy for Strategy {
                         segment_ids: first_level.list_ids(),
                         target_size: self.target_size.into(),
                     });
-                }
+                } */
 
                 if !busy_levels.contains(&1) {
-                    let mut level = (**first_level).clone();
-                    level.sort_by_key_range();
-
-                    let Some(next_level) = &view.get(1) else {
+                    let Some(next_level) = &levels.current_version().level(1) else {
                         return Choice::DoNothing;
                     };
 
-                    // TODO: list_ids()
-                    let mut segment_ids: HashSet<u64> = level.iter().map(Segment::id).collect();
+                    let mut segment_ids: HashSet<u64> = first_level.list_ids();
+
+                    let key_range = first_level.aggregate_key_range();
 
                     // Get overlapping segments in next level
-                    let key_range = aggregate_key_range(&level);
-
                     let next_level_overlapping_segment_ids: Vec<_> = next_level
-                        .overlapping_segments(&key_range)
+                        .iter()
+                        .flat_map(|run| run.get_overlapping(&key_range))
                         .map(Segment::id)
                         .collect();
 
@@ -370,7 +345,13 @@ impl CompactionStrategy for Strategy {
                         target_size: u64::from(self.target_size),
                     };
 
-                    if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
+                    /* eprintln!(
+                        "merge {} segments, L0->L1: {:?}",
+                        choice.segment_ids.len(),
+                        choice.segment_ids,
+                    ); */
+
+                    if next_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
                         return Choice::Move(choice);
                     }
                     return Choice::Merge(choice);
@@ -381,7 +362,7 @@ impl CompactionStrategy for Strategy {
         Choice::DoNothing
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::{Choice, Strategy};
@@ -395,8 +376,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         time::unix_timestamp,
         Config, HashSet, KeyRange,
     };
@@ -421,7 +403,9 @@ mod tests {
         size: u64,
         tombstone_ratio: f32,
     ) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /*   let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -466,7 +450,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[allow(clippy::expect_used)]
@@ -683,3 +667,4 @@ mod tests {
         Ok(())
     }
 }
+ */

@@ -1,5 +1,4 @@
-use crate::segment::meta::SegmentId;
-use crate::HashSet;
+use crate::{HashSet, SegmentId};
 
 /// The hidden set keeps track of which segments are currently being compacted
 ///

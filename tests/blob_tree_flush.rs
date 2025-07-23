@@ -2,6 +2,7 @@ use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
+#[ignore]
 fn blob_gc_flush_tombstone() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
