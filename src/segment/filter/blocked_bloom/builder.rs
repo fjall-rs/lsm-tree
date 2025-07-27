@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::super::bit_array::Builder as BitArrayBuilder;
-use crate::segment::filter::{bit_array::BitArrayReader, CACHE_LINE_BYTES};
+use crate::{file::MAGIC_BYTES, segment::filter::CACHE_LINE_BYTES};
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::Write;
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
@@ -24,12 +26,25 @@ pub struct Builder {
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
     #[must_use]
-    pub fn build(self) -> BlockedBloomFilter {
-        BlockedBloomFilter {
-            inner: BitArrayReader::new(self.inner.bytes().into()),
-            k: self.k,
-            num_blocks: self.num_blocks,
-        }
+    pub fn build(&self) -> Vec<u8> {
+        let mut v = vec![];
+
+        // Write header
+        v.write_all(&MAGIC_BYTES).expect("should not fail");
+
+        // NOTE: Filter type (unused)
+        v.write_u8(0).expect("should not fail");
+
+        // NOTE: Hash type (unused)
+        v.write_u8(0).expect("should not fail");
+
+        v.write_u64::<LittleEndian>(self.num_blocks as u64)
+            .expect("should not fail");
+        v.write_u64::<LittleEndian>(self.k as u64)
+            .expect("should not fail");
+        v.write_all(self.inner.bytes()).expect("should not fail");
+
+        v
     }
 
     /// Constructs a bloom filter that can hold `n` items
