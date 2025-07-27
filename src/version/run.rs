@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{binary_search::partition_point, KeyRange};
 use std::ops::{Bound, RangeBounds};
 
@@ -63,6 +67,9 @@ impl<T: Ranged> Run<T> {
 
     pub fn push(&mut self, item: T) {
         self.0.push(item);
+
+        self.0
+            .sort_by(|a, b| a.key_range().min().cmp(b.key_range().min()));
     }
 
     pub fn extend(&mut self, items: Vec<T>) {

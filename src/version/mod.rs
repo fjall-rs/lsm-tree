@@ -1,12 +1,16 @@
-pub mod key_range_partition;
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
+mod optimize;
 pub mod run;
 
 pub use run::Run;
 
-use crate::{HashSet, KeyRange, Segment, SegmentId, UserKey};
-use key_range_partition::KeyRangePartitions;
+use crate::{HashSet, KeyRange, Segment, SegmentId};
+use optimize::optimize_runs;
 use run::Ranged;
-use std::{collections::BTreeSet, ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc};
 
 pub type VersionId = u64;
 
@@ -94,8 +98,6 @@ impl Level {
     }
 
     pub fn first_run(&self) -> Option<&Arc<Run<Segment>>> {
-        assert!(self.runs.len() <= 1, "should have at most one run");
-
         self.runs.first()
     }
 
@@ -143,51 +145,6 @@ impl std::ops::Deref for Version {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-// TODO: optimize runs unit test(s)
-pub fn optimize_runs(level: Vec<Run<Segment>>) -> Vec<Run<Segment>> {
-    if level.len() <= 1 {
-        level
-    } else {
-        let mut key_range_boundaries: BTreeSet<crate::UserKey> = BTreeSet::<UserKey>::default();
-
-        for run in &level {
-            for fragment in run.iter() {
-                let key_range = &fragment.metadata.key_range;
-                key_range_boundaries.insert(key_range.min().clone());
-                key_range_boundaries.insert(key_range.max().clone());
-            }
-        }
-
-        let range_boundaries = key_range_boundaries
-            .into_iter()
-            .flat_map(|key| vec![key.clone(), key])
-            .collect::<Vec<_>>();
-
-        let mut index = KeyRangePartitions::new(range_boundaries.windows(2).map(|pair| {
-            // NOTE: We are iterating over pairs, so index 0 and 1 always exist
-            #[allow(clippy::expect_used)]
-            #[allow(clippy::get_first)]
-            (
-                pair.get(0).expect("exists").clone(),
-                pair.get(1).expect("exists").clone(),
-            )
-        }));
-
-        // IMPORTANT: Index from bottom to top
-        for run in level.iter().rev() {
-            for segment in run.iter() {
-                index.index_segment(segment);
-            }
-        }
-
-        index
-            .into_optimized_runs()
-            .into_iter()
-            .map(Run::new)
-            .collect()
     }
 }
 
