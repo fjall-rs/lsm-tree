@@ -56,7 +56,7 @@ impl Encode for CompressionType {
                 writer.write_u8(2)?;
                 writer.write_u8(*level)?;
             }
-        };
+        }
 
         Ok(())
     }

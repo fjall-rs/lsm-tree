@@ -22,6 +22,7 @@ pub struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     /// Initializes a new hash index reader.
+    #[must_use]
     pub fn new(bytes: &'a [u8], offset: u32, len: u32) -> Self {
         let offset = offset as usize;
         let len = len as usize;
@@ -32,16 +33,24 @@ impl<'a> Reader<'a> {
         Self(&bytes[offset..end])
     }
 
-    // NOTE: Not used for performance reasons, so no need to be hyper-optimized
+    /// Returns the number of buckets.
+    #[must_use]
+    pub fn bucket_count(&self) -> usize {
+        self.0.len()
+    }
+
+    // NOTE: Only used in metrics, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
     /// Returns the amount of empty slots in the hash index.
+    #[must_use]
     pub fn free_count(&self) -> usize {
         self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
     }
 
-    // NOTE: Not used for performance reasons, so no need to be hyper-optimized
-    #[allow(clippy::naive_bytecount)]
+    // NOTE: Only used in metrics, so no need to be hyper-optimized
     /// Returns the amount of conflict markers in the hash index.
+    #[must_use]
+    #[allow(clippy::naive_bytecount)]
     pub fn conflict_count(&self) -> usize {
         self.0
             .iter()
@@ -50,6 +59,7 @@ impl<'a> Reader<'a> {
     }
 
     /// Returns the binary index position if the key is not conflicted.
+    #[must_use]
     pub fn get(&self, key: &[u8]) -> Lookup {
         // NOTE: Even with very high hash ratio, there will be nearly enough items to
         // cause us to create u32 buckets
@@ -60,7 +70,13 @@ impl<'a> Reader<'a> {
 
         // SAFETY: We use modulo in `calculate_bucket_position`
         #[allow(unsafe_code)]
+        #[cfg(feature = "use_unsafe")]
         let marker = unsafe { *self.0.get_unchecked(bucket_pos) };
+
+        // SAFETY: We use modulo in `calculate_bucket_position`
+        #[allow(clippy::indexing_slicing)]
+        #[cfg(not(feature = "use_unsafe"))]
+        let marker = self.0[bucket_pos];
 
         match marker {
             MARKER_CONFLICT => Lookup::Conflicted,

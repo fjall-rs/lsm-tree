@@ -3,25 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, DataBlock};
-use crate::{CompressionType, InternalValue};
-use self_cell::self_cell;
+use crate::{segment::iter::OwnedDataBlockIter, CompressionType, InternalValue};
 use std::{fs::File, io::BufReader, path::Path};
-
-type BlockIter<'a> = Box<dyn Iterator<Item = InternalValue> + 'a>;
-
-self_cell!(
-    pub struct Iter {
-        owner: DataBlock,
-
-        #[covariant]
-        dependent: BlockIter,
-    }
-);
 
 /// Segment reader that is optimized for consuming an entire segment
 pub struct Scanner {
     reader: BufReader<File>,
-    iter: Iter,
+    iter: OwnedDataBlockIter,
 
     compression: CompressionType,
     block_count: usize,
@@ -38,7 +26,7 @@ impl Scanner {
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
 
         let block = Self::fetch_next_block(&mut reader, compression)?;
-        let iter = Iter::new(block, |block| Box::new(block.iter()));
+        let iter = OwnedDataBlockIter::new(block, DataBlock::iter);
 
         Ok(Self {
             reader,
@@ -54,7 +42,8 @@ impl Scanner {
         reader: &mut BufReader<File>,
         compression: CompressionType,
     ) -> crate::Result<DataBlock> {
-        Block::from_reader(reader, compression).map(DataBlock::new)
+        Block::from_reader(reader, crate::segment::block::BlockType::Data, compression)
+            .map(DataBlock::new)
     }
 }
 
@@ -63,7 +52,7 @@ impl Iterator for Scanner {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(item) = self.iter.with_dependent_mut(|_, iter| iter.next()) {
+            if let Some(item) = self.iter.next() {
                 return Some(Ok(item));
             }
 
@@ -73,7 +62,7 @@ impl Iterator for Scanner {
 
             // Init new block
             let block = fail_iter!(Self::fetch_next_block(&mut self.reader, self.compression));
-            self.iter = Iter::new(block, |block| Box::new(block.iter()));
+            self.iter = OwnedDataBlockIter::new(block, DataBlock::iter);
 
             self.read_count += 1;
         }

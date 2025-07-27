@@ -3,23 +3,22 @@
 // (found in the LICENSE-* files in the repository)
 
 mod builder;
-use super::{bit_array::BitArrayReader, AMQFilter, BloomFilterType, AMQ, CACHE_LINE_BYTES};
+use super::{bit_array::BitArrayReader, CACHE_LINE_BYTES};
 use crate::{
     coding::{DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
 };
 pub use builder::Builder;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use core::num;
 use std::io::{Read, Write};
 
 /// Two hashes that are used for double hashing
 pub type CompositeHash = (u64, u64);
 
 #[derive(Debug, PartialEq)]
-pub struct BlockedBloomFilter {
+pub struct BlockedBloomFilterReader<'a> {
     /// Raw bytes exposed as bit array
-    inner: BitArrayReader,
+    inner: BitArrayReader<'a>,
 
     /// Number of hash functions
     k: usize,
@@ -28,111 +27,109 @@ pub struct BlockedBloomFilter {
     num_blocks: usize,
 }
 
-impl AMQ for BlockedBloomFilter {
-    fn bytes(&self) -> &[u8] {
-        self.inner.bytes()
-    }
+// impl<'a> BlockedBloomFilterReader<'a> {
+//     fn bytes(&self) -> &[u8] {
+//         self.inner.bytes()
+//     }
 
-    /// Size of bloom filter in bytes
-    #[must_use]
-    fn len(&self) -> usize {
-        self.inner.bytes().len()
-    }
+//     /// Size of bloom filter in bytes
+//     #[must_use]
+//     fn len(&self) -> usize {
+//         self.inner.bytes().len()
+//     }
 
-    /// Returns `true` if the hash may be contained.
-    ///
-    /// Will never have a false negative.
-    #[must_use]
-    fn contains_hash(&self, (mut h1, mut h2): CompositeHash) -> bool {
-        let block_idx = h1 % (self.num_blocks as u64);
+//     /// Returns `true` if the hash may be contained.
+//     ///
+//     /// Will never have a false negative.
+//     #[must_use]
+//     fn contains_hash(&self, (mut h1, mut h2): CompositeHash) -> bool {
+//         let block_idx = h1 % (self.num_blocks as u64);
 
-        for i in 1..(self.k as u64) {
-            let bit_idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
+//         for i in 1..(self.k as u64) {
+//             let bit_idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
-            // NOTE: should be in bounds because of modulo
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-            if !self.has_bit(block_idx as usize, bit_idx as usize) {
-                return false;
-            }
+//             // NOTE: should be in bounds because of modulo
+//             #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+//             if !self.has_bit(block_idx as usize, bit_idx as usize) {
+//                 return false;
+//             }
 
-            h1 = h1.wrapping_add(h2);
-            h2 = h2.wrapping_mul(i);
-        }
+//             h1 = h1.wrapping_add(h2);
+//             h2 = h2.wrapping_mul(i);
+//         }
 
-        true
-    }
+//         true
+//     }
 
-    /// Returns `true` if the item may be contained.
-    ///
-    /// Will never have a false negative.
-    #[must_use]
-    fn contains(&self, key: &[u8]) -> bool {
-        self.contains_hash(Self::get_hash(key))
-    }
-}
+//     /// Returns `true` if the item may be contained.
+//     ///
+//     /// Will never have a false negative.
+//     #[must_use]
+//     fn contains(&self, key: &[u8]) -> bool {
+//         self.contains_hash(Self::get_hash(key))
+//     }
+// }
 
-impl Encode for BlockedBloomFilter {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // Write header
-        writer.write_all(&MAGIC_BYTES)?;
+// impl<'a> Encode for BlockedBloomFilter<'a> {
+//     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+//         // Write header
+//         writer.write_all(&MAGIC_BYTES)?;
 
-        writer.write_u8(BloomFilterType::BlockedBloom as u8)?;
+//         writer.write_u8(BloomFilterType::BlockedBloom as u8)?;
 
-        // NOTE: Hash type (unused)
-        writer.write_u8(0)?;
+//         // NOTE: Hash type (unused)
+//         writer.write_u8(0)?;
 
-        writer.write_u64::<LittleEndian>(self.num_blocks as u64)?;
-        writer.write_u64::<LittleEndian>(self.k as u64)?;
-        writer.write_all(self.inner.bytes())?;
+//         writer.write_u64::<LittleEndian>(self.num_blocks as u64)?;
+//         writer.write_u64::<LittleEndian>(self.k as u64)?;
+//         writer.write_all(self.inner.bytes())?;
 
-        Ok(())
-    }
-}
+//         Ok(())
+//     }
+// }
 
-impl BlockedBloomFilter {
-    // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
-        // NOTE: Hash type (unused)
-        let hash_type = reader.read_u8()?;
-        assert_eq!(0, hash_type, "Invalid bloom hash type");
+// impl<'a> BlockedBloomFilter<'a> {
+//     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
+//     pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
+//         // NOTE: Hash type (unused)
+//         let hash_type = reader.read_u8()?;
+//         assert_eq!(0, hash_type, "Invalid bloom hash type");
 
-        let num_blocks = reader.read_u64::<LittleEndian>()? as usize;
-        let k = reader.read_u64::<LittleEndian>()? as usize;
+//         let num_blocks = reader.read_u64::<LittleEndian>()? as usize;
+//         let k = reader.read_u64::<LittleEndian>()? as usize;
 
-        let mut bytes = vec![0; num_blocks * CACHE_LINE_BYTES];
-        reader.read_exact(&mut bytes)?;
+//         let mut bytes = vec![0; num_blocks * CACHE_LINE_BYTES];
+//         reader.read_exact(&mut bytes)?;
 
-        Ok(AMQFilter::BlockedBloom(Self::from_raw(
-            num_blocks,
-            k,
-            bytes.into(),
-        )))
-    }
+//         Ok(AMQFilter::BlockedBloom(Self::from_raw(
+//             num_blocks,
+//             k,
+//             bytes.into(),
+//         )))
+//     }
 
-    fn from_raw(num_blocks: usize, k: usize, slice: crate::Slice) -> Self {
-        Self {
-            inner: BitArrayReader::new(slice),
-            k,
-            num_blocks,
-        }
-    }
-    /// Returns `true` if the bit at `idx` is `1`.
-    fn has_bit(&self, block_idx: usize, idx_in_block: usize) -> bool {
-        self.inner
-            .get(Builder::get_bit_idx(block_idx, idx_in_block))
-    }
+//     fn from_raw(num_blocks: usize, k: usize, slice: crate::Slice) -> Self {
+//         Self {
+//             inner: BitArrayReader::new(slice),
+//             k,
+//             num_blocks,
+//         }
+//     }
+//     /// Returns `true` if the bit at `idx` is `1`.
+//     fn has_bit(&self, block_idx: usize, idx_in_block: usize) -> bool {
+//         self.inner
+//             .get(Builder::get_bit_idx(block_idx, idx_in_block))
+//     }
 
-    /// Gets the hash of a key.
-    pub fn get_hash(key: &[u8]) -> CompositeHash {
-        Builder::get_hash(key)
-    }
-}
+//     /// Gets the hash of a key.
+//     pub fn get_hash(key: &[u8]) -> CompositeHash {
+//         Builder::get_hash(key)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::segment::filter::{AMQFilter, AMQFilterBuilder};
-
     use std::fs::File;
     use test_log::test;
 

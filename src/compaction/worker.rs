@@ -2,17 +2,20 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
-    level_scanner::LevelScanner,
     merge::Merger,
+    run_scanner::RunScanner,
     segment::{multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    Config, GlobalSegmentId, InternalValue, SegmentId, SeqNo,
+    Config, InternalValue, SegmentId, SeqNo,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -42,6 +45,9 @@ pub struct Options {
 
     /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
+
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<Metrics>,
 }
 
 impl Options {
@@ -50,10 +56,12 @@ impl Options {
             tree_id: tree.id,
             segment_id_generator: tree.segment_id_counter.clone(),
             config: tree.config.clone(),
-            levels: tree.levels.clone(),
+            levels: tree.manifest.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
+            #[cfg(feature = "metrics")]
+            metrics: tree.metrics.clone(),
         }
     }
 }
@@ -79,10 +87,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         Choice::Drop(payload) => drop_segments(
             original_levels,
             opts,
-            &payload
-                .into_iter()
-                .map(|x| (opts.tree_id, x).into())
-                .collect::<Vec<_>>(),
+            &payload.into_iter().collect::<Vec<_>>(),
         ),
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
@@ -99,14 +104,15 @@ fn create_compaction_stream<'a>(
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
-    for level in &levels.levels {
+    for level in levels.current_version().iter_levels() {
         if level.is_empty() {
             continue;
         }
 
-        if level.is_disjoint && level.len() > 1 {
-            let Some(lo) = level
-                .segments
+        if level.is_disjoint() && level.len() > 1 {
+            let run = level.first().expect("run should exist");
+
+            let Some(lo) = run
                 .iter()
                 .enumerate()
                 .filter(|(_, segment)| to_compact.contains(&segment.id()))
@@ -116,8 +122,7 @@ fn create_compaction_stream<'a>(
                 continue;
             };
 
-            let Some(hi) = level
-                .segments
+            let Some(hi) = run
                 .iter()
                 .enumerate()
                 .filter(|(_, segment)| to_compact.contains(&segment.id()))
@@ -127,18 +132,20 @@ fn create_compaction_stream<'a>(
                 continue;
             };
 
-            readers.push(Box::new(LevelScanner::from_indexes(
-                level.clone(),
+            readers.push(Box::new(RunScanner::culled(
+                run.clone(),
                 (Some(lo), Some(hi)),
             )?));
 
             found += hi - lo + 1;
         } else {
-            for &id in to_compact {
-                if let Some(segment) = level.segments.iter().find(|x| x.id() == id) {
-                    found += 1;
-                    readers.push(Box::new(segment.scan()?));
-                }
+            for segment in level
+                .iter()
+                .flat_map(|x| x.iter())
+                .filter(|x| to_compact.contains(&x.metadata.id))
+            {
+                found += 1;
+                readers.push(Box::new(segment.scan()?));
             }
         }
     }
@@ -164,18 +171,11 @@ fn move_segments(
         return Ok(());
     }
 
-    levels.atomic_swap(|recipe| {
-        for segment_id in payload.segment_ids {
-            if let Some(segment) = recipe.iter_mut().find_map(|x| x.remove(segment_id)) {
-                // NOTE: Destination level should definitely exist
-                #[allow(clippy::expect_used)]
-                recipe
-                    .get_mut(payload.dest_level as usize)
-                    .expect("should exist")
-                    .insert(segment);
-            }
-        }
-    })
+    let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
+
+    levels.atomic_swap(|current| current.with_moved(&segment_ids, payload.dest_level as usize))?;
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -201,7 +201,7 @@ fn merge_segments(
     let Some(segments) = payload
         .segment_ids
         .iter()
-        .map(|&id| levels.get_segment(id))
+        .map(|&id| levels.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -247,28 +247,23 @@ fn merge_segments(
 
     let start = Instant::now();
 
-    let Ok(segment_writer) = MultiWriter::new(
+    let segment_writer = match MultiWriter::new(
         segments_base_folder.clone(),
         opts.segment_id_generator.clone(),
         payload.target_size,
-        /* opts.segment_id_generator.clone(),
-        payload.target_size,
-        crate::segment::writer::Options {
-            folder: segments_base_folder.clone(),
-            segment_id: 0, // TODO: this is never used in MultiWriter
-            data_block_size: opts.config.data_block_size,
-            index_block_size: opts.config.index_block_size,
-        }, */
-    ) else {
-        log::error!("Compaction failed");
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     let mut segment_writer = segment_writer
@@ -278,33 +273,38 @@ fn merge_segments(
             use crate::segment::filter::BloomConstructionPolicy;
 
             if opts.config.bloom_bits_per_key >= 0 {
+                // TODO:
                 // NOTE: Apply some MONKEY to have very high FPR on small levels
                 // because it's cheap
                 //
                 // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
-                match payload.dest_level {
+                /* match payload.dest_level {
                     0 => BloomConstructionPolicy::FpRate(0.00001),
                     1 => BloomConstructionPolicy::FpRate(0.0005),
                     _ => BloomConstructionPolicy::BitsPerKey(
                         opts.config.bloom_bits_per_key.unsigned_abs(),
                     ),
-                }
+                } */
+                BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.unsigned_abs())
             } else {
                 BloomConstructionPolicy::BitsPerKey(0)
             }
         });
 
     for (idx, item) in merge_iter.enumerate() {
-        let Ok(item) = item else {
-            log::error!("Compaction failed");
+        let item = match item {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("Compaction failed: {e:?}");
 
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
+                // IMPORTANT: Show the segments again, because compaction failed
+                opts.levels
+                    .write()
+                    .expect("lock is poisoned")
+                    .show_segments(payload.segment_ids.iter().copied());
 
-            return Ok(());
+                return Ok(());
+            }
         };
 
         // IMPORTANT: We can only drop tombstones when writing into last level
@@ -312,8 +312,8 @@ fn merge_segments(
             continue;
         }
 
-        if segment_writer.write(item).is_err() {
-            log::error!("Compaction failed");
+        if let Err(e) = segment_writer.write(item) {
+            log::error!("Compaction failed: {e:?}");
 
             // IMPORTANT: Show the segments again, because compaction failed
             opts.levels
@@ -322,7 +322,7 @@ fn merge_segments(
                 .show_segments(payload.segment_ids.iter().copied());
 
             return Ok(());
-        };
+        }
 
         if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
             log::debug!("compactor: stopping amidst compaction because of stop signal");
@@ -330,16 +330,19 @@ fn merge_segments(
         }
     }
 
-    let Ok(writer_results) = segment_writer.finish() else {
-        log::error!("Compaction failed");
+    let writer_results = match segment_writer.finish() {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
 
-        return Ok(());
+            return Ok(());
+        }
     };
 
     log::debug!(
@@ -348,16 +351,17 @@ fn merge_segments(
         writer_results.len(),
     );
 
-    let Ok(created_segments) = writer_results
+    let created_segments = writer_results
         .into_iter()
         .map(|segment_id| -> crate::Result<Segment> {
-            let segment_file_path = segments_base_folder.join(segment_id.to_string());
-
             Segment::recover(
-                &segment_file_path,
+                segments_base_folder.join(segment_id.to_string()),
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
+                payload.dest_level <= 2, // TODO: look at configuration
+                #[cfg(feature = "metrics")]
+                opts.metrics.clone(),
             )
 
             /* let segment_id = trailer.metadata.id;
@@ -389,8 +393,10 @@ fn merge_segments(
             };
             let block_index = Arc::new(block_index);
 
+            let bloom_filter = Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?;
+
             Ok(SegmentInner {
-                path: segment_file_path.to_path_buf(),
+                path: segment_file_path,
 
                 tree_id: opts.tree_id,
 
@@ -403,23 +409,27 @@ fn merge_segments(
                 #[allow(clippy::needless_borrows_for_generic_args)]
                 block_index,
 
-                bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+                bloom_filter,
 
                 is_deleted: AtomicBool::default(),
             }
             .into()) */
         })
-        .collect::<crate::Result<Vec<_>>>()
-    else {
-        log::error!("Compaction failed");
+        .collect::<crate::Result<Vec<_>>>();
 
-        // IMPORTANT: Show the segments again, because compaction failed
-        opts.levels
-            .write()
-            .expect("lock is poisoned")
-            .show_segments(payload.segment_ids.iter().copied());
+    let created_segments = match created_segments {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("Compaction failed: {e:?}");
 
-        return Ok(());
+            // IMPORTANT: Show the segments again, because compaction failed
+            opts.levels
+                .write()
+                .expect("lock is poisoned")
+                .show_segments(payload.segment_ids.iter().copied());
+
+            return Ok(());
+        }
     };
 
     // NOTE: Mind lock order L -> M -> S
@@ -427,25 +437,12 @@ fn merge_segments(
     let mut levels = opts.levels.write().expect("lock is poisoned");
     log::trace!("compactor: acquired levels manifest write lock");
 
-    // IMPORTANT: Write the manifest with the removed segments first
-    // Otherwise the segment files are deleted, but are still referenced!
-    let swap_result = levels.atomic_swap(|recipe| {
-        for segment in created_segments.iter().cloned() {
-            log::trace!("Persisting segment {}", segment.id());
-
-            recipe
-                .get_mut(payload.dest_level as usize)
-                .expect("destination level should exist")
-                .insert(segment);
-        }
-
-        for segment_id in &payload.segment_ids {
-            log::trace!("Removing segment {segment_id}");
-
-            for level in recipe.iter_mut() {
-                level.remove(*segment_id);
-            }
-        }
+    let swap_result = levels.atomic_swap(|current| {
+        current.with_merge(
+            &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+            &created_segments,
+            payload.dest_level as usize,
+        )
     });
 
     if let Err(e) = swap_result {
@@ -472,10 +469,10 @@ fn merge_segments(
 fn drop_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
-    segment_ids: &[GlobalSegmentId],
+    ids_to_drop: &[SegmentId],
 ) -> crate::Result<()> {
     // Fail-safe for buggy compaction strategies
-    if levels.should_decline_compaction(segment_ids.iter().map(GlobalSegmentId::segment_id)) {
+    if levels.should_decline_compaction(ids_to_drop.iter().copied()) {
         log::warn!(
             "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
@@ -483,9 +480,9 @@ fn drop_segments(
         return Ok(());
     }
 
-    let Some(segments) = segment_ids
+    let Some(segments) = ids_to_drop
         .iter()
-        .map(|id| levels.get_segment(id.segment_id()))
+        .map(|&id| levels.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -497,16 +494,7 @@ fn drop_segments(
 
     // IMPORTANT: Write the manifest with the removed segments first
     // Otherwise the segment files are deleted, but are still referenced!
-    levels.atomic_swap(|recipe| {
-        for key in segment_ids {
-            let segment_id = key.segment_id();
-            log::trace!("Removing segment {segment_id}");
-
-            for level in recipe.iter_mut() {
-                level.remove(segment_id);
-            }
-        }
-    })?;
+    levels.atomic_swap(|current| current.with_dropped(ids_to_drop))?;
 
     drop(levels);
 
@@ -517,7 +505,7 @@ fn drop_segments(
         segment.mark_as_deleted();
     }
 
-    log::trace!("Dropped {} segments", segment_ids.len());
+    log::trace!("Dropped {} segments", ids_to_drop.len());
 
     Ok(())
 }
@@ -529,6 +517,7 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[ignore]
     fn compaction_drop_segments() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 

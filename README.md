@@ -5,7 +5,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.75.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.82.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
@@ -19,17 +19,18 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 This is the most feature-rich LSM-tree implementation in Rust! It features:
 
-- Thread-safe BTreeMap-like API
+- Thread-safe `BTreeMap`-like API
 - Mostly [safe](./UNSAFE.md) & 100% stable Rust
-- Block-based tables with compression support
-  - Optional hash indexes in blocks for faster point lookups [[3]](#footnotes)
+- Block-based tables with compression support & prefix truncation
+  - Optional block hash indexes in blocks for faster point lookups [[3]](#footnotes)
+  - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
+- Block caching to keep hot data in memory
+- *AMQ* filters (currently Bloom filters) to improve point lookup performance
+- Snapshots (*MVCC*)
+- Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
-- Optionally partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
-- Block caching to keep hot data in memory
-- Bloom filters to increase point lookup performance
-- Snapshots (MVCC)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
 
@@ -58,7 +59,7 @@ Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type
 
 ## Stable disk format
 
-The disk format is stable as of 1.0.0. 
+The disk format is stable as of 1.0.0.
 
 2.0.0 uses a new disk format and needs a manual format migration.
 

@@ -8,7 +8,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::{filter::standard_bloom::Builder, index_block::BlockHandle},
+    segment::{filter::standard_bloom::Builder, index_block::BlockHandle, regions::ParsedRegions},
     time::unix_timestamp,
     CompressionType, InternalValue, SegmentId, UserKey,
 };
@@ -31,6 +31,9 @@ pub struct Writer {
 
     /// Compression to use
     compression: CompressionType,
+
+    /// Buffer to serialize blocks into
+    block_buffer: Vec<u8>,
 
     /// Writer of data blocks
     #[allow(clippy::struct_field_names)]
@@ -55,7 +58,7 @@ pub struct Writer {
     /// Hashes for bloom filter
     ///
     /// using enhanced double hashing, so we got two u64s
-    bloom_hash_buffer: Vec<(u64, u64)>,
+    pub bloom_hash_buffer: Vec<(u64, u64)>,
 }
 
 impl Writer {
@@ -77,6 +80,7 @@ impl Writer {
 
             index_writer: Box::new(FullIndexWriter::new()),
 
+            block_buffer: Vec::new(),
             block_writer,
             chunk: Vec::new(),
 
@@ -93,7 +97,7 @@ impl Writer {
     }
 
     #[must_use]
-    pub(crate) fn use_data_block_size(mut self, size: u32) -> Self {
+    pub fn use_data_block_size(mut self, size: u32) -> Self {
         assert!(
             size <= 4 * 1_024 * 1_024,
             "data block size must be <= 4 MiB",
@@ -103,14 +107,14 @@ impl Writer {
     }
 
     #[must_use]
-    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
         self.index_writer.use_compression(compression);
         self
     }
 
     #[must_use]
-    pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
+    pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self
     }
@@ -171,10 +175,29 @@ impl Writer {
             return Ok(());
         };
 
-        let bytes = DataBlock::encode_items(&self.chunk, 16, 1.33)?;
+        self.block_buffer.clear();
+
+        DataBlock::encode_into(
+            &mut self.block_buffer,
+            &self.chunk,
+            16,   // TODO: config
+            1.33, // TODO: config
+        )?;
+
+        // log::warn!("encoding {:?}", self.chunk);
+        // log::warn!(
+        //     "encoded 0x{:#X?} -> {:?}",
+        //     self.meta.file_pos,
+        //     self.block_buffer
+        // );
 
         // TODO: prev block offset
-        let header = Block::to_writer(&mut self.block_writer, &bytes, self.compression)?;
+        let header = Block::write_into(
+            &mut self.block_writer,
+            &self.block_buffer,
+            super::block::BlockType::Data,
+            self.compression,
+        )?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
@@ -250,24 +273,30 @@ impl Writer {
 
                 let start = std::time::Instant::now();
 
-                let filter = {
+                let filter_bytes = {
                     let mut builder = self.bloom_policy.init(n);
 
-                    for hash in std::mem::take(&mut self.bloom_hash_buffer) {
+                    for hash in self.bloom_hash_buffer {
                         builder.set_with_hash(hash);
                     }
 
                     builder.build()
                 };
 
-                log::trace!("Built Bloom filter in {:?}", start.elapsed());
+                log::trace!(
+                    "Built Bloom filter ({} B) in {:?}",
+                    filter_bytes.len(),
+                    start.elapsed(),
+                );
 
-                let bytes = filter.encode_into_vec();
+                let header = Block::write_into(
+                    &mut self.block_writer,
+                    &filter_bytes,
+                    crate::segment::block::BlockType::Filter,
+                    CompressionType::None,
+                )?;
 
-                let block =
-                    Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
-
-                let bytes_written = (BlockHeader::serialized_len() as u32) + block.data_length;
+                let bytes_written = (BlockHeader::serialized_len() as u32) + header.data_length;
 
                 Some(BlockHandle::new(BlockOffset(filter_ptr), bytes_written))
             }
@@ -297,6 +326,7 @@ impl Writer {
             let meta_items = [
                 meta("#checksum_type", b"xxh3"),
                 meta("#compression#data", &self.compression.encode_into_vec()),
+                meta("#compression#index", &self.compression.encode_into_vec()),
                 meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
                     "#data_block_count",
@@ -318,6 +348,8 @@ impl Writer {
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
+                meta("#prefix_truncation#data", &[1]),
+                meta("#prefix_truncation#index", &[0]),
                 meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
                 meta("#size", &self.meta.file_pos.to_le_bytes()),
@@ -330,50 +362,64 @@ impl Writer {
                     &self.meta.uncompressed_size.to_le_bytes(),
                 ),
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("v#table", b"3.0"),
+                meta("v#table", b"3"),
                 // TODO: tli_handle_count
             ];
 
+            // NOTE: Just to make sure the items are definitely sorted
             #[cfg(debug_assertions)]
             {
-                let mut sorted_copy = meta_items.clone();
-                sorted_copy.sort();
-
-                // Just to make sure the items are definitely sorted
-                assert_eq!(meta_items, sorted_copy, "meta items not sorted correctly");
+                let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
+                assert!(is_sorted, "meta items not sorted correctly");
             }
 
-            log::trace!(
-                "Writing metadata to segment file {:?}: {meta_items:#?}",
-                self.path,
-            );
+            log::trace!("Encoding metadata block: {meta_items:#?}");
+
+            self.block_buffer.clear();
 
             // TODO: no binary index
-            let bytes = DataBlock::encode_items(&meta_items, 1, 0.0)?;
-            let header = Block::to_writer(&mut self.block_writer, &bytes, CompressionType::None)?;
+            DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
+
+            let header = Block::write_into(
+                &mut self.block_writer,
+                &self.block_buffer,
+                crate::segment::block::BlockType::Meta,
+                CompressionType::None,
+            )?;
 
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
-            BlockHandle::new(metadata_start, bytes_written as u32)
+            BlockHandle::new(metadata_start, bytes_written)
         };
 
-        // Bundle all the file offsets
-        let trailer = Trailer {
-            tli: tli_handle,
-            index_blocks: None,
-            filter: filter_handle,
-            metadata: metadata_handle,
-            /* range_filter:range_filter_ptr: rf:rf_ptr,
-            range_tombstones:range_tombstones_ptr,
-            pfx:pfx_ptr, */
+        // Write regions block
+        let regions_block_handle = {
+            let regions_block_start = BlockOffset(self.block_writer.stream_position()?);
+
+            let regions = ParsedRegions {
+                tli: tli_handle,
+                index: None,
+                filter: filter_handle,
+                metadata: metadata_handle,
+            };
+
+            log::trace!("Encoding regions: {regions:#?}");
+
+            let bytes = regions.encode_into_vec()?;
+            let header = Block::write_into(
+                &mut self.block_writer,
+                &bytes,
+                crate::segment::block::BlockType::Regions,
+                CompressionType::None,
+            )?;
+
+            let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
+
+            BlockHandle::new(regions_block_start, bytes_written as u32)
         };
 
-        log::trace!(
-            "Writing trailer to segment file {:?}: {trailer:#?}",
-            self.path,
-        );
-
-        // Write trailer
+        // Write fixed-size trailer
+        let trailer = Trailer::from_handle(regions_block_handle);
         trailer.write_into(&mut self.block_writer)?;
 
         // Finally, flush & fsync the blocks file

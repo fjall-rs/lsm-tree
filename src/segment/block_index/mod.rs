@@ -2,10 +2,13 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod iter;
+
 use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
+use crate::segment::block::ParsedItem;
 
 #[enum_dispatch::enum_dispatch]
-pub trait NewBlockIndex {
+pub trait BlockIndex {
     /// Gets the lowest block handle that can possibly contain the given item.
     fn get_lowest_block_containing_key(
         &self,
@@ -42,19 +45,19 @@ pub trait NewBlockIndex {
 /// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
 /// In the diagram above, searching for 'J' yields the block starting with 'G'.
 /// 'J' must be in that block, because the next block starts with 'M').
-#[enum_dispatch::enum_dispatch(NewBlockIndex)]
+// #[enum_dispatch::enum_dispatch(BlockIndex)]
 #[allow(clippy::module_name_repetitions)]
-pub enum NewBlockIndexImpl {
-    Full(NewFullBlockIndex),
+pub enum BlockIndexImpl {
+    Full(FullBlockIndex),
     // TwoLevel(TwoLevelBlockIndex),
 }
 
 /// Index that translates item keys to data block handles
 ///
 /// The index is fully loaded into memory.
-pub struct NewFullBlockIndex(IndexBlock);
+pub struct FullBlockIndex(IndexBlock);
 
-impl NewFullBlockIndex {
+impl FullBlockIndex {
     pub fn new(block: IndexBlock) -> Self {
         Self(block)
     }
@@ -63,11 +66,21 @@ impl NewFullBlockIndex {
         &self,
         needle: &[u8],
     ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
-        self.0.forward_reader(needle)
+        let mut iter = self.0.iter();
+
+        if iter.seek(needle) {
+            Some(iter.map(|x| x.materialize(&self.0.inner.data)))
+        } else {
+            None
+        }
+    }
+
+    pub fn inner(&self) -> &IndexBlock {
+        &self.0
     }
 }
 
-impl NewBlockIndex for NewFullBlockIndex {
+/* impl BlockIndex for FullBlockIndex {
     fn get_last_block_containing_key(
         &self,
         key: &[u8],
@@ -87,7 +100,7 @@ impl NewBlockIndex for NewFullBlockIndex {
     fn get_last_block_handle(&self, _: CachePolicy) -> crate::Result<KeyedBlockHandle> {
         todo!()
     }
-}
+} */
 
 /* impl std::ops::Deref for FullBlockIndex {
     type Target = Box<[KeyedBlockHandle]>;
@@ -97,7 +110,7 @@ impl NewBlockIndex for NewFullBlockIndex {
     }
 } */
 
-/* impl NewFullBlockIndex {
+/* impl FullBlockIndex {
   /*   pub fn from_file(
         path: &Path,
         metadata: &crate::segment::meta::Metadata,

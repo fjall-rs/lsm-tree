@@ -4,28 +4,31 @@
 
 pub(crate) mod binary_index;
 mod checksum;
+pub mod decoder;
 mod encoder;
-pub(crate) mod hash_index;
+pub mod hash_index;
 mod header;
 mod offset;
 mod trailer;
 
 pub use checksum::Checksum;
+pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
-pub use header::Header;
+pub use header::{BlockType, Header};
 pub use offset::BlockOffset;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
+    segment::{BlockHandle, DataBlock},
     CompressionType, Slice,
 };
 use std::fs::File;
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
-/// A block on disk.
+/// A block on disk
 ///
-/// Consists of a header and some bytes (the data/payload).
+/// Consists of a fixed-size header and some bytes (the data/payload).
 #[derive(Clone)]
 pub struct Block {
     pub header: Header,
@@ -39,15 +42,16 @@ impl Block {
         self.data.len()
     }
 
-    pub fn to_writer<W: std::io::Write>(
+    /// Encodes a block into a writer.
+    pub fn write_into<W: std::io::Write>(
         mut writer: &mut W,
         data: &[u8],
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Header> {
-        let checksum = xxh3_64(data);
-
         let mut header = Header {
-            checksum: Checksum::from_raw(checksum),
+            block_type,
+            checksum: Checksum::from_raw(xxh3_128(data)),
             data_length: 0, // <-- NOTE: Is set later on
             uncompressed_length: data.len() as u32,
             previous_block_offset: BlockOffset(0), // <-- TODO:
@@ -68,16 +72,19 @@ impl Block {
         writer.write_all(data)?;
 
         log::trace!(
-            "Writing block with size {}B (compressed: {}B)",
+            "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
             header.uncompressed_length,
             header.data_length,
+            Header::serialized_len(),
         );
 
         Ok(header)
     }
 
+    /// Reads a block from a reader.
     pub fn from_reader<R: std::io::Read>(
         reader: &mut R,
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
@@ -88,7 +95,12 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
+                #[cfg(feature = "use_unsafe")]
+                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
+
+                #[cfg(not(feature = "use_unsafe"))]
+                let mut data = Slice::with_size(header.uncompressed_length as usize);
+
                 {
                     // NOTE: We know that we are the owner
                     #[allow(clippy::expect_used)]
@@ -97,7 +109,8 @@ impl Block {
                     lz4_flex::decompress_into(&raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
-                data.into()
+
+                data
             }
 
             #[cfg(feature = "miniz")]
@@ -113,19 +126,44 @@ impl Block {
             }
         });
 
+        if header.block_type != block_type {
+            log::error!(
+                "Block type mismatch, got={:?}, expected={:?}",
+                header.block_type,
+                block_type,
+            );
+
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                header.block_type.into(),
+            ))));
+        }
+
+        let checksum = Checksum::from_raw(xxh3_128(&data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+        }
+
         Ok(Self { header, data })
     }
 
-    // TODO: take non-keyed block handle
+    /// Reads a block from a file.
     pub fn from_file(
         file: &File,
-        offset: BlockOffset,
-        size: u32,
+        handle: BlockHandle,
+        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        // TODO: use with_size_unzeroed (or whatever it will be called)
-        // TODO: use a Slice::get_mut instead... needs value-log update
-        let mut buf = byteview::ByteView::with_size(size as usize);
+        #[cfg(feature = "use_unsafe")]
+        let mut buf = Slice::with_size_unzeroed(handle.size() as usize);
+
+        #[cfg(not(feature = "use_unsafe"))]
+        let mut buf = Slice::with_size(handle.size() as usize);
 
         {
             let mut mutator = buf.get_mut().expect("should be the owner");
@@ -134,10 +172,11 @@ impl Block {
             {
                 use std::os::unix::fs::FileExt;
 
-                let bytes_read = file.read_at(&mut mutator, *offset)?;
+                let bytes_read = file.read_at(&mut mutator, *handle.offset())?;
+
                 assert_eq!(
                     bytes_read,
-                    size as usize,
+                    handle.size() as usize,
                     "not enough bytes read: file has length {}",
                     file.metadata()?.len(),
                 );
@@ -145,8 +184,16 @@ impl Block {
 
             #[cfg(windows)]
             {
-                todo!();
-                // assert_eq!(bytes_read, size as usize);
+                use std::os::windows::fs::FileExt;
+
+                let bytes_read = file.seek_read(&mut mutator, *handle.offset())?;
+
+                assert_eq!(
+                    bytes_read,
+                    handle.size() as usize,
+                    "not enough bytes read: file has length {}",
+                    file.metadata()?.len(),
+                );
             }
 
             #[cfg(not(any(unix, windows)))]
@@ -168,7 +215,12 @@ impl Block {
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                let mut data = byteview::ByteView::with_size(header.uncompressed_length as usize);
+                #[cfg(feature = "use_unsafe")]
+                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
+
+                #[cfg(not(feature = "use_unsafe"))]
+                let mut data = Slice::with_size(header.uncompressed_length as usize);
+
                 {
                     // NOTE: We know that we are the owner
                     #[allow(clippy::expect_used)]
@@ -177,6 +229,7 @@ impl Block {
                     lz4_flex::decompress_into(raw_data, &mut mutator)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
+
                 data
             }
 
@@ -193,16 +246,34 @@ impl Block {
             }
         };
 
-        debug_assert_eq!(header.uncompressed_length, {
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-            {
-                data.len() as u32
-            }
-        });
+        #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+        {
+            debug_assert_eq!(header.uncompressed_length, data.len() as u32);
+        }
 
-        Ok(Self {
-            header,
-            data: Slice::from(data),
-        })
+        if header.block_type != block_type {
+            log::error!(
+                "Block type mismatch, got={:?}, expected={:?}",
+                header.block_type,
+                block_type,
+            );
+
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                header.block_type.into(),
+            ))));
+        }
+
+        let checksum = Checksum::from_raw(xxh3_128(&data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block {handle:?}, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+        }
+
+        Ok(Self { header, data })
     }
 }

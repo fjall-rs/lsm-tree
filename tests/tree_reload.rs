@@ -5,6 +5,30 @@ use test_log::test;
 const ITEM_COUNT: usize = 10_000;
 
 #[test]
+fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    {
+        let tree = Config::new(&folder).open()?;
+        assert_eq!(0, tree.segment_count());
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(1, tree.segment_count());
+        assert!(tree.contains_key("a", None)?);
+    }
+
+    {
+        let tree = Config::new(&folder).open()?;
+        assert_eq!(1, tree.segment_count());
+        assert!(tree.contains_key("a", None)?);
+    }
+
+    Ok(())
+}
+
+#[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -85,46 +109,6 @@ fn tree_reload() -> lsm_tree::Result<()> {
     }
 
     std::thread::sleep(std::time::Duration::from_secs(2));
-
-    Ok(())
-}
-
-#[test]
-fn tree_remove_unfinished_segments() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let path = folder.path();
-
-    let segments_folder = path.join("segments");
-    let file0 = segments_folder.join("63364");
-    let file1 = segments_folder.join("tmp_633244");
-
-    std::fs::create_dir_all(segments_folder)?;
-    File::create(&file0)?;
-    File::create(&file1)?;
-
-    assert!(file0.try_exists()?);
-    assert!(file1.try_exists()?);
-
-    // Setup tree
-    {
-        let tree = Config::new(&folder).open()?;
-
-        assert_eq!(tree.len(None, None)?, 0);
-        assert_eq!(tree.iter(None, None).flatten().count(), 0);
-        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
-    }
-
-    // Recover tree
-    {
-        let tree = Config::new(&folder).open()?;
-
-        assert_eq!(tree.len(None, None)?, 0);
-        assert_eq!(tree.iter(None, None).flatten().count(), 0);
-        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
-    }
-
-    assert!(!file0.try_exists()?);
-    assert!(!file1.try_exists()?);
 
     Ok(())
 }

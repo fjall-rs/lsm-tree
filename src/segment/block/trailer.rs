@@ -59,9 +59,7 @@ impl<'a> Trailer<'a> {
         }
     }
 
-    pub fn write<S: Default, T: Encodable<S>>(
-        mut encoder: Encoder<'_, S, T>,
-    ) -> crate::Result<Vec<u8>> {
+    pub fn write<S: Default, T: Encodable<S>>(mut encoder: Encoder<'_, S, T>) -> crate::Result<()> {
         // IMPORTANT: Terminator marker
         encoder.writer.write_u8(TRAILER_START_MARKER)?;
 
@@ -140,6 +138,6 @@ impl<'a> Trailer<'a> {
             "trailer size does not match",
         );
 
-        Ok(encoder.writer)
+        Ok(())
     }
 }

@@ -2,15 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::unwrap;
 use byteorder::{LittleEndian, ReadBytesExt};
-
-macro_rules! unwrappy {
-    ($x:expr) => {
-        // $x.expect("should read")
-
-        unsafe { $x.unwrap_unchecked() }
-    };
-}
 
 pub struct Reader<'a> {
     bytes: &'a [u8],
@@ -45,9 +38,13 @@ impl<'a> Reader<'a> {
         let mut bytes = &self.bytes[offset..];
 
         if self.step_size == 2 {
-            unwrappy!(bytes.read_u16::<LittleEndian>()).into()
+            unwrap!(bytes.read_u16::<LittleEndian>()).into()
         } else {
-            unwrappy!(bytes.read_u32::<LittleEndian>()) as usize
+            unwrap!(bytes.read_u32::<LittleEndian>()) as usize
         }
+    }
+
+    pub(crate) fn get_last(&self) -> usize {
+        self.get(self.len() - 1)
     }
 }

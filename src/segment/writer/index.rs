@@ -70,10 +70,15 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
     ) -> crate::Result<(BlockHandle, Option<BlockHandle>)> {
         let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
 
-        let bytes =
-            IndexBlock::encode_items(&self.block_handles, 1 /* TODO: hard coded for now */)?;
+        let mut bytes = vec![];
+        IndexBlock::encode_into(&mut bytes, &self.block_handles)?;
 
-        let header = Block::to_writer(block_file_writer, &bytes, self.compression)?;
+        let header = Block::write_into(
+            block_file_writer,
+            &bytes,
+            crate::segment::block::BlockType::Index,
+            self.compression,
+        )?;
 
         // NOTE: We know that blocks never even approach u32 size
         #[allow(clippy::cast_possible_truncation)]

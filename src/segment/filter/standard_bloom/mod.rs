@@ -1,14 +1,15 @@
-use super::{bit_array::BitArrayReader, AMQFilter, BloomFilterType, AMQ};
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    file::MAGIC_BYTES,
-};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
 
 mod builder;
 
 pub use builder::{Builder, CompositeHash};
+
+use super::bit_array::BitArrayReader;
+use crate::file::MAGIC_BYTES;
+use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{Cursor, Read};
 
 /// A standard bloom filter
 ///
@@ -18,10 +19,9 @@ pub use builder::{Builder, CompositeHash};
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
 /// <https://fjall-rs.github.io/post/bloom-filter-hash-sharing>
-#[derive(Debug, PartialEq)]
-pub struct StandardBloomFilter {
+pub struct StandardBloomFilterReader<'a> {
     /// Raw bytes exposed as bit array
-    inner: BitArrayReader,
+    inner: BitArrayReader<'a>,
 
     /// Bit count
     m: usize,
@@ -30,31 +30,53 @@ pub struct StandardBloomFilter {
     k: usize,
 }
 
-impl AMQ for StandardBloomFilter {
+impl<'a> StandardBloomFilterReader<'a> {
+    pub fn new(slice: &'a [u8]) -> crate::Result<Self> {
+        let mut reader = Cursor::new(slice);
+
+        // Check header
+        let mut magic = [0u8; MAGIC_BYTES.len()];
+        reader.read_exact(&mut magic)?;
+
+        if magic != MAGIC_BYTES {
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
+                "BloomFilter",
+            )));
+        }
+
+        // NOTE: Filter type (unused)
+        let filter_type = reader.read_u8()?;
+        assert_eq!(0, filter_type, "Invalid filter type");
+
+        // NOTE: Hash type (unused)
+        let hash_type = reader.read_u8()?;
+        assert_eq!(0, hash_type, "Invalid bloom hash type");
+
+        let m = reader.read_u64::<LittleEndian>()? as usize;
+        let k = reader.read_u64::<LittleEndian>()? as usize;
+
+        let offset = reader.position() as usize;
+
+        #[allow(clippy::indexing_slicing)]
+        Ok(Self {
+            k,
+            m,
+            inner: BitArrayReader::new(slice.get(offset..).expect("should be in bounds")),
+        })
+    }
+
+    #[allow(clippy::len_without_is_empty)]
     /// Size of bloom filter in bytes.
     #[must_use]
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.inner.bytes().len()
-    }
-
-    /// Returns the raw bytes of the filter.
-    fn bytes(&self) -> &[u8] {
-        self.inner.bytes()
-    }
-
-    /// Returns `true` if the item may be contained.
-    ///
-    /// Will never have a false negative.
-    #[must_use]
-    fn contains(&self, key: &[u8]) -> bool {
-        self.contains_hash(Self::get_hash(key))
     }
 
     /// Returns `true` if the hash may be contained.
     ///
     /// Will never have a false negative.
     #[must_use]
-    fn contains_hash(&self, hash: CompositeHash) -> bool {
+    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
         let (mut h1, mut h2) = hash;
 
         for i in 1..=(self.k as u64) {
@@ -72,49 +94,13 @@ impl AMQ for StandardBloomFilter {
 
         true
     }
-}
 
-impl Encode for StandardBloomFilter {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // Write header
-        writer.write_all(&MAGIC_BYTES)?;
-
-        writer.write_u8(BloomFilterType::StandardBloom as u8)?;
-
-        // NOTE: Hash type (unused)
-        writer.write_u8(0)?;
-
-        writer.write_u64::<LittleEndian>(self.m as u64)?;
-        writer.write_u64::<LittleEndian>(self.k as u64)?;
-        writer.write_all(self.inner.bytes())?;
-
-        Ok(())
-    }
-}
-
-#[allow(clippy::len_without_is_empty)]
-impl StandardBloomFilter {
-    // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-    pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
-        // NOTE: Hash type (unused)
-        let hash_type = reader.read_u8()?;
-        assert_eq!(0, hash_type, "Invalid bloom hash type");
-
-        let m = reader.read_u64::<LittleEndian>()? as usize;
-        let k = reader.read_u64::<LittleEndian>()? as usize;
-
-        let mut bytes = vec![0; m / 8];
-        reader.read_exact(&mut bytes)?;
-
-        Ok(AMQFilter::StandardBloom(Self::from_raw(m, k, bytes.into())))
-    }
-
-    fn from_raw(m: usize, k: usize, slice: crate::Slice) -> Self {
-        Self {
-            inner: BitArrayReader::new(slice),
-            m,
-            k,
-        }
+    /// Returns `true` if the item may be contained.
+    ///
+    /// Will never have a false negative.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.contains_hash(Self::get_hash(key))
     }
 
     /// Returns `true` if the bit at `idx` is `1`.
@@ -129,20 +115,13 @@ impl StandardBloomFilter {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use crate::segment::filter::{AMQFilter, AMQFilterBuilder};
-
     use super::*;
-    use std::fs::File;
     use test_log::test;
 
     #[test]
-    fn bloom_serde_round_trip() -> crate::Result<()> {
-        let dir = tempfile::tempdir()?;
-
-        let path = dir.path().join("bf");
-        let mut file = File::create(&path)?;
-
+    fn bloom_serde_round_trip() {
         let mut filter = Builder::with_fp_rate(10, 0.0001);
 
         let keys = &[
@@ -151,36 +130,17 @@ mod tests {
         ];
 
         for key in keys {
-            filter.set_with_hash(StandardBloomFilter::get_hash(*key));
+            filter.set_with_hash(StandardBloomFilterReader::get_hash(*key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter_copy = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
-        for key in keys {
-            assert!(filter.contains(&**key));
-        }
-        assert!(!filter.contains(b"asdasads"));
-        assert!(!filter.contains(b"item10"));
-        assert!(!filter.contains(b"cxycxycxy"));
-
-        filter.encode_into(&mut file)?;
-        file.sync_all()?;
-        drop(file);
-
-        let mut file = File::open(&path)?;
-        let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
-
-        assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-        assert!(matches!(filter_copy, AMQFilter::StandardBloom(_)));
-
-        for key in keys {
-            assert!(filter.contains(&**key));
-        }
+        assert_eq!(filter.k, filter_copy.k);
+        assert_eq!(filter.m, filter_copy.m);
         assert!(!filter_copy.contains(b"asdasads"));
         assert!(!filter_copy.contains(b"item10"));
         assert!(!filter_copy.contains(b"cxycxycxy"));
-
-        Ok(())
     }
 
     #[test]
@@ -204,7 +164,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         for key in &keys {
             assert!(filter.contains(key));
@@ -226,7 +187,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 
@@ -256,7 +218,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 
@@ -287,7 +250,8 @@ mod tests {
             filter.set_with_hash(Builder::get_hash(key));
         }
 
-        let filter = filter.build();
+        let filter_bytes = filter.build();
+        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
 
         let mut false_positives = 0;
 

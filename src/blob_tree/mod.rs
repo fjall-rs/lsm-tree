@@ -109,7 +109,7 @@ impl BlobTree {
         seqno: SeqNo,
         gc_watermark: SeqNo,
     ) -> crate::Result<crate::gc::Report> {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+        use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};
 
         while self
@@ -144,8 +144,7 @@ impl BlobTree {
             .blobs
             .scan_for_stats(iter.filter_map(|kv| {
                 let Ok(kv) = kv else {
-                    return Some(Err(IoError::new(
-                        IoErrorKind::Other,
+                    return Some(Err(IoError::other(
                         "Failed to load KV pair from index tree",
                     )));
                 };
@@ -153,7 +152,7 @@ impl BlobTree {
                 let mut cursor = Cursor::new(kv.value);
                 let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                    Err(e) => return Some(Err(IoError::other(e.to_string()))),
                 };
 
                 match value {
@@ -323,6 +322,8 @@ impl AbstractTree for BlobTree {
         let vhandle = self.index.get_vhandle(key.as_ref(), seqno)?;
 
         Ok(vhandle.map(|x| match x {
+            // NOTE: Values are u32 length max
+            #[allow(clippy::cast_possible_truncation)]
             MaybeInlineValue::Inline(v) => v.len() as u32,
 
             // NOTE: We skip reading from the value log
@@ -331,8 +332,12 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    fn bloom_filter_size(&self) -> usize {
-        self.index.bloom_filter_size()
+    fn pinned_bloom_filter_size(&self) -> usize {
+        self.index.pinned_bloom_filter_size()
+    }
+
+    fn pinned_block_index_size(&self) -> usize {
+        self.index.pinned_block_index_size()
     }
 
     fn sealed_memtable_count(&self) -> usize {
@@ -378,7 +383,7 @@ impl AbstractTree for BlobTree {
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
+        log::debug!("=> to LSM segments in {lsm_segment_folder:?}");
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
         let mut segment_writer = SegmentWriter::new(
@@ -465,7 +470,7 @@ impl AbstractTree for BlobTree {
         self.blobs.register_writer(blob_writer)?;
 
         log::trace!("Creating LSM-tree segment {segment_id}");
-        let segment = self.index.consume_writer(segment_id, segment_writer)?;
+        let segment = self.index.consume_writer(segment_writer)?;
 
         // TODO: this can probably solved in a nicer way
         if segment.is_some() {

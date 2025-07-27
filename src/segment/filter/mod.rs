@@ -3,14 +3,14 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod bit_array;
-pub mod blocked_bloom;
+// pub mod blocked_bloom;
 pub mod standard_bloom;
 
-use crate::{coding::DecodeError, file::MAGIC_BYTES};
-use blocked_bloom::BlockedBloomFilter;
-use byteorder::ReadBytesExt;
-use standard_bloom::{Builder as StandardBloomFilterBuilder, StandardBloomFilter};
-use std::io::Read;
+use standard_bloom::Builder as StandardBloomFilterBuilder;
+// use crate::{coding::DecodeError, file::MAGIC_BYTES};
+// use blocked_bloom::BlockedBloomFilter;
+// use byteorder::ReadBytesExt;
+// use std::io::Read;
 
 const CACHE_LINE_BYTES: usize = 64;
 
@@ -46,59 +46,59 @@ impl BloomConstructionPolicy {
     }
 }
 
-#[enum_dispatch::enum_dispatch]
-pub trait AMQ {
-    fn bytes(&self) -> &[u8];
-    fn len(&self) -> usize;
-    fn contains(&self, item: &[u8]) -> bool;
-    fn contains_hash(&self, hash: (u64, u64)) -> bool;
-}
+// #[enum_dispatch::enum_dispatch]
+// pub trait AMQ {
+//     fn bytes(&self) -> &[u8];
+//     fn len(&self) -> usize;
+//     fn contains(&self, item: &[u8]) -> bool;
+//     fn contains_hash(&self, hash: (u64, u64)) -> bool;
+// }
 
-#[enum_dispatch::enum_dispatch(AMQ)]
-#[derive(PartialEq, Debug)]
-pub enum AMQFilter {
-    StandardBloom(StandardBloomFilter),
-    BlockedBloom(BlockedBloomFilter),
-}
+// #[enum_dispatch::enum_dispatch(AMQ)]
+// #[derive(PartialEq, Debug)]
+// pub enum AMQFilter {
+//     StandardBloom(StandardBloomFilter),
+//     BlockedBloom(BlockedBloomFilter),
+// }
 
-pub enum BloomFilterType {
-    StandardBloom = 0,
-    BlockedBloom = 1,
-}
+// pub enum BloomFilterType {
+//     StandardBloom = 0,
+//     BlockedBloom = 1,
+// }
 
-impl TryFrom<u8> for BloomFilterType {
-    type Error = ();
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::StandardBloom),
-            1 => Ok(Self::BlockedBloom),
-            _ => Err(()),
-        }
-    }
-}
+// impl TryFrom<u8> for BloomFilterType {
+//     type Error = ();
+//     fn try_from(value: u8) -> Result<Self, Self::Error> {
+//         match value {
+//             0 => Ok(Self::StandardBloom),
+//             1 => Ok(Self::BlockedBloom),
+//             _ => Err(()),
+//         }
+//     }
+// }
 
-pub struct AMQFilterBuilder {}
+// pub struct AMQFilterBuilder {}
 
-impl AMQFilterBuilder {
-    pub fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
-        // Check header
-        let mut magic = [0u8; MAGIC_BYTES.len()];
-        reader.read_exact(&mut magic)?;
+// impl AMQFilterBuilder {
+//     pub fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
+//         // Check header
+//         let mut magic = [0u8; MAGIC_BYTES.len()];
+//         reader.read_exact(&mut magic)?;
 
-        if magic != MAGIC_BYTES {
-            return Err(DecodeError::InvalidHeader("BloomFilter"));
-        }
+//         if magic != MAGIC_BYTES {
+//             return Err(DecodeError::InvalidHeader("BloomFilter"));
+//         }
 
-        let filter_type = reader.read_u8()?;
+//         let filter_type = reader.read_u8()?;
 
-        match BloomFilterType::try_from(filter_type) {
-            Ok(BloomFilterType::StandardBloom) => {
-                StandardBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
-            }
-            Ok(BloomFilterType::BlockedBloom) => {
-                BlockedBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
-            }
-            _ => Err(DecodeError::InvalidHeader("Unknown filter type")),
-        }
-    }
-}
+//         match BloomFilterType::try_from(filter_type) {
+//             Ok(BloomFilterType::StandardBloom) => {
+//                 StandardBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
+//             }
+//             Ok(BloomFilterType::BlockedBloom) => {
+//                 BlockedBloomFilter::decode_from(reader).map_err(|e| DecodeError::from(e))
+//             }
+//             _ => Err(DecodeError::InvalidHeader("Unknown filter type")),
+//         }
+//     }
+// }

@@ -100,6 +100,7 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 #![warn(clippy::needless_lifetimes)]
+#![warn(clippy::redundant_feature_names)]
 
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
@@ -134,9 +135,11 @@ mod clipping_iter;
 pub mod compaction;
 mod compression;
 mod config;
+mod double_ended_peekable;
 
 mod error;
-// mod export;
+
+pub(crate) mod fallible_clipping_iter;
 
 #[doc(hidden)]
 pub mod file;
@@ -146,8 +149,8 @@ mod key;
 #[doc(hidden)]
 pub mod level_manifest;
 
-mod level_reader;
-mod level_scanner;
+mod run_reader;
+mod run_scanner;
 
 mod manifest;
 mod memtable;
@@ -160,6 +163,9 @@ mod descriptor_table;
 
 #[doc(hidden)]
 pub mod merge;
+
+#[cfg(feature = "metrics")]
+pub(crate) mod metrics;
 
 mod multi_reader;
 
@@ -178,6 +184,7 @@ mod windows;
 #[doc(hidden)]
 pub mod stop_signal;
 
+mod format_version;
 mod time;
 mod tree;
 mod value;
@@ -212,13 +219,13 @@ pub use {
     config::{Config, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
+    format_version::FormatVersion,
     memtable::Memtable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,
     tree::Tree,
     value::{SeqNo, UserKey, UserValue, ValueType},
-    version::Version,
 };
 
 pub use any_tree::AnyTree;
@@ -233,3 +240,13 @@ pub mod gc {
         GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
     };
 }
+
+macro_rules! unwrap {
+    ($x:expr) => {
+        $x.expect("should read")
+
+        // unsafe { $x.unwrap_unchecked() }
+    };
+}
+
+pub(crate) use unwrap;

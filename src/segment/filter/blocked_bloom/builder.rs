@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{super::bit_array::Builder as BitArrayBuilder, BlockedBloomFilter};
+use super::super::bit_array::Builder as BitArrayBuilder;
 use crate::segment::filter::{bit_array::BitArrayReader, CACHE_LINE_BYTES};
 
 /// Two hashes that are used for double hashing
