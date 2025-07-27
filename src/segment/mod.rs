@@ -29,10 +29,8 @@ pub use writer::Writer;
 use crate::metrics::Metrics;
 
 use crate::{
-    cache::Cache,
-    descriptor_table::DescriptorTable,
-    segment::block::{BlockType, ParsedItem},
-    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
+    cache::Cache, descriptor_table::DescriptorTable, segment::block::BlockType, CompressionType,
+    InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use filter::standard_bloom::CompositeHash;
