@@ -140,3 +140,27 @@ impl Decode for Header {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn v3_block_header_serde_roundtrip() -> crate::Result<()> {
+        let header = Header {
+            block_type: BlockType::Data,
+            checksum: Checksum::from_raw(5),
+            data_length: 252_356,
+            previous_block_offset: BlockOffset(35),
+            uncompressed_length: 124_124_124,
+        };
+
+        let bytes = header.encode_into_vec();
+
+        assert_eq!(bytes.len(), Header::serialized_len());
+        assert_eq!(header, Header::decode_from(&mut &bytes[..])?);
+
+        Ok(())
+    }
+}
