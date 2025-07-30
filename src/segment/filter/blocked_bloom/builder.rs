@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::super::bit_array::Builder as BitArrayBuilder;
-use crate::{file::MAGIC_BYTES, segment::filter::CACHE_LINE_BYTES};
+use crate::{
+    file::MAGIC_BYTES,
+    segment::filter::{FilterType, CACHE_LINE_BYTES},
+};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
@@ -32,8 +35,9 @@ impl Builder {
         // Write header
         v.write_all(&MAGIC_BYTES).expect("should not fail");
 
-        // NOTE: Filter type (unused)
-        v.write_u8(0).expect("should not fail");
+        // NOTE: Filter type
+        v.write_u8(FilterType::BlockedBloom.into())
+            .expect("should not fail");
 
         // NOTE: Hash type (unused)
         v.write_u8(0).expect("should not fail");
@@ -56,10 +60,18 @@ impl Builder {
         assert!(n > 0);
 
         // NOTE: Some sensible minimum
-        let fpr = fpr.max(0.000_001);
+        let fpr = fpr.max(0.000_000_1);
 
-        // TODO: m and k is still calculated by traditional standard bloom filter formula
-        let m = Self::calculate_m(n, fpr);
+        // NOTE: We add ~5-25% more bits to account for blocked bloom filters being a bit less accurate
+        // See https://dl.acm.org/doi/10.1145/1498698.1594230
+        let bonus = match fpr {
+            _ if fpr <= 0.001 => 1.25,
+            _ if fpr <= 0.01 => 1.2,
+            _ if fpr <= 0.1 => 1.1,
+            _ => 1.05,
+        };
+
+        let m = ((Self::calculate_m(n, fpr)) as f32 * bonus) as usize;
         let bpk = m / n;
         let k = (((bpk as f32) * LN_2) as usize).max(1);
 

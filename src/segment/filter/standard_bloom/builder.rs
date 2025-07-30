@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::super::bit_array::Builder as BitArrayBuilder;
-use crate::file::MAGIC_BYTES;
+use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
@@ -32,8 +32,9 @@ impl Builder {
         // Write header
         v.write_all(&MAGIC_BYTES).expect("should not fail");
 
-        // NOTE: Filter type (unused)
-        v.write_u8(0).expect("should not fail");
+        // NOTE: Filter type
+        v.write_u8(FilterType::StandardBloom.into())
+            .expect("should not fail");
 
         // NOTE: Hash type (unused)
         v.write_u8(0).expect("should not fail");
@@ -56,7 +57,7 @@ impl Builder {
         assert!(n > 0);
 
         // NOTE: Some sensible minimum
-        let fpr = fpr.max(0.000_001);
+        let fpr = fpr.max(0.000_000_1);
 
         let m = Self::calculate_m(n, fpr);
         let bpk = m / n;

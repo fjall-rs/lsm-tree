@@ -7,7 +7,7 @@ mod builder;
 pub use builder::{Builder, CompositeHash};
 
 use super::bit_array::BitArrayReader;
-use crate::file::MAGIC_BYTES;
+use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
@@ -44,9 +44,15 @@ impl<'a> StandardBloomFilterReader<'a> {
             )));
         }
 
-        // NOTE: Filter type (unused)
+        // NOTE: Filter type
         let filter_type = reader.read_u8()?;
-        assert_eq!(0, filter_type, "Invalid filter type");
+        let filter_type = FilterType::try_from(filter_type)?;
+        assert_eq!(
+            FilterType::StandardBloom,
+            filter_type,
+            "Invalid filter type, got={filter_type:?}, expected={:?}",
+            FilterType::StandardBloom
+        );
 
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
@@ -82,8 +88,6 @@ impl<'a> StandardBloomFilterReader<'a> {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
-            // NOTE: should be in bounds because of modulo
-            #[allow(clippy::expect_used)]
             if !self.has_bit(idx as usize) {
                 return false;
             }

@@ -7,7 +7,7 @@ mod builder;
 pub use builder::Builder;
 
 use super::{bit_array::BitArrayReader, CACHE_LINE_BYTES};
-use crate::file::MAGIC_BYTES;
+use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
@@ -48,9 +48,15 @@ impl<'a> BlockedBloomFilterReader<'a> {
             )));
         }
 
-        // NOTE: Filter type (unused)
+        // NOTE: Filter type
         let filter_type = reader.read_u8()?;
-        assert_eq!(0, filter_type, "Invalid filter type");
+        let filter_type = FilterType::try_from(filter_type)?;
+        assert_eq!(
+            FilterType::BlockedBloom,
+            filter_type,
+            "Invalid filter type, got={filter_type:?}, expected={:?}",
+            FilterType::BlockedBloom,
+        );
 
         // NOTE: Hash type (unused)
         let hash_type = reader.read_u8()?;
@@ -89,8 +95,6 @@ impl<'a> BlockedBloomFilterReader<'a> {
         for i in 1..(self.k as u64) {
             let bit_idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
-            // NOTE: should be in bounds because of modulo
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
             if !self.has_bit(block_idx as usize, bit_idx as usize) {
                 return false;
             }

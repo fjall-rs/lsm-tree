@@ -41,3 +41,33 @@ impl BloomConstructionPolicy {
         }
     }
 }
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum FilterType {
+    StandardBloom,
+    BlockedBloom,
+}
+
+impl TryFrom<u8> for FilterType {
+    type Error = crate::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::StandardBloom),
+            1 => Ok(Self::BlockedBloom),
+            _ => Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "FilterType",
+                value,
+            )))),
+        }
+    }
+}
+
+impl From<FilterType> for u8 {
+    fn from(value: FilterType) -> Self {
+        match value {
+            FilterType::StandardBloom => 0,
+            FilterType::BlockedBloom => 1,
+        }
+    }
+}
