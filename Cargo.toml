@@ -22,6 +22,7 @@ lz4 = ["dep:lz4_flex"]
 miniz = ["dep:miniz_oxide"]
 bytes = []                  # TODO: restore
 use_unsafe = []
+bloom_use_unsafe = []
 metrics = []
 
 [dependencies]
