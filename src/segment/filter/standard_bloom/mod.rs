@@ -2,12 +2,15 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-mod builder;
+pub(crate) mod builder;
 
-pub use builder::{Builder, CompositeHash};
+pub use builder::Builder;
 
 use super::bit_array::BitArrayReader;
-use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
+use crate::{
+    file::MAGIC_BYTES,
+    segment::filter::{standard_bloom::builder::secondary_hash, FilterType},
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
@@ -82,8 +85,8 @@ impl<'a> StandardBloomFilterReader<'a> {
     ///
     /// Will never have a false negative.
     #[must_use]
-    pub fn contains_hash(&self, hash: CompositeHash) -> bool {
-        let (mut h1, mut h2) = hash;
+    pub fn contains_hash(&self, mut h1: u64) -> bool {
+        let mut h2 = secondary_hash(h1);
 
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
@@ -113,7 +116,7 @@ impl<'a> StandardBloomFilterReader<'a> {
     }
 
     /// Gets the hash of a key.
-    fn get_hash(key: &[u8]) -> CompositeHash {
+    fn get_hash(key: &[u8]) -> u64 {
         Builder::get_hash(key)
     }
 }

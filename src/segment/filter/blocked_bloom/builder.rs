@@ -3,15 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::super::bit_array::Builder as BitArrayBuilder;
+use super::super::standard_bloom::builder::secondary_hash;
 use crate::{
     file::MAGIC_BYTES,
-    segment::filter::{FilterType, CACHE_LINE_BYTES},
+    segment::filter::{blocked_bloom::CACHE_LINE_BYTES, FilterType},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
-
-/// Two hashes that are used for double hashing
-pub type CompositeHash = (u64, u64);
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
@@ -123,7 +121,9 @@ impl Builder {
     }
 
     /// Adds the key to the filter.
-    pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
+    pub fn set_with_hash(&mut self, mut h1: u64) {
+        let mut h2 = secondary_hash(h1);
+
         let block_idx = h1 % (self.num_blocks as u64);
 
         for i in 1..(self.k as u64) {
@@ -143,11 +143,8 @@ impl Builder {
 
     /// Gets the hash of a key.
     #[must_use]
-    pub fn get_hash(key: &[u8]) -> CompositeHash {
-        let h0 = xxhash_rust::xxh3::xxh3_128(key);
-        let h1 = (h0 >> 64) as u64;
-        let h2 = h0 as u64;
-        (h1, h2)
+    pub fn get_hash(key: &[u8]) -> u64 {
+        super::super::standard_bloom::Builder::get_hash(key)
     }
 }
 

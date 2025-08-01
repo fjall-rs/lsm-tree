@@ -33,7 +33,6 @@ use crate::{
     InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
-use filter::standard_bloom::CompositeHash;
 use inner::Inner;
 use iter::Iter;
 use std::{
@@ -160,7 +159,7 @@ impl Segment {
         &self,
         key: &[u8],
         seqno: SeqNo,
-        key_hash: CompositeHash,
+        key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
         use filter::standard_bloom::StandardBloomFilterReader;
         #[cfg(feature = "metrics")]

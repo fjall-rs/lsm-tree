@@ -8,8 +8,6 @@ pub mod standard_bloom;
 
 use standard_bloom::Builder as StandardBloomFilterBuilder;
 
-const CACHE_LINE_BYTES: usize = 64;
-
 #[derive(Copy, Clone, Debug)]
 pub enum BloomConstructionPolicy {
     BitsPerKey(u8),

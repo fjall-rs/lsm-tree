@@ -7,8 +7,10 @@ use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
-/// Two hashes that are used for double hashing
-pub type CompositeHash = (u64, u64);
+pub fn secondary_hash(h1: u64) -> u64 {
+    // Taken from https://github.com/tomtomwombat/fastbloom
+    h1.wrapping_shr(32).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
+}
 
 #[derive(Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
@@ -110,7 +112,9 @@ impl Builder {
     }
 
     /// Adds the key to the filter.
-    pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
+    pub fn set_with_hash(&mut self, mut h1: u64) {
+        let mut h2 = secondary_hash(h1);
+
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
@@ -123,11 +127,8 @@ impl Builder {
 
     /// Gets the hash of a key.
     #[must_use]
-    pub fn get_hash(key: &[u8]) -> CompositeHash {
-        let h0 = xxhash_rust::xxh3::xxh3_128(key);
-        let h1 = (h0 >> 64) as u64;
-        let h2 = h0 as u64;
-        (h1, h2)
+    pub fn get_hash(key: &[u8]) -> u64 {
+        xxhash_rust::xxh3::xxh3_64(key)
     }
 }
 

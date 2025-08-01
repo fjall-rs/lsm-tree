@@ -6,13 +6,15 @@ mod builder;
 
 pub use builder::Builder;
 
-use super::{bit_array::BitArrayReader, CACHE_LINE_BYTES};
-use crate::{file::MAGIC_BYTES, segment::filter::FilterType};
+use super::bit_array::BitArrayReader;
+use crate::{
+    file::MAGIC_BYTES,
+    segment::filter::{standard_bloom::builder::secondary_hash, FilterType},
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
-/// Two hashes that are used for double hashing
-pub type CompositeHash = (u64, u64);
+const CACHE_LINE_BYTES: usize = 64;
 
 /// A blocked bloom filter
 ///
@@ -89,7 +91,9 @@ impl<'a> BlockedBloomFilterReader<'a> {
     ///
     /// Will never have a false negative.
     #[must_use]
-    pub fn contains_hash(&self, (mut h1, mut h2): CompositeHash) -> bool {
+    pub fn contains_hash(&self, mut h1: u64) -> bool {
+        let mut h2 = secondary_hash(h1);
+
         let block_idx = h1 % (self.num_blocks as u64);
 
         for i in 1..(self.k as u64) {
@@ -113,7 +117,7 @@ impl<'a> BlockedBloomFilterReader<'a> {
     }
 
     /// Gets the hash of a key.
-    pub fn get_hash(key: &[u8]) -> CompositeHash {
+    pub fn get_hash(key: &[u8]) -> u64 {
         Builder::get_hash(key)
     }
 

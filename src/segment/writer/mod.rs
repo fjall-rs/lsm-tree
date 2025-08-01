@@ -58,7 +58,7 @@ pub struct Writer {
     /// Hashes for bloom filter
     ///
     /// using enhanced double hashing, so we got two u64s
-    pub bloom_hash_buffer: Vec<(u64, u64)>,
+    pub bloom_hash_buffer: Vec<u64>,
 }
 
 impl Writer {
