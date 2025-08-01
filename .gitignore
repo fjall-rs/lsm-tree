@@ -18,3 +18,5 @@ Cargo.lock
 .bench
 
 mutants*
+profile.json
+fuzz*/**/out*

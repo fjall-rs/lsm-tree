@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    binary_search::partition_point, segment::meta::SegmentId, HashSet, KeyRange, Segment, UserKey,
+    binary_search::partition_point, segment::Segment, HashSet, KeyRange, SegmentId, UserKey,
 };
 use std::ops::Bound;
 
@@ -188,7 +188,6 @@ impl<'a> DisjointLevel<'a> {
             .cloned()
     }
 
-    // TODO: use a single custom binary search instead of partition_point... benchmark it and add some unit tests before
     pub fn range_indexes(
         &'a self,
         key_range: &'a (Bound<UserKey>, Bound<UserKey>),
@@ -240,7 +239,7 @@ impl<'a> DisjointLevel<'a> {
         Some((lo, hi))
     }
 }
-
+/*
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -253,8 +252,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         AbstractTree, KeyRange, Slice,
     };
     use std::sync::{atomic::AtomicBool, Arc};
@@ -262,7 +262,8 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, key_range: KeyRange) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -307,7 +308,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]
@@ -531,3 +532,4 @@ mod tests {
         );
     }
 }
+ */

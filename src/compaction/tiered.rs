@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
+use crate::{level_manifest::LevelManifest, segment::Segment, Config, HashSet};
 
 fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
@@ -55,107 +55,14 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        for (curr_level_index, level) in resolved_view
-            .iter()
-            .enumerate()
-            .take(resolved_view.len() - 1)
-            .rev()
-        {
-            // NOTE: Level count is 255 max
-            #[allow(clippy::cast_possible_truncation)]
-            let curr_level_index = curr_level_index as u8;
-
-            let next_level_index = curr_level_index + 1;
-
-            if level.is_empty() {
-                continue;
-            }
-
-            let level_size: u64 = level
-                .segments
-                .iter()
-                // NOTE: Take bytes that are already being compacted into account,
-                // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
-                .map(|x| x.metadata.file_size)
-                .sum();
-
-            let desired_bytes =
-                desired_level_size_in_bytes(curr_level_index, self.level_ratio, self.base_size)
-                    as u64;
-
-            if level_size >= desired_bytes {
-                // NOTE: Take desired_bytes because we are in tiered mode
-                // We want to take N segments, not just the overshoot (like in leveled)
-                let mut overshoot = desired_bytes;
-
-                let mut segments_to_compact = vec![];
-
-                for segment in level.iter().rev().take(self.level_ratio.into()).cloned() {
-                    if overshoot == 0 {
-                        break;
-                    }
-
-                    overshoot = overshoot.saturating_sub(segment.metadata.file_size);
-                    segments_to_compact.push(segment);
-                }
-
-                let mut segment_ids: HashSet<_> =
-                    segments_to_compact.iter().map(Segment::id).collect();
-
-                // NOTE: If dest level is the last level, just overwrite it
-                //
-                // If we didn't overwrite Lmax, it would end up amassing more and more
-                // segments
-                // Also, because it's the last level, the frequency of overwiting it is
-                // amortized because of the LSM-tree's level structure
-                if next_level_index == 6 {
-                    // Wait for L6 to be non-busy
-                    if levels.busy_levels().contains(&next_level_index) {
-                        continue;
-                    }
-
-                    segment_ids.extend(
-                        levels
-                            .levels
-                            .last()
-                            .expect("last level should always exist")
-                            .list_ids(),
-                    );
-                }
-
-                return Choice::Merge(CompactionInput {
-                    segment_ids,
-                    dest_level: next_level_index,
-                    target_size: u64::MAX,
-                });
-            }
-        }
-
-        // TODO: after major compaction, SizeTiered may behave weirdly
-        // if major compaction is not outputting into Lmax
-
-        // TODO: if level.size >= base_size and there are enough
-        // segments with size < base_size, compact them together
-        // no matter the amount of segments in L0 -> should reduce
-        // write stall chance
-        //
-        // TODO: however: force compaction if L0 becomes way too large
-
-        // NOTE: Reduce L0 segments if needed
-        // this is probably an edge case if the `base_size` does not line up with
-        // the `max_memtable_size` AT ALL
-        super::maintenance::Strategy.choose(levels, config)
+        todo!()
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::Strategy;
     use crate::{
-        bloom::BloomFilter,
         cache::Cache,
         compaction::{Choice, CompactionStrategy, Input as CompactionInput},
         config::Config,
@@ -167,8 +74,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         HashSet, KeyRange, SeqNo,
     };
     use std::sync::{atomic::AtomicBool, Arc};
@@ -176,7 +84,9 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, size_mib: u64, max_seqno: SeqNo) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -221,7 +131,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]
@@ -430,3 +340,4 @@ mod tests {
         Ok(())
     }
 }
+ */

@@ -25,7 +25,7 @@ impl<'a> GcWriter<'a> {
     }
 }
 
-impl<'a> value_log::IndexWriter for GcWriter<'a> {
+impl value_log::IndexWriter for GcWriter<'_> {
     fn insert_indirect(
         &mut self,
         key: &[u8],
