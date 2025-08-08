@@ -26,7 +26,7 @@ impl Ord for HeapItem {
 
 impl PartialOrd for HeapItem {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.1.key.cmp(&other.1.key))
+        Some(self.cmp(other))
     }
 }
 

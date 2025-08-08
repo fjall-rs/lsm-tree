@@ -58,7 +58,7 @@ impl Ord for BlockHandle {
 
 impl PartialOrd for BlockHandle {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.offset.cmp(&other.offset))
+        Some(self.cmp(other))
     }
 }
 
@@ -149,7 +149,7 @@ impl Ord for KeyedBlockHandle {
 
 impl PartialOrd for KeyedBlockHandle {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.offset().cmp(&other.offset()))
+        Some(self.cmp(other))
     }
 }
 
