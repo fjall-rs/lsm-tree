@@ -15,7 +15,7 @@ pub struct HiddenSet {
 impl Default for HiddenSet {
     fn default() -> Self {
         Self {
-            set: HashSet::with_capacity_and_hasher(10, xxhash_rust::xxh3::Xxh3Builder::new()),
+            set: HashSet::with_capacity_and_hasher(10, Default::default()),
         }
     }
 }

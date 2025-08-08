@@ -51,7 +51,7 @@ impl CompactionStrategy for Strategy {
         #[allow(clippy::expect_used)]
         let first_level = resolved_view.first().expect("L0 should always exist");
 
-        let mut segment_ids_to_delete = HashSet::with_hasher(xxhash_rust::xxh3::Xxh3Builder::new());
+        let mut segment_ids_to_delete = HashSet::with_hasher(Default::default());
 
         if let Some(ttl_seconds) = self.ttl_seconds {
             if ttl_seconds > 0 {
