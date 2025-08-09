@@ -184,6 +184,7 @@ impl Version {
             .flat_map(|x| x.iter())
     }
 
+    /// Gets the n-th level.
     pub fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)
     }
