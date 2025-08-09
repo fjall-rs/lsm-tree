@@ -83,7 +83,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
-        Choice::Move(payload) => move_segments(original_levels, opts, payload),
+        Choice::Move(payload) => move_segments(original_levels, opts, &payload),
         Choice::Drop(payload) => drop_segments(
             original_levels,
             opts,
@@ -160,7 +160,7 @@ fn create_compaction_stream<'a>(
 fn move_segments(
     mut levels: RwLockWriteGuard<'_, LevelManifest>,
     opts: &Options,
-    payload: CompactionPayload,
+    payload: &CompactionPayload,
 ) -> crate::Result<()> {
     // Fail-safe for buggy compaction strategies
     if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
