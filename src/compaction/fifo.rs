@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{config::Config, level_manifest::LevelManifest, time::unix_timestamp, HashSet};
+use crate::{config::Config, level_manifest::LevelManifest, HashSet};
 
 /// FIFO-style compaction
 ///
@@ -44,8 +44,33 @@ impl CompactionStrategy for Strategy {
         "FifoStrategy"
     }
 
-    fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
-        todo!()
+    // TODO: TTL
+    fn choose(&self, levels: &LevelManifest, _config: &Config) -> Choice {
+        let first_level = levels.as_slice().first().expect("should have first level");
+
+        assert!(first_level.is_disjoint(), "L0 needs to be disjoint",);
+
+        let l0_size = first_level.size();
+
+        if l0_size > self.limit {
+            let overshoot = l0_size - self.limit;
+
+            let mut oldest_segments = HashSet::default();
+            let mut collected_bytes = 0;
+
+            for segment in first_level.iter().flat_map(|run| run.iter()) {
+                if collected_bytes >= overshoot {
+                    break;
+                }
+
+                oldest_segments.insert(segment.id());
+                collected_bytes += segment.metadata.file_size;
+            }
+
+            Choice::Drop(oldest_segments)
+        } else {
+            Choice::DoNothing
+        }
     }
 }
 /*
