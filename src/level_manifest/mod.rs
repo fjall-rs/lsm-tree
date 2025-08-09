@@ -374,21 +374,16 @@ impl LevelManifest {
     }
 
     #[must_use]
-    pub fn busy_levels(&self) -> HashSet<u8> {
-        let mut output =
-            HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
-
-        for (idx, level) in self.current.iter_levels().enumerate() {
-            for segment in level.iter().flat_map(|run| run.iter()) {
-                if self.hidden_set.is_hidden(segment.id()) {
-                    // NOTE: Level count is u8
-                    #[allow(clippy::cast_possible_truncation)]
-                    output.insert(idx as u8);
-                }
-            }
-        }
-
-        output
+    pub fn level_is_busy(&self, idx: usize) -> bool {
+        self.current
+            .level(idx)
+            .map(|level| {
+                level
+                    .iter()
+                    .flat_map(|run| run.iter())
+                    .any(|segment| self.hidden_set.is_hidden(segment.id()))
+            })
+            .unwrap_or_default()
     }
 
     pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
