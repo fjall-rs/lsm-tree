@@ -203,7 +203,11 @@ impl AbstractTree for Tree {
                 use crate::segment::filter::BloomConstructionPolicy;
 
                 if self.config.bloom_bits_per_key >= 0 {
-                    BloomConstructionPolicy::FpRate(0.00001)
+                    // TODO: enable monkey later on
+                    // BloomConstructionPolicy::FpRate(0.00001)
+                    BloomConstructionPolicy::BitsPerKey(
+                        self.config.bloom_bits_per_key.unsigned_abs(),
+                    )
                 } else {
                     BloomConstructionPolicy::BitsPerKey(0)
                 }
