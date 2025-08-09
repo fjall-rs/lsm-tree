@@ -201,7 +201,7 @@ impl Strategy {
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "LeveledStrategy"
+        "LeveledCompaction"
     }
 
     #[allow(clippy::too_many_lines)]

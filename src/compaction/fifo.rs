@@ -41,7 +41,7 @@ impl Strategy {
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "FifoStrategy"
+        "FifoCompaction"
     }
 
     // TODO: TTL
