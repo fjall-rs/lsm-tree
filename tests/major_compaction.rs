@@ -28,12 +28,12 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     let item = tree.get_internal_entry(b"b", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "b".as_bytes());
     assert!(!item.is_tombstone());
-    assert_eq!(item.key.seqno, 1);
+    assert_eq!(item.key.seqno, 0); // NOTE: Seqno is zeroed because below GC threshold
 
     let item = tree.get_internal_entry(b"c", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "c".as_bytes());
     assert!(!item.is_tombstone());
-    assert_eq!(item.key.seqno, 2);
+    assert_eq!(item.key.seqno, 0); // NOTE: Seqno is zeroed because below GC threshold
 
     assert_eq!(1, tree.segment_count());
     assert_eq!(3, tree.len(None, None)?);
