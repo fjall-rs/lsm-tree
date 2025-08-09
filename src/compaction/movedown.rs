@@ -15,7 +15,7 @@ impl CompactionStrategy for Strategy {
 
     #[allow(clippy::expect_used)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        if levels.busy_levels().contains(&self.0) {
+        if levels.level_is_busy(usize::from(self.0)) {
             return Choice::DoNothing;
         }
 
