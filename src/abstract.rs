@@ -197,7 +197,7 @@ pub trait AbstractTree {
 
     /// Returns `true` if the tree is empty.
     ///
-    /// This operation has O(1) complexity.
+    /// This operation has O(log N) complexity.
     ///
     /// # Examples
     ///
