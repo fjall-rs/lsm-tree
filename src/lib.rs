@@ -144,6 +144,8 @@ pub(crate) mod fallible_clipping_iter;
 #[doc(hidden)]
 pub mod file;
 
+mod hash;
+
 mod key;
 
 #[doc(hidden)]
