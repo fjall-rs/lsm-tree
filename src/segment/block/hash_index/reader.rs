@@ -68,6 +68,7 @@ impl<'a> Reader<'a> {
 
         let bucket_pos = calculate_bucket_position(key, bucket_count);
 
+        // TODO: 3.0.0 is not worth it, just use safe impl
         // SAFETY: We use modulo in `calculate_bucket_position`
         #[allow(unsafe_code)]
         #[cfg(feature = "use_unsafe")]
