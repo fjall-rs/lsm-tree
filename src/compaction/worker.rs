@@ -269,6 +269,7 @@ fn merge_segments(
     let mut segment_writer = segment_writer
         .use_compression(opts.config.compression)
         .use_data_block_size(opts.config.data_block_size)
+        .use_data_block_hash_ratio(opts.config.data_block_hash_ratio)
         .use_bloom_policy({
             use crate::segment::filter::BloomConstructionPolicy;
 
@@ -359,7 +360,7 @@ fn merge_segments(
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
-                false, // TODO: look at configuration
+                true, // TODO: look at configuration
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),
             )
