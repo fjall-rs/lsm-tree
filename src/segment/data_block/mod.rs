@@ -270,6 +270,10 @@ pub struct DataBlock {
 }
 
 impl DataBlock {
+    /// Interprets a block as a data block.
+    ///
+    /// The caller needs to make sure the block is actually a data block
+    /// (e.g. by checking the block type, this is typically done in the `load_block` routine)
     #[must_use]
     pub fn new(inner: Block) -> Self {
         Self { inner }
