@@ -60,8 +60,6 @@ fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeI
 /// This tree is a composite structure, consisting of an
 /// index tree (LSM-tree) and a log-structured value log
 /// to reduce write amplification.
-///
-/// See <https://docs.rs/value-log> for more information.
 #[derive(Clone)]
 pub struct BlobTree {
     /// Index tree that holds value handles or small inline values
