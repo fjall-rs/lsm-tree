@@ -73,6 +73,8 @@ impl CompactionStrategy for Strategy {
         }
     }
 }
+
+// TODO: restore tests
 /*
 #[cfg(test)]
 mod tests {
