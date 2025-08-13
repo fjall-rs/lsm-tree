@@ -20,3 +20,7 @@ Cargo.lock
 mutants*
 profile.json
 fuzz*/**/out*
+
+microbench/**/data.jsonl
+microbench/**/*.svg
+
