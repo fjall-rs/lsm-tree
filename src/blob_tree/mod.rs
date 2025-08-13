@@ -230,7 +230,7 @@ impl BlobTree {
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment))?;
+        self.register_segments(std::slice::from_ref(&segment), eviction_seqno)?;
 
         Ok(Some(segment))
     }
@@ -483,8 +483,8 @@ impl AbstractTree for BlobTree {
         Ok(segment)
     }
 
-    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
-        self.index.register_segments(segments)?;
+    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()> {
+        self.index.register_segments(segments, seqno_threshold)?;
 
         let count = self
             .pending_segments

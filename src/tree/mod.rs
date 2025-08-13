@@ -228,7 +228,7 @@ impl AbstractTree for Tree {
         Ok(result)
     }
 
-    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
+    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()> {
         log::trace!("Registering {} segments", segments.len());
 
         // NOTE: Mind lock order L -> M -> S
@@ -241,7 +241,10 @@ impl AbstractTree for Tree {
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
         log::trace!("register: Acquired sealed memtables write lock");
 
-        manifest.atomic_swap(|version| version.with_new_l0_segment(segments))?;
+        manifest.atomic_swap(
+            |version| version.with_new_l0_segment(segments),
+            seqno_threshold,
+        )?;
 
         // eprintln!("{manifest}");
 
@@ -575,7 +578,7 @@ impl Tree {
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment))?;
+        self.register_segments(std::slice::from_ref(&segment), seqno_threshold)?;
 
         Ok(Some(segment))
     }

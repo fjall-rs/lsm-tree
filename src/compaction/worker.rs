@@ -173,7 +173,10 @@ fn move_segments(
 
     let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
 
-    levels.atomic_swap(|current| current.with_moved(&segment_ids, payload.dest_level as usize))?;
+    levels.atomic_swap(
+        |current| current.with_moved(&segment_ids, payload.dest_level as usize),
+        opts.eviction_seqno,
+    )?;
 
     Ok(())
 }
@@ -438,13 +441,16 @@ fn merge_segments(
     let mut levels = opts.levels.write().expect("lock is poisoned");
     log::trace!("compactor: acquired levels manifest write lock");
 
-    let swap_result = levels.atomic_swap(|current| {
-        current.with_merge(
-            &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
-            &created_segments,
-            payload.dest_level as usize,
-        )
-    });
+    let swap_result = levels.atomic_swap(
+        |current| {
+            current.with_merge(
+                &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+                &created_segments,
+                payload.dest_level as usize,
+            )
+        },
+        opts.eviction_seqno,
+    );
 
     if let Err(e) = swap_result {
         // IMPORTANT: Show the segments again, because compaction failed
@@ -460,6 +466,12 @@ fn merge_segments(
     }
 
     levels.show_segments(payload.segment_ids.iter().copied());
+
+    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+        log::error!("Manifest maintenance failed: {e:?}");
+        return Err(e);
+    }
+
     drop(levels);
 
     log::trace!("Compaction successful");
@@ -495,9 +507,10 @@ fn drop_segments(
 
     // IMPORTANT: Write the manifest with the removed segments first
     // Otherwise the segment files are deleted, but are still referenced!
-    levels.atomic_swap(|current| current.with_dropped(ids_to_drop))?;
-
-    drop(levels);
+    levels.atomic_swap(
+        |current| current.with_dropped(ids_to_drop),
+        opts.eviction_seqno, // TODO: make naming in code base eviction_seqno vs watermark vs threshold consistent
+    )?;
 
     // NOTE: If the application were to crash >here< it's fine
     // The segments are not referenced anymore, and will be
@@ -505,6 +518,13 @@ fn drop_segments(
     for segment in segments {
         segment.mark_as_deleted();
     }
+
+    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+        log::error!("Manifest maintenance failed: {e:?}");
+        return Err(e);
+    }
+
+    drop(levels);
 
     log::trace!("Dropped {} segments", ids_to_drop.len());
 

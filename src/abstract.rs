@@ -72,7 +72,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()>;
+    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
     fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;

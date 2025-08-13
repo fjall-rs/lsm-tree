@@ -7,7 +7,7 @@ pub mod run;
 
 pub use run::Run;
 
-use crate::{HashSet, KeyRange, Segment, SegmentId};
+use crate::{HashSet, KeyRange, Segment, SegmentId, SeqNo};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
@@ -131,6 +131,7 @@ impl Level {
 
 pub struct VersionInner {
     id: VersionId,
+
     pub(crate) levels: Vec<Level>,
 }
 
@@ -138,13 +139,16 @@ pub struct VersionInner {
 ///
 /// Any time a segment is created or deleted, a new version is created.
 #[derive(Clone)]
-pub struct Version(Arc<VersionInner>);
+pub struct Version {
+    inner: Arc<VersionInner>,
+    pub(crate) seqno_watermark: SeqNo,
+}
 
 impl std::ops::Deref for Version {
     type Target = VersionInner;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
@@ -157,11 +161,17 @@ impl Version {
     pub fn new(id: VersionId) -> Self {
         let levels = (0..7).map(|_| Level::empty()).collect();
 
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 
     pub fn from_levels(id: VersionId, levels: Vec<Level>) -> Self {
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 
     /// Returns the amount of levels.
@@ -220,7 +230,10 @@ impl Version {
         // L1+
         levels.extend(self.levels.iter().skip(1).cloned());
 
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 
     pub fn with_dropped(&self, ids: &[SegmentId]) -> Self {
@@ -246,7 +259,10 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 
     pub fn with_merge(
@@ -281,7 +297,10 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 
     pub fn with_moved(&self, ids: &[SegmentId], dest_level: usize) -> Self {
@@ -319,6 +338,9 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        Self(Arc::new(VersionInner { id, levels }))
+        Self {
+            inner: Arc::new(VersionInner { id, levels }),
+            seqno_watermark: 0,
+        }
     }
 }

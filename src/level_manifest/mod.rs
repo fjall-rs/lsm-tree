@@ -9,11 +9,12 @@ use crate::{
     file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
     segment::Segment,
     version::{Level, Run, Version, VersionId},
-    HashSet, SegmentId,
+    HashSet, SegmentId, SeqNo,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
 use std::{
+    collections::VecDeque,
     io::{BufWriter, Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -24,7 +25,7 @@ pub struct LevelManifest {
     /// Path of tree folder.
     folder: PathBuf,
 
-    /// Current version
+    /// Current version.
     current: Version,
 
     /// Set of segment IDs that are masked.
@@ -32,6 +33,9 @@ pub struct LevelManifest {
     /// While consuming segments (because of compaction) they will not appear in the list of segments
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments).
     hidden_set: HiddenSet,
+
+    /// Holds onto versions until they are safe to drop.
+    version_free_list: VecDeque<Version>,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -130,6 +134,7 @@ impl LevelManifest {
             folder: folder.into(),
             current: Version::new(0),
             hidden_set: HiddenSet::default(),
+            version_free_list: Default::default(),
         };
 
         Self::persist_version(&manifest.folder, &manifest.current)?;
@@ -257,12 +262,11 @@ impl LevelManifest {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // TODO: 3. create free list from versions that are N < CURRENT
-
         Ok(Self {
             current: Version::from_levels(curr_version, version_levels),
             folder,
             hidden_set: HiddenSet::default(),
+            version_free_list: Default::default(), // TODO: 3. create free list from versions that are N < CURRENT
         })
     }
 
@@ -318,6 +322,7 @@ impl LevelManifest {
     pub(crate) fn atomic_swap<F: FnOnce(&Version) -> Version>(
         &mut self,
         f: F,
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         // NOTE: Copy-on-write...
         //
@@ -329,11 +334,28 @@ impl LevelManifest {
 
         Self::persist_version(&self.folder, &next_version)?;
 
-        // TODO: add old version to free list
+        let mut old_version = std::mem::replace(&mut self.current, next_version);
+        old_version.seqno_watermark = gc_watermark;
 
-        self.current = next_version;
+        self.version_free_list.push_back(old_version);
 
-        // TODO: GC version history by traversing free list
+        Ok(())
+    }
+
+    pub(crate) fn maintenance(&mut self, gc_watermark: SeqNo) -> crate::Result<()> {
+        loop {
+            let Some(head) = self.version_free_list.front() else {
+                break;
+            };
+
+            if head.seqno_watermark < gc_watermark {
+                let path = self.folder.join(format!("v{}", head.id()));
+                std::fs::remove_file(path)?;
+                self.version_free_list.pop_front();
+            } else {
+                break;
+            }
+        }
 
         Ok(())
     }
