@@ -358,10 +358,6 @@ impl DataBlock {
             match hash_index_reader.get(needle) {
                 Found(idx) => {
                     let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
-
-                    // if !iter.seek_to_offset(offset, needle) {
-                    //     return None;
-                    // }
                     iter.seek_to_offset(offset);
                 }
                 NotFound => {
