@@ -26,6 +26,9 @@ pub struct Writer {
 
     segment_id: SegmentId,
 
+    data_block_restart_interval: u8, // TODO:
+    data_block_hash_ratio: f32,
+
     data_block_size: u32,
     index_block_size: u32, // TODO: implement
 
@@ -71,6 +74,9 @@ impl Writer {
 
             segment_id,
 
+            data_block_restart_interval: 16,
+            data_block_hash_ratio: 0.0,
+
             data_block_size: 4_096,
             index_block_size: 4_096,
 
@@ -94,6 +100,12 @@ impl Writer {
 
             bloom_hash_buffer: Vec::new(),
         })
+    }
+
+    #[must_use]
+    pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
+        self.data_block_hash_ratio = ratio;
+        self
     }
 
     #[must_use]
@@ -180,8 +192,8 @@ impl Writer {
         DataBlock::encode_into(
             &mut self.block_buffer,
             &self.chunk,
-            16,   // TODO: config
-            1.33, // TODO: config
+            self.data_block_restart_interval,
+            self.data_block_hash_ratio,
         )?;
 
         // log::warn!("encoding {:?}", self.chunk);

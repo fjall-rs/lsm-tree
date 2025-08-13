@@ -16,6 +16,7 @@ use std::{
 pub struct MultiWriter {
     base_path: PathBuf,
 
+    data_block_hash_ratio: f32,
     data_block_size: u32,
 
     /// Target size of segments in bytes
@@ -54,6 +55,7 @@ impl MultiWriter {
         Ok(Self {
             base_path,
 
+            data_block_hash_ratio: 0.0,
             data_block_size: 4_096,
 
             target_size,
@@ -71,12 +73,20 @@ impl MultiWriter {
     }
 
     #[must_use]
+    pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
+        self.data_block_hash_ratio = ratio;
+        self.writer = self.writer.use_data_block_hash_ratio(ratio);
+        self
+    }
+
+    #[must_use]
     pub(crate) fn use_data_block_size(mut self, size: u32) -> Self {
         assert!(
             size <= 4 * 1_024 * 1_024,
             "data block size must be <= 4 MiB",
         );
         self.data_block_size = size;
+        self.writer = self.writer.use_data_block_size(size);
         self
     }
 
@@ -112,7 +122,8 @@ impl MultiWriter {
         let new_writer = Writer::new(path, new_segment_id)?
             .use_compression(self.compression)
             .use_data_block_size(self.data_block_size)
-            .use_bloom_policy(self.bloom_policy);
+            .use_bloom_policy(self.bloom_policy)
+            .use_data_block_hash_ratio(self.data_block_hash_ratio);
 
         let old_writer = std::mem::replace(&mut self.writer, new_writer);
 

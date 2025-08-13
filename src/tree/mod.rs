@@ -199,6 +199,7 @@ impl AbstractTree for Tree {
         let mut segment_writer = Writer::new(segment_file_path, segment_id)?
             .use_compression(self.config.compression)
             .use_data_block_size(self.config.data_block_size)
+            .use_data_block_hash_ratio(self.config.data_block_hash_ratio)
             .use_bloom_policy({
                 use crate::segment::filter::BloomConstructionPolicy;
 

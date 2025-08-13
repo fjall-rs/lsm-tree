@@ -58,9 +58,12 @@ pub struct Config {
     /// What type of compression is used for blobs
     pub blob_compression: CompressionType,
 
-    // /// Table type (unused)
-    // #[allow(unused)]
-    // pub(crate) table_type: TableType,
+    /// Restart interval inside data blocks
+    pub data_block_restart_interval: u8,
+
+    /// Hash bytes per key in data blocks
+    pub data_block_hash_ratio: f32,
+
     /// Block size of data blocks
     pub data_block_size: u32,
 
@@ -101,6 +104,9 @@ impl Default for Config {
 
             cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
 
+            data_block_restart_interval: 16,
+            data_block_hash_ratio: 0.0,
+
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
@@ -123,6 +129,34 @@ impl Config {
             path: absolute_path(path.as_ref()),
             ..Default::default()
         }
+    }
+
+    /// Sets the restart interval inside data blocks.
+    ///
+    /// A higher restart interval saves space while increasing lookup times
+    /// inside data blocks.
+    ///
+    /// Default = 16
+    #[must_use]
+    pub fn data_block_restart_interval(mut self, i: u8) -> Self {
+        self.data_block_restart_interval = i;
+        self
+    }
+
+    /// Sets the hash ratio for the hash index in data blocks.
+    ///
+    /// The hash index speeds up point queries by using an embedded
+    /// hash map in data blocks, but uses more space/memory.
+    ///
+    /// Something along the lines of 1.0 - 2.0 is sensible.
+    ///
+    /// If 0, the hash index is not constructed.
+    ///
+    /// Default = 0.0
+    #[must_use]
+    pub fn data_block_hash_ratio(mut self, ratio: f32) -> Self {
+        self.data_block_hash_ratio = ratio;
+        self
     }
 
     /// Sets the bits per key to use for bloom filters
