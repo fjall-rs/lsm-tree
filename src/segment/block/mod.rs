@@ -250,7 +250,7 @@ impl Block {
                 *checksum,
                 *header.checksum,
             );
-
+            // return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
         Ok(Self { header, data })
