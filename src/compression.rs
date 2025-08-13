@@ -28,13 +28,11 @@ impl Encode for CompressionType {
         match self {
             Self::None => {
                 writer.write_u8(0)?;
-                writer.write_u8(0)?; // NOTE: Pad to 2 bytes
             }
 
             #[cfg(feature = "lz4")]
             Self::Lz4 => {
                 writer.write_u8(1)?;
-                writer.write_u8(0)?; // NOTE: Pad to 2 bytes
             }
         }
 
@@ -47,16 +45,10 @@ impl Decode for CompressionType {
         let tag = reader.read_u8()?;
 
         match tag {
-            0 => {
-                assert_eq!(0, reader.read_u8()?, "Invalid compression");
-                Ok(Self::None)
-            }
+            0 => Ok(Self::None),
 
             #[cfg(feature = "lz4")]
-            1 => {
-                assert_eq!(0, reader.read_u8()?, "Invalid compression");
-                Ok(Self::Lz4)
-            }
+            1 => Ok(Self::Lz4),
 
             tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
@@ -86,7 +78,7 @@ mod tests {
     #[test]
     fn compression_serialize_none() {
         let serialized = CompressionType::None.encode_into_vec();
-        assert_eq!(2, serialized.len());
+        assert_eq!(1, serialized.len());
     }
 
     #[cfg(feature = "lz4")]
@@ -97,7 +89,7 @@ mod tests {
         #[test]
         fn compression_serialize_none() {
             let serialized = CompressionType::Lz4.encode_into_vec();
-            assert_eq!(2, serialized.len());
+            assert_eq!(1, serialized.len());
         }
     }
 }
