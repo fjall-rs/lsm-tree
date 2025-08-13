@@ -20,7 +20,6 @@ path = "src/lib.rs"
 default = []
 lz4 = ["dep:lz4_flex"]
 bytes = ["value-log/bytes"]
-bytes = []                  # TODO: restore
 use_unsafe = []
 bloom_use_unsafe = []
 metrics = []
