@@ -291,7 +291,7 @@ impl DataBlock {
         self.inner.size()
     }
 
-    fn get_binary_index_reader(&self) -> BinaryIndexReader {
+    pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader {
         let trailer = Trailer::new(&self.inner);
         let mut reader = trailer.as_slice();
 
@@ -317,7 +317,8 @@ impl DataBlock {
         )
     }
 
-    fn get_hash_index_reader(&self) -> Option<HashIndexReader> {
+    #[must_use]
+    pub fn get_hash_index_reader(&self) -> Option<HashIndexReader<'_>> {
         let trailer = Trailer::new(&self.inner);
 
         // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8)
