@@ -359,9 +359,10 @@ impl DataBlock {
                 Found(idx) => {
                     let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
 
-                    if !iter.seek_to_offset(offset, needle) {
-                        return None;
-                    }
+                    // if !iter.seek_to_offset(offset, needle) {
+                    //     return None;
+                    // }
+                    iter.seek_to_offset(offset);
                 }
                 NotFound => {
                     return None;
@@ -381,8 +382,18 @@ impl DataBlock {
         }
 
         for item in iter {
-            if item.compare_key(needle, &self.inner.data).is_gt() {
-                return None;
+            match item.compare_key(needle, &self.inner.data) {
+                std::cmp::Ordering::Less => {
+                    // We are past our searched key
+                    continue;
+                }
+                std::cmp::Ordering::Greater => {
+                    // We are before our searched key/seqno
+                    return None;
+                }
+                std::cmp::Ordering::Equal => {
+                    // If key is same as needle, check sequence number
+                }
             }
 
             if item.seqno >= seqno {

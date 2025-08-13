@@ -11,7 +11,7 @@ use crate::{
     InternalValue,
 };
 
-// TODO: rename
+/// The data block iterator handles double-ended scans over a data block
 pub struct Iter<'a> {
     bytes: &'a [u8],
     decoder:
@@ -19,37 +19,23 @@ pub struct Iter<'a> {
 }
 
 impl<'a> Iter<'a> {
+    /// Creates a new iterator over a data block.
     #[must_use]
     pub fn new(bytes: &'a [u8], decoder: Decoder<'a, InternalValue, DataBlockParsedItem>) -> Self {
         let decoder = decoder.double_ended_peekable();
         Self { bytes, decoder }
     }
 
-    pub fn seek_to_offset(&mut self, offset: usize, needle: &[u8]) -> bool {
+    /// Seek the iterator to an byte offset.
+    ///
+    /// This is used when the hash index returns a hit.
+    pub fn seek_to_offset(&mut self, offset: usize) -> bool {
         self.decoder.inner_mut().set_lo_offset(offset);
-
-        // Linear scan
-        loop {
-            let Some(item) = self.decoder.peek() else {
-                return false;
-            };
-
-            match item.compare_key(needle, self.bytes) {
-                std::cmp::Ordering::Equal => {
-                    return true;
-                }
-                std::cmp::Ordering::Greater => {
-                    return false;
-                }
-                std::cmp::Ordering::Less => {
-                    // Continue
-
-                    self.decoder.next().expect("should exist");
-                }
-            }
-        }
+        true
     }
 
+    // TODO: the peek() + next() pattern is a bit unfortunate
+    // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek(&mut self, needle: &[u8]) -> bool {
         if !self
             .decoder
@@ -84,6 +70,8 @@ impl<'a> Iter<'a> {
         }
     }
 
+    // TODO: the peek_back() + next_back() pattern is a bit unfortunate
+    // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
         if !self
             .decoder
