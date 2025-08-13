@@ -20,11 +20,10 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
-    segment::{BlockHandle, DataBlock},
+    segment::BlockHandle,
     CompressionType, Slice,
 };
 use std::fs::File;
-use xxhash_rust::xxh3::{xxh3_128, xxh3_64};
 
 /// A block on disk
 ///
@@ -51,7 +50,7 @@ impl Block {
     ) -> crate::Result<Header> {
         let mut header = Header {
             block_type,
-            checksum: Checksum::from_raw(xxh3_128(data)),
+            checksum: Checksum::from_raw(crate::hash::hash128(data)),
             data_length: 0, // <-- NOTE: Is set later on
             uncompressed_length: data.len() as u32,
             previous_block_offset: BlockOffset(0), // <-- TODO:
@@ -139,14 +138,14 @@ impl Block {
             ))));
         }
 
-        let checksum = Checksum::from_raw(xxh3_128(&data));
+        let checksum = Checksum::from_raw(crate::hash::hash128(&data));
         if checksum != header.checksum {
-            log::error!(
-                "Checksum mismatch for block, got={}, expected={}",
+            log::warn!(
+                "Checksum mismatch for {block_type:?}@<bufreader>, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+            // return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
         Ok(Self { header, data })
@@ -264,14 +263,14 @@ impl Block {
             ))));
         }
 
-        let checksum = Checksum::from_raw(xxh3_128(&data));
+        let checksum = Checksum::from_raw(crate::hash::hash128(&data));
         if checksum != header.checksum {
-            log::error!(
-                "Checksum mismatch for block {handle:?}, got={}, expected={}",
+            log::warn!(
+                "Checksum mismatch for block {block_type:?}@{handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+
         }
 
         Ok(Self { header, data })

@@ -31,9 +31,9 @@ const MARKER_CONFLICT: u8 = u8::MAX; // 255
 #[allow(clippy::cast_possible_truncation)]
 /// Calculates the bucket index for the given key.
 fn calculate_bucket_position(key: &[u8], bucket_count: u32) -> usize {
-    use xxhash_rust::xxh3::xxh3_64 as hash;
+    use crate::hash::hash64;
 
-    let hash = hash(key);
+    let hash = hash64(key);
     (hash % u64::from(bucket_count)) as usize
 }
 

@@ -128,7 +128,7 @@ impl Builder {
     /// Gets the hash of a key.
     #[must_use]
     pub fn get_hash(key: &[u8]) -> u64 {
-        xxhash_rust::xxh3::xxh3_64(key)
+        crate::hash::hash64(key)
     }
 }
 
