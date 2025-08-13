@@ -275,7 +275,7 @@ impl DataBlock {
         Self { inner }
     }
 
-    /// Access the inner raw bytes
+    /// Accesses the inner raw bytes
     #[must_use]
     pub fn as_slice(&self) -> &Slice {
         &self.inner.data
@@ -397,7 +397,7 @@ impl DataBlock {
 
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<'_> {
         Iter::new(
             &self.inner.data,
             Decoder::<InternalValue, DataBlockParsedItem>::new(&self.inner),
