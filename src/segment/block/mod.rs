@@ -61,9 +61,6 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => &lz4_flex::compress(data),
-
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(level) => &miniz_oxide::deflate::compress_to_vec(data, level),
         };
         header.data_length = data.len() as u32;
 
@@ -111,11 +108,6 @@ impl Block {
 
                 data
             }
-
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(_) => miniz_oxide::inflate::decompress_to_vec(&raw_data)
-                .map_err(|_| crate::Error::Decompress(compression))?
-                .into(),
         };
 
         debug_assert_eq!(header.uncompressed_length, {
@@ -230,18 +222,6 @@ impl Block {
                 }
 
                 data
-            }
-
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(_) => {
-                // NOTE: We know that a header always exists and data is never empty
-                // So the slice is fine
-                #[allow(clippy::indexing_slicing)]
-                let raw_data = &buf[Header::serialized_len()..];
-
-                miniz_oxide::inflate::decompress_to_vec(raw_data)
-                    .map_err(|_| crate::Error::Decompress(compression))?
-                    .into()
             }
         };
 

@@ -102,11 +102,7 @@ fn value_block_find(c: &mut Criterion) {
 fn encode_block(c: &mut Criterion) {
     let mut group = c.benchmark_group("Encode block");
 
-    for comp_type in [
-        CompressionType::None,
-        CompressionType::Lz4,
-        CompressionType::Miniz(3),
-    ] {
+    for comp_type in [CompressionType::None, CompressionType::Lz4] {
         for block_size in [4, 8, 16, 32, 64, 128] {
             let block_size = block_size * 1_024;
 
@@ -145,11 +141,7 @@ fn encode_block(c: &mut Criterion) {
 fn load_value_block_from_disk(c: &mut Criterion) {
     let mut group = c.benchmark_group("Load block from disk");
 
-    for comp_type in [
-        CompressionType::None,
-        CompressionType::Lz4,
-        CompressionType::Miniz(3),
-    ] {
+    for comp_type in [CompressionType::None, CompressionType::Lz4] {
         for block_size in [4, 8, 16, 32, 64, 128] {
             let block_size = block_size * 1_024;
 

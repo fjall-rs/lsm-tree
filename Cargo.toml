@@ -19,7 +19,7 @@ path = "src/lib.rs"
 [features]
 default = []
 lz4 = ["dep:lz4_flex"]
-miniz = ["dep:miniz_oxide"]
+bytes = ["value-log/bytes"]
 bytes = []                  # TODO: restore
 use_unsafe = []
 bloom_use_unsafe = []
@@ -32,7 +32,6 @@ enum_dispatch = "0.3.13"
 interval-heap = "0.0.5"
 log = "0.4.22"
 lz4_flex = { version = "0.11.3", optional = true, default-features = false }
-miniz_oxide = { version = "0.8.0", optional = true } # TODO: zlib-rs?
 quick_cache = { version = "0.6.13", default-features = false, features = [] }
 rustc-hash = "2.0.0"
 self_cell = "1.0.4"
@@ -80,13 +79,13 @@ required-features = []
 name = "block"
 harness = false
 path = "benches/block.rs"
-required-features = ["lz4", "miniz"]
+required-features = ["lz4"]
 
 [[bench]]
 name = "tree"
 harness = false
 path = "benches/tree.rs"
-required-features = ["lz4", "miniz"]
+required-features = ["lz4"]
 
 [[bench]]
 name = "level_manifest"

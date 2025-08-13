@@ -86,7 +86,7 @@ impl BlobTree {
                 .compression(match config.blob_compression {
                     crate::CompressionType::None => None,
 
-                    #[cfg(any(feature = "lz4", feature = "miniz"))]
+                    #[cfg(feature = "lz4")]
                     c => Some(MyCompressor(c)),
                 });
 

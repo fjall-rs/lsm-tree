@@ -45,12 +45,6 @@ Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeit
 
 *Disabled by default.*
 
-### miniz
-
-Allows using `DEFLATE/zlib` compression, powered by [`miniz_oxide`](https://github.com/Frommi/miniz_oxide).
-
-*Disabled by default.*
-
 ### bytes
 
 Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type.
@@ -68,7 +62,7 @@ Future breaking changes will result in a major version bump and a migration path
 ## Run unit benchmarks
 
 ```bash
-cargo bench --features lz4,miniz
+cargo bench --features lz4
 ```
 
 ## License

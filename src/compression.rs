@@ -21,18 +21,6 @@ pub enum CompressionType {
     /// on speed over compression ratio.
     #[cfg(feature = "lz4")]
     Lz4,
-
-    /// zlib/DEFLATE compression
-    ///
-    /// Compression level (0-10) can be adjusted.
-    ///
-    /// - 0 disables compression
-    /// - 1 optimizes for speed
-    /// - 6 compromises between speed and space, good default
-    /// - 9 optimizes for space
-    /// - 10 may save even more space than 9, but the speed trade off may not be worth it
-    #[cfg(feature = "miniz")]
-    Miniz(u8),
 }
 
 impl Encode for CompressionType {
@@ -47,14 +35,6 @@ impl Encode for CompressionType {
             Self::Lz4 => {
                 writer.write_u8(1)?;
                 writer.write_u8(0)?; // NOTE: Pad to 2 bytes
-            }
-
-            #[cfg(feature = "miniz")]
-            Self::Miniz(level) => {
-                assert!(*level <= 10, "invalid miniz compression level");
-
-                writer.write_u8(2)?;
-                writer.write_u8(*level)?;
             }
         }
 
@@ -78,15 +58,6 @@ impl Decode for CompressionType {
                 Ok(Self::Lz4)
             }
 
-            #[cfg(feature = "miniz")]
-            2 => {
-                let level = reader.read_u8()?;
-
-                assert!(level <= 10, "invalid miniz compression level");
-
-                Ok(Self::Miniz(level))
-            }
-
             tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
     }
@@ -102,9 +73,6 @@ impl std::fmt::Display for CompressionType {
 
                 #[cfg(feature = "lz4")]
                 Self::Lz4 => "lz4",
-
-                #[cfg(feature = "miniz")]
-                Self::Miniz(_) => "miniz",
             }
         )
     }
@@ -130,20 +98,6 @@ mod tests {
         fn compression_serialize_none() {
             let serialized = CompressionType::Lz4.encode_into_vec();
             assert_eq!(2, serialized.len());
-        }
-    }
-
-    #[cfg(feature = "miniz")]
-    mod miniz {
-        use super::*;
-        use test_log::test;
-
-        #[test]
-        fn compression_serialize_none() {
-            for lvl in 0..10 {
-                let serialized = CompressionType::Miniz(lvl).encode_into_vec();
-                assert_eq!(2, serialized.len());
-            }
         }
     }
 }
