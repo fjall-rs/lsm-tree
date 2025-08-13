@@ -48,7 +48,7 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _config: &Config) -> Choice {
         let first_level = levels.as_slice().first().expect("should have first level");
 
-        assert!(first_level.is_disjoint(), "L0 needs to be disjoint",);
+        assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
 
         let l0_size = first_level.size();
 
@@ -58,7 +58,7 @@ impl CompactionStrategy for Strategy {
             let mut oldest_segments = HashSet::default();
             let mut collected_bytes = 0;
 
-            for segment in first_level.iter().flat_map(|run| run.iter()) {
+            for segment in first_level.iter().flat_map(|run| run.iter().rev()) {
                 if collected_bytes >= overshoot {
                     break;
                 }
