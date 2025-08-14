@@ -46,6 +46,8 @@ impl CompactionStrategy for Strategy {
 
     // TODO: TTL
     fn choose(&self, levels: &LevelManifest, _config: &Config) -> Choice {
+        // NOTE: We always have at least one level
+        #[allow(clippy::expect_used)]
         let first_level = levels.as_slice().first().expect("should have first level");
 
         assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
