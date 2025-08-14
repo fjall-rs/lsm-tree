@@ -21,7 +21,7 @@ impl<'a> Ingestion<'a> {
         );
 
         let folder = tree.config.path.join(crate::file::SEGMENTS_FOLDER);
-        log::debug!("Ingesting into disk segments in {:?}", folder.display());
+        log::debug!("Ingesting into disk segments in {}", folder.display());
 
         let writer = MultiWriter::new(
             folder.clone(),
