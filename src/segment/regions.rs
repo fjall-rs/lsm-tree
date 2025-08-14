@@ -30,6 +30,8 @@ impl ParsedRegions {
         let block = DataBlock::new(block);
 
         let tli = {
+            // NOTE: Top-level index block is always written
+            #[allow(clippy::expect_used)]
             let bytes = block
                 .point_read(b"tli", SeqNo::MAX)
                 .expect("TLI handle should exist");
@@ -39,6 +41,8 @@ impl ParsedRegions {
         }?;
 
         let metadata = {
+            // NOTE: Metadata block is always written
+            #[allow(clippy::expect_used)]
             let bytes = block
                 .point_read(b"meta", SeqNo::MAX)
                 .expect("Metadata handle should exist");
