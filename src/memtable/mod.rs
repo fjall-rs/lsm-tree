@@ -114,10 +114,10 @@ impl Memtable {
     /// Inserts an item into the memtable
     #[doc(hidden)]
     pub fn insert(&self, item: InternalValue) -> (u64, u64) {
-        // NOTE: We know values are limited to 32-bit length
-        #[allow(clippy::cast_possible_truncation)]
+        // NOTE: We know keys are limited to 16-bit length + values are limited to 32-bit length
+        #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
         let item_size =
-            { item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>() }
+            (item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>())
                 .try_into()
                 .expect("should fit into u64");
 
