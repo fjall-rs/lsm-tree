@@ -11,7 +11,7 @@ use crate::{
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct Builder {
     /// Raw bytes exposed as bit array
@@ -137,6 +137,7 @@ impl Builder {
         }
     }
 
+    #[must_use]
     pub fn get_bit_idx(block_idx: usize, idx_in_block: usize) -> usize {
         block_idx * CACHE_LINE_BYTES * 8 + idx_in_block
     }

@@ -13,7 +13,7 @@ fn get_bit(byte: u8, idx: usize) -> bool {
 }
 
 /// Fixed-size bit array reader
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct BitArrayReader<'a>(&'a [u8]);
 
 impl<'a> BitArrayReader<'a> {

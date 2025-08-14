@@ -12,7 +12,7 @@ pub fn enable_bit(byte: u8, idx: usize) -> u8 {
 }
 
 /// Fixed-size bit array
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct Builder(Box<[u8]>);
 
 impl Builder {

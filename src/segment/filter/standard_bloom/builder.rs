@@ -12,7 +12,7 @@ pub fn secondary_hash(h1: u64) -> u64 {
     h1.wrapping_shr(32).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct Builder {
     /// Raw bytes exposed as bit array

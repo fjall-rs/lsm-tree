@@ -24,7 +24,7 @@ const CACHE_LINE_BYTES: usize = 64;
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
 /// <https://fjall-rs.github.io/post/bloom-filter-hash-sharing>
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct BlockedBloomFilterReader<'a> {
     /// Raw bytes exposed as bit array
     inner: BitArrayReader<'a>,
