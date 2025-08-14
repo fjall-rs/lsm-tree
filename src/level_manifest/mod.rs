@@ -8,8 +8,8 @@ use crate::{
     coding::DecodeError,
     file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
     segment::Segment,
-    version::{Level, Run, Version, VersionId},
-    HashSet, SegmentId, SeqNo,
+    version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
+    SegmentId, SeqNo,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use hidden_set::HiddenSet;
@@ -134,7 +134,7 @@ impl LevelManifest {
             folder: folder.into(),
             current: Version::new(0),
             hidden_set: HiddenSet::default(),
-            version_free_list: Default::default(),
+            version_free_list: VecDeque::default(),
         };
 
         Self::persist_version(&manifest.folder, &manifest.current)?;
@@ -231,7 +231,7 @@ impl LevelManifest {
         let version_file = std::path::Path::new(&version_file_path);
 
         if !version_file.try_exists()? {
-            log::error!("Cannot find version file {version_file_path:?}");
+            log::error!("Cannot find version file {}", version_file_path.display());
             return Err(crate::Error::Unrecoverable);
         }
 
@@ -266,12 +266,16 @@ impl LevelManifest {
             current: Version::from_levels(curr_version, version_levels),
             folder,
             hidden_set: HiddenSet::default(),
-            version_free_list: Default::default(), // TODO: 3. create free list from versions that are N < CURRENT
+            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT
         })
     }
 
     fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
-        log::trace!("Persisting version {} in {folder:?}", version.id());
+        log::trace!(
+            "Persisting version {} in {}",
+            version.id(),
+            folder.display(),
+        );
 
         let file = std::fs::File::create(folder.join(format!("v{}", version.id())))?;
         let mut writer = BufWriter::new(file);
@@ -376,11 +380,10 @@ impl LevelManifest {
         }
     }
 
-    /// Returns the amount of levels in the tree
+    /// Returns the amount of levels in the tree.
     #[must_use]
     pub fn last_level_index(&self) -> u8 {
-        // NOTE: Currently hard coded to 7 - 1
-        6
+        DEFAULT_LEVEL_COUNT - 1
     }
 
     /// Returns the amount of segments, summed over all levels
@@ -397,15 +400,12 @@ impl LevelManifest {
 
     #[must_use]
     pub fn level_is_busy(&self, idx: usize) -> bool {
-        self.current
-            .level(idx)
-            .map(|level| {
-                level
-                    .iter()
-                    .flat_map(|run| run.iter())
-                    .any(|segment| self.hidden_set.is_hidden(segment.id()))
-            })
-            .unwrap_or_default()
+        self.current.level(idx).is_some_and(|level| {
+            level
+                .iter()
+                .flat_map(|run| run.iter())
+                .any(|segment| self.hidden_set.is_hidden(segment.id()))
+        })
     }
 
     pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {

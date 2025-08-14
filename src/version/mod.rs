@@ -12,6 +12,8 @@ use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
 
+pub const DEFAULT_LEVEL_COUNT: u8 = 7;
+
 pub type VersionId = u64;
 
 impl Ranged for Segment {
@@ -159,7 +161,7 @@ impl Version {
     }
 
     pub fn new(id: VersionId) -> Self {
-        let levels = (0..7).map(|_| Level::empty()).collect();
+        let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner { id, levels }),
@@ -207,6 +209,9 @@ impl Version {
         // L0
         levels.push({
             // Copy-on-write the first level with new run at top
+
+            // NOTE: We always have at least one level
+            #[allow(clippy::expect_used)]
             let l0 = self.levels.first().expect("L0 should always exist");
 
             let prev_runs = l0
