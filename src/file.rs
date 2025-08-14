@@ -28,6 +28,8 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
         let file = std::fs::File::open(path)?;
         file.sync_all()?;
 
+        // NOTE: Files should always have a parent directory
+        #[allow(clippy::expect_used)]
         let folder = path.parent().expect("should have parent folder");
         fsync_directory(folder)?;
     }
