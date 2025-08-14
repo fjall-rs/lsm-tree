@@ -94,9 +94,16 @@ impl<T: Ranged> Run<T> {
         self.0.get(idx).filter(|x| x.key_range().min() <= &key)
     }
 
+    /// Returns the run's key range.
     pub fn aggregate_key_range(&self) -> KeyRange {
+        // NOTE: Run invariant
+        #[allow(clippy::expect_used)]
         let lo = self.first().expect("run should never be empty");
+
+        // NOTE: Run invariant
+        #[allow(clippy::expect_used)]
         let hi = self.last().expect("run should never be empty");
+
         KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
     }
 
