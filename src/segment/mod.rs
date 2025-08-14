@@ -340,7 +340,7 @@ impl Segment {
         use std::sync::atomic::AtomicBool;
         use trailer::Trailer;
 
-        log::debug!("Recovering segment from file {file_path:?}");
+        log::debug!("Recovering segment from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
         let trailer = Trailer::from_file(&mut file)?;
