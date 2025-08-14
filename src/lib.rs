@@ -180,8 +180,8 @@ mod path;
 pub mod range;
 
 mod seqno;
+mod slice_windows;
 mod snapshot;
-mod windows;
 
 #[doc(hidden)]
 pub mod stop_signal;
