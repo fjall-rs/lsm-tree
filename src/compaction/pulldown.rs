@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
+use crate::{level_manifest::LevelManifest, segment::Segment, Config, HashSet};
 
 /// Pulls down and merges a level into the destination level.
 ///
@@ -17,25 +17,6 @@ impl CompactionStrategy for Strategy {
 
     #[allow(clippy::expect_used)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        let level = resolved_view
-            .get(usize::from(self.0))
-            .expect("level should exist");
-
-        let next_level = resolved_view
-            .get(usize::from(self.1))
-            .expect("next level should exist");
-
-        // TODO: list_ids()
-        let mut segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
-
-        segment_ids.extend(next_level.segments.iter().map(Segment::id));
-
-        Choice::Merge(Input {
-            segment_ids,
-            dest_level: self.1,
-            target_size: 64_000_000,
-        })
+        todo!()
     }
 }

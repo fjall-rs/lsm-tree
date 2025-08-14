@@ -20,7 +20,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     assert!(!tree.contains_key("a", None)?);
 
     let segment = tree.flush_memtable(id, &memtable, 0)?.unwrap();
-    tree.register_segments(&[segment])?;
+    tree.register_segments(&[segment], 0)?;
 
     assert!(!tree.contains_key("a", None)?);
 
