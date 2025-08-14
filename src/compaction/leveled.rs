@@ -7,8 +7,8 @@ use crate::{
     config::Config,
     level_manifest::{hidden_set::HiddenSet, LevelManifest},
     segment::Segment,
+    slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     version::{run::Ranged, Run},
-    windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     HashSet, KeyRange, SegmentId,
 };
 
@@ -212,6 +212,9 @@ impl CompactionStrategy for Strategy {
 
         {
             // Score first level
+
+            // NOTE: We always have at least one level
+            #[allow(clippy::expect_used)]
             let first_level = levels.as_slice().first().expect("first level should exist");
             if first_level.len() >= usize::from(self.l0_threshold) {
                 scores[0] = ((first_level.len() as f64) / (self.l0_threshold as f64), 0);
@@ -256,8 +259,6 @@ impl CompactionStrategy for Strategy {
                 scores[6] = (0.0, 0);
             }
         }
-
-        // eprintln!("{scores:?}");
 
         // Choose compaction
         let (level_idx_with_highest_score, (score, overshoot_bytes)) = scores
