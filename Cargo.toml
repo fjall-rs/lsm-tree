@@ -52,7 +52,7 @@ test-log = "0.2.16"
 half = "=2.4.0"
 
 # rayon has MSRV 1.80
-rayon-core = "=1.12.1"
+rayon-core = "=1.13.0"
 
 [package.metadata.cargo-all-features]
 denylist = []
