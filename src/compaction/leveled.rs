@@ -270,7 +270,7 @@ impl CompactionStrategy for Strategy {
                     level,
                     next_level,
                     levels.hidden_set(),
-                    self.target_size,
+                    u64::from(self.target_size),
                 ) else {
                     break;
                 };
