@@ -53,18 +53,15 @@ fn pick_minimal_compaction(
     };
 
     for window in next_level.growing_windows() {
-        let next_level_size = next_level
-            .iter()
-            .map(|x| x.metadata.file_size)
-            .sum::<u64>();
-        
+        let next_level_size = next_level.iter().map(|x| x.metadata.file_size).sum::<u64>();
+
         // Cap at 50x segments per compaction for now
         if next_level_size > (50 * segment_base_size) {
             // NOTE: Break out of the loop, at this point, all compactions are too large anyway
             // so we can escape early
             break;
         }
-        
+
         if hidden_set.is_blocked(window.iter().map(Segment::id)) {
             // IMPORTANT: Compaction is blocked because of other
             // on-going compaction
@@ -269,9 +266,12 @@ impl CompactionStrategy for Strategy {
                     break;
                 };
 
-                let Some((segment_ids, can_trivial_move)) =
-                    pick_minimal_compaction(level, next_level, levels.hidden_set(), self.target_size)
-                else {
+                let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
+                    level,
+                    next_level,
+                    levels.hidden_set(),
+                    self.target_size,
+                ) else {
                     break;
                 };
 
