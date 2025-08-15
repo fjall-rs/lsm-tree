@@ -100,6 +100,8 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 #![warn(clippy::needless_lifetimes)]
+#![warn(clippy::cloned_ref_to_slice_refs)]
+#![warn(clippy::non_canonical_partial_ord_impl)]
 
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
