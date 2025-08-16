@@ -365,7 +365,7 @@ impl LevelManifest {
     #[must_use]
     pub fn busy_levels(&self) -> HashSet<u8> {
         let mut output =
-            HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
+            HashSet::with_capacity_and_hasher(self.len(), Default::default());
 
         for (idx, level) in self.levels.iter().enumerate() {
             if level.ids().any(|id| self.hidden_set.is_hidden(id)) {

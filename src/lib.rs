@@ -103,8 +103,8 @@
 #![warn(clippy::cloned_ref_to_slice_refs)]
 #![warn(clippy::non_canonical_partial_ord_impl)]
 
-pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
-pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
+pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3DefaultBuilder>;
+pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3DefaultBuilder>;
 
 #[allow(unused)]
 macro_rules! set {

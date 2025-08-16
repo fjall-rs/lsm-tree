@@ -77,7 +77,7 @@ impl FileDescriptorTable {
             inner: RwLock::new(FileDescriptorTableInner {
                 table: HashMap::with_capacity_and_hasher(
                     100,
-                    xxhash_rust::xxh3::Xxh3Builder::new(),
+                    Default::default(),
                 ),
                 lru: Mutex::new(LruList::with_capacity(100)),
                 size: AtomicUsize::default(),
