@@ -18,112 +18,89 @@ pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
     KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
-/// Tries to find the most optimal compaction set from
-/// one level into the other.
+/// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
     curr_run: &Run<Segment>,
     next_run: Option<&Run<Segment>>,
     hidden_set: &HiddenSet,
     overshoot: u64,
+    segment_base_size: u64,
 ) -> Option<(HashSet<SegmentId>, bool)> {
-    struct Choice {
-        write_amp: f32,
-        segment_ids: HashSet<SegmentId>,
-        can_trivial_move: bool,
-        // TODO: compaction_bytes
-    }
-
-    let mut choices = vec![];
-
-    let mut add_choice = |choice: Choice| {
-        let valid_choice = if hidden_set.is_blocked(choice.segment_ids.iter().copied()) {
-            // IMPORTANT: Compaction is blocked because of other
-            // on-going compaction
-            false
-        } else if choice.can_trivial_move {
-            true
-        } else {
-            // TODO: this should not consider the number of segments, but the amount of rewritten data
-            // which corresponds to the amount of temporary space amp
-            choice.segment_ids.len() <= 100 /* TODO: filter by x25 IF POSSIBLE */
-        };
-
-        if valid_choice {
-            choices.push(choice);
-        }
-    };
-
-    if let Some(next_run) = &next_run {
-        for window in next_run.growing_windows() {
-            if hidden_set.is_blocked(window.iter().map(Segment::id)) {
-                // IMPORTANT: Compaction is blocked because of other
-                // on-going compaction
-                continue;
-            }
-
-            let key_range = aggregate_run_key_range(window);
-
-            // Pull in all segments in current level into compaction
-            let curr_level_pull_in: Vec<_> = curr_run.get_contained(&key_range).collect();
-
-            if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
-                // IMPORTANT: Compaction is blocked because of other
-                // on-going compaction
-                continue;
-            }
-
-            let curr_level_size = curr_level_pull_in
-                .iter()
-                .map(|x| x.metadata.file_size)
-                .sum::<u64>();
-
-            // if curr_level_size >= overshoot {
-            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
-
-            let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
-            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
-
-            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
-
-            add_choice(Choice {
-                write_amp,
-                segment_ids,
-                can_trivial_move: false,
-            });
-            // }
-        }
-    }
-
     // NOTE: Find largest trivial move (if it exists)
-    for window in curr_run.shrinking_windows() {
+    if let Some(window) = curr_run.shrinking_windows().find(|window| {
         let key_range = aggregate_run_key_range(window);
 
         if let Some(next_run) = &next_run {
-            if next_run.get_overlapping(&key_range).next().is_none() {
-                add_choice(Choice {
-                    write_amp: 0.0,
-                    segment_ids: window.iter().map(Segment::id).collect(),
-                    can_trivial_move: true,
-                });
-                break;
+            if next_run.get_overlapping(&key_range).is_empty() {
+                return true;
             }
         } else {
-            add_choice(Choice {
-                write_amp: 0.0,
-                segment_ids: window.iter().map(Segment::id).collect(),
-                can_trivial_move: true,
-            });
-            break;
+            return true;
         }
+
+        false
+    }) {
+        let ids = window.iter().map(Segment::id).collect();
+        return Some((ids, true));
     }
 
-    let minimum_effort_choice = choices.into_iter().min_by(|a, b| {
-        a.write_amp
-            .partial_cmp(&b.write_amp)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // NOTE: Look for merges
+    if let Some(next_run) = &next_run {
+        next_run
+            .growing_windows()
+            .take_while(|window| {
+                // Cap at 50x segments per compaction for now
+                //
+                // At this point, all compactions are too large anyway
+                // so we can escape early
+                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+                next_level_size <= (50 * segment_base_size)
+            })
+            .filter_map(|window| {
+                if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+                    // IMPORTANT: Compaction is blocked because of other
+                    // on-going compaction
+                    return None;
+                }
 
-    minimum_effort_choice.map(|c| (c.segment_ids, c.can_trivial_move))
+                let key_range = aggregate_run_key_range(window);
+
+                // Pull in all contained segments in current level into compaction
+                let curr_level_pull_in = curr_run.get_contained(&key_range);
+
+                let curr_level_size = curr_level_pull_in
+                    .iter()
+                    .map(Segment::file_size)
+                    .sum::<u64>();
+
+                // if curr_level_size < overshoot {
+                //     return None;
+                // }
+
+                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Segment::id)) {
+                    // IMPORTANT: Compaction is blocked because of other
+                    // on-going compaction
+                    return None;
+                }
+
+                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+
+                //  let compaction_bytes = curr_level_size + next_level_size;
+
+                #[allow(clippy::cast_precision_loss)]
+                let write_amp = (next_level_size as f32) / (curr_level_size as f32);
+
+                Some((window, curr_level_pull_in, write_amp))
+            })
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(window, curr_level_pull_in, _)| {
+                let mut ids: HashSet<_> = window.iter().map(Segment::id).collect();
+                ids.extend(curr_level_pull_in.iter().map(Segment::id));
+                (ids, false)
+            })
+    } else {
+        None
+    }
 }
 
 /// Levelled compaction strategy (LCS)
@@ -344,6 +321,7 @@ impl CompactionStrategy for Strategy {
             next_level.first_run().map(std::ops::Deref::deref),
             levels.hidden_set(),
             overshoot_bytes,
+            u64::from(self.target_size),
         ) else {
             return Choice::DoNothing;
         };
