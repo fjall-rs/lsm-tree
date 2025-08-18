@@ -121,7 +121,7 @@ impl<T: Ranged> Run<T> {
 
     /// Returns the sub slice of segments of segments in the run that have
     /// a key range fully contained in the input key range.
-    pub fn get_contained<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
+    pub fn get_contained<'a>(&'a self, key_range: &KeyRange) -> &'a [T] {
         fn trim_slice<T, F>(s: &[T], pred: F) -> &[T]
         where
             F: Fn(&T) -> bool,
