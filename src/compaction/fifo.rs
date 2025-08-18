@@ -66,7 +66,7 @@ impl CompactionStrategy for Strategy {
                 }
 
                 oldest_segments.insert(segment.id());
-                collected_bytes += segment.metadata.file_size;
+                collected_bytes += segment.file_size();
             }
 
             Choice::Drop(oldest_segments)

@@ -31,7 +31,7 @@ pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet
     let windows = segments.windows(n);
 
     let window = windows
-        .min_by_key(|window| window.iter().map(|s| s.metadata.file_size).sum::<u64>())
+        .min_by_key(|window| window.iter().map(|s| s.file_size()).sum::<u64>())
         .expect("should have at least one window");
 
     window.iter().map(Segment::id).collect()

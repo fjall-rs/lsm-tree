@@ -155,6 +155,11 @@ impl Segment {
         .map(DataBlock::new)
     }
 
+    /// Returns the (possibly compressed) file size.
+    pub(crate) fn file_size(&self) -> u64 {
+        self.metadata.file_size
+    }
+
     pub fn get(
         &self,
         key: &[u8],

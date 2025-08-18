@@ -108,7 +108,7 @@ impl Level {
         self.0
             .iter()
             .flat_map(|x| x.iter())
-            .map(|x| x.metadata.file_size)
+            .map(Segment::file_size)
             .sum()
     }
 

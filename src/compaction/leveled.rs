@@ -217,7 +217,7 @@ impl CompactionStrategy for Strategy {
             #[allow(clippy::expect_used)]
             let first_level = levels.as_slice().first().expect("first level should exist");
             if first_level.len() >= usize::from(self.l0_threshold) {
-                scores[0] = ((first_level.len() as f64) / (self.l0_threshold as f64), 0);
+                scores[0] = ((first_level.len() as f64) / f64::from(self.l0_threshold), 0);
             }
 
             // Score L1+
@@ -228,7 +228,7 @@ impl CompactionStrategy for Strategy {
                     // NOTE: Take bytes that are already being compacted into account,
                     // otherwise we may be overcompensating
                     .filter(|x| !levels.hidden_set().is_hidden(x.id()))
-                    .map(|x| x.metadata.file_size)
+                    .map(Segment::file_size)
                     .sum::<u64>();
 
                 let target_size = self.level_target_size(idx as u8);

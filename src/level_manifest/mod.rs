@@ -87,7 +87,7 @@ impl std::fmt::Display for LevelManifest {
                         f,
                         " | # = {}, {} MiB",
                         run.len(),
-                        run.iter().map(|x| x.metadata.file_size).sum::<u64>() / 1_024 / 1_024,
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 } else {
                     for segment in run.iter() {
@@ -106,7 +106,7 @@ impl std::fmt::Display for LevelManifest {
                         f,
                         " | # = {}, {} MiB",
                         run.len(),
-                        run.iter().map(|x| x.metadata.file_size).sum::<u64>() / 1_024 / 1_024,
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 }
             }
@@ -395,7 +395,7 @@ impl LevelManifest {
     /// Returns the (compressed) size of all segments
     #[must_use]
     pub fn size(&self) -> u64 {
-        self.iter().map(|s| s.metadata.file_size).sum()
+        self.iter().map(Segment::file_size).sum()
     }
 
     #[must_use]
