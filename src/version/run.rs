@@ -107,18 +107,43 @@ impl<T: Ranged> Run<T> {
         KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
     }
 
-    /// Returns an iterator over segments in the level that have a key range
-    /// overlapping the input key range.
-    pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> impl Iterator<Item = &'a T> {
-        self.iter()
-            .filter(|x| x.key_range().overlaps_with_key_range(key_range))
+    /// Returns the sub slice of segments in the run that have
+    /// a key range overlapping the input key range.
+    pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
+        let range = key_range.min()..=key_range.max();
+
+        let Some((lo, hi)) = self.range_indexes::<crate::Slice, _>(&range) else {
+            return &[];
+        };
+
+        self.get(lo..=hi).unwrap_or_default()
     }
 
-    /// Returns an iterator over segments in the level that have a key range
-    /// fully contained in the input key range.
-    pub fn get_contained<'a>(&'a self, key_range: &'a KeyRange) -> impl Iterator<Item = &'a T> {
-        self.iter()
-            .filter(|x| key_range.contains_range(x.key_range()))
+    /// Returns the sub slice of segments of segments in the run that have
+    /// a key range fully contained in the input key range.
+    pub fn get_contained<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
+        fn trim_slice<T, F>(s: &[T], pred: F) -> &[T]
+        where
+            F: Fn(&T) -> bool,
+        {
+            // find first index where pred holds
+            let start = s.iter().position(&pred).unwrap_or(s.len());
+
+            // find last index where pred holds
+            let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
+
+            s.get(start..end).expect("should be in range")
+        }
+
+        let range = key_range.min()..=key_range.max();
+
+        let Some((lo, hi)) = self.range_indexes::<crate::Slice, _>(&range) else {
+            return &[];
+        };
+
+        self.get(lo..=hi)
+            .map(|slice| trim_slice(slice, |x| key_range.contains_range(x.key_range())))
+            .unwrap_or_default()
     }
 
     /// Returns the indexes of the interval [min, max] of segments that overlap with a given range.
@@ -211,7 +236,6 @@ mod tests {
             s(2, "k", "o"),
             s(3, "p", "z"),
         ];
-
         let run = Run(items);
 
         assert_eq!(
@@ -228,7 +252,6 @@ mod tests {
             s(2, "k", "o"),
             s(3, "p", "z"),
         ];
-
         let run = Run(items);
 
         assert_eq!(0, run.get_for_key(b"a").unwrap().id);
@@ -253,19 +276,87 @@ mod tests {
             s(2, "k", "o"),
             s(3, "p", "z"),
         ];
-
         let run = Run(items);
 
         assert_eq!(Some((0, 3)), run.range_indexes::<&[u8], _>(&..));
         assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"a")));
         assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"b")));
         assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"d")));
+        assert_eq!(Some((0, 0)), run.range_indexes(&(b"d" as &[u8]..=b"d")));
         assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..b"d")));
         assert_eq!(Some((0, 1)), run.range_indexes(&(b"a" as &[u8]..=b"g")));
+        assert_eq!(Some((1, 1)), run.range_indexes(&(b"j" as &[u8]..=b"j")));
         assert_eq!(Some((0, 3)), run.range_indexes(&(b"a" as &[u8]..=b"z")));
         assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..=b"zzz")));
         assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..)));
         assert!(run.range_indexes(&(b"zzz" as &[u8]..=b"zzzzzzz")).is_none());
+    }
+
+    #[test]
+    fn run_range_contained() {
+        use crate::SegmentId;
+
+        let items = vec![
+            s(0, "a", "d"),
+            s(1, "e", "j"),
+            s(2, "k", "o"),
+            s(3, "p", "z"),
+        ];
+        let run = Run(items);
+
+        assert_eq!(
+            &[] as &[SegmentId],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"a".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"d".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0, 1],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"j".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0, 1],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"k".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0, 1],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"l".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0, 1, 2, 3],
+            &*run
+                .get_contained(&KeyRange::new((b"a".into(), b"z".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
     }
 
     #[test]
@@ -276,13 +367,22 @@ mod tests {
             s(2, "k", "o"),
             s(3, "p", "z"),
         ];
-
         let run = Run(items);
 
         assert_eq!(
             &[0],
             &*run
+                .get_overlapping(&KeyRange::new((b"a".into(), b"a".into())))
+                .iter()
+                .map(|x| x.id)
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            &[0],
+            &*run
                 .get_overlapping(&KeyRange::new((b"d".into(), b"d".into())))
+                .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
@@ -291,6 +391,7 @@ mod tests {
             &[0],
             &*run
                 .get_overlapping(&KeyRange::new((b"a".into(), b"d".into())))
+                .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
@@ -299,6 +400,7 @@ mod tests {
             &[0, 1],
             &*run
                 .get_overlapping(&KeyRange::new((b"a".into(), b"f".into())))
+                .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
@@ -307,6 +409,7 @@ mod tests {
             &[0, 1, 2, 3],
             &*run
                 .get_overlapping(&KeyRange::new((b"a".into(), b"zzz".into())))
+                .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
@@ -315,6 +418,7 @@ mod tests {
             &[] as &[u64],
             &*run
                 .get_overlapping(&KeyRange::new((b"zzz".into(), b"zzzz".into())))
+                .iter()
                 .map(|x| x.id)
                 .collect::<Vec<_>>(),
         );
