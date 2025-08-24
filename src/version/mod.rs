@@ -14,6 +14,7 @@ use std::{ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
+/// Monotonically increasing ID of a version.
 pub type VersionId = u64;
 
 impl Ranged for Segment {
@@ -156,10 +157,12 @@ impl std::ops::Deref for Version {
 
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
+    /// Returns the version ID.
     pub fn id(&self) -> VersionId {
         self.id
     }
 
+    /// Creates a new empty version.
     pub fn new(id: VersionId) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
@@ -169,6 +172,7 @@ impl Version {
         }
     }
 
+    /// Creates a new pre-populated version.
     pub fn from_levels(id: VersionId, levels: Vec<Level>) -> Self {
         Self {
             inner: Arc::new(VersionInner { id, levels }),
@@ -176,19 +180,22 @@ impl Version {
         }
     }
 
-    /// Returns the amount of levels.
+    /// Returns the number of levels.
     pub fn level_count(&self) -> usize {
         self.levels.len()
     }
 
+    /// Returns an iterator through all levels.
     pub fn iter_levels(&self) -> impl Iterator<Item = &Level> {
         self.levels.iter()
     }
 
+    /// Returns the number of segments in all levels.
     pub fn segment_count(&self) -> usize {
         self.iter_levels().map(|x| x.segment_count()).sum()
     }
 
+    /// Returns an iterator over all segments.
     pub fn iter_segments(&self) -> impl Iterator<Item = &Segment> {
         self.levels
             .iter()
@@ -201,7 +208,8 @@ impl Version {
         self.levels.get(n)
     }
 
-    pub fn with_new_l0_segment(&self, run: &[Segment]) -> Self {
+    /// Creates a new version with the additional run added to the "top" of L0.
+    pub fn with_new_l0_run(&self, run: &[Segment]) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -241,6 +249,9 @@ impl Version {
         }
     }
 
+    /// Returns a new version with a list of segments removed.
+    ///
+    /// The segment files are not immediately deleted, this is handled in the compaction worker.
     pub fn with_dropped(&self, ids: &[SegmentId]) -> Self {
         let id = self.id + 1;
 

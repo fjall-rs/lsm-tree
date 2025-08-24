@@ -241,10 +241,7 @@ impl AbstractTree for Tree {
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
         log::trace!("register: Acquired sealed memtables write lock");
 
-        manifest.atomic_swap(
-            |version| version.with_new_l0_segment(segments),
-            seqno_threshold,
-        )?;
+        manifest.atomic_swap(|version| version.with_new_l0_run(segments), seqno_threshold)?;
 
         // eprintln!("{manifest}");
 
