@@ -2,9 +2,9 @@ import json
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from pathlib import Path
-from palettable.tableau import BlueRed_6
+from palettable.tableau import PurpleGray_6
 
-colors = BlueRed_6.mpl_colors
+colors = PurpleGray_6.mpl_colors
 
 # Path to the JSONL file
 jsonl_path = Path('data.jsonl')
