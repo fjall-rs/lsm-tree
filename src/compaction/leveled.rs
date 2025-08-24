@@ -165,9 +165,9 @@ impl Strategy {
     fn level_target_size(&self, level_idx: u8) -> u64 {
         assert!(level_idx >= 1, "level_target_size does not apply to L0");
 
-        let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
+        let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1) as u64;
 
-        (power * (self.level_base_size() as usize)) as u64
+        power * self.level_base_size()
     }
 
     fn level_base_size(&self) -> u64 {
