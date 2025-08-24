@@ -876,7 +876,7 @@ impl Tree {
 
         // NOTE: Lastly, fsync version marker, which contains the version
         // -> the LSM is fully initialized
-        let mut file = File::create(manifest_path)?;
+        let mut file = File::create_new(manifest_path)?;
         Manifest {
             version: FormatVersion::V3,
             level_count: config.level_count,

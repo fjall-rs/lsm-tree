@@ -66,7 +66,7 @@ pub struct Writer {
 
 impl Writer {
     pub fn new(path: PathBuf, segment_id: SegmentId) -> crate::Result<Self> {
-        let block_writer = File::create(&path)?;
+        let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
 
         Ok(Self {

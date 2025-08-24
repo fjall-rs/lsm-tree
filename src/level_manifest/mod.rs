@@ -277,7 +277,7 @@ impl LevelManifest {
             folder.display(),
         );
 
-        let file = std::fs::File::create(folder.join(format!("v{}", version.id())))?;
+        let file = std::fs::File::create_new(folder.join(format!("v{}", version.id())))?;
         let mut writer = BufWriter::new(file);
 
         // Magic
