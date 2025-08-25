@@ -35,6 +35,13 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
+    /// Drops segments that are fully contained in a given range.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()>;
+
     /// Performs major compaction, blocking the caller until it's done.
     ///
     /// # Errors
