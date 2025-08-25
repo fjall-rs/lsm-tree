@@ -467,9 +467,7 @@ impl Segment {
     #[must_use]
     #[doc(hidden)]
     pub fn tombstone_count(&self) -> u64 {
-        todo!()
-
-        //  self.metadata.tombstone_count
+        self.metadata.tombstone_count
     }
 
     /// Returns the ratio of tombstone markers in the `Segment`.
