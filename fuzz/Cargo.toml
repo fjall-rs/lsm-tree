@@ -8,8 +8,18 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
 lsm-tree = { path = ".." }
+rand_chacha = "0.9"
+rand = "0.9"
+
+[[bin]]
+name = "data_block"
+path = "fuzz_targets/data_block.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "partition_point"

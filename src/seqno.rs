@@ -6,7 +6,7 @@ use crate::SeqNo;
 use std::sync::{
     atomic::{
         AtomicU64,
-        Ordering::{Acquire, Release},
+        Ordering::{AcqRel, Acquire, Release},
     },
     Arc,
 };
@@ -43,14 +43,6 @@ use std::sync::{
 #[derive(Clone, Default, Debug)]
 pub struct SequenceNumberCounter(Arc<AtomicU64>);
 
-impl std::ops::Deref for SequenceNumberCounter {
-    type Target = Arc<AtomicU64>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl SequenceNumberCounter {
     /// Creates a new counter, setting it to some previous value
     #[must_use]
@@ -63,12 +55,22 @@ impl SequenceNumberCounter {
     /// This should only be used when creating a snapshot.
     #[must_use]
     pub fn get(&self) -> SeqNo {
-        self.load(Acquire)
+        self.0.load(Acquire)
     }
 
     /// Gets the next sequence number.
     #[must_use]
     pub fn next(&self) -> SeqNo {
-        self.fetch_add(1, Release)
+        self.0.fetch_add(1, Release)
+    }
+
+    /// Sets the sequence number.
+    pub fn set(&self, seqno: SeqNo) {
+        self.0.store(seqno, Release);
+    }
+
+    /// Maximizes the sequence number.
+    pub fn fetch_max(&self, seqno: SeqNo) {
+        self.0.fetch_max(seqno, AcqRel);
     }
 }

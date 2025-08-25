@@ -59,7 +59,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let head = fail_iter!(self.inner.next()?);
+            let mut head = fail_iter!(self.inner.next()?);
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
@@ -72,12 +72,9 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
                         .expect_err("should be error")));
                 };
 
-                // NOTE: Only item of this key and thus latest version, so return it no matter what
                 if peeked.key.user_key > head.key.user_key {
-                    return Some(Ok(head));
-                }
-
-                if peeked.key.seqno < self.gc_seqno_threshold {
+                    // NOTE: Only item of this key and thus latest version, so return it no matter what
+                } else if peeked.key.seqno < self.gc_seqno_threshold {
                     // NOTE: If next item is an actual value, and current value is weak tombstone,
                     // drop the tombstone
                     let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
@@ -91,6 +88,13 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
                         continue;
                     }
                 }
+            }
+
+            // NOTE: Convert sequence number to zero if it is below the snapshot watermark
+            //
+            // This can save a lot of space, because "0" only takes 1 byte.
+            if head.key.seqno < self.gc_seqno_threshold {
+                head.key.seqno = 0;
             }
 
             return Some(Ok(head));
@@ -139,6 +143,28 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
+    fn compaction_stream_seqno_zeroing_1() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let vec = stream![
+          "a", "", "T",
+          "a", "", "T",
+          "a", "", "T",
+        ];
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 1_000);
+
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            iter.next().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
     fn compaction_stream_queue_weak_tombstones() {
         #[rustfmt::skip]
         let vec = stream![
@@ -168,18 +194,18 @@ mod tests {
         ];
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, SeqNo::MAX);
+        let mut iter = CompactionStream::new(iter, 1_000_000);
 
         assert_eq!(
-            InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            InternalValue::from_components(*b"b", *b"", 999, ValueType::Tombstone),
+            InternalValue::from_components(*b"b", *b"", 0, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            InternalValue::from_components(*b"c", *b"", 999, ValueType::Tombstone),
+            InternalValue::from_components(*b"c", *b"", 0, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         iter_closed!(iter);

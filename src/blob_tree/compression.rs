@@ -21,9 +21,6 @@ impl Compressor for MyCompressor {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => lz4_flex::compress_prepend_size(bytes),
-
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(lvl) => miniz_oxide::deflate::compress_to_vec(bytes, lvl),
         })
     }
 
@@ -35,10 +32,6 @@ impl Compressor for MyCompressor {
             CompressionType::Lz4 => {
                 lz4_flex::decompress_size_prepended(bytes).map_err(|_| value_log::Error::Decompress)
             }
-
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(_) => miniz_oxide::inflate::decompress_to_vec(bytes)
-                .map_err(|_| value_log::Error::Decompress),
         }
     }
 }

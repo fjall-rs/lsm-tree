@@ -4,11 +4,10 @@
 
 use std::{io::Write, path::Path};
 
-pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 2];
+pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const MANIFEST_FILE: &str = "manifest";
 pub const SEGMENTS_FOLDER: &str = "segments";
-pub const LEVELS_MANIFEST_FILE: &str = "levels";
 pub const BLOBS_FOLDER: &str = "blobs";
 
 /// Atomically rewrites a file
@@ -29,6 +28,8 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
         let file = std::fs::File::open(path)?;
         file.sync_all()?;
 
+        // NOTE: Files should always have a parent directory
+        #[allow(clippy::expect_used)]
         let folder = path.parent().expect("should have parent folder");
         fsync_directory(folder)?;
     }

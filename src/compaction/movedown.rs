@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
+use crate::{level_manifest::LevelManifest, segment::Segment, Config};
 
 /// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
@@ -15,27 +15,24 @@ impl CompactionStrategy for Strategy {
 
     #[allow(clippy::expect_used)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        let level = resolved_view
-            .get(usize::from(self.0))
-            .expect("level should exist");
-
-        let next_level = resolved_view
-            .get(usize::from(self.1))
-            .expect("next level should exist");
-
-        if next_level.is_empty() {
-            // TODO: list_ids()
-            let segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
-
-            Choice::Move(Input {
-                segment_ids,
-                dest_level: self.1,
-                target_size: 64_000_000,
-            })
-        } else {
-            Choice::DoNothing
+        if levels.level_is_busy(usize::from(self.0)) {
+            return Choice::DoNothing;
         }
+
+        let Some(level) = levels.as_slice().get(self.0 as usize) else {
+            return Choice::DoNothing;
+        };
+
+        let segment_ids = level
+            .iter()
+            .flat_map(|run| run.iter())
+            .map(Segment::id)
+            .collect();
+
+        Choice::Move(Input {
+            segment_ids,
+            dest_level: self.1,
+            target_size: u64::MAX,
+        })
     }
 }

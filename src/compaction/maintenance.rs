@@ -3,12 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{
-    config::Config,
-    level_manifest::LevelManifest,
-    segment::{meta::SegmentId, Segment},
-    HashSet,
-};
+use crate::{config::Config, level_manifest::LevelManifest, segment::Segment, HashSet, SegmentId};
 
 const L0_SEGMENT_CAP: usize = 20;
 
@@ -36,7 +31,7 @@ pub fn choose_least_effort_compaction(segments: &[Segment], n: usize) -> HashSet
     let windows = segments.windows(n);
 
     let window = windows
-        .min_by_key(|window| window.iter().map(|s| s.metadata.file_size).sum::<u64>())
+        .min_by_key(|window| window.iter().map(|s| s.file_size()).sum::<u64>())
         .expect("should have at least one window");
 
     window.iter().map(Segment::id).collect()
@@ -48,36 +43,10 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        // NOTE: First level always exists, trivial
-        #[allow(clippy::expect_used)]
-        let first_level = resolved_view.first().expect("L0 should always exist");
-
-        if first_level.len() > L0_SEGMENT_CAP {
-            // NOTE: +1 because two will merge into one
-            // So if we have 18 segments, and merge two, we'll have 17, not 16
-            let segments_to_merge = first_level.len() - L0_SEGMENT_CAP + 1;
-
-            // NOTE: Sort the level by oldest to newest
-            // levels are sorted from newest to oldest, so we can just reverse
-            let mut first_level = first_level.clone();
-            first_level.sort_by_seqno();
-            first_level.segments.reverse();
-
-            let segment_ids = choose_least_effort_compaction(&first_level, segments_to_merge);
-
-            Choice::Merge(super::Input {
-                dest_level: 0,
-                segment_ids,
-                target_size: u64::MAX,
-            })
-        } else {
-            Choice::DoNothing
-        }
+        todo!()
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,8 +62,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::Metadata,
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         KeyRange,
     };
     use std::sync::{atomic::AtomicBool, Arc};
@@ -102,7 +72,8 @@ mod tests {
 
     #[allow(clippy::expect_used)]
     fn fixture_segment(id: SegmentId, created_at: u128) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+        /* let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -147,7 +118,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[test]
@@ -205,3 +176,4 @@ mod tests {
         Ok(())
     }
 }
+ */

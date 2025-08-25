@@ -1,0 +1,19 @@
+[package]
+name = "block_load_bench"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[profile.release]
+debug = true
+
+[features]
+default = []
+use_unsafe = ["lsm-tree/use_unsafe"]
+
+[dependencies]
+env_logger = "0.11.8"
+lsm-tree = { path = "../..", features = ["lz4"] }
+lz4_flex = "0.11.3"
+rand = "0.9"
+serde_json = "1.0.140"

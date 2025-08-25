@@ -31,7 +31,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let strategy = value_log::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, 0)?;
 
-    tree.register_segments(&[segment])?;
+    tree.register_segments(&[segment], 0)?;
 
     assert_eq!(
         "neptune".repeat(10_000).as_bytes(),
