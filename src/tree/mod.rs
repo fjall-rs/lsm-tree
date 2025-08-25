@@ -208,7 +208,7 @@ impl AbstractTree for Tree {
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         let segment_file_path = folder.join(segment_id.to_string());
-        log::debug!("writing segment to {segment_file_path:?}");
+        log::debug!("writing segment to {}", segment_file_path.display());
 
         let mut segment_writer = Writer::new(segment_file_path, segment_id)?
             .use_compression(self.config.compression)
@@ -494,7 +494,7 @@ impl Tree {
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
         use crate::file::MANIFEST_FILE;
 
-        log::debug!("Opening LSM-tree at {:?}", config.path);
+        log::debug!("Opening LSM-tree at {}", config.path.display());
 
         // Check for old version
         if config.path.join("version").try_exists()? {
@@ -878,7 +878,7 @@ impl Tree {
         use std::fs::{create_dir_all, File};
 
         let path = config.path.clone();
-        log::trace!("Creating LSM-tree at {path:?}");
+        log::trace!("Creating LSM-tree at {}", path.display());
 
         create_dir_all(&path)?;
 
@@ -920,12 +920,15 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering manifest at {tree_path:?}");
+        log::info!("Recovering manifest at {}", tree_path.display());
 
         let segment_id_map = LevelManifest::recover_ids(tree_path)?;
         let cnt = segment_id_map.len();
 
-        log::debug!("Recovering {cnt} disk segments from {tree_path:?}");
+        log::debug!(
+            "Recovering {cnt} disk segments from {}",
+            tree_path.display(),
+        );
 
         let progress_mod = match cnt {
             _ if cnt <= 20 => 1,
@@ -965,7 +968,7 @@ impl Tree {
             let segment_file_path = dirent.path();
             assert!(!segment_file_path.is_dir());
 
-            log::debug!("Recovering segment from {segment_file_path:?}");
+            log::debug!("Recovering segment from {}", segment_file_path.display());
 
             let segment_id = segment_file_name.parse::<SegmentId>().map_err(|e| {
                 log::error!("invalid segment file name {segment_file_name:?}: {e:?}");
@@ -991,7 +994,10 @@ impl Tree {
                     log::debug!("Recovered {idx}/{cnt} disk segments");
                 }
             } else {
-                log::debug!("Deleting unfinished segment: {segment_file_path:?}",);
+                log::debug!(
+                    "Deleting unfinished segment: {}",
+                    segment_file_path.display(),
+                );
                 std::fs::remove_file(&segment_file_path)?;
             }
         }
