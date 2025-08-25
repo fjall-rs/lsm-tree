@@ -235,6 +235,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
+        self.index.drop_range(key_range)
+    }
+
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;

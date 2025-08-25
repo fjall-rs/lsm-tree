@@ -90,6 +90,20 @@ impl AbstractTree for Tree {
 
     // TODO: clear() with Nuke compaction strategy (write lock)
 
+    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
+        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
+
+        // IMPORTANT: Write lock so we can be the only compaction going on
+        let _lock = self
+            .0
+            .major_compaction_lock
+            .write()
+            .expect("lock is poisoned");
+
+        log::info!("Starting drop_range compaction");
+        self.inner_compact(strategy, 0)
+    }
+
     #[doc(hidden)]
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
