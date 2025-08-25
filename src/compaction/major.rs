@@ -5,15 +5,13 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{config::Config, level_manifest::LevelManifest, segment::Segment, HashSet};
 
-/// Major compaction
-///
-/// Compacts all segments into the last level.
+/// Compacts all segments into the last level
 pub struct Strategy {
     target_size: u64,
 }
 
 impl Strategy {
-    /// Configures a new `SizeTiered` compaction strategy.
+    /// Configures a new `Major` compaction strategy.
     ///
     /// # Panics
     ///
