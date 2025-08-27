@@ -110,7 +110,7 @@ fn run(num_sst: usize) {
 
     let mut rng = rand::rng();
 
-    const RUNS: usize = 20_000_000;
+    const RUNS: usize = 25_000_000;
 
     let start = Instant::now();
 

@@ -1,7 +1,7 @@
 use rand::{Rng, RngCore};
 use std::time::Instant;
 
-const NUM_READS: usize = 100_000_000;
+const NUM_READS: usize = 200_000_000;
 
 pub fn main() {
     let mut rng = rand::rng();

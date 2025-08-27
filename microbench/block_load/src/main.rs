@@ -41,7 +41,7 @@ pub fn main() -> lsm_tree::Result<()> {
             let file = std::fs::File::open("block")?;
 
             {
-                const NUM_RUNS: u128 = 5_000_000;
+                const NUM_RUNS: u128 = 10_000_000;
 
                 let start = Instant::now();
                 for _ in 0..NUM_RUNS {

@@ -66,7 +66,7 @@ pub fn main() -> lsm_tree::Result<()> {
             ); */
 
             {
-                const NUM_RUNS: u128 = 25_000_000;
+                const NUM_RUNS: u128 = 50_000_000;
 
                 let start = Instant::now();
                 for _ in 0..NUM_RUNS {
