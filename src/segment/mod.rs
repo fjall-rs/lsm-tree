@@ -113,10 +113,9 @@ impl Segment {
 
     #[must_use]
     pub fn pinned_block_index_size(&self) -> usize {
-        if let BlockIndexImpl::Full(full_block_index) = &*self.block_index {
-            full_block_index.inner().inner.size()
-        } else {
-            unimplemented!();
+        match &*self.block_index {
+            BlockIndexImpl::Full(full_block_index) => full_block_index.inner().inner.size(),
+            BlockIndexImpl::VolatileFull => 0,
         }
     }
 
