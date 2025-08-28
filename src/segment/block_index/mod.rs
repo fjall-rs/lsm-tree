@@ -49,6 +49,7 @@ pub trait BlockIndex {
 #[allow(clippy::module_name_repetitions)]
 pub enum BlockIndexImpl {
     Full(FullBlockIndex),
+    VolatileFull,
     // TwoLevel(TwoLevelBlockIndex),
 }
 

@@ -29,8 +29,10 @@ pub use writer::Writer;
 use crate::metrics::Metrics;
 
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, segment::block::BlockType, CompressionType,
-    InternalValue, SeqNo, TreeId, UserKey,
+    cache::Cache,
+    descriptor_table::DescriptorTable,
+    segment::block::{BlockType, ParsedItem},
+    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use inner::Inner;
@@ -213,11 +215,29 @@ impl Segment {
     // TODO: we would need to return something like ValueType + Value
     // TODO: so the caller can decide whether to return the value or not
     fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        let BlockIndexImpl::Full(block_index) = &*self.block_index else {
-            todo!();
+        // TODO: enum_dispatch BlockIndex::iter
+        let index_block = match &*self.block_index {
+            BlockIndexImpl::Full(index) => index.inner(),
+            BlockIndexImpl::VolatileFull => {
+                &IndexBlock::new(self.load_block(
+                    &self.regions.tli,
+                    BlockType::Index,
+                    self.metadata.data_block_compression, // TODO: maybe index compression
+                )?)
+            }
         };
 
-        let Some(iter) = block_index.forward_reader(key) else {
+        let iter = {
+            let mut iter = index_block.iter();
+
+            if iter.seek(key) {
+                Some(iter.map(|x| x.materialize(&index_block.inner.data)))
+            } else {
+                None
+            }
+        };
+
+        let Some(iter) = iter else {
             return Ok(None);
         };
 
@@ -296,11 +316,23 @@ impl Segment {
         use crate::fallible_clipping_iter::FallibleClippingIter;
         use block_index::iter::create_index_block_reader;
 
-        let BlockIndexImpl::Full(block_index) = &*self.block_index else {
-            todo!();
+        // TODO: enum_dispatch BlockIndex::iter
+        let index_block = match &*self.block_index {
+            BlockIndexImpl::Full(idx) => idx.inner(),
+            BlockIndexImpl::VolatileFull => {
+                &IndexBlock::new(
+                    // TODO: handle error
+                    self.load_block(
+                        &self.regions.tli,
+                        BlockType::Index,
+                        self.metadata.data_block_compression, // TODO: maybe index compression
+                    )
+                    .expect("should load block"),
+                )
+            }
         };
 
-        let index_iter = create_index_block_reader(block_index.inner().clone());
+        let index_iter = create_index_block_reader(index_block.clone());
 
         let mut iter = Iter::new(
             self.global_id(),
@@ -337,6 +369,7 @@ impl Segment {
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
         pin_filter: bool,
+        pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
         use block_index::FullBlockIndex;
@@ -360,19 +393,6 @@ impl Segment {
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
-        let tli_block = {
-            log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
-
-            let block = Block::from_file(
-                &file,
-                regions.tli,
-                crate::segment::block::BlockType::Index,
-                metadata.data_block_compression, // TODO: index blocks may get their own compression level
-            )?;
-
-            IndexBlock::new(block)
-        };
-
         let block_index = if let Some(index_block_handle) = regions.index {
             log::debug!(
                 "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
@@ -382,9 +402,28 @@ impl Segment {
             unimplemented!("partitioned index is not supported yet");
 
             // BlockIndexImpl::TwoLevel(tli_block, todo!())
-        } else {
-            log::debug!("Creating full block index, with tli_ptr={:?}", regions.tli);
+        } else if pin_index {
+            let tli_block = {
+                log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
+
+                let block = Block::from_file(
+                    &file,
+                    regions.tli,
+                    crate::segment::block::BlockType::Index,
+                    metadata.data_block_compression, // TODO: index blocks may get their own compression level
+                )?;
+
+                IndexBlock::new(block)
+            };
+
+            log::debug!(
+                "Creating pinned block index, with tli_ptr={:?}",
+                regions.tli,
+            );
             BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
+        } else {
+            log::debug!("Creating volatile block index");
+            BlockIndexImpl::VolatileFull
         };
 
         // TODO: load FilterBlock
@@ -513,6 +552,7 @@ mod tests {
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                true,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -608,6 +648,7 @@ mod tests {
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                true,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -664,6 +705,7 @@ mod tests {
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                true,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -718,6 +760,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                true,
                 true,
                 #[cfg(feature = "metrics")]
                 metrics,
@@ -784,6 +827,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                true,
                 true,
                 #[cfg(feature = "metrics")]
                 metrics,
@@ -859,6 +903,7 @@ mod tests {
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
+                true,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;
@@ -927,6 +972,7 @@ mod tests {
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
+                true,
                 #[cfg(feature = "metrics")]
                 metrics,
             )?;

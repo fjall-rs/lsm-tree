@@ -558,6 +558,7 @@ impl Tree {
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
             true, // TODO: look at configuration
+            true, // TODO: look at configuration
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
         )?;
@@ -982,6 +983,7 @@ impl Tree {
                     cache.clone(),
                     descriptor_table.clone(),
                     level_idx <= 1, // TODO: look at configuration
+                    level_idx <= 2, // TODO: look at configuration
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;

@@ -364,6 +364,7 @@ fn merge_segments(
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
                 payload.dest_level >= 3, // TODO: look at configuration
+                payload.dest_level >= 3, // TODO: look at configuration
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),
             )

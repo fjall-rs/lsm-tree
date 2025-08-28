@@ -72,6 +72,7 @@ impl<'a> Ingestion<'a> {
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
                     true,
+                    true,
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),
                 )
