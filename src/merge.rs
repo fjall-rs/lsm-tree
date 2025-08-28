@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "maybe not needed"]
     #[allow(clippy::unwrap_used)]
     fn merge_dup() -> crate::Result<()> {
         #[rustfmt::skip]

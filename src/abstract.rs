@@ -35,6 +35,8 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
+    // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
+
     /// Drops segments that are fully contained in a given range.
     ///
     /// # Errors

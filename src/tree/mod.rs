@@ -88,8 +88,6 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
-    // TODO: clear() with Nuke compaction strategy (write lock)
-
     fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
 
@@ -982,7 +980,7 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    level_idx <= 1, // TODO: look at configuration
+                    level_idx <= 2, // TODO: look at configuration
                     level_idx <= 2, // TODO: look at configuration
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
