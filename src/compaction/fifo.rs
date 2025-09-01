@@ -133,7 +133,10 @@ mod tests {
         time::unix_timestamp,
         HashSet, KeyRange,
     };
-    use std::sync::{atomic::AtomicBool, Arc};
+    use std::{
+        path::PathBuf,
+        sync::{atomic::AtomicBool, Arc},
+    };
     use test_log::test;
 
     #[allow(clippy::expect_used)]
@@ -148,6 +151,7 @@ mod tests {
             tree_id: 0,
             descriptor_table: Arc::new(FileDescriptorTable::new(512, 1)),
             block_index,
+            path: PathBuf::new(),
 
             offsets: FileOffsets {
                 bloom_ptr: BlockOffset(0),
@@ -179,9 +183,8 @@ mod tests {
             },
             cache,
 
-            bloom_filter: Some(crate::bloom::BloomFilter::with_fp_rate(1, 0.1)),
-
-            path: "a".into(),
+            bloom_filter: None,
+            prefix_extractor: None,
             is_deleted: AtomicBool::default(),
         }
         .into()

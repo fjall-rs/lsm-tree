@@ -22,6 +22,7 @@ use crate::{
     bloom::{BloomFilter, CompositeHash},
     cache::Cache,
     descriptor_table::FileDescriptorTable,
+    prefix::SharedPrefixExtractor,
     time::unix_timestamp,
     tree::inner::TreeId,
     value::{InternalValue, SeqNo, UserKey},
@@ -242,6 +243,7 @@ impl Segment {
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<FileDescriptorTable>,
+        prefix_extractor: Option<SharedPrefixExtractor>,
         use_full_block_index: bool,
     ) -> crate::Result<Self> {
         use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
@@ -292,6 +294,7 @@ impl Segment {
             cache,
 
             bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
+            prefix_extractor,
 
             is_deleted: AtomicBool::default(),
         })))
@@ -325,8 +328,23 @@ impl Segment {
         }
 
         if let Some(bf) = &self.bloom_filter {
-            if !bf.contains_hash(hash) {
-                return Ok(None);
+            if let Some(ref extractor) = self.prefix_extractor {
+                // Use prefix bloom filter
+                match bf.contains_prefix(key, extractor.as_ref()) {
+                    Some(false) => {
+                        // Bloom filter says key is definitely not present
+                        return Ok(None);
+                    }
+                    Some(true) | None => {
+                        // Either bloom filter says key might be present (Some(true))
+                        // or key is out of domain (None) - proceed with lookup
+                    }
+                }
+            } else {
+                // Use standard bloom filter
+                if !bf.contains_hash(hash) {
+                    return Ok(None);
+                }
             }
         }
 

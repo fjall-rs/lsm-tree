@@ -16,6 +16,7 @@ use crate::{
     bloom::BloomFilter,
     coding::Encode,
     file::fsync_directory,
+    prefix::SharedPrefixExtractor,
     segment::block::ItemSize,
     value::{InternalValue, UserKey},
     SegmentId,
@@ -54,6 +55,9 @@ pub struct Writer {
     current_key: Option<UserKey>,
 
     bloom_policy: BloomConstructionPolicy,
+
+    /// Prefix extractor for bloom filter
+    prefix_extractor: Option<SharedPrefixExtractor>,
 
     /// Hashes for bloom filter
     ///
@@ -129,6 +133,7 @@ impl Writer {
             current_key: None,
 
             bloom_policy: BloomConstructionPolicy::default(),
+            prefix_extractor: None,
 
             bloom_hash_buffer: Vec::new(),
         })
@@ -144,6 +149,12 @@ impl Writer {
     #[must_use]
     pub(crate) fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn use_prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor);
         self
     }
 
@@ -224,8 +235,16 @@ impl Writer {
             // because there may be multiple versions
             // of the same key
             if self.bloom_policy.is_active() {
-                self.bloom_hash_buffer
-                    .push(BloomFilter::get_hash(&item.key.user_key));
+                if let Some(ref extractor) = self.prefix_extractor {
+                    // Add hashes for all prefixes
+                    for prefix in extractor.extract(&item.key.user_key) {
+                        self.bloom_hash_buffer.push(BloomFilter::get_hash(prefix));
+                    }
+                } else {
+                    // Default behavior: just hash the full key
+                    self.bloom_hash_buffer
+                        .push(BloomFilter::get_hash(&item.key.user_key));
+                }
             }
         }
 

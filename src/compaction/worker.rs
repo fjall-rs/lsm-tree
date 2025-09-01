@@ -286,6 +286,11 @@ fn merge_segments(
 
     let mut segment_writer = segment_writer.use_compression(opts.config.compression);
 
+    // Apply prefix extractor if configured
+    if let Some(ref extractor) = opts.config.prefix_extractor {
+        segment_writer = segment_writer.use_prefix_extractor(extractor.clone());
+    }
+
     {
         use crate::segment::writer::BloomConstructionPolicy;
 
@@ -418,6 +423,7 @@ fn merge_segments(
                 block_index,
 
                 bloom_filter,
+                prefix_extractor: opts.config.prefix_extractor.clone(),
 
                 is_deleted: AtomicBool::default(),
             }

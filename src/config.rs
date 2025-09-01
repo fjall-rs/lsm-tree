@@ -6,6 +6,7 @@ use crate::{
     cache::Cache,
     descriptor_table::FileDescriptorTable,
     path::absolute_path,
+    prefix::SharedPrefixExtractor,
     segment::meta::{CompressionType, TableType},
     BlobTree, Tree,
 };
@@ -98,6 +99,10 @@ pub struct Config {
     /// Descriptor table to use
     #[doc(hidden)]
     pub descriptor_table: Arc<FileDescriptorTable>,
+
+    /// Prefix extractor for bloom filters
+    #[doc(hidden)]
+    pub prefix_extractor: Option<SharedPrefixExtractor>,
 }
 
 impl Default for Config {
@@ -119,6 +124,8 @@ impl Default for Config {
 
             blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
+
+            prefix_extractor: None,
         }
     }
 }
@@ -282,6 +289,30 @@ impl Config {
     #[doc(hidden)]
     pub fn descriptor_table(mut self, descriptor_table: Arc<FileDescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
+        self
+    }
+
+    /// Sets the prefix extractor for bloom filters.
+    ///
+    /// A prefix extractor allows bloom filters to index prefixes of keys
+    /// instead of (or in addition to) the full keys. This enables efficient
+    /// filtering for prefix-based queries.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use lsm_tree::Config;
+    /// use lsm_tree::prefix::FixedPrefixExtractor;
+    /// use std::sync::Arc;
+    ///
+    /// # let path = tempfile::tempdir()?;
+    /// let config = Config::new(path)
+    ///     .prefix_extractor(Arc::new(FixedPrefixExtractor::new(8)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor);
         self
     }
 

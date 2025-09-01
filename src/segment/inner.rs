@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{block_index::BlockIndexImpl, file_offsets::FileOffsets, meta::Metadata};
-use crate::{cache::Cache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
+use crate::{
+    cache::Cache, descriptor_table::FileDescriptorTable, prefix::SharedPrefixExtractor,
+    tree::inner::TreeId,
+};
 use std::{
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
@@ -36,6 +39,9 @@ pub struct Inner {
     /// Bloom filter
     #[doc(hidden)]
     pub bloom_filter: Option<crate::bloom::BloomFilter>,
+
+    /// Prefix extractor used for bloom filter
+    pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
 
     pub is_deleted: AtomicBool,
 }

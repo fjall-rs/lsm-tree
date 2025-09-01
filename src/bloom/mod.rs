@@ -7,6 +7,7 @@ mod bit_array;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     file::MAGIC_BYTES,
+    prefix::PrefixExtractor,
 };
 use bit_array::BitArray;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -195,6 +196,28 @@ impl BloomFilter {
         self.contains_hash(Self::get_hash(key))
     }
 
+    /// Returns `true` if any prefix of the key may be contained.
+    ///
+    /// Will never have a false negative.
+    /// Returns `None` if the key is out of domain (empty iterator).
+    #[must_use]
+    pub fn contains_prefix(&self, key: &[u8], extractor: &dyn PrefixExtractor) -> Option<bool> {
+        let mut iter = extractor.extract(key).peekable();
+
+        if iter.peek().is_none() {
+            // Empty iterator - key is out of domain
+            return None;
+        }
+
+        for prefix in iter {
+            if self.contains_hash(Self::get_hash(prefix)) {
+                return Some(true);
+            }
+        }
+
+        Some(false)
+    }
+
     /// Adds the key to the filter.
     pub fn set_with_hash(&mut self, (mut h1, mut h2): CompositeHash) {
         for i in 0..(self.k as u64) {
@@ -204,6 +227,13 @@ impl BloomFilter {
 
             h1 = h1.wrapping_add(h2);
             h2 = h2.wrapping_add(i);
+        }
+    }
+
+    /// Adds the key and its prefixes to the filter.
+    pub fn set_with_prefix(&mut self, key: &[u8], extractor: &dyn PrefixExtractor) {
+        for prefix in extractor.extract(key) {
+            self.set_with_hash(Self::get_hash(prefix));
         }
     }
 

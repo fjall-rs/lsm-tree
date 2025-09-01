@@ -14,14 +14,16 @@ use crate::{
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
+    prefix::SharedPrefixExtractor,
     segment::{
         block_index::{full_index::FullBlockIndex, BlockIndexImpl},
         meta::TableType,
         Segment, SegmentInner,
     },
+    snapshot::Snapshot,
     value::InternalValue,
     version::Version,
-    AbstractTree, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue, ValueType,
+    AbstractTree, KvPair, SegmentId, SeqNo, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -213,6 +215,11 @@ impl AbstractTree for Tree {
                 segment_writer =
                     segment_writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
             }
+        }
+
+        // Apply prefix extractor if configured
+        if let Some(ref extractor) = self.config.prefix_extractor {
+            segment_writer = segment_writer.use_prefix_extractor(extractor.clone());
         }
 
         let iter = memtable.iter().map(Ok);
@@ -521,6 +528,7 @@ impl Tree {
             cache: self.config.cache.clone(),
 
             bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
+            prefix_extractor: self.config.prefix_extractor.clone(),
 
             is_deleted: AtomicBool::default(),
         }
@@ -822,6 +830,7 @@ impl Tree {
             tree_id,
             &config.cache,
             &config.descriptor_table,
+            &config.prefix_extractor,
         )?;
         levels.update_metadata();
 
@@ -883,6 +892,7 @@ impl Tree {
         tree_id: TreeId,
         cache: &Arc<Cache>,
         descriptor_table: &Arc<FileDescriptorTable>,
+        prefix_extractor: &Option<SharedPrefixExtractor>,
     ) -> crate::Result<LevelManifest> {
         use crate::{
             file::fsync_directory,
@@ -951,6 +961,7 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
+                    prefix_extractor.clone(),
                     level_idx == 0 || level_idx == 1,
                 )?;
 

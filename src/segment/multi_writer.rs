@@ -6,7 +6,7 @@ use super::{
     trailer::SegmentFileTrailer,
     writer::{BloomConstructionPolicy, Options, Writer},
 };
-use crate::{value::InternalValue, CompressionType, UserKey};
+use crate::{prefix::SharedPrefixExtractor, value::InternalValue, CompressionType, UserKey};
 use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
@@ -31,6 +31,8 @@ pub struct MultiWriter {
     pub compression: CompressionType,
 
     bloom_policy: BloomConstructionPolicy,
+
+    prefix_extractor: Option<SharedPrefixExtractor>,
 
     current_key: Option<UserKey>,
 }
@@ -64,6 +66,8 @@ impl MultiWriter {
 
             bloom_policy: BloomConstructionPolicy::default(),
 
+            prefix_extractor: None,
+
             current_key: None,
         })
     }
@@ -79,6 +83,13 @@ impl MultiWriter {
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
         self.writer = self.writer.use_bloom_policy(bloom_policy);
+        self
+    }
+
+    #[must_use]
+    pub fn use_prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor.clone());
+        self.writer = self.writer.use_prefix_extractor(extractor);
         self
     }
 
@@ -107,6 +118,10 @@ impl MultiWriter {
         .use_compression(self.compression);
 
         new_writer = new_writer.use_bloom_policy(self.bloom_policy);
+
+        if let Some(ref extractor) = self.prefix_extractor {
+            new_writer = new_writer.use_prefix_extractor(extractor.clone());
+        }
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 

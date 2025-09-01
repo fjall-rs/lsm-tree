@@ -110,6 +110,7 @@ impl<'a> Ingestion<'a> {
                         &segment_file_path,
                         trailer.offsets.bloom_ptr,
                     )?,
+                    prefix_extractor: self.tree.config.prefix_extractor.clone(),
 
                     path: segment_file_path,
                     is_deleted: AtomicBool::default(),

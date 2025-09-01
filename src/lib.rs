@@ -137,6 +137,9 @@ mod cache;
 #[doc(hidden)]
 pub mod bloom;
 
+/// Prefix extraction for bloom filters
+pub mod prefix;
+
 pub mod compaction;
 mod config;
 

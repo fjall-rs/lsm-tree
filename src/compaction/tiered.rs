@@ -217,6 +217,7 @@ mod tests {
             cache,
 
             bloom_filter: Some(BloomFilter::with_fp_rate(1, 0.1)),
+            prefix_extractor: None,
 
             path: "a".into(),
             is_deleted: AtomicBool::default(),
