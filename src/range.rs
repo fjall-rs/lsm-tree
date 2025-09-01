@@ -227,15 +227,15 @@ impl TreeIter {
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
-                            let reader = segment.range((
+                            if let Some(reader) = segment.range((
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
-                            ));
-
-                            iters.push(Box::new(reader.filter(move |item| match item {
-                                Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                Err(_) => true,
-                            })));
+                            )) {
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            }
                         }
                     }
                     _ => {

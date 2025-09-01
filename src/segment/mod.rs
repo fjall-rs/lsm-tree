@@ -31,6 +31,7 @@ use crate::metrics::Metrics;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    prefix::{PrefixExtractor, SharedPrefixExtractor},
     segment::block::{BlockType, ParsedItem},
     CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
@@ -104,7 +105,7 @@ impl Segment {
     }
 
     #[must_use]
-    pub fn pinned_bloom_filter_size(&self) -> usize {
+    pub fn pinned_filter_size(&self) -> usize {
         self.pinned_filter_block
             .as_ref()
             .map(Block::size)
@@ -179,11 +180,22 @@ impl Segment {
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
             #[cfg(feature = "metrics")]
-            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+            self.metrics.filter_queries.fetch_add(1, Relaxed);
 
-            if !filter.contains_hash(key_hash) {
+            let may_contain = if let Some(ref extractor) = self.prefix_extractor {
+                // If prefix extractor is configured, use prefix-based filtering
+                // None means out-of-domain - these keys bypass filter
+                filter
+                    .contains_prefix(key, extractor.as_ref())
+                    .unwrap_or(true)
+            } else {
+                // No prefix extractor, use standard hash-based filtering
+                filter.contains_hash(key_hash)
+            };
+
+            if !may_contain {
                 #[cfg(feature = "metrics")]
-                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
 
                 return Ok(None);
             }
@@ -196,11 +208,22 @@ impl Segment {
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
             #[cfg(feature = "metrics")]
-            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+            self.metrics.filter_queries.fetch_add(1, Relaxed);
 
-            if !filter.contains_hash(key_hash) {
+            let may_contain = if let Some(ref extractor) = self.prefix_extractor {
+                // If prefix extractor is configured, use prefix-based filtering
+                // None means out-of-domain - these keys bypass filter
+                filter
+                    .contains_prefix(key, extractor.as_ref())
+                    .unwrap_or(true)
+            } else {
+                // No prefix extractor, use standard hash-based filtering
+                filter.contains_hash(key_hash)
+            };
+
+            if !may_contain {
                 #[cfg(feature = "metrics")]
-                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
 
                 return Ok(None);
             }
@@ -296,11 +319,144 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+    pub fn iter(&self) -> Option<impl DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
         self.range(..)
     }
 
+    /// Returns true if the prefix filter indicates the prefix doesn't exist.
+    /// This is used to potentially skip segments during range queries.
+    /// Only works when a prefix extractor is configured.
+    fn should_skip_by_prefix_filter(&self, key: &[u8]) -> bool {
+        use filter::standard_bloom::StandardBloomFilterReader;
+        #[cfg(feature = "metrics")]
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let Some(ref prefix_extractor) = self.prefix_extractor else {
+            return false;
+        };
+
+        // Try pinned filter block first
+        if let Some(block) = &self.pinned_filter_block {
+            if let Ok(filter) = StandardBloomFilterReader::new(&block.data) {
+                #[cfg(feature = "metrics")]
+                self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                // Returns true if prefix is NOT in filter (should skip)
+                return !filter
+                    .contains_prefix(key, prefix_extractor.as_ref())
+                    .unwrap_or(true);
+            }
+        }
+
+        // Fall back to loading filter block from disk
+        if let Some(filter_block_handle) = &self.regions.filter {
+            if let Ok(block) = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None,
+            ) {
+                if let Ok(filter) = StandardBloomFilterReader::new(&block.data) {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                    return !filter
+                        .contains_prefix(key, prefix_extractor.as_ref())
+                        .unwrap_or(true);
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Extracts the common prefix from a range's start and end bounds for filter checking.
+    /// Returns the prefix as a slice if both bounds share the same prefix.
+    fn extract_common_prefix_for_filter<'a, R: RangeBounds<UserKey>>(
+        &self,
+        range: &'a R,
+        prefix_extractor: &dyn PrefixExtractor,
+    ) -> Option<&'a [u8]> {
+        let (start_key, end_key) = match (range.start_bound(), range.end_bound()) {
+            (Bound::Included(s) | Bound::Excluded(s), Bound::Included(e) | Bound::Excluded(e)) => {
+                (s.as_ref(), Some(e.as_ref()))
+            }
+            (Bound::Included(s) | Bound::Excluded(s), Bound::Unbounded) => (s.as_ref(), None),
+            (Bound::Unbounded, Bound::Included(e) | Bound::Excluded(e)) => (e.as_ref(), None),
+            _ => return None,
+        };
+
+        // For single bound or when end is unbounded, use that key's prefix
+        if end_key.is_none() {
+            return prefix_extractor.extract(start_key).next();
+        }
+
+        // Both bounds exist - check if they share the same prefix
+        if let Some(end) = end_key {
+            let start_prefix = prefix_extractor.extract(start_key).next()?;
+            let end_prefix = prefix_extractor.extract(end).next()?;
+
+            if start_prefix == end_prefix {
+                return Some(start_prefix);
+            }
+        }
+
+        None
+    }
+
+    /// Checks if this segment can be skipped for the given range based on prefix filter.
+    /// Returns true if the segment should be skipped.
+    /// Only applicable when a prefix extractor is configured.
+    fn should_skip_range_by_prefix_filter<R: RangeBounds<UserKey>>(&self, range: &R) -> bool {
+        // Early return if no prefix extractor is configured
+        let Some(ref prefix_extractor) = self.prefix_extractor else {
+            return false;
+        };
+
+        // First try: Check filter using common prefix from range bounds
+        if let Some(common_prefix) =
+            self.extract_common_prefix_for_filter(range, &**prefix_extractor)
+        {
+            if self.should_skip_by_prefix_filter(common_prefix) {
+                #[cfg(feature = "metrics")]
+                self.metrics
+                    .io_skipped_by_filter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return true;
+            }
+        } else {
+            // Second try: No common prefix, but we can still try to optimize using the start bound
+            if let Some(start_key) = match range.start_bound() {
+                Bound::Included(key) | Bound::Excluded(key) => Some(key.as_ref()),
+                Bound::Unbounded => None,
+            } {
+                // Extract prefix from start bound
+                if let Some(start_prefix) = prefix_extractor.extract(start_key).next() {
+                    // Check if this segment's minimum key would fall in the prefix range
+                    // If the segment's min key >= start_key and the start prefix doesn't exist,
+                    // we can potentially skip this segment
+                    let min_key = self.metadata.key_range.min();
+
+                    // Extract prefix from segment's minimum key
+                    if let Some(min_prefix) = prefix_extractor.extract(min_key).next() {
+                        if min_prefix == start_prefix
+                            && self.should_skip_by_prefix_filter(start_prefix)
+                        {
+                            #[cfg(feature = "metrics")]
+                            self.metrics
+                                .io_skipped_by_filter
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     /// Creates a ranged iterator over the `Segment`.
+    /// Returns None if the filter indicates no keys with the common prefix exist.
     ///
     /// # Errors
     ///
@@ -311,9 +467,14 @@ impl Segment {
     pub fn range<R: RangeBounds<UserKey>>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+    ) -> Option<impl DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
         use crate::fallible_clipping_iter::FallibleClippingIter;
         use block_index::iter::create_index_block_reader;
+
+        // Check prefix filter to see if we can skip this segment entirely
+        if self.should_skip_range_by_prefix_filter(&range) {
+            return None;
+        }
 
         // TODO: enum_dispatch BlockIndex::iter
         let index_block = match &*self.block_index {
@@ -332,7 +493,6 @@ impl Segment {
         };
 
         let index_iter = create_index_block_reader(index_block.clone());
-
         let mut iter = Iter::new(
             self.global_id(),
             self.path.clone(),
@@ -344,21 +504,16 @@ impl Segment {
             self.metrics.clone(),
         );
 
-        match range.start_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_lower_bound(key.clone());
-            }
-            Bound::Unbounded => {}
+        // Set normal iterator bounds based on range
+        if let Bound::Excluded(key) | Bound::Included(key) = range.start_bound() {
+            iter.set_lower_bound(key.clone());
         }
 
-        match range.end_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_upper_bound(key.clone());
-            }
-            Bound::Unbounded => {}
+        if let Bound::Excluded(key) | Bound::Included(key) = range.end_bound() {
+            iter.set_upper_bound(key.clone());
         }
 
-        FallibleClippingIter::new(iter, range)
+        Some(FallibleClippingIter::new(iter, range))
     }
 
     /// Tries to recover a segment from a file.
@@ -367,6 +522,7 @@ impl Segment {
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
+        prefix_extractor: Option<SharedPrefixExtractor>,
         pin_filter: bool,
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -470,6 +626,8 @@ impl Segment {
 
             pinned_filter_block,
 
+            prefix_extractor,
+
             is_deleted: AtomicBool::default(),
 
             #[cfg(feature = "metrics")]
@@ -495,10 +653,36 @@ impl Segment {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
+    /// Returns the seqno range of the `Segment`.
+    #[must_use]
+    pub fn seqno_range(&self) -> (SeqNo, SeqNo) {
+        self.0.metadata.seqnos
+    }
+
     /// Returns the highest sequence number in the segment.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
-        self.metadata.seqnos.1
+        self.0.metadata.seqnos.1
+    }
+
+    /// Returns true if this segment has a prefix extractor configured.
+    #[must_use]
+    pub fn has_prefix_extractor(&self) -> bool {
+        self.prefix_extractor.is_some()
+    }
+
+    /// Checks if this segment might contain data for the given range.
+    /// Returns false only if we can definitively rule out the segment using filters.
+    /// Returns true if the segment might contain data (or if we can't determine).
+    #[must_use]
+    pub fn might_contain_range<R: RangeBounds<UserKey>>(&self, range: &R) -> bool {
+        // If no prefix extractor, we can't use filter optimization
+        if self.prefix_extractor.is_none() {
+            return true;
+        }
+
+        // Check if we can skip this segment based on filter
+        !self.should_skip_range_by_prefix_filter(range)
     }
 
     /// Returns the amount of tombstone markers in the `Segment`.
@@ -550,6 +734,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -646,6 +831,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -703,6 +889,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -718,10 +905,12 @@ mod tests {
                 "should use full index, so only TLI exists",
             );
 
-            assert_eq!(items, &*segment.iter().flatten().collect::<Vec<_>>());
+            let iter = segment.iter().unwrap();
+            assert_eq!(items, &*iter.flatten().collect::<Vec<_>>());
+            let iter = segment.iter().unwrap();
             assert_eq!(
                 items.iter().rev().cloned().collect::<Vec<_>>(),
-                &*segment.iter().rev().flatten().collect::<Vec<_>>(),
+                &*iter.rev().flatten().collect::<Vec<_>>(),
             );
         }
 
@@ -759,6 +948,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -778,6 +968,7 @@ mod tests {
                 items.iter().skip(1).cloned().collect::<Vec<_>>(),
                 &*segment
                     .range(UserKey::from("b")..)
+                    .unwrap()
                     .flatten()
                     .collect::<Vec<_>>()
             );
@@ -786,6 +977,7 @@ mod tests {
                 items.iter().skip(1).rev().cloned().collect::<Vec<_>>(),
                 &*segment
                     .range(UserKey::from("b")..)
+                    .unwrap()
                     .rev()
                     .flatten()
                     .collect::<Vec<_>>(),
@@ -826,6 +1018,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -842,7 +1035,8 @@ mod tests {
             );
 
             let mut iter = segment
-                .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()));
+                .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()))
+                .unwrap();
 
             let mut count = 0;
 
@@ -901,6 +1095,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 true,
                 true,
                 #[cfg(feature = "metrics")]
@@ -920,6 +1115,7 @@ mod tests {
                 items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
                 &*segment
                     .range(UserKey::from("b")..=UserKey::from("d"))
+                    .unwrap()
                     .flatten()
                     .collect::<Vec<_>>()
             );
@@ -934,6 +1130,7 @@ mod tests {
                     .collect::<Vec<_>>(),
                 &*segment
                     .range(UserKey::from("b")..=UserKey::from("d"))
+                    .unwrap()
                     .rev()
                     .flatten()
                     .collect::<Vec<_>>(),
@@ -970,6 +1167,7 @@ mod tests {
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
+                None,
                 false,
                 true,
                 #[cfg(feature = "metrics")]

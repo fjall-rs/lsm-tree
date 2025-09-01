@@ -186,13 +186,13 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn pinned_bloom_filter_size(&self) -> usize {
+    fn pinned_filter_size(&self) -> usize {
         self.manifest
             .read()
             .expect("lock is poisoned")
             .current_version()
             .iter_segments()
-            .map(Segment::pinned_bloom_filter_size)
+            .map(Segment::pinned_filter_size)
             .sum()
     }
 
@@ -262,6 +262,10 @@ impl AbstractTree for Tree {
                     BloomConstructionPolicy::BitsPerKey(0)
                 }
             });
+
+        if let Some(ref extractor) = self.config.prefix_extractor {
+            segment_writer = segment_writer.use_prefix_extractor(extractor.clone());
+        }
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, seqno_threshold);
@@ -564,6 +568,7 @@ impl Tree {
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
+            self.config.prefix_extractor.clone(),
             true, // TODO: look at configuration
             true, // TODO: look at configuration
             #[cfg(feature = "metrics")]
@@ -858,6 +863,7 @@ impl Tree {
             tree_id,
             &config.cache,
             &config.descriptor_table,
+            &config.prefix_extractor,
             #[cfg(feature = "metrics")]
             &metrics,
         )?;
@@ -922,6 +928,7 @@ impl Tree {
         tree_id: TreeId,
         cache: &Arc<Cache>,
         descriptor_table: &Arc<DescriptorTable>,
+        prefix_extractor: &Option<crate::prefix::SharedPrefixExtractor>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<LevelManifest> {
         use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, SegmentId};
@@ -988,6 +995,7 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
+                    prefix_extractor.clone(),
                     level_idx <= 2, // TODO: look at configuration
                     level_idx <= 2, // TODO: look at configuration
                     #[cfg(feature = "metrics")]

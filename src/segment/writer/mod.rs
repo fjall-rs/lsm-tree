@@ -8,6 +8,7 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
+    prefix::SharedPrefixExtractor,
     segment::{filter::standard_bloom::Builder, index_block::BlockHandle, regions::ParsedRegions},
     time::unix_timestamp,
     CompressionType, InternalValue, SegmentId, UserKey,
@@ -62,6 +63,9 @@ pub struct Writer {
     ///
     /// using enhanced double hashing, so we got two u64s
     pub bloom_hash_buffer: Vec<u64>,
+
+    /// Prefix extractor for filters
+    pub prefix_extractor: Option<SharedPrefixExtractor>,
 }
 
 impl Writer {
@@ -99,6 +103,7 @@ impl Writer {
             bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
+            prefix_extractor: None,
         })
     }
 
@@ -131,6 +136,12 @@ impl Writer {
         self
     }
 
+    #[must_use]
+    pub fn use_prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor);
+        self
+    }
+
     /// Writes an item.
     ///
     /// # Note
@@ -153,8 +164,17 @@ impl Writer {
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.bloom_hash_buffer
-                    .push(Builder::get_hash(&item.key.user_key));
+                if let Some(ref extractor) = self.prefix_extractor {
+                    // Add all prefixes to filter
+                    // If extract returns empty iterator (out of domain), nothing is added
+                    for prefix in extractor.extract(&item.key.user_key) {
+                        self.bloom_hash_buffer.push(Builder::get_hash(prefix));
+                    }
+                } else {
+                    // Default behavior: add full key hash
+                    self.bloom_hash_buffer
+                        .push(Builder::get_hash(&item.key.user_key));
+                }
             }
         }
 

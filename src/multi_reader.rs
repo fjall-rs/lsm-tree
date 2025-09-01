@@ -89,7 +89,9 @@ mod tests {
             let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(segment.iter());
+                if let Some(iter) = segment.iter() {
+                    readers.push_back(iter);
+                }
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -115,7 +117,9 @@ mod tests {
             let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(segment.iter());
+                if let Some(iter) = segment.iter() {
+                    readers.push_back(iter);
+                }
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -141,7 +145,9 @@ mod tests {
             let mut readers: VecDeque<_> = VecDeque::new();
 
             for segment in &segments {
-                readers.push_back(segment.iter());
+                if let Some(iter) = segment.iter() {
+                    readers.push_back(iter);
+                }
             }
 
             let multi_reader = MultiReader::new(readers);
