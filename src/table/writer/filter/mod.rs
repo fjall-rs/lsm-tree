@@ -16,6 +16,10 @@ pub trait FilterWriter<W: std::io::Write> {
     /// Registers a key in the block index.
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()>;
 
+    /// Registers arbitrary bytes into the filter (used for prefix entries).
+    /// Implementations should hash the bytes identically to full keys.
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()>;
+
     /// Writes the filter to a file.
     fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<()>;
 

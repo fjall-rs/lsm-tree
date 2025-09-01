@@ -7,6 +7,7 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    prefix::SharedPrefixExtractor,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -65,6 +66,7 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 pub struct IterState {
     pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
+    pub(crate) prefix_extractor: Option<SharedPrefixExtractor>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -163,15 +165,29 @@ impl TreeIter {
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
-                            let reader = table.range((
-                                range.start_bound().map(|x| &x.user_key).cloned(),
-                                range.end_bound().map(|x| &x.user_key).cloned(),
-                            ));
+                            let mut skip = false;
+                            if let Some(ex) = lock.prefix_extractor.as_ref() {
+                                let tmp_range = (
+                                    range.start_bound().map(|x| &x.user_key).cloned(),
+                                    range.end_bound().map(|x| &x.user_key).cloned(),
+                                );
+                                if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref())
+                                {
+                                    skip = true;
+                                }
+                            }
 
-                            iters.push(Box::new(reader.filter(move |item| match item {
-                                Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                Err(_) => true,
-                            })));
+                            if !skip {
+                                let reader = table.range((
+                                    range.start_bound().map(|x| &x.user_key).cloned(),
+                                    range.end_bound().map(|x| &x.user_key).cloned(),
+                                ));
+
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            }
                         }
                     }
                     _ => {
@@ -181,6 +197,7 @@ impl TreeIter {
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
+                            lock.prefix_extractor.clone(),
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),

@@ -86,6 +86,10 @@ pub struct Writer {
     linked_blob_files: Vec<LinkedFile>,
 
     initial_level: u8,
+
+    /// Optional prefix extractor used to register extracted prefixes into the Bloom filter.
+    /// When present, we will register extracted prefixes in addition to the full key.
+    prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
 }
 
 impl Writer {
@@ -132,6 +136,8 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            prefix_extractor: None,
         })
     }
 
@@ -213,6 +219,16 @@ impl Writer {
         self
     }
 
+    /// Sets the prefix extractor to enable prefix-aware Bloom filter construction.
+    #[must_use]
+    pub fn use_prefix_extractor(
+        mut self,
+        extractor: Option<crate::prefix::SharedPrefixExtractor>,
+    ) -> Self {
+        self.prefix_extractor = extractor;
+        self
+    }
+
     /// Writes an item.
     ///
     /// # Note
@@ -253,7 +269,16 @@ impl Writer {
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.filter_writer.register_key(&user_key)?;
+                // With a configured prefix extractor, register extracted prefixes only.
+                // Point reads perform a prefix-aware pre-check and bypass the full-key Bloom filter.
+                if let Some(ref extractor) = self.prefix_extractor {
+                    for prefix in extractor.extract(user_key.as_ref()) {
+                        self.filter_writer.register_bytes(prefix)?;
+                    }
+                } else {
+                    // Without an extractor, fall back to classic full-key Bloom.
+                    self.filter_writer.register_key(&user_key)?;
+                }
             }
         }
 
@@ -391,7 +416,7 @@ impl Writer {
                 InternalValue::from_components(key, value, 0, crate::ValueType::Value)
             }
 
-            let meta_items = [
+            let mut meta_items = vec![
                 meta("checksum_type", b"xxh3"),
                 meta(
                     "compression#data",
@@ -422,46 +447,55 @@ impl Writer {
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
                     "key#max",
-                    // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
                     "key#min",
-                    // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
-                meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta(
-                    "restart_interval#data",
-                    &self.data_block_restart_interval.to_le_bytes(),
-                ),
-                meta(
-                    "restart_interval#index",
-                    &self.index_block_restart_interval.to_le_bytes(),
-                ),
-                meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
-                meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
-                meta("table_version", &[3u8]),
-                meta(
-                    "tombstone_count",
-                    &(self.meta.tombstone_count as u64).to_le_bytes(),
-                ),
-                meta("user_data_size", &self.meta.uncompressed_size.to_le_bytes()),
-                meta(
-                    "weak_tombstone_count",
-                    &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
-                ),
-                meta(
-                    "weak_tombstone_reclaimable",
-                    &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
-                ),
+                meta("prefix_truncation#data", &[1]),
+                meta("prefix_truncation#index", &[1]),
             ];
+            // Persist the extractor name so recovery can compare it to the current extractor.
+            // If names differ, disable prefix-based pruning for this table to avoid false negatives.
+            // Place between prefix_truncation and restart_interval for stable ordering.
+            if let Some(ref extractor) = self.prefix_extractor {
+                meta_items.push(meta("prefix_extractor", extractor.name().as_bytes()));
+            }
+            meta_items.push(meta(
+                "restart_interval#data",
+                &self.data_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "restart_interval#index",
+                &self.index_block_restart_interval.to_le_bytes(),
+            ));
+            meta_items.push(meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()));
+            meta_items.push(meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()));
+            meta_items.push(meta("table_version", &[3u8]));
+            meta_items.push(meta(
+                "tombstone_count",
+                &(self.meta.tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "user_data_size",
+                &self.meta.uncompressed_size.to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_count",
+                &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
+            ));
+            meta_items.push(meta(
+                "weak_tombstone_reclaimable",
+                &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
+            ));
 
-            // NOTE: Just to make sure the items are definitely sorted
+            // Ensure deterministic ordering for metadata entries without cloning keys
+            meta_items.sort_by(|a, b| a.key.cmp(&b.key));
+
             #[cfg(debug_assertions)]
             {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
@@ -470,7 +504,7 @@ impl Writer {
 
             self.block_buffer.clear();
 
-            // TODO: no binary index
+            // meta_items have been sorted above for deterministic encoding order
             DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
 
             Block::write_into(

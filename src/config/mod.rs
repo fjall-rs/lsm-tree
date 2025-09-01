@@ -20,8 +20,8 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartioningPolicy = PinningPolicy;
 
 use crate::{
-    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, SequenceNumberCounter, Tree,
+    path::absolute_path, prefix::SharedPrefixExtractor, version::DEFAULT_LEVEL_COUNT, AnyTree,
+    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -227,6 +227,11 @@ pub struct Config {
     /// Filter construction policy
     pub filter_policy: FilterPolicy,
 
+    /// Optional prefix extractor used to construct prefix-aware filters.
+    /// When set, the table writer will add extracted prefixes (in addition to full keys)
+    /// to the Bloom filter and persist the extractor name in table metadata for compatibility checks.
+    pub prefix_extractor: Option<SharedPrefixExtractor>,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -284,6 +289,8 @@ impl Default for Config {
                 BloomConstructionPolicy::BitsPerKey(10.0),
             )),
 
+            prefix_extractor: None,
+
             expect_point_read_hits: false,
 
             kv_separation_opts: None,
@@ -299,6 +306,14 @@ impl Config {
             seqno,
             ..Default::default()
         }
+    }
+
+    /// Sets the prefix extractor for building prefix-aware Bloom filters.
+    /// If set, extracted prefixes are added to filters and the extractor name is stored in table metadata.
+    #[must_use]
+    pub fn prefix_extractor(mut self, extractor: SharedPrefixExtractor) -> Self {
+        self.prefix_extractor = Some(extractor);
+        self
     }
 
     /// Sets the global cache.

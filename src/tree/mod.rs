@@ -349,7 +349,11 @@ impl AbstractTree for Tree {
                     Bloom(policy) => policy,
                     None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
-            });
+            })
+            // Ensure tables built during flush carry the configured extractor.
+            // This lets writers register prefixes and persist the extractor name in metadata
+            // for compatibility checks at read time.
+            .use_prefix_extractor(self.config.prefix_extractor.clone());
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -732,6 +736,48 @@ impl Tree {
         None
     }
 
+    /// Centralized point-read from a single table with prefix-aware pre-checks and
+    /// compatibility gating. Returns Ok(None) if the prefix filter definitively excludes
+    /// the key or if the table lookup returns no match.
+    fn point_read_from_table(
+        &self,
+        table: &Table,
+        key: &[u8],
+        seqno: SeqNo,
+        key_hash: u64,
+    ) -> crate::Result<Option<InternalValue>> {
+        // Determine compatibility of table's stored extractor with current config
+        let current = self.config.prefix_extractor.as_ref().map(|e| e.name());
+        let allow_filter = table.prefix_filter_allowed(current);
+
+        // If prefix filtering is allowed and an extractor is configured, consult the
+        // prefix-aware filter first and skip on a definite negative.
+        if allow_filter {
+            if let Some(ex) = self.config.prefix_extractor.as_ref() {
+                match table.maybe_contains_prefix(key, ex.as_ref())? {
+                    Some(false) => return Ok(None),
+                    _ => { /* proceed */ }
+                }
+            }
+        }
+
+        let item = if allow_filter {
+            if self.config.prefix_extractor.is_some() {
+                // Compatible extractor configured: we've consulted the prefix filter;
+                // bypass full-key Bloom.
+                table.get_without_filter(key, seqno)?
+            } else {
+                // No extractor configured: rely on full-key Bloom as usual.
+                table.get(key, seqno, key_hash)?
+            }
+        } else {
+            // Incompatible extractor or mismatch: never trust the filter.
+            table.get_without_filter(key, seqno)?
+        };
+
+        Ok(item)
+    }
+
     fn get_internal_entry_from_tables(
         &self,
         version: &Version,
@@ -747,7 +793,9 @@ impl Tree {
                 // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
                 if run.len() >= 4 {
                     if let Some(table) = run.get_for_key(key) {
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                        if let Some(item) =
+                            self.point_read_from_table(table, key, seqno, key_hash)?
+                        {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
@@ -758,7 +806,9 @@ impl Tree {
                             continue;
                         }
 
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                        if let Some(item) =
+                            self.point_read_from_table(table, key, seqno, key_hash)?
+                        {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
@@ -822,7 +872,13 @@ impl Tree {
 
         let version = self.get_version_for_snapshot(seqno);
 
-        let iter_state = { IterState { version, ephemeral } };
+        let iter_state = {
+            IterState {
+                version,
+                ephemeral,
+                prefix_extractor: self.config.prefix_extractor.clone(),
+            }
+        };
 
         TreeIter::create_range(iter_state, bounds, seqno)
     }
@@ -991,32 +1047,16 @@ impl Tree {
 
         let recovery = recover(tree_path)?;
 
-        let table_map = {
-            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum)> =
-                crate::HashMap::default();
-
-            for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
-                for run in table_ids {
-                    for &(table_id, checksum) in run {
-                        #[expect(
-                            clippy::expect_used,
-                            reason = "there are always less than 256 levels"
-                        )]
-                        result.insert(
-                            table_id,
-                            (
-                                level_idx
-                                    .try_into()
-                                    .expect("there are less than 256 levels"),
-                                checksum,
-                            ),
-                        );
-                    }
+        // Map TableId -> (level_idx, checksum)
+        let mut table_map: std::collections::HashMap<TableId, (usize, Checksum)> =
+            std::collections::HashMap::new();
+        for (level_idx, level) in recovery.table_ids.iter().enumerate() {
+            for run in level {
+                for (id, checksum) in run {
+                    table_map.insert(*id, (level_idx, *checksum));
                 }
             }
-
-            result
-        };
+        }
 
         let cnt = table_map.len();
 
