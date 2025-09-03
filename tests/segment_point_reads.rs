@@ -5,7 +5,7 @@ const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn segment_point_reads() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -29,7 +29,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -69,7 +69,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -113,7 +113,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)

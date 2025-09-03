@@ -5,7 +5,7 @@ const ITEM_COUNT: usize = 1_000_000;
 
 #[test]
 fn segment_ranges() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -51,7 +51,7 @@ fn segment_ranges() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_range_last_back() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -86,7 +86,7 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_range_last_back_2() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)

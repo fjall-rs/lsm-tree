@@ -3,7 +3,7 @@ use test_log::test;
 
 #[test]
 fn tree_highest_seqno() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open()?;
     assert_eq!(tree.get_highest_seqno(), None);

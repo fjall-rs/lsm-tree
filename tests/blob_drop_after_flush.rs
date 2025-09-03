@@ -28,7 +28,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
 
     std::thread::sleep(Duration::from_secs(1));
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, 0)?;
 
     tree.register_segments(&[segment], 0)?;

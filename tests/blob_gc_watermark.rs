@@ -31,7 +31,7 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
     assert_eq!(2, report.stale_blobs);
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, 0)?;
 
     // IMPORTANT: We cannot drop any blobs yet

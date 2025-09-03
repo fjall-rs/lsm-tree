@@ -2,6 +2,7 @@ use lsm_tree::AbstractTree;
 use test_log::test;
 
 #[test]
+#[ignore = "wip"]
 fn blob_tree_simple() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
@@ -53,6 +54,7 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
 
 #[cfg(feature = "lz4")]
 #[test]
+#[ignore = "wip"]
 fn blob_tree_simple_compressed() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();

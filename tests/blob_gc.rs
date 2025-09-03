@@ -72,7 +72,7 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
     tree.gc_scan_stats(seqno.get(), 1_000)?;
     assert_eq!(3.0, tree.blobs.space_amp());
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
 
     assert_eq!(&*tree.get("a", None)?.unwrap(), b"a");
@@ -88,7 +88,7 @@ fn blob_gc_2() -> lsm_tree::Result<()> {
 
     tree.gc_scan_stats(seqno.get(), 1_000)?;
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
     assert_eq!(0, tree.blobs.segment_count());
 
@@ -123,7 +123,7 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
     tree.gc_scan_stats(seqno.get(), 1_000)?;
     assert_eq!(3.0, tree.blobs.space_amp());
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
 
     assert!(tree.get("a", None)?.is_none());
@@ -140,7 +140,7 @@ fn blob_gc_3() -> lsm_tree::Result<()> {
 
     tree.gc_scan_stats(seqno.get(), 1_000)?;
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, seqno.next())?;
     assert_eq!(0, tree.blobs.segment_count());
 
