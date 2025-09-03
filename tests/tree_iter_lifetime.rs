@@ -15,10 +15,9 @@ fn iterrr(
     Ok(tree.iter(None, None))
 }
 
-// TODO: 3.0.0 compiler error
-/* #[test]
+#[test]
 fn tree_iter_lifetime() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir().unwrap();
     assert_eq!(100, iterrr(folder.path())?.count());
     Ok(())
-} */
+}
