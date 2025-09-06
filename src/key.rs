@@ -132,6 +132,18 @@ impl Ord for InternalKey {
     }
 }
 
+impl Equivalent<InternalKeyRef<'_>> for InternalKey {
+    fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl Comparable<InternalKeyRef<'_>> for InternalKey {
+    fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
+        (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
+    }
+}
+
 /// Temporary internal key without heap allocation
 #[derive(Debug, Eq)]
 pub struct InternalKeyRef<'a> {
