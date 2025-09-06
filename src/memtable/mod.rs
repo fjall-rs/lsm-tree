@@ -84,11 +84,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKeyRef::new(
-            key,
-            seqno - 1,
-            ValueType::Value,
-        );
+        let lower_bound = InternalKeyRef::new(key, seqno - 1, ValueType::Value);
 
         let mut iter = self
             .items
