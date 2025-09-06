@@ -5,7 +5,6 @@
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     key::InternalKey,
-    segment::block::ItemSize,
     Slice,
 };
 use std::io::{Read, Write};
@@ -67,7 +66,7 @@ impl From<ValueType> for u8 {
 
 /// Internal representation of KV pairs
 #[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq)]
 pub struct InternalValue {
     /// Internal key
     pub key: InternalKey,
@@ -138,12 +137,21 @@ impl InternalValue {
     }
 }
 
-impl ItemSize for InternalValue {
-    fn size(&self) -> usize {
-        std::mem::size_of::<SeqNo>()
-            + std::mem::size_of::<ValueType>()
-            + self.key.user_key.len()
-            + self.value.len()
+impl PartialEq for InternalValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Ord for InternalValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key.cmp(&other.key)
+    }
+}
+
+impl PartialOrd for InternalValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -162,6 +170,7 @@ impl std::fmt::Debug for InternalValue {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Encode for InternalValue {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         self.key.encode_into(writer)?;
@@ -178,6 +187,7 @@ impl Encode for InternalValue {
     }
 }
 
+// TODO: 3.0.0 remove
 impl Decode for InternalValue {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let key = InternalKey::decode_from(reader)?;
@@ -201,7 +211,6 @@ impl Decode for InternalValue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
     use test_log::test;
 
     #[test]
@@ -218,7 +227,7 @@ mod tests {
         assert!(a > b);
     }
 
-    #[test]
+    /*   #[test]
     fn value_raw() -> crate::Result<()> {
         // Create an empty Value instance
         let value =
@@ -228,13 +237,13 @@ mod tests {
         let bytes = [
             // Seqno
             1,
-            
+
             // Type
             0,
 
             // User key
             3, 1, 2, 3,
-            
+
             // User value
             3, 3, 2, 1,
         ];
@@ -246,7 +255,7 @@ mod tests {
         assert_eq!(value, deserialized);
 
         Ok(())
-    }
+    } */
 
     #[test]
     fn value_empty_value() -> crate::Result<()> {

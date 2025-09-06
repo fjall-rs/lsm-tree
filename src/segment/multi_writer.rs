@@ -2,26 +2,30 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{
-    trailer::SegmentFileTrailer,
-    writer::{BloomConstructionPolicy, Options, Writer},
+use super::{filter::BloomConstructionPolicy, writer::Writer};
+use crate::{value::InternalValue, CompressionType, SegmentId, UserKey};
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicU64, Arc},
 };
-use crate::{value::InternalValue, CompressionType, UserKey};
-use std::sync::{atomic::AtomicU64, Arc};
 
 /// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
 ///
 /// This results in a sorted "run" of segments
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
+    base_path: PathBuf,
+
+    data_block_hash_ratio: f32,
+    data_block_size: u32,
+
     /// Target size of segments in bytes
     ///
     /// If a segment reaches the target size, a new one is started,
     /// resulting in a sorted "run" of segments
     pub target_size: u64,
 
-    pub opts: Options,
-    results: Vec<SegmentFileTrailer>,
+    results: Vec<SegmentId>,
 
     segment_id_generator: Arc<AtomicU64>,
     current_segment_id: u64,
@@ -38,24 +42,24 @@ pub struct MultiWriter {
 impl MultiWriter {
     /// Sets up a new `MultiWriter` at the given segments folder
     pub fn new(
+        base_path: PathBuf,
         segment_id_generator: Arc<AtomicU64>,
         target_size: u64,
-        opts: Options,
     ) -> crate::Result<Self> {
         let current_segment_id =
             segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        let writer = Writer::new(Options {
-            segment_id: current_segment_id,
-            folder: opts.folder.clone(),
-            data_block_size: opts.data_block_size,
-            index_block_size: opts.index_block_size,
-        })?;
+        let path = base_path.join(current_segment_id.to_string());
+        let writer = Writer::new(path, current_segment_id)?;
 
         Ok(Self {
+            base_path,
+
+            data_block_hash_ratio: 0.0,
+            data_block_size: 4_096,
+
             target_size,
             results: Vec::with_capacity(10),
-            opts,
             segment_id_generator,
             current_segment_id,
             writer,
@@ -66,6 +70,24 @@ impl MultiWriter {
 
             current_key: None,
         })
+    }
+
+    #[must_use]
+    pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
+        self.data_block_hash_ratio = ratio;
+        self.writer = self.writer.use_data_block_hash_ratio(ratio);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn use_data_block_size(mut self, size: u32) -> Self {
+        assert!(
+            size <= 4 * 1_024 * 1_024,
+            "data block size must be <= 4 MiB",
+        );
+        self.data_block_size = size;
+        self.writer = self.writer.use_data_block_size(size);
+        self
     }
 
     #[must_use]
@@ -95,23 +117,18 @@ impl MultiWriter {
         log::debug!("Rotating segment writer");
 
         let new_segment_id = self.get_next_segment_id();
+        let path = self.base_path.join(new_segment_id.to_string());
 
-        // NOTE: Feature-dependent
-        #[allow(unused_mut)]
-        let mut new_writer = Writer::new(Options {
-            segment_id: new_segment_id,
-            folder: self.opts.folder.clone(),
-            data_block_size: self.opts.data_block_size,
-            index_block_size: self.opts.index_block_size,
-        })?
-        .use_compression(self.compression);
+        let new_writer = Writer::new(path, new_segment_id)?
+            .use_compression(self.compression)
+            .use_data_block_size(self.data_block_size)
+            .use_bloom_policy(self.bloom_policy)
+            .use_data_block_hash_ratio(self.data_block_hash_ratio);
 
-        new_writer = new_writer.use_bloom_policy(self.bloom_policy);
+        let old_writer = std::mem::replace(&mut self.writer, new_writer);
 
-        let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
-
-        if let Some(result) = old_writer.finish()? {
-            self.results.push(result);
+        if let Some(segment_id) = old_writer.finish()? {
+            self.results.push(segment_id);
         }
 
         Ok(())
@@ -137,7 +154,7 @@ impl MultiWriter {
     /// Finishes the last segment, making sure all data is written durably
     ///
     /// Returns the metadata of created segments
-    pub fn finish(mut self) -> crate::Result<Vec<SegmentFileTrailer>> {
+    pub fn finish(mut self) -> crate::Result<Vec<SegmentId>> {
         if let Some(last_writer_result) = self.writer.finish()? {
             self.results.push(last_writer_result);
         }

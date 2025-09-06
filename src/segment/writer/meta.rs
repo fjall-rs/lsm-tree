@@ -2,14 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{segment::block::offset::BlockOffset, SeqNo, UserKey};
+use crate::{segment::BlockOffset, SeqNo, UserKey};
 
 pub struct Metadata {
     /// Written data block count
     pub data_block_count: usize,
-
-    /// Written index block count
-    pub index_block_count: usize,
 
     /// Written item count
     pub item_count: usize,
@@ -17,6 +14,7 @@ pub struct Metadata {
     /// Tombstone count
     pub tombstone_count: usize,
 
+    // TODO: 3.0.0 - https://github.com/fjall-rs/lsm-tree/issues/101
     /// Written key count (unique keys)
     pub key_count: usize,
 
@@ -43,7 +41,6 @@ impl Default for Metadata {
     fn default() -> Self {
         Self {
             data_block_count: 0,
-            index_block_count: 0,
 
             item_count: 0,
             tombstone_count: 0,

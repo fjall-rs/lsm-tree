@@ -1,43 +1,65 @@
-// Copyright (c) 2024-present, fjall-rs
+// Copyright (c) 2025-present, fjall-rs
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
 pub mod block;
-pub mod block_index;
-pub mod file_offsets;
-mod forward_reader;
-pub mod id;
-pub mod inner;
-pub mod meta;
-pub mod multi_writer;
-pub mod range;
-pub mod reader;
-pub mod scanner;
-pub mod trailer;
-pub mod value_block;
-pub mod value_block_consumer;
-pub mod writer;
+pub(crate) mod block_index;
+pub mod data_block;
+pub mod filter;
+mod id;
+mod index_block;
+mod inner;
+mod iter;
+mod meta;
+pub(crate) mod multi_writer;
+mod regions;
+mod scanner;
+mod trailer;
+pub mod util;
+mod writer;
+
+pub use block::{Block, BlockOffset, Checksum};
+pub use data_block::DataBlock;
+pub use id::{GlobalSegmentId, SegmentId};
+pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
+pub use scanner::Scanner;
+pub use writer::Writer;
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 use crate::{
-    bloom::{BloomFilter, CompositeHash},
     cache::Cache,
-    descriptor_table::FileDescriptorTable,
-    time::unix_timestamp,
-    tree::inner::TreeId,
-    value::{InternalValue, SeqNo, UserKey},
+    descriptor_table::DescriptorTable,
+    segment::block::{BlockType, ParsedItem},
+    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
-use forward_reader::ForwardReader;
-use id::GlobalSegmentId;
 use inner::Inner;
-use meta::SegmentId;
-use range::Range;
-use scanner::Scanner;
+use iter::Iter;
 use std::{
-    ops::Bound,
-    path::Path,
-    sync::{atomic::AtomicBool, Arc},
+    ops::{Bound, RangeBounds},
+    path::PathBuf,
+    sync::Arc,
 };
+use util::load_block;
+
+// TODO: segment iter:
+// TODO:    we only need to truncate items from blocks that are not the first and last block
+// TODO:    because any block inbetween must (trivially) only contain relevant items
+
+// TODO: in Leveled compaction, compact segments that live very long and have
+// many versions (possibly unnecessary space usage of old, stale versions)
+
+// TODO: move into module
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CachePolicy {
+    /// Read cached blocks, but do not change cache
+    Read,
+
+    /// Read cached blocks, and update cache
+    Write,
+}
 
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
@@ -70,31 +92,31 @@ impl std::ops::Deref for Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}({})", self.id(), self.metadata.key_range)
+        write!(f, "Segment:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
 impl Segment {
-    // TODO: in Leveled compaction, compact segments that live very long and have
-    // many versions (possibly unnecessary space usage of old, stale versions)
-    /// Calculates how many versions per key there are on average.
-    #[must_use]
-    pub fn version_factor(&self) -> f32 {
-        self.metadata.item_count as f32 / self.metadata.key_count as f32
-    }
-
-    /// Gets the segment age in nanoseconds.
-    #[must_use]
-    pub fn age(&self) -> u128 {
-        let now = unix_timestamp().as_nanos();
-        let created_at = self.metadata.created_at * 1_000;
-        now.saturating_sub(created_at)
-    }
-
     /// Gets the global segment ID.
     #[must_use]
     pub fn global_id(&self) -> GlobalSegmentId {
         (self.tree_id, self.id()).into()
+    }
+
+    #[must_use]
+    pub fn pinned_bloom_filter_size(&self) -> usize {
+        self.pinned_filter_block
+            .as_ref()
+            .map(Block::size)
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn pinned_block_index_size(&self) -> usize {
+        match &*self.block_index {
+            BlockIndexImpl::Full(full_block_index) => full_block_index.inner().inner.size(),
+            BlockIndexImpl::VolatileFull => 0,
+        }
     }
 
     /// Gets the segment ID.
@@ -106,226 +128,80 @@ impl Segment {
         self.metadata.id
     }
 
-    pub(crate) fn verify(&self) -> crate::Result<usize> {
-        use block::checksum::Checksum;
-        use block_index::IndexBlock;
-        use value_block::ValueBlock;
-
-        let mut data_block_count = 0;
-        let mut broken_count = 0;
-
-        let guard = self
-            .descriptor_table
-            .access(&self.global_id())?
-            .expect("should have gotten file");
-
-        let mut file = guard.file.lock().expect("lock is poisoned");
-
-        // TODO: maybe move to BlockIndexImpl::verify
-        match &*self.block_index {
-            BlockIndexImpl::Full(block_index) => {
-                for handle in block_index.iter() {
-                    let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::error!(
-                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                 );
-                            broken_count += 1;
-                            data_block_count += 1;
-                            continue;
-                        }
-                    };
-
-                    let (_, data) = ValueBlock::to_bytes_compressed(
-                        &value_block.items,
-                        value_block.header.previous_block_offset,
-                        value_block.header.compression,
-                    )?;
-                    let actual_checksum = Checksum::from_bytes(&data);
-
-                    if value_block.header.checksum != actual_checksum {
-                        log::error!("{handle:?} is corrupted, invalid checksum value");
-                        broken_count += 1;
-                    }
-
-                    data_block_count += 1;
-
-                    if data_block_count % 1_000 == 0 {
-                        log::debug!("Checked {data_block_count} data blocks");
-                    }
-                }
-            }
-            BlockIndexImpl::TwoLevel(block_index) => {
-                // NOTE: TODO: because of 1.74.0
-                #[allow(clippy::explicit_iter_loop)]
-                for handle in block_index.top_level_index.iter() {
-                    let block = match IndexBlock::from_file(&mut *file, handle.offset) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            log::error!(
-                 "index block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-             );
-                            broken_count += 1;
-                            continue;
-                        }
-                    };
-
-                    for handle in &*block.items {
-                        let value_block = match ValueBlock::from_file(&mut *file, handle.offset) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                log::error!(
-                     "data block {handle:?} could not be loaded, it is probably corrupted: {e:?}"
-                 );
-                                broken_count += 1;
-                                data_block_count += 1;
-                                continue;
-                            }
-                        };
-
-                        let (_, data) = ValueBlock::to_bytes_compressed(
-                            &value_block.items,
-                            value_block.header.previous_block_offset,
-                            value_block.header.compression,
-                        )?;
-                        let actual_checksum = Checksum::from_bytes(&data);
-
-                        if value_block.header.checksum != actual_checksum {
-                            log::error!("{handle:?} is corrupted, invalid checksum value");
-                            broken_count += 1;
-                        }
-
-                        data_block_count += 1;
-
-                        if data_block_count % 1_000 == 0 {
-                            log::debug!("Checked {data_block_count} data blocks");
-                        }
-                    }
-                }
-            }
-        }
-
-        if data_block_count != self.metadata.data_block_count {
-            log::error!(
-                "Not all data blocks were visited during verification of disk segment {:?}",
-                self.id(),
-            );
-            broken_count += 1;
-        }
-
-        Ok(broken_count)
+    fn load_block(
+        &self,
+        handle: &BlockHandle,
+        block_type: BlockType,
+        compression: CompressionType,
+    ) -> crate::Result<Block> {
+        load_block(
+            self.global_id(),
+            &self.path,
+            &self.descriptor_table,
+            &self.cache,
+            handle,
+            block_type,
+            compression,
+            #[cfg(feature = "metrics")]
+            &self.metrics,
+        )
     }
 
-    pub(crate) fn load_bloom(
-        path: &Path,
-        ptr: block::offset::BlockOffset,
-    ) -> crate::Result<Option<BloomFilter>> {
-        Ok(if *ptr > 0 {
-            use crate::coding::Decode;
-            use std::{
-                fs::File,
-                io::{Seek, SeekFrom},
-            };
-
-            let mut reader = File::open(path)?;
-            reader.seek(SeekFrom::Start(*ptr))?;
-            Some(BloomFilter::decode_from(&mut reader)?)
-        } else {
-            None
-        })
+    fn load_data_block(&self, handle: &BlockHandle) -> crate::Result<DataBlock> {
+        self.load_block(
+            handle,
+            BlockType::Data,
+            self.metadata.data_block_compression,
+        )
+        .map(DataBlock::new)
     }
 
-    /// Tries to recover a segment from a file.
-    pub(crate) fn recover(
-        file_path: &Path,
-        tree_id: TreeId,
-        cache: Arc<Cache>,
-        descriptor_table: Arc<FileDescriptorTable>,
-        use_full_block_index: bool,
-    ) -> crate::Result<Self> {
-        use block_index::{full_index::FullBlockIndex, two_level_index::TwoLevelBlockIndex};
-        use trailer::SegmentFileTrailer;
-
-        log::debug!("Recovering segment from file {file_path:?}");
-        let trailer = SegmentFileTrailer::from_file(file_path)?;
-
-        assert_eq!(
-            0, *trailer.offsets.range_tombstones_ptr,
-            "Range tombstones not supported"
-        );
-
-        log::debug!(
-            "Creating block index, with tli_ptr={}",
-            trailer.offsets.tli_ptr
-        );
-
-        let block_index = if use_full_block_index {
-            let block_index =
-                FullBlockIndex::from_file(file_path, &trailer.metadata, &trailer.offsets)?;
-
-            BlockIndexImpl::Full(block_index)
-        } else {
-            let block_index = TwoLevelBlockIndex::from_file(
-                file_path,
-                &trailer.metadata,
-                trailer.offsets.tli_ptr,
-                (tree_id, trailer.metadata.id).into(),
-                descriptor_table.clone(),
-                cache.clone(),
-            )?;
-            BlockIndexImpl::TwoLevel(block_index)
-        };
-
-        let bloom_ptr = trailer.offsets.bloom_ptr;
-
-        Ok(Self(Arc::new(Inner {
-            path: file_path.into(),
-
-            tree_id,
-
-            descriptor_table,
-            metadata: trailer.metadata,
-            offsets: trailer.offsets,
-
-            block_index: Arc::new(block_index),
-            cache,
-
-            bloom_filter: Self::load_bloom(file_path, bloom_ptr)?,
-
-            is_deleted: AtomicBool::default(),
-        })))
-    }
-
-    pub(crate) fn mark_as_deleted(&self) {
-        self.0
-            .is_deleted
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    #[must_use]
-    /// Gets the bloom filter size
-    pub fn bloom_filter_size(&self) -> usize {
-        self.bloom_filter
-            .as_ref()
-            .map(super::bloom::BloomFilter::len)
-            .unwrap_or_default()
+    /// Returns the (possibly compressed) file size.
+    pub(crate) fn file_size(&self) -> u64 {
+        self.metadata.file_size
     }
 
     pub fn get(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
-        hash: CompositeHash,
+        seqno: SeqNo,
+        key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
-        if let Some(seqno) = seqno {
-            if self.metadata.seqnos.0 >= seqno {
-                return Ok(None);
-            }
+        use filter::standard_bloom::StandardBloomFilterReader;
+        #[cfg(feature = "metrics")]
+        use std::sync::atomic::Ordering::Relaxed;
+
+        if self.metadata.seqnos.0 >= seqno {
+            return Ok(None);
         }
 
-        if let Some(bf) = &self.bloom_filter {
-            if !bf.contains_hash(hash) {
+        if let Some(block) = &self.pinned_filter_block {
+            let filter = StandardBloomFilterReader::new(&block.data)?;
+
+            #[cfg(feature = "metrics")]
+            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+
+            if !filter.contains_hash(key_hash) {
+                #[cfg(feature = "metrics")]
+                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+
+                return Ok(None);
+            }
+        } else if let Some(filter_block_handle) = &self.regions.filter {
+            let block = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None,
+            )?;
+            let filter = StandardBloomFilterReader::new(&block.data)?;
+
+            #[cfg(feature = "metrics")]
+            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+
+            if !filter.contains_hash(key_hash) {
+                #[cfg(feature = "metrics")]
+                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+
                 return Ok(None);
             }
         }
@@ -333,95 +209,83 @@ impl Segment {
         self.point_read(key, seqno)
     }
 
-    fn point_read(&self, key: &[u8], seqno: Option<SeqNo>) -> crate::Result<Option<InternalValue>> {
-        use block_index::BlockIndex;
-        use value_block::{CachePolicy, ValueBlock};
-        use value_block_consumer::ValueBlockConsumer;
-
-        let Some(first_block_handle) = self
-            .block_index
-            .get_lowest_block_containing_key(key, CachePolicy::Write)?
-        else {
-            return Ok(None);
-        };
-
-        let Some(block) = ValueBlock::load_by_block_handle(
-            &self.descriptor_table,
-            &self.cache,
-            self.global_id(),
-            first_block_handle,
-            CachePolicy::Write,
-        )?
-        else {
-            return Ok(None);
-        };
-
-        if seqno.is_none() {
-            // NOTE: Fastpath for non-seqno reads (which are most common)
-            // This avoids setting up a rather expensive block iterator
-            // (see explanation for that below)
-            // This only really works because sequence numbers are sorted
-            // in descending order
-            return Ok(block.get_latest(key).cloned());
-        }
-
-        let mut reader = ForwardReader::new(
-            self.offsets.index_block_ptr,
-            &self.descriptor_table,
-            self.global_id(),
-            &self.cache,
-            first_block_handle,
-        );
-        reader.lo_block_size = block.header.data_length.into();
-        reader.lo_block_items = Some(ValueBlockConsumer::with_bounds(block, Some(key), None));
-        reader.lo_initialized = true;
-
-        // NOTE: For finding a specific seqno,
-        // we need to use a reader
-        // because nothing really prevents the version
-        // we are searching for to be in the next block
-        // after the one our key starts in, or the block after that
-        //
-        // Example (key:seqno), searching for a:2:
-        //
-        // [..., a:5, a:4] [a:3, a:2, b: 4, b:3]
-        // ^               ^
-        // Block A         Block B
-        //
-        // Based on get_lower_bound_block, "a" is in Block A
-        // However, we are searching for A with seqno 2, which
-        // unfortunately is in the next block
-        //
-        // Also because of weak tombstones, we may have to look further than the first item we encounter
-        let mut reader = reader.filter(|x| {
-            match x {
-                Ok(entry) => {
-                    // Check for seqno if needed
-                    if let Some(seqno) = seqno {
-                        entry.key.seqno < seqno
-                    } else {
-                        true
-                    }
-                }
-                Err(_) => true,
+    // TODO: maybe we can skip Fuse costs of the user key
+    // TODO: because we just want to return the value
+    // TODO: we would need to return something like ValueType + Value
+    // TODO: so the caller can decide whether to return the value or not
+    fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        // TODO: enum_dispatch BlockIndex::iter
+        let index_block = match &*self.block_index {
+            BlockIndexImpl::Full(index) => index.inner(),
+            BlockIndexImpl::VolatileFull => {
+                &IndexBlock::new(self.load_block(
+                    &self.regions.tli,
+                    BlockType::Index,
+                    self.metadata.data_block_compression, // TODO: maybe index compression
+                )?)
             }
-        });
+        };
 
-        let Some(entry) = reader.next().transpose()? else {
+        let iter = {
+            let mut iter = index_block.iter();
+
+            if iter.seek(key) {
+                Some(iter.map(|x| x.materialize(&index_block.inner.data)))
+            } else {
+                None
+            }
+        };
+
+        let Some(iter) = iter else {
             return Ok(None);
         };
 
-        // NOTE: We are past the searched key, so don't return anything
-        if &*entry.key.user_key > key {
-            return Ok(None);
+        for block_handle in iter {
+            // TODO: can this ever happen...?
+            if block_handle.end_key() < &key {
+                return Ok(None);
+            }
+
+            let block = self.load_data_block(block_handle.as_ref())?;
+
+            if let Some(item) = block.point_read(key, seqno) {
+                return Ok(Some(item));
+            }
+
+            // NOTE: If the last block key is higher than ours,
+            // our key cannot be in the next block
+            if block_handle.end_key() > &key {
+                return Ok(None);
+            }
         }
 
-        Ok(Some(entry))
+        Ok(None)
     }
 
-    #[must_use]
-    pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
-        self.metadata.key_range.contains_key(key)
+    /// Creates a scanner over the `Segment`.
+    ///
+    /// The scanner is ĺogically the same as a normal iter(),
+    /// however it uses its own file descriptor, does not look into the block cache
+    /// and uses buffered I/O.
+    ///
+    /// Used for compactions and thus not available to a user.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
+    pub fn scan(&self) -> crate::Result<Scanner> {
+        let block_count = self
+            .metadata
+            .data_block_count
+            .try_into()
+            .expect("data block count should fit");
+
+        Scanner::new(
+            &self.path,
+            block_count,
+            self.metadata.data_block_compression,
+        )
     }
 
     /// Creates an iterator over the `Segment`.
@@ -432,15 +296,8 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
-    pub fn iter(&self) -> Range {
-        self.range((std::ops::Bound::Unbounded, std::ops::Bound::Unbounded))
-    }
-
-    #[doc(hidden)]
-    pub fn scan<P: AsRef<Path>>(&self, base_folder: P) -> crate::Result<Scanner> {
-        let segment_file_path = base_folder.as_ref().join(self.metadata.id.to_string());
-        let block_count = self.metadata.data_block_count.try_into().expect("oops");
-        Scanner::new(&segment_file_path, block_count)
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+        self.range(..)
     }
 
     /// Creates a ranged iterator over the `Segment`.
@@ -449,15 +306,193 @@ impl Segment {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    pub(crate) fn range(&self, range: (Bound<UserKey>, Bound<UserKey>)) -> Range {
-        Range::new(
-            self.offsets.index_block_ptr,
-            self.descriptor_table.clone(),
+    #[allow(clippy::iter_without_into_iter)]
+    #[doc(hidden)]
+    pub fn range<R: RangeBounds<UserKey>>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+        use crate::fallible_clipping_iter::FallibleClippingIter;
+        use block_index::iter::create_index_block_reader;
+
+        // TODO: enum_dispatch BlockIndex::iter
+        let index_block = match &*self.block_index {
+            BlockIndexImpl::Full(idx) => idx.inner(),
+            BlockIndexImpl::VolatileFull => {
+                &IndexBlock::new(
+                    // TODO: handle error
+                    self.load_block(
+                        &self.regions.tli,
+                        BlockType::Index,
+                        self.metadata.data_block_compression, // TODO: maybe index compression
+                    )
+                    .expect("should load block"),
+                )
+            }
+        };
+
+        let index_iter = create_index_block_reader(index_block.clone());
+
+        let mut iter = Iter::new(
             self.global_id(),
+            self.path.clone(),
+            index_iter,
+            self.descriptor_table.clone(),
             self.cache.clone(),
-            self.block_index.clone(),
-            range,
-        )
+            self.metadata.data_block_compression,
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
+        );
+
+        match range.start_bound() {
+            Bound::Excluded(key) | Bound::Included(key) => {
+                iter.set_lower_bound(key.clone());
+            }
+            Bound::Unbounded => {}
+        }
+
+        match range.end_bound() {
+            Bound::Excluded(key) | Bound::Included(key) => {
+                iter.set_upper_bound(key.clone());
+            }
+            Bound::Unbounded => {}
+        }
+
+        FallibleClippingIter::new(iter, range)
+    }
+
+    /// Tries to recover a segment from a file.
+    pub fn recover(
+        file_path: PathBuf,
+        tree_id: TreeId,
+        cache: Arc<Cache>,
+        descriptor_table: Arc<DescriptorTable>,
+        pin_filter: bool,
+        pin_index: bool,
+        #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
+    ) -> crate::Result<Self> {
+        use block_index::FullBlockIndex;
+        use meta::ParsedMeta;
+        use regions::ParsedRegions;
+        use std::sync::atomic::AtomicBool;
+        use trailer::Trailer;
+
+        log::debug!("Recovering segment from file {}", file_path.display());
+        let mut file = std::fs::File::open(&file_path)?;
+
+        let trailer = Trailer::from_file(&mut file)?;
+        log::trace!("Got trailer: {trailer:#?}");
+
+        log::debug!(
+            "Reading regions block, with region_ptr={:?}",
+            trailer.regions_block_handle(),
+        );
+        let regions = ParsedRegions::load_with_handle(&file, trailer.regions_block_handle())?;
+
+        log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
+        let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
+
+        let block_index = if let Some(index_block_handle) = regions.index {
+            log::debug!(
+                "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
+                regions.tli,
+            );
+
+            unimplemented!("partitioned index is not supported yet");
+
+            // BlockIndexImpl::TwoLevel(tli_block, todo!())
+        } else if pin_index {
+            let tli_block = {
+                log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
+
+                let block = Block::from_file(
+                    &file,
+                    regions.tli,
+                    crate::segment::block::BlockType::Index,
+                    metadata.data_block_compression, // TODO: index blocks may get their own compression level
+                )?;
+
+                IndexBlock::new(block)
+            };
+
+            log::debug!(
+                "Creating pinned block index, with tli_ptr={:?}",
+                regions.tli,
+            );
+            BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
+        } else {
+            log::debug!("Creating volatile block index");
+            BlockIndexImpl::VolatileFull
+        };
+
+        // TODO: load FilterBlock
+        let pinned_filter_block = if pin_filter {
+            regions
+                .filter
+                .map(|filter_handle| {
+                    log::debug!(
+                        "Loading and pinning filter block, with filter_ptr={filter_handle:?}"
+                    );
+
+                    Block::from_file(
+                        &file,
+                        filter_handle,
+                        crate::segment::block::BlockType::Filter,
+                        crate::CompressionType::None, // NOTE: We never write a filter block with compression
+                    )
+                })
+                .transpose()?
+        } else {
+            None
+        };
+
+        // TODO: Maybe only in L0/L1
+        // For larger levels, this will
+        // cache possibly many FDs
+        // causing kick-out of other
+        // FDs in the cache
+        //
+        // NOTE: We already have a file descriptor open, so let's just cache it immediately
+        // descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
+
+        let segment = Self(Arc::new(Inner {
+            path: Arc::new(file_path),
+            tree_id,
+
+            metadata,
+            regions,
+
+            cache,
+
+            descriptor_table,
+
+            block_index: Arc::new(block_index),
+
+            pinned_filter_block,
+
+            is_deleted: AtomicBool::default(),
+
+            #[cfg(feature = "metrics")]
+            metrics,
+        }));
+
+        Ok(segment)
+    }
+
+    pub(crate) fn mark_as_deleted(&self) {
+        self.0
+            .is_deleted
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
+        self.metadata.key_range.contains_key(key)
+    }
+
+    /// Checks if a key range is (partially or fully) contained in this segment.
+    pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
+        self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
     /// Returns the highest sequence number in the segment.
@@ -477,14 +512,518 @@ impl Segment {
     #[must_use]
     #[doc(hidden)]
     pub fn tombstone_ratio(&self) -> f32 {
-        self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+        todo!()
+
+        //  self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use test_log::test;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_recover() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+            writer.write(crate::InternalValue::from_components(
+                b"abc",
+                b"asdasdasd",
+                3,
+                crate::ValueType::Value,
+            ))?;
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(1, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        SeqNo::MAX,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        SeqNo::MAX,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"____",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
+                )?
+            );
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"abc".into())),
+            );
+        }
+
+        Ok(())
     }
 
-    /// Checks if a key range is (partially or fully) contained in this segment.
-    pub(crate) fn check_key_range_overlap(
-        &self,
-        bounds: &(Bound<UserKey>, Bound<UserKey>),
-    ) -> bool {
-        self.metadata.key_range.overlaps_with_bounds(bounds)
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_scan() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(items, &*segment.scan()?.flatten().collect::<Vec<_>>());
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"xyz".into())),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_iter_simple() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(items, &*segment.iter().flatten().collect::<Vec<_>>());
+            assert_eq!(
+                items.iter().rev().cloned().collect::<Vec<_>>(),
+                &*segment.iter().rev().flatten().collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_simple() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                items.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items.iter().skip(1).rev().cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_ping_pong() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = (0u64..10)
+            .map(|i| {
+                InternalValue::from_components(i.to_be_bytes(), "", 0, crate::ValueType::Value)
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(10, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            let mut iter = segment
+                .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()));
+
+            let mut count = 0;
+
+            for x in 0.. {
+                if x % 2 == 0 {
+                    let Some(_) = iter.next() else {
+                        break;
+                    };
+
+                    count += 1;
+                } else {
+                    let Some(_) = iter.next_back() else {
+                        break;
+                    };
+
+                    count += 1;
+                }
+            }
+
+            assert_eq!(5, count);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_range_multiple_data_blocks() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"b", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"c", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"d", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"e", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_data_block_size(1);
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(5, segment.metadata.item_count);
+            assert_eq!(5, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(1)
+                    .take(3)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    // TODO: when using stats cfg feature: check filter hits += 1
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn v3_segment_unpinned_filter() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+            writer.write(crate::InternalValue::from_components(
+                b"abc",
+                b"asdasdasd",
+                3,
+                crate::ValueType::Value,
+            ))?;
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                false,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(1, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        SeqNo::MAX,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        SeqNo::MAX,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"abc".into())),
+            );
+        }
+
+        Ok(())
     }
 }

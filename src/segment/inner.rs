@@ -2,26 +2,33 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{block_index::BlockIndexImpl, file_offsets::FileOffsets, meta::Metadata};
-use crate::{cache::Cache, descriptor_table::FileDescriptorTable, tree::inner::TreeId};
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
+use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
+use crate::{
+    cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
+};
 use std::{
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
 };
 
 pub struct Inner {
-    pub path: PathBuf,
+    pub path: Arc<PathBuf>,
 
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable>,
 
-    /// Segment metadata object
+    /// Parsed metadata
     #[doc(hidden)]
-    pub metadata: Metadata,
+    pub metadata: ParsedMeta,
 
-    pub(crate) offsets: FileOffsets,
+    /// Parsed region block handles
+    #[doc(hidden)]
+    pub regions: ParsedRegions,
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
@@ -33,27 +40,31 @@ pub struct Inner {
     #[doc(hidden)]
     pub cache: Arc<Cache>,
 
-    /// Bloom filter
-    #[doc(hidden)]
-    pub bloom_filter: Option<crate::bloom::BloomFilter>,
+    /// Pinned AMQ filter
+    pub pinned_filter_block: Option<Block>,
 
+    // /// Pinned filter
+    // #[doc(hidden)]
+    // pub bloom_filter: Option<crate::bloom::BloomFilter>,
     pub is_deleted: AtomicBool,
+
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        let global_id = (self.tree_id, self.metadata.id).into();
+        let global_id: GlobalSegmentId = (self.tree_id, self.metadata.id).into();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
-            if let Err(e) = std::fs::remove_file(&self.path) {
+            log::trace!("Cleanup deleted segment {global_id:?} at {:?}", self.path);
+
+            if let Err(e) = std::fs::remove_file(&*self.path) {
                 log::warn!(
                     "Failed to cleanup deleted segment {global_id:?} at {:?}: {e:?}",
                     self.path,
                 );
             }
-
-            log::trace!("Closing file handles of deleted segment file {global_id:?}");
-            self.descriptor_table.remove(global_id);
         }
     }
 }

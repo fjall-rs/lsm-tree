@@ -3,8 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, tree::inner::MemtableId, AnyTree, BlobTree,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, Tree, UserKey, UserValue,
+    compaction::CompactionStrategy, config::TreeType, segment::Segment, tree::inner::MemtableId,
+    AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, Tree, UserKey,
+    UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -34,6 +35,15 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
 
+    // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
+
+    /// Drops segments that are fully contained in a given range.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()>;
+
     /// Performs major compaction, blocking the caller until it's done.
     ///
     /// # Errors
@@ -41,11 +51,15 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
-    /// Gets the memory usage of all bloom filters in the tree.
-    fn bloom_filter_size(&self) -> usize;
+    /// Gets the memory usage of all pinned bloom filters in the tree.
+    fn pinned_bloom_filter_size(&self) -> usize;
 
-    #[doc(hidden)]
-    fn verify(&self) -> crate::Result<usize>;
+    /// Gets the memory usage of all pinned index blocks in the tree.
+    fn pinned_block_index_size(&self) -> usize;
+
+    // TODO:?
+    /* #[doc(hidden)]
+    fn verify(&self) -> crate::Result<usize>; */
 
     /// Synchronously flushes a memtable to a disk segment.
     ///
@@ -67,7 +81,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()>;
+    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
     fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
@@ -116,7 +130,7 @@ pub trait AbstractTree {
     /// Returns the approximate size of the active memtable in bytes.
     ///
     /// May be used to flush the memtable if it grows too large.
-    fn active_memtable_size(&self) -> u32;
+    fn active_memtable_size(&self) -> u64;
 
     /// Returns the tree type.
     fn tree_type(&self) -> TreeType;
@@ -197,7 +211,7 @@ pub trait AbstractTree {
 
     /// Returns `true` if the tree is empty.
     ///
-    /// This operation has O(1) complexity.
+    /// This operation has O(log N) complexity.
     ///
     /// # Examples
     ///
@@ -548,7 +562,7 @@ pub trait AbstractTree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32);
+    ) -> (u64, u64);
 
     /// Removes an item from the tree.
     ///
@@ -577,7 +591,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 
     /// Removes an item from the tree.
     ///
@@ -611,5 +625,5 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32);
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 }

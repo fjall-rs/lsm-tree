@@ -3,7 +3,7 @@ use test_log::test;
 
 #[test]
 fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open()?;
 
@@ -34,7 +34,7 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open_as_blob_tree()?;
 
@@ -65,7 +65,7 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_shadowing_delete() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open().unwrap();
 
@@ -94,7 +94,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open_as_blob_tree().unwrap();
 
@@ -125,7 +125,7 @@ fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
 fn tree_shadowing_range() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open()?;
 
@@ -169,7 +169,7 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
 fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open_as_blob_tree()?;
 
@@ -213,7 +213,7 @@ fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
 fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open()?;
 
@@ -285,7 +285,7 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
 fn tree_shadowing_prefix_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder).open_as_blob_tree()?;
 

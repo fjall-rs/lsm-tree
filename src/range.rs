@@ -4,19 +4,21 @@
 
 use crate::{
     key::InternalKey,
-    level_manifest::{level::Level, LevelManifest},
-    level_reader::LevelReader,
+    level_manifest::LevelManifest,
     memtable::Memtable,
-    merge::{BoxedIterator, Merger},
-    multi_reader::MultiReader,
+    merge::Merger,
     mvcc_stream::MvccStream,
-    segment::value_block::CachePolicy,
+    run_reader::RunReader,
+    segment::CachePolicy,
     value::{SeqNo, UserKey},
-    InternalValue,
+    version::Version,
+    BoxedIterator, InternalValue,
 };
-use guardian::ArcRwLockReadGuardian;
 use self_cell::self_cell;
-use std::{ops::Bound, sync::Arc};
+use std::{
+    ops::{Bound, RangeBounds},
+    sync::Arc,
+};
 
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
@@ -56,16 +58,14 @@ pub struct IterState {
     pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 
-    // NOTE: Monkey patch to keep segments referenced until range read drops
-    // Otherwise segment files can get deleted too early
-    // (because once we create the range iterator, it does not hold onto segments normally)
-    // TODO: we need a Version system
+    // NOTE: Hold the version so segments cannot be unlinked
     #[allow(unused)]
-    pub(crate) levels: Vec<Arc<Level>>,
+    pub(crate) version: Version,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'a>;
 
+// TODO: maybe we can lifetime TreeIter and then use InternalKeyRef everywhere to bound lifetime of iterators (no need to construct InternalKey then, can just use range)
 self_cell!(
     pub struct TreeIter {
         owner: IterState,
@@ -89,11 +89,13 @@ impl DoubleEndedIterator for TreeIter {
     }
 }
 
-fn collect_disjoint_tree_with_range(
+/* fn collect_disjoint_tree_with_range<'a>(
     level_manifest: &LevelManifest,
     bounds: &(Bound<UserKey>, Bound<UserKey>),
-) -> MultiReader<LevelReader> {
-    debug_assert!(level_manifest.is_disjoint());
+) -> MultiReader<RunReader<'a>> {
+    todo!()
+
+    /* debug_assert!(level_manifest.is_disjoint());
 
     let mut levels = level_manifest
         .levels
@@ -132,35 +134,35 @@ fn collect_disjoint_tree_with_range(
         .filter_map(|lvl| LevelReader::new(lvl, bounds, CachePolicy::Write))
         .collect();
 
-    MultiReader::new(readers)
-}
+    MultiReader::new(readers) */
+} */
 
 impl TreeIter {
     #[must_use]
     #[allow(clippy::too_many_lines)]
-    pub fn create_range(
+    pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
-        bounds: (Bound<UserKey>, Bound<UserKey>),
+        range: R,
         seqno: Option<SeqNo>,
-        level_manifest: ArcRwLockReadGuardian<LevelManifest>,
+        level_manifest: &LevelManifest,
     ) -> Self {
         Self::new(guard, |lock| {
-            let lo = match &bounds.0 {
+            let lo = match range.start_bound() {
                 // NOTE: See memtable.rs for range explanation
                 Bound::Included(key) => Bound::Included(InternalKey::new(
-                    key.clone(),
+                    key.as_ref(),
                     SeqNo::MAX,
                     crate::value::ValueType::Tombstone,
                 )),
                 Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
-                    key.clone(),
+                    key.as_ref(),
                     0,
                     crate::value::ValueType::Tombstone,
                 )),
                 Bound::Unbounded => Bound::Unbounded,
             };
 
-            let hi = match &bounds.1 {
+            let hi = match range.end_bound() {
                 // NOTE: See memtable.rs for range explanation, this is the reverse case
                 // where we need to go all the way to the last seqno of an item
                 //
@@ -176,12 +178,12 @@ impl TreeIter {
                 // abcdef -> 5
                 //
                 Bound::Included(key) => Bound::Included(InternalKey::new(
-                    key.clone(),
+                    key.as_ref(),
                     0,
                     crate::value::ValueType::Value,
                 )),
                 Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
-                    key.clone(),
+                    key.as_ref(),
                     SeqNo::MAX,
                     crate::value::ValueType::Value,
                 )),
@@ -192,7 +194,7 @@ impl TreeIter {
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
-            // NOTE: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
+            /* // TODO: Optimize disjoint trees (e.g. timeseries) to only use a single MultiReader.
             if level_manifest.is_disjoint() {
                 let reader = collect_disjoint_tree_with_range(&level_manifest, &bounds);
 
@@ -204,46 +206,98 @@ impl TreeIter {
                 } else {
                     iters.push(Box::new(reader));
                 }
-            } else {
-                for level in &level_manifest.levels {
-                    if level.is_disjoint {
-                        if !level.is_empty() {
-                            if let Some(reader) =
-                                LevelReader::new(level.clone(), &bounds, CachePolicy::Write)
-                            {
-                                if let Some(seqno) = seqno {
-                                    iters.push(Box::new(reader.filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                        Err(_) => true,
-                                    })));
-                                } else {
-                                    iters.push(Box::new(reader));
-                                }
+            } else { */
+
+            // };
+
+            #[allow(clippy::needless_continue)]
+            for run in level_manifest
+                .current_version()
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+            {
+                match run.len() {
+                    0 => continue,
+                    1 => {
+                        // NOTE: We checked for length
+                        #[allow(clippy::expect_used)]
+                        let segment = run.first().expect("should exist");
+
+                        if segment.check_key_range_overlap(&(
+                            range.start_bound().map(|x| &*x.user_key),
+                            range.end_bound().map(|x| &*x.user_key),
+                        )) {
+                            let reader = segment.range((
+                                range.start_bound().map(|x| &x.user_key).cloned(),
+                                range.end_bound().map(|x| &x.user_key).cloned(),
+                            ));
+
+                            if let Some(seqno) = seqno {
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            } else {
+                                iters.push(Box::new(reader));
                             }
                         }
-                    } else {
-                        for segment in &level.segments {
-                            if segment.check_key_range_overlap(&bounds) {
-                                let reader = segment.range(bounds.clone());
-
-                                if let Some(seqno) = seqno {
-                                    iters.push(Box::new(reader.filter(move |item| match item {
-                                        Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                        Err(_) => true,
-                                    })));
-                                } else {
-                                    iters.push(Box::new(reader));
-                                }
+                    }
+                    _ => {
+                        if let Some(reader) = RunReader::new(
+                            run.clone(),
+                            (
+                                range.start_bound().map(|x| &x.user_key).cloned(),
+                                range.end_bound().map(|x| &x.user_key).cloned(),
+                            ),
+                            CachePolicy::Write,
+                        ) {
+                            if let Some(seqno) = seqno {
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            } else {
+                                iters.push(Box::new(reader));
                             }
                         }
                     }
                 }
-            };
 
-            drop(level_manifest);
+                /* if level.is_disjoint {
+                    if !level.is_empty() {
+                        if let Some(reader) =
+                            LevelReader::new(level.clone(), &bounds, CachePolicy::Write)
+                        {
+                            if let Some(seqno) = seqno {
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            } else {
+                                iters.push(Box::new(reader));
+                            }
+                        }
+                    }
+                } else {
+                    for segment in &level.segments {
+                        if segment.check_key_range_overlap(&bounds) {
+                            let reader = segment.range(bounds.clone());
+
+                            if let Some(seqno) = seqno {
+                                iters.push(Box::new(reader.filter(move |item| match item {
+                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                    Err(_) => true,
+                                })));
+                            } else {
+                                iters.push(Box::new(reader));
+                            }
+                        }
+                    }
+                } */
+            }
 
             // Sealed memtables
-            for memtable in lock.sealed.iter() {
+            for memtable in &lock.sealed {
                 let iter = memtable.range(range.clone());
 
                 if let Some(seqno) = seqno {
@@ -302,13 +356,8 @@ mod tests {
                     _ if prefix.is_empty() => Unbounded,
                     _ => Included(Slice::from(prefix)),
                 },
-                // TODO: Bound::map 1.77
-                match upper_bound {
-                    Unbounded => Unbounded,
-                    Included(x) => Included(Slice::from(x)),
-                    Excluded(x) => Excluded(Slice::from(x)),
-                }
-            )
+                upper_bound.map(Slice::from),
+            ),
         );
     }
 

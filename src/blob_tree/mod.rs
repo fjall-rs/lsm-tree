@@ -13,9 +13,10 @@ use crate::{
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
     r#abstract::{AbstractTree, RangeItem},
+    segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, Segment, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
 };
 use cache::MyBlobCache;
 use compression::MyCompressor;
@@ -59,8 +60,6 @@ fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeI
 /// This tree is a composite structure, consisting of an
 /// index tree (LSM-tree) and a log-structured value log
 /// to reduce write amplification.
-///
-/// See <https://docs.rs/value-log> for more information.
 #[derive(Clone)]
 pub struct BlobTree {
     /// Index tree that holds value handles or small inline values
@@ -87,7 +86,7 @@ impl BlobTree {
                 .compression(match config.blob_compression {
                     crate::CompressionType::None => None,
 
-                    #[cfg(any(feature = "lz4", feature = "miniz"))]
+                    #[cfg(feature = "lz4")]
                     c => Some(MyCompressor(c)),
                 });
 
@@ -108,7 +107,7 @@ impl BlobTree {
         seqno: SeqNo,
         gc_watermark: SeqNo,
     ) -> crate::Result<crate::gc::Report> {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+        use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};
 
         while self
@@ -143,8 +142,7 @@ impl BlobTree {
             .blobs
             .scan_for_stats(iter.filter_map(|kv| {
                 let Ok(kv) = kv else {
-                    return Some(Err(IoError::new(
-                        IoErrorKind::Other,
+                    return Some(Err(IoError::other(
                         "Failed to load KV pair from index tree",
                     )));
                 };
@@ -152,7 +150,7 @@ impl BlobTree {
                 let mut cursor = Cursor::new(kv.value);
                 let value = match MaybeInlineValue::decode_from(&mut cursor) {
                     Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::new(IoErrorKind::Other, e.to_string()))),
+                    Err(e) => return Some(Err(IoError::other(e.to_string()))),
                 };
 
                 match value {
@@ -230,13 +228,17 @@ impl BlobTree {
         else {
             return Ok(None);
         };
-        self.register_segments(&[segment.clone()])?;
+        self.register_segments(std::slice::from_ref(&segment), eviction_seqno)?;
 
         Ok(Some(segment))
     }
 }
 
 impl AbstractTree for BlobTree {
+    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
+        self.index.drop_range(key_range)
+    }
+
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
@@ -322,6 +324,8 @@ impl AbstractTree for BlobTree {
         let vhandle = self.index.get_vhandle(key.as_ref(), seqno)?;
 
         Ok(vhandle.map(|x| match x {
+            // NOTE: Values are u32 length max
+            #[allow(clippy::cast_possible_truncation)]
             MaybeInlineValue::Inline(v) => v.len() as u32,
 
             // NOTE: We skip reading from the value log
@@ -330,20 +334,24 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    fn bloom_filter_size(&self) -> usize {
-        self.index.bloom_filter_size()
+    fn pinned_bloom_filter_size(&self) -> usize {
+        self.index.pinned_bloom_filter_size()
+    }
+
+    fn pinned_block_index_size(&self) -> usize {
+        self.index.pinned_block_index_size()
     }
 
     fn sealed_memtable_count(&self) -> usize {
         self.index.sealed_memtable_count()
     }
 
-    #[doc(hidden)]
+    /*  #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize> {
         let index_tree_sum = self.index.verify()?;
         let vlog_sum = self.blobs.verify()?;
         Ok(index_tree_sum + vlog_sum)
-    }
+    } */
 
     fn keys(
         &self,
@@ -369,27 +377,32 @@ impl AbstractTree for BlobTree {
     ) -> crate::Result<Option<Segment>> {
         use crate::{
             file::SEGMENTS_FOLDER,
-            segment::writer::{Options, Writer as SegmentWriter},
+            //segment::writer::{Options, Writer as SegmentWriter},
+            segment::Writer as SegmentWriter,
         };
         use value::MaybeInlineValue;
 
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM segments in {:?}", lsm_segment_folder);
+        log::debug!("=> to LSM segments in {lsm_segment_folder:?}");
         log::debug!("=> to blob segment at {:?}", self.blobs.path);
 
-        let mut segment_writer = SegmentWriter::new(Options {
+        let mut segment_writer = SegmentWriter::new(
+            lsm_segment_folder.join(segment_id.to_string()),
             segment_id,
-            data_block_size: self.index.config.data_block_size,
-            index_block_size: self.index.config.index_block_size,
-            folder: lsm_segment_folder,
-        })?
+            /* Options {
+                segment_id,
+                data_block_size: self.index.config.data_block_size,
+                index_block_size: self.index.config.index_block_size,
+                folder: lsm_segment_folder,
+            } */
+        )?
         .use_compression(self.index.config.compression);
 
-        segment_writer = segment_writer.use_bloom_policy(
+        /* segment_writer = segment_writer.use_bloom_policy(
             crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
-        );
+        ); */
 
         let mut blob_writer = self.blobs.get_writer()?;
 
@@ -459,7 +472,7 @@ impl AbstractTree for BlobTree {
         self.blobs.register_writer(blob_writer)?;
 
         log::trace!("Creating LSM-tree segment {segment_id}");
-        let segment = self.index.consume_writer(segment_id, segment_writer)?;
+        let segment = self.index.consume_writer(segment_writer)?;
 
         // TODO: this can probably solved in a nicer way
         if segment.is_some() {
@@ -472,8 +485,8 @@ impl AbstractTree for BlobTree {
         Ok(segment)
     }
 
-    fn register_segments(&self, segments: &[Segment]) -> crate::Result<()> {
-        self.index.register_segments(segments)?;
+    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()> {
+        self.index.register_segments(segments, seqno_threshold)?;
 
         let count = self
             .pending_segments
@@ -522,7 +535,7 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_seqno()
     }
 
-    fn active_memtable_size(&self) -> u32 {
+    fn active_memtable_size(&self) -> u64 {
         self.index.active_memtable_size()
     }
 
@@ -611,7 +624,7 @@ impl AbstractTree for BlobTree {
         key: K,
         value: V,
         seqno: SeqNo,
-    ) -> (u32, u32) {
+    ) -> (u64, u64) {
         use value::MaybeInlineValue;
 
         // NOTE: Initially, we always write an inline value
@@ -651,11 +664,11 @@ impl AbstractTree for BlobTree {
         }
     }
 
-    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove(key, seqno)
     }
 
-    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u32, u32) {
+    fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
 }

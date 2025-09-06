@@ -2,13 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    cache::Cache,
-    descriptor_table::FileDescriptorTable,
-    path::absolute_path,
-    segment::meta::{CompressionType, TableType},
-    BlobTree, Tree,
-};
+use crate::{path::absolute_path, BlobTree, Cache, CompressionType, DescriptorTable, Tree};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -64,9 +58,11 @@ pub struct Config {
     /// What type of compression is used for blobs
     pub blob_compression: CompressionType,
 
-    /// Table type (unused)
-    #[allow(unused)]
-    pub(crate) table_type: TableType,
+    /// Restart interval inside data blocks
+    pub data_block_restart_interval: u8,
+
+    /// Hash bytes per key in data blocks
+    pub data_block_hash_ratio: f32,
 
     /// Block size of data blocks
     pub data_block_size: u32,
@@ -97,22 +93,25 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<FileDescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(FileDescriptorTable::new(128, 2)),
+            descriptor_table: Arc::new(DescriptorTable::new(256)),
 
             cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+
+            data_block_restart_interval: 16,
+            data_block_hash_ratio: 0.0,
 
             data_block_size: /* 4 KiB */ 4_096,
             index_block_size: /* 4 KiB */ 4_096,
             level_count: 7,
             tree_type: TreeType::Standard,
-            table_type: TableType::Block,
+            // table_type: TableType::Block,
             compression: CompressionType::None,
             blob_compression: CompressionType::None,
             bloom_bits_per_key: 10,
@@ -130,6 +129,34 @@ impl Config {
             path: absolute_path(path.as_ref()),
             ..Default::default()
         }
+    }
+
+    /// Sets the restart interval inside data blocks.
+    ///
+    /// A higher restart interval saves space while increasing lookup times
+    /// inside data blocks.
+    ///
+    /// Default = 16
+    #[must_use]
+    pub fn data_block_restart_interval(mut self, i: u8) -> Self {
+        self.data_block_restart_interval = i;
+        self
+    }
+
+    /// Sets the hash ratio for the hash index in data blocks.
+    ///
+    /// The hash index speeds up point queries by using an embedded
+    /// hash map in data blocks, but uses more space/memory.
+    ///
+    /// Something along the lines of 1.0 - 2.0 is sensible.
+    ///
+    /// If 0, the hash index is not constructed.
+    ///
+    /// Default = 0.0
+    #[must_use]
+    pub fn data_block_hash_ratio(mut self, ratio: f32) -> Self {
+        self.data_block_hash_ratio = ratio;
+        self
     }
 
     /// Sets the bits per key to use for bloom filters
@@ -280,7 +307,7 @@ impl Config {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn descriptor_table(mut self, descriptor_table: Arc<FileDescriptorTable>) -> Self {
+    pub fn descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

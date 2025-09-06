@@ -1,5 +1,4 @@
-use crate::segment::meta::SegmentId;
-use crate::HashSet;
+use crate::SegmentId;
 
 /// The hidden set keeps track of which segments are currently being compacted
 ///
@@ -7,17 +6,9 @@ use crate::HashSet;
 /// segment, or it will be declined to be run.
 ///
 /// If a compaction task fails, the segments are shown again (removed from the hidden set).
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct HiddenSet {
-    pub(crate) set: HashSet<SegmentId>,
-}
-
-impl Default for HiddenSet {
-    fn default() -> Self {
-        Self {
-            set: HashSet::with_capacity_and_hasher(10, xxhash_rust::xxh3::Xxh3Builder::new()),
-        }
-    }
+    pub(crate) set: crate::HashSet<SegmentId>,
 }
 
 impl HiddenSet {

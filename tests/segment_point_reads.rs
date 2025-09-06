@@ -5,7 +5,7 @@ const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn segment_point_reads() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -29,7 +29,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -47,7 +47,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
 
-        let item = tree.get_internal_entry(&key, None)?.unwrap();
+        let item = tree.get_internal_entry(&key, SeqNo::MAX)?.unwrap();
         assert_eq!(item.key.seqno, 2);
         assert_eq!(&*item.value, b"2");
 
@@ -69,7 +69,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 
 #[test]
 fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -89,7 +89,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in &keys {
-        let item = tree.get_internal_entry(key, None)?.unwrap();
+        let item = tree.get_internal_entry(key, SeqNo::MAX)?.unwrap();
         assert_eq!(item.key.seqno, ITEM_COUNT as u64 - 1);
     }
 
@@ -113,7 +113,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)

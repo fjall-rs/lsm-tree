@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{DecodeError, EncodeError},
-    version::Version,
+    format_version::FormatVersion,
     Checksum, CompressionType,
 };
 
@@ -25,7 +25,7 @@ pub enum Error {
     Decompress(CompressionType),
 
     /// Invalid or unparsable data format version
-    InvalidVersion(Version),
+    InvalidVersion(FormatVersion),
 
     /// Some required segments could not be recovered from disk
     Unrecoverable,

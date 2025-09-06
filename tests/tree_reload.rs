@@ -1,8 +1,31 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, TreeType};
-use std::fs::File;
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
+
+#[test]
+fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    {
+        let tree = Config::new(&folder).open()?;
+        assert_eq!(0, tree.segment_count());
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(1, tree.segment_count());
+        assert!(tree.contains_key("a", None)?);
+    }
+
+    {
+        let tree = Config::new(&folder).open()?;
+        assert_eq!(1, tree.segment_count());
+        assert!(tree.contains_key("a", None)?);
+    }
+
+    Ok(())
+}
 
 #[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {

@@ -90,7 +90,7 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
-#![deny(unsafe_code)]
+#![warn(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
@@ -99,10 +99,10 @@
 #![allow(clippy::missing_const_for_fn)]
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
-#![warn(clippy::needless_lifetimes)]
+#![warn(clippy::redundant_feature_names)]
 
-pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
-pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
+pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
+pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 
 #[allow(unused)]
 macro_rules! set {
@@ -115,7 +115,7 @@ macro_rules! fail_iter {
     ($e:expr) => {
         match $e {
             Ok(v) => v,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Some(Err(e.into())),
         }
     };
 }
@@ -130,36 +130,43 @@ pub mod binary_search;
 #[doc(hidden)]
 pub mod blob_tree;
 
-mod cache;
-
-#[doc(hidden)]
-pub mod bloom;
-
+mod clipping_iter;
 pub mod compaction;
+mod compression;
 mod config;
-
-#[doc(hidden)]
-pub mod descriptor_table;
+mod double_ended_peekable;
 
 mod error;
-// mod export;
+
+pub(crate) mod fallible_clipping_iter;
 
 #[doc(hidden)]
 pub mod file;
+
+mod hash;
 
 mod key;
 
 #[doc(hidden)]
 pub mod level_manifest;
 
-mod level_reader;
-mod level_scanner;
+mod run_reader;
+mod run_scanner;
 
 mod manifest;
 mod memtable;
 
 #[doc(hidden)]
+mod cache;
+
+#[doc(hidden)]
+mod descriptor_table;
+
+#[doc(hidden)]
 pub mod merge;
+
+#[cfg(feature = "metrics")]
+pub(crate) mod metrics;
 
 mod multi_reader;
 
@@ -171,20 +178,21 @@ mod path;
 #[doc(hidden)]
 pub mod range;
 
-#[doc(hidden)]
-pub mod segment;
-
 mod seqno;
+mod slice_windows;
 mod snapshot;
-mod windows;
 
 #[doc(hidden)]
 pub mod stop_signal;
 
+mod format_version;
 mod time;
 mod tree;
 mod value;
 mod version;
+
+#[doc(hidden)]
+pub mod segment;
 
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
@@ -200,7 +208,7 @@ pub mod coding {
 #[doc(hidden)]
 pub use {
     merge::BoxedIterator,
-    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
+    segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},
     tree::inner::TreeId,
     value::InternalValue,
 };
@@ -208,16 +216,17 @@ pub use {
 pub use {
     cache::Cache,
     coding::{DecodeError, EncodeError},
+    compression::CompressionType,
     config::{Config, TreeType},
+    descriptor_table::DescriptorTable,
     error::{Error, Result},
+    format_version::FormatVersion,
     memtable::Memtable,
     r#abstract::AbstractTree,
-    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
     snapshot::Snapshot,
     tree::Tree,
     value::{SeqNo, UserKey, UserValue, ValueType},
-    version::Version,
 };
 
 pub use any_tree::AnyTree;
@@ -232,3 +241,13 @@ pub mod gc {
         GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
     };
 }
+
+macro_rules! unwrap {
+    ($x:expr) => {
+        $x.expect("should read")
+
+        // unsafe { $x.unwrap_unchecked() }
+    };
+}
+
+pub(crate) use unwrap;
