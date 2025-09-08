@@ -53,7 +53,7 @@ impl<const BUFFER_SIZE: usize> Arenas<BUFFER_SIZE> {
                 }
             }
 
-            let mut buffers = self.arenas.lock().unwrap();
+            let mut buffers = self.arenas.lock().expect("lock is poisoned");
             let buffer = buffers.last().unwrap_or(&std::ptr::null_mut());
             if *buffer != buffer_tail {
                 // Lost the race with somebody else.
@@ -84,7 +84,8 @@ impl<const N: usize> Default for Buffer<N> {
 
 impl<const N: usize> Drop for Arenas<N> {
     fn drop(&mut self) {
-        let mut buffers = self.arenas.lock().unwrap();
+        let mut buffers = self.arenas.lock().expect("lock is poisoned");
+
         for buffer in buffers.drain(..) {
             drop(unsafe { Box::from_raw(buffer) });
         }
@@ -93,6 +94,7 @@ impl<const N: usize> Drop for Arenas<N> {
 
 fn try_alloc<const N: usize>(buf: *mut Buffer<N>, layout: Layout) -> Option<*mut u8> {
     let mut cur_offset = unsafe { &(*buf).offset }.load(Ordering::Relaxed);
+
     loop {
         let buf_start = unsafe { buf.byte_add(offset_of!(Buffer<N>, data)) as *mut u8 };
         let free_start = unsafe { buf_start.byte_add(cur_offset) };
