@@ -15,7 +15,7 @@ use quickcheck::{Arbitrary, Gen};
 use rand::{rng, RngCore};
 
 #[test]
-fn test_basic() {
+fn skip_map_basic() {
     let v = SkipMap::<usize, usize>::new(rng().next_u32());
     assert_eq!(v.insert(1, 1), Ok(()));
     assert_eq!(v.len(), 1);
@@ -32,7 +32,7 @@ fn test_basic() {
 
 #[test]
 #[allow(clippy::unwrap_used)]
-fn test_basic_strings() {
+fn skip_map_basic_strings() {
     let v = SkipMap::<String, usize>::new(rng().next_u32());
     let mut foo = String::new();
     foo.write_str("foo").unwrap();
@@ -107,6 +107,7 @@ where
     let outcomes = std::thread::scope(|scope| {
         let (mut ops, mut threads_to_launch) = (operations.ops.as_slice(), operations.threads);
         let mut thread_outcomes = Vec::new();
+
         while threads_to_launch > 0 {
             let items = ops.len() / threads_to_launch;
             let (subslice, remaining) = ops.split_at(items);
@@ -114,6 +115,7 @@ where
             threads_to_launch -= 1;
             let skipmap = &skipmap;
             let barrier = &barrier;
+
             let spawned = scope.spawn(move || {
                 barrier.wait();
                 let mut outcomes = Vec::new();
@@ -241,6 +243,7 @@ where
                     rb
                 );
             }
+
             {
                 let ra = a
                     .range(bounds.clone())

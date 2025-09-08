@@ -4,6 +4,8 @@
 
 #![allow(unsafe_code)]
 
+use equivalent::Comparable;
+
 use super::arena::Arenas;
 use std::{
     alloc::Layout,
@@ -161,14 +163,14 @@ where
     /// Returns a ranged iterator over the `SkipMap`.
     pub fn range<Q, R>(&self, range: R) -> Range<'_, K, V, Q, R>
     where
-        K: Borrow<Q>,
+        K: Comparable<Q>,
         R: RangeBounds<Q>,
-        Q: Ord + ?Sized,
+        Q: ?Sized,
     {
         Range {
             map: self,
             range,
-            exhaused: false,
+            exhausted: false,
             next: None,
             next_back: None,
             called: 0,
@@ -194,8 +196,8 @@ where
     // Search for the node that comes before the bound in the SkipMap.
     fn find_from_node<Q>(&self, bounds: Bound<&Q>) -> NodePtr<K, V>
     where
-        K: Borrow<Q>,
-        Q: Ord + ?Sized,
+        K: Comparable<Q>,
+        Q: Comparable<K> + Ord + ?Sized,
     {
         match bounds {
             std::ops::Bound::Included(v) => match self.seek_for_base_splice(v) {
@@ -217,8 +219,8 @@ where
     // Search for the node that comes after the bound in the SkipMap.
     fn find_to_node<Q>(&self, bounds: Bound<&Q>) -> NodePtr<K, V>
     where
-        K: Borrow<Q>,
-        Q: Ord + ?Sized,
+        K: Comparable<Q>,
+        Q: Comparable<K> + Ord + ?Sized,
     {
         match bounds {
             std::ops::Bound::Included(v) => match self.seek_for_base_splice(v) {
@@ -293,7 +295,8 @@ where
         start: NodePtr<K, V>,
     ) -> SpliceOrMatch<K, V>
     where
-        K: Borrow<Q>,
+        K: Comparable<Q>,
+        Q: Comparable<K>,
         Q: Ord + ?Sized,
     {
         let mut prev = start;
@@ -306,7 +309,7 @@ where
                 // We know that next must be tail.
                 return Splice { prev, next }.into();
             };
-            match key.cmp(next.key()) {
+            match key.compare(next.key()) {
                 std::cmp::Ordering::Less => return Splice { next, prev }.into(),
                 std::cmp::Ordering::Equal => return SpliceOrMatch::Match(next),
                 std::cmp::Ordering::Greater => {
@@ -340,8 +343,8 @@ where
 
     fn seek_for_base_splice<Q>(&self, key: &Q) -> SpliceOrMatch<K, V>
     where
-        K: Borrow<Q>,
-        Q: Ord + ?Sized,
+        K: Comparable<Q>,
+        Q: Comparable<K> + Ord + ?Sized,
     {
         let mut level = self.height() - 1;
         let mut prev = self.head.load();
@@ -501,14 +504,19 @@ impl<K, V> NodePtr<K, V> {
         unsafe { &(**ptr).tower[level] }
     }
 
-    fn key<Q>(&self) -> &Q
-    where
-        K: Borrow<Q>,
-        Q: Ord + ?Sized,
-    {
+    fn key(&self) -> &K {
         let Self(ptr) = self;
-        unsafe { &(**ptr) }.data.key.borrow()
+        &unsafe { &(**ptr) }.data.key
     }
+
+    // fn key<Q>(&self) -> &Q
+    // where
+    //     K: Comparable<Q>,
+    //     Q: ?Sized,
+    // {
+    //     let Self(ptr) = self;
+    //     unsafe { &(**ptr) }.data.key.borrow()
+    // }
 }
 
 #[repr(transparent)]
@@ -620,7 +628,7 @@ impl<'map, K, V> DoubleEndedIterator for Iter<'map, K, V> {
 pub struct Range<'m, K, V, Q: ?Sized, R> {
     map: &'m SkipMap<K, V>,
     range: R,
-    exhaused: bool,
+    exhausted: bool,
     next: Option<NodePtr<K, V>>,
     next_back: Option<NodePtr<K, V>>,
     called: usize,
@@ -642,18 +650,18 @@ impl<'m, K, V> Entry<'m, K, V> {
 
     pub fn key(&self) -> &'m K {
         // Transmute because we're lying about the lifetime.
-        unsafe { core::mem::transmute(&(*self.node.0).data.key) }
+        unsafe { core::mem::transmute(&(&*self.node.0).data.key) }
     }
 
     pub fn value(&self) -> &'m V {
         // Transmute because we're lying about the lifetime.
-        unsafe { core::mem::transmute(&(*self.node.0).data.value) }
+        unsafe { core::mem::transmute(&(&*self.node.0).data.value) }
     }
 }
 
 impl<'m, K, V, Q: ?Sized, R> Range<'m, K, V, Q, R> {
     fn exhaust(&mut self) {
-        self.exhaused = true;
+        self.exhausted = true;
         self.next = None;
         self.next_back = None;
     }
@@ -661,15 +669,15 @@ impl<'m, K, V, Q: ?Sized, R> Range<'m, K, V, Q, R> {
 
 impl<'m, K, V, Q, R> Iterator for Range<'m, K, V, Q, R>
 where
-    K: Borrow<Q> + Ord,
+    K: Ord + Comparable<Q>,
     R: RangeBounds<Q>,
-    Q: Ord + ?Sized,
+    Q: Comparable<K> + Ord + ?Sized,
 {
     type Item = Entry<'m, K, V>;
 
     #[allow(unsafe_code)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.exhaused {
+        if self.exhausted {
             return None;
         }
 
@@ -696,8 +704,8 @@ where
 
         // If we're not at the tail, then the key is valid.
         if match self.range.end_bound() {
-            Bound::Included(bound) => next.key() > bound,
-            Bound::Excluded(bound) => next.key() >= bound,
+            Bound::Included(bound) => next.key().compare(bound).is_gt(),
+            Bound::Excluded(bound) => next.key().compare(bound).is_ge(),
             Bound::Unbounded => false,
         } {
             self.exhaust();
@@ -717,12 +725,12 @@ where
 
 impl<'m, K, V, Q, R> DoubleEndedIterator for Range<'m, K, V, Q, R>
 where
-    K: Borrow<Q> + Ord,
+    K: Ord + Comparable<Q>,
     R: RangeBounds<Q>,
-    Q: Ord + ?Sized,
+    Q: Comparable<K> + Ord + ?Sized,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.exhaused {
+        if self.exhausted {
             return None;
         }
 
@@ -745,8 +753,8 @@ where
         };
 
         if match self.range.start_bound() {
-            Bound::Included(bound) => next_back.key() < bound,
-            Bound::Excluded(bound) => next_back.key() <= bound,
+            Bound::Included(bound) => next_back.key().compare(bound).is_lt(),
+            Bound::Excluded(bound) => next_back.key().compare(bound).is_le(),
             Bound::Unbounded => false,
         } {
             self.exhaust();
