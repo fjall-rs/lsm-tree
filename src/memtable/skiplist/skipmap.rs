@@ -85,6 +85,8 @@ where
             return Err((k, v));
         };
         let (node, height) = self.new_node(k, v);
+
+        #[warn(clippy::needless_range_loop)]
         for level in 0..height {
             let mut splice = match splices[level].clone() {
                 Some(splice) => splice,
@@ -117,6 +119,7 @@ where
                 //      to add the prev link (but will shortly).
                 //   2. Another thread has added a new node between prev and next.
                 let next_prev = next.load_prev(level).unwrap();
+
                 if next_prev != prev {
                     // Determine whether #1 or #2 is true by checking whether prev
                     // is still pointing to next. As long as the atomic operations
@@ -135,7 +138,7 @@ where
                     break;
                 }
 
-                splice = match self.find_splice_for_level(node.key(), level, prev) {
+                splice = match Self::find_splice_for_level(node.key(), level, prev) {
                     SpliceOrMatch::Splice(splice) => splice,
                     SpliceOrMatch::Match(_non_null) => {
                         if level == 0 {
@@ -158,7 +161,9 @@ where
                 }
             }
         }
+
         self.len.fetch_add(1, Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -292,16 +297,10 @@ where
     // Finds the splice between which this key should be placed in the SkipMap,
     // or the Node with the matching key if one exists.
     #[warn(clippy::unwrap_used)]
-    fn find_splice_for_level<Q>(
-        &self,
-        key: &Q,
-        level: usize,
-        start: NodePtr<K, V>,
-    ) -> SpliceOrMatch<K, V>
+    fn find_splice_for_level<Q>(key: &Q, level: usize, start: NodePtr<K, V>) -> SpliceOrMatch<K, V>
     where
         K: Comparable<Q>,
-        Q: Comparable<K>,
-        Q: Ord + ?Sized,
+        Q: Comparable<K> + Ord + ?Sized,
     {
         let mut prev = start;
         // We can unwrap here because we know that start must be before
@@ -314,6 +313,7 @@ where
                 // We know that next must be tail.
                 return Splice { prev, next }.into();
             };
+
             match key.compare(next.key()) {
                 std::cmp::Ordering::Less => return Splice { next, prev }.into(),
                 std::cmp::Ordering::Equal => return SpliceOrMatch::Match(next),
@@ -327,21 +327,25 @@ where
 
     // Returns the set of splices for all the levels where a key should be
     // inserted. If the key already exists in the SkipMap, None is returned.
+    #[warn(clippy::indexing_slicing)]
     fn seek_splices(&self, key: &K) -> Option<Splices<K, V>> {
         let mut splices = Splices::default();
         let mut level = self.height() - 1;
         let mut prev = self.head.load();
+
         loop {
-            match self.find_splice_for_level(key.borrow(), level, prev) {
+            match Self::find_splice_for_level(key.borrow(), level, prev) {
                 SpliceOrMatch::Splice(splice) => {
                     prev = splice.prev;
                     splices[level] = Some(splice)
                 }
                 SpliceOrMatch::Match(_match) => break None,
             }
+
             if level == 0 {
                 break Some(splices);
             }
+
             level -= 1;
         }
     }
@@ -353,8 +357,9 @@ where
     {
         let mut level = self.height() - 1;
         let mut prev = self.head.load();
+
         loop {
-            match self.find_splice_for_level(key, level, prev) {
+            match Self::find_splice_for_level(key, level, prev) {
                 n @ SpliceOrMatch::Match(_) => return n,
                 s @ SpliceOrMatch::Splice(_) if level == 0 => return s,
                 SpliceOrMatch::Splice(s) => {
@@ -786,6 +791,7 @@ where
     #[allow(clippy::needless_pass_by_ref_mut)]
     pub(crate) fn check_integrity(&mut self) {
         use std::collections::HashSet;
+
         // We want to check that there are no cycles, that the forward and backwards
         // directions have the same chains at all levels, and that the values are
         // ordered.
@@ -793,11 +799,13 @@ where
             let mut cur = Some(self.head.load());
             let mut head_forward_nodes = HashSet::new();
             let mut head_nodes = Vec::new();
+
             while let Some(node) = cur {
                 head_nodes.push(node);
                 assert!(head_forward_nodes.insert(node), "head");
                 cur = node.load_next(0);
             }
+
             head_nodes
         };
 
@@ -805,11 +813,13 @@ where
             let mut cur = Some(self.tail.load());
             let mut tail_backward_nodes = HashSet::new();
             let mut tail_nodes = Vec::new();
+
             while let Some(node) = cur {
                 tail_nodes.push(node);
                 assert!(tail_backward_nodes.insert(node), "tail");
                 cur = node.load_prev(0);
             }
+
             tail_nodes
         };
 
