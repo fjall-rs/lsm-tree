@@ -88,6 +88,7 @@ where
 
         #[warn(clippy::needless_range_loop)]
         for level in 0..height {
+            #[warn(clippy::indexing_slicing)]
             let mut splice = match splices[level].clone() {
                 Some(splice) => splice,
                 // This node increased the height.
@@ -225,6 +226,7 @@ where
     }
 
     // Search for the node that comes after the bound in the SkipMap.
+    #[warn(clippy::unwrap_used)]
     fn find_to_node<Q>(&self, bounds: Bound<&Q>) -> NodePtr<K, V>
     where
         K: Comparable<Q>,
@@ -403,6 +405,8 @@ static PROBABILITIES: LazyLock<[u32; MAX_HEIGHT - 1]> = LazyLock::new(|| {
     let mut p = 1f64;
 
     for i in 0..MAX_HEIGHT {
+        // NOTE: i is >= 1
+        #[allow(clippy::indexing_slicing)]
         if i > 0 {
             probabilities[i - 1] = ((u32::MAX as f64) * p) as u32;
         }
@@ -509,6 +513,7 @@ impl<K, V> NodePtr<K, V> {
         self.links(level).prev.load()
     }
 
+    #[warn(clippy::indexing_slicing)]
     fn links(&self, level: usize) -> &'_ Links<K, V> {
         let Self(ptr) = self;
         unsafe { &(**ptr).tower[level] }
