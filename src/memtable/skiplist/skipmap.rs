@@ -44,6 +44,7 @@ impl<K, V> Default for SkipMap<K, V> {
 
 impl<K, V> SkipMap<K, V> {
     /// New constructs a new `[SkipMap]`.
+    #[warn(clippy::unwrap_used)]
     pub fn new(seed: u32) -> Self {
         let arena = ArenasAllocator::default();
         let head = arena.alloc(MAX_HEIGHT);
@@ -78,6 +79,7 @@ where
     /// Inserts a key-value pair into the `SkipMap`.
     ///
     /// Returns `true` if the entry was inserted.
+    #[warn(clippy::unwrap_used)]
     pub fn insert(&self, k: K, v: V) -> Result<(), (K, V)> {
         let Some(splices) = self.seek_splices(&k) else {
             return Err((k, v));
@@ -194,6 +196,7 @@ where
     }
 
     // Search for the node that comes before the bound in the SkipMap.
+    #[warn(clippy::unwrap_used)]
     fn find_from_node<Q>(&self, bounds: Bound<&Q>) -> NodePtr<K, V>
     where
         K: Comparable<Q>,
@@ -288,6 +291,7 @@ where
 
     // Finds the splice between which this key should be placed in the SkipMap,
     // or the Node with the matching key if one exists.
+    #[warn(clippy::unwrap_used)]
     fn find_splice_for_level<Q>(
         &self,
         key: &Q,
@@ -303,6 +307,7 @@ where
         // We can unwrap here because we know that start must be before
         // our key no matter what, and the tail node is after.
         let mut next = start.load_next(level).unwrap();
+
         loop {
             // Assume prev.key < key.
             let Some(after_next) = next.load_next(level) else {
@@ -590,6 +595,7 @@ impl<'map, K, V> Iter<'map, K, V> {
 impl<'map, K, V> Iterator for Iter<'map, K, V> {
     type Item = Entry<'map, K, V>;
 
+    #[warn(clippy::unwrap_used)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.exhausted {
             return None;
@@ -607,6 +613,7 @@ impl<'map, K, V> Iterator for Iter<'map, K, V> {
 }
 
 impl<'map, K, V> DoubleEndedIterator for Iter<'map, K, V> {
+    #[warn(clippy::unwrap_used)]
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.exhausted {
             return None;
