@@ -523,15 +523,6 @@ impl<K, V> NodePtr<K, V> {
         let Self(ptr) = self;
         &unsafe { &(**ptr) }.data.key
     }
-
-    // fn key<Q>(&self) -> &Q
-    // where
-    //     K: Comparable<Q>,
-    //     Q: ?Sized,
-    // {
-    //     let Self(ptr) = self;
-    //     unsafe { &(**ptr) }.data.key.borrow()
-    // }
 }
 
 #[repr(transparent)]
