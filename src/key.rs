@@ -188,6 +188,6 @@ impl Equivalent<InternalKey> for InternalKeyRef<'_> {
 
 impl Comparable<InternalKey> for InternalKeyRef<'_> {
     fn compare(&self, other: &InternalKey) -> std::cmp::Ordering {
-        (&*self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+        (self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
     }
 }
