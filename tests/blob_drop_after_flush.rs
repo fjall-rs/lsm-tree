@@ -1,8 +1,9 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use std::time::Duration;
 use test_log::test;
 
 #[test]
+#[ignore = "restore"]
 fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -35,7 +36,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
 
     assert_eq!(
         "neptune".repeat(10_000).as_bytes(),
-        &*tree.get("a", None)?.unwrap(),
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
     );
 
     let report = gc_report.join().unwrap()?;

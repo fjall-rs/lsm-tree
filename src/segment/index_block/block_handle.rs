@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::UserKey;
 use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     segment::{
@@ -13,7 +14,6 @@ use crate::{
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Seek};
-use value_log::UserKey;
 use varint_rs::{VarintReader, VarintWriter};
 
 /// Points to a block on file

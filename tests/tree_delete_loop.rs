@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -22,20 +22,44 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT * 3);
-    assert_eq!(tree.prefix("a:".as_bytes(), None, None).count(), ITEM_COUNT);
-    assert_eq!(tree.prefix("b:".as_bytes(), None, None).count(), ITEM_COUNT);
-    assert_eq!(tree.prefix("c:".as_bytes(), None, None).count(), ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 3);
+    assert_eq!(
+        tree.prefix("a:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.prefix("b:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.prefix("c:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        ITEM_COUNT
+    );
 
-    for item in tree.prefix("b:".as_bytes(), None, None) {
-        let (key, _) = item?;
+    for item in tree.prefix("b:".as_bytes(), SeqNo::MAX, None) {
+        let key = item.key()?;
         tree.remove(key, seqno.next());
     }
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT * 2);
-    assert_eq!(tree.prefix("a:".as_bytes(), None, None).count(), ITEM_COUNT);
-    assert_eq!(tree.prefix("b:".as_bytes(), None, None).count(), 0);
-    assert_eq!(tree.prefix("c:".as_bytes(), None, None).count(), ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
+    assert_eq!(
+        tree.prefix("a:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        ITEM_COUNT
+    );
+    assert_eq!(
+        tree.prefix("b:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        0
+    );
+    assert_eq!(
+        tree.prefix("c:".as_bytes(), SeqNo::MAX, None)
+            .count(),
+        ITEM_COUNT
+    );
 
     Ok(())
 }
@@ -56,14 +80,14 @@ fn tree_delete_by_range() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len(None, None)?, 6);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, 6);
 
-    for item in tree.range("c"..="e", None, None) {
-        let (key, _) = item?;
+    for item in tree.range("c"..="e", SeqNo::MAX, None) {
+        let key = item.key()?;
         tree.remove(key, 1);
     }
 
-    assert_eq!(tree.len(None, None)?, 3);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, 3);
 
     Ok(())
 }

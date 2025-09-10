@@ -145,7 +145,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         Trailer::new(self.block).item_count()
     }
 
-    fn get_binary_index_reader(&self) -> BinaryIndexReader {
+    fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
         BinaryIndexReader::new(
             &self.block.data,
             self.binary_index_offset,

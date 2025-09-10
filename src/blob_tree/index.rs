@@ -21,7 +21,7 @@ impl IndexTree {
     pub(crate) fn get_vhandle(
         &self,
         key: &[u8],
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
     ) -> crate::Result<Option<MaybeInlineValue>> {
         let Some(item) = self.get(key, seqno)? else {
             return Ok(None);

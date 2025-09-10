@@ -2,7 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-mod cache;
 mod compression;
 mod gc;
 pub mod index;
@@ -12,13 +11,14 @@ use crate::{
     coding::{Decode, Encode},
     compaction::stream::CompactionStream,
     file::BLOBS_FOLDER,
+    iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
     segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
+    vlog::ValueLog,
+    Config, Memtable, SegmentId, SeqNo, UserKey, UserValue,
 };
-use cache::MyBlobCache;
 use compression::MyCompressor;
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
@@ -28,9 +28,39 @@ use std::{
     sync::{atomic::AtomicUsize, Arc},
 };
 use value::MaybeInlineValue;
-use value_log::ValueLog;
 
-fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeItem) -> RangeItem {
+pub struct Guard<'a>(
+    &'a ValueLog<MyCompressor>,
+    crate::Result<(UserKey, UserValue)>,
+);
+
+impl IterGuard for Guard<'_> {
+    fn key(self) -> crate::Result<UserKey> {
+        self.1.map(|(k, _)| k)
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        use MaybeInlineValue::{Indirect, Inline};
+
+        let value = self.1?.1;
+        let mut cursor = Cursor::new(value);
+
+        Ok(match MaybeInlineValue::decode_from(&mut cursor)? {
+            // NOTE: We know LSM-tree values are 32 bits in length max
+            #[allow(clippy::cast_possible_truncation)]
+            Inline(bytes) => bytes.len() as u32,
+
+            // NOTE: No need to resolve vHandle, because the size is already stored
+            Indirect { size, .. } => size,
+        })
+    }
+
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
+        resolve_value_handle(self.0, self.1)
+    }
+}
+
+fn resolve_value_handle(vlog: &crate::vlog::ValueLog<MyCompressor>, item: RangeItem) -> RangeItem {
     use MaybeInlineValue::{Indirect, Inline};
 
     match item {
@@ -43,7 +73,7 @@ fn resolve_value_handle(vlog: &ValueLog<MyBlobCache, MyCompressor>, item: RangeI
                     // Resolve indirection using value log
                     match vlog.get(&vhandle) {
                         Ok(Some(bytes)) => Ok((key, bytes)),
-                        Err(e) => Err(e.into()),
+                        Err(e) => Err(e),
                         _ => {
                             panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(&key))
                         }
@@ -68,7 +98,7 @@ pub struct BlobTree {
 
     /// Log-structured value-log that stores large values
     #[doc(hidden)]
-    pub blobs: ValueLog<MyBlobCache, MyCompressor>,
+    pub blobs: crate::vlog::ValueLog<MyCompressor>,
 
     // TODO: maybe replace this with a nonce system
     #[doc(hidden)]
@@ -80,15 +110,17 @@ impl BlobTree {
         let path = &config.path;
 
         let vlog_path = path.join(BLOBS_FOLDER);
-        let vlog_cfg =
-            value_log::Config::<MyBlobCache, MyCompressor>::new(MyBlobCache(config.cache.clone()))
-                .segment_size_bytes(config.blob_file_target_size)
-                .compression(match config.blob_compression {
-                    crate::CompressionType::None => None,
+        let vlog_cfg = crate::vlog::Config::<MyCompressor>::new(
+            config.cache.clone(),
+            config.descriptor_table.clone(),
+        )
+        .blob_file_size_bytes(config.blob_file_target_size)
+        .compression(match config.blob_compression {
+            crate::CompressionType::None => None,
 
-                    #[cfg(feature = "lz4")]
-                    c => Some(MyCompressor(c)),
-                });
+            #[cfg(feature = "lz4")]
+            c => Some(MyCompressor(c)),
+        });
 
         let index: IndexTree = config.open()?.into();
 
@@ -133,44 +165,41 @@ impl BlobTree {
 
         let iter = self
             .index
-            .create_internal_range::<&[u8], RangeFull>(&.., Some(seqno), None);
+            .create_internal_range::<&[u8], RangeFull>(&.., seqno, None);
 
         // Stores the max seqno of every blob file
         let mut seqno_map = crate::HashMap::<SegmentId, SeqNo>::default();
 
-        let result = self
-            .blobs
-            .scan_for_stats(iter.filter_map(|kv| {
-                let Ok(kv) = kv else {
-                    return Some(Err(IoError::other(
-                        "Failed to load KV pair from index tree",
-                    )));
-                };
+        let result = self.blobs.scan_for_stats(iter.filter_map(|kv| {
+            let Ok(kv) = kv else {
+                return Some(Err(IoError::other(
+                    "Failed to load KV pair from index tree",
+                )));
+            };
 
-                let mut cursor = Cursor::new(kv.value);
-                let value = match MaybeInlineValue::decode_from(&mut cursor) {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(IoError::other(e.to_string()))),
-                };
+            let mut cursor = Cursor::new(kv.value);
+            let value = match MaybeInlineValue::decode_from(&mut cursor) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(IoError::other(e.to_string()))),
+            };
 
-                match value {
-                    Indirect { vhandle, size } => {
-                        seqno_map
-                            .entry(vhandle.segment_id)
-                            .and_modify(|x| *x = (*x).max(kv.key.seqno))
-                            .or_insert(kv.key.seqno);
+            match value {
+                Indirect { vhandle, size } => {
+                    seqno_map
+                        .entry(vhandle.blob_file_id)
+                        .and_modify(|x| *x = (*x).max(kv.key.seqno))
+                        .or_insert(kv.key.seqno);
 
-                        Some(Ok((vhandle, size)))
-                    }
-                    Inline(_) => None,
+                    Some(Ok((vhandle, size)))
                 }
-            }))
-            .map_err(Into::into);
+                Inline(_) => None,
+            }
+        }));
 
         let mut lock = self
             .blobs
             .manifest
-            .segments
+            .blob_files
             .write()
             .expect("lock is poisoned");
 
@@ -193,7 +222,7 @@ impl BlobTree {
 
     pub fn apply_gc_strategy(
         &self,
-        strategy: &impl value_log::GcStrategy<MyBlobCache, MyCompressor>,
+        strategy: &impl crate::vlog::GcStrategy<MyCompressor>,
         seqno: SeqNo,
     ) -> crate::Result<u64> {
         // IMPORTANT: Write lock memtable to avoid read skew
@@ -206,7 +235,7 @@ impl BlobTree {
         )?;
 
         // NOTE: We still have the memtable lock, can't use gc_drop_stale because recursive locking
-        self.blobs.drop_stale_segments().map_err(Into::into)
+        self.blobs.drop_stale_blob_files()
     }
 
     /// Drops all stale blob segment files
@@ -215,7 +244,7 @@ impl BlobTree {
         // IMPORTANT: Write lock memtable to avoid read skew
         let _lock = self.index.lock_active_memtable();
 
-        self.blobs.drop_stale_segments().map_err(Into::into)
+        self.blobs.drop_stale_blob_files()
     }
 
     #[doc(hidden)]
@@ -235,6 +264,38 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        Box::new(
+            self.index
+                .0
+                .create_prefix(&prefix, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
+        )
+    }
+
+    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        Box::new(
+            self.index
+                .0
+                .create_range(&range, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
+        )
+    }
+
+    fn tombstone_count(&self) -> u64 {
+        self.index.tombstone_count()
+    }
+
     fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
         self.index.drop_range(key_range)
     }
@@ -315,12 +376,12 @@ impl AbstractTree for BlobTree {
     }
 
     fn blob_file_count(&self) -> usize {
-        self.blobs.segment_count()
+        self.blobs.blob_file_count()
     }
 
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
-    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
         let vhandle = self.index.get_vhandle(key.as_ref(), seqno)?;
 
         Ok(vhandle.map(|x| match x {
@@ -352,22 +413,6 @@ impl AbstractTree for BlobTree {
         let vlog_sum = self.blobs.verify()?;
         Ok(index_tree_sum + vlog_sum)
     } */
-
-    fn keys(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        self.index.keys(seqno, index)
-    }
-
-    fn values(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(self.iter(seqno, index).map(|x| x.map(|(_, v)| v)))
-    }
 
     fn flush_memtable(
         &self,
@@ -561,13 +606,13 @@ impl AbstractTree for BlobTree {
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster key reads
-    fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<bool> {
+    fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
         self.index.contains_key(key, seqno)
     }
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster scans
-    fn len(&self, seqno: Option<SeqNo>, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
+    fn len(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
         self.index.len(seqno, index)
     }
 
@@ -583,42 +628,6 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_persisted_seqno()
     }
 
-    fn snapshot(&self, seqno: SeqNo) -> Snapshot {
-        use crate::AnyTree::Blob;
-
-        Snapshot::new(Blob(self.clone()), seqno)
-    }
-
-    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        let vlog = self.blobs.clone();
-        Box::new(
-            self.index
-                .0
-                .create_range(&range, seqno, index)
-                .map(move |item| resolve_value_handle(&vlog, item)),
-        )
-    }
-
-    fn prefix<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        let vlog = self.blobs.clone();
-        Box::new(
-            self.index
-                .0
-                .create_prefix(prefix, seqno, index)
-                .map(move |item| resolve_value_handle(&vlog, item)),
-        )
-    }
-
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,
@@ -626,6 +635,11 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
     ) -> (u64, u64) {
         use value::MaybeInlineValue;
+
+        // TODO: let's store a struct in memtables instead
+        // TODO: that stores slice + is_user_value
+        // TODO: then we can avoid alloc + memcpy here
+        // TODO: benchmark for very large values
 
         // NOTE: Initially, we always write an inline value
         // On memtable flush, depending on the values' sizes, they will be separated
@@ -637,11 +651,7 @@ impl AbstractTree for BlobTree {
         self.index.insert(key, value, seqno)
     }
 
-    fn get<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<crate::UserValue>> {
+    fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         use value::MaybeInlineValue::{Indirect, Inline};
 
         let key = key.as_ref();

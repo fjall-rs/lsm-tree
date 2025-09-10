@@ -146,12 +146,12 @@ impl Cache {
     #[doc(hidden)]
     pub fn insert_blob(
         &self,
-        vlog_id: value_log::ValueLogId,
-        vhandle: &value_log::ValueHandle,
+        vlog_id: crate::vlog::ValueLogId,
+        vhandle: &crate::vlog::ValueHandle,
         value: UserValue,
     ) {
         self.data.insert(
-            (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
+            (TAG_BLOB, vlog_id, vhandle.blob_file_id, vhandle.offset).into(),
             Item::Blob(value),
         );
     }
@@ -160,10 +160,10 @@ impl Cache {
     #[must_use]
     pub fn get_blob(
         &self,
-        vlog_id: value_log::ValueLogId,
-        vhandle: &value_log::ValueHandle,
+        vlog_id: crate::vlog::ValueLogId,
+        vhandle: &crate::vlog::ValueHandle,
     ) -> Option<UserValue> {
-        let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into();
+        let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.blob_file_id, vhandle.offset).into();
 
         Some(match self.data.get(&key)? {
             Item::Blob(blob) => blob,

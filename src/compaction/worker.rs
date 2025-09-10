@@ -70,16 +70,16 @@ impl Options {
 ///
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
-    log::trace!("compactor: acquiring levels manifest lock");
+    log::trace!("Acquiring levels manifest lock");
     let original_levels = opts.levels.write().expect("lock is poisoned");
 
     log::trace!(
-        "compactor: consulting compaction strategy {:?}",
+        "Consulting compaction strategy {:?}",
         opts.strategy.get_name(),
     );
     let choice = opts.strategy.choose(&original_levels, &opts.config);
 
-    log::debug!("compactor: choice: {choice:?}");
+    log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
         Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
@@ -363,7 +363,7 @@ fn merge_segments(
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
-                payload.dest_level <= 2, // TODO: look at configuration
+                payload.dest_level <= 1, // TODO: look at configuration
                 payload.dest_level <= 2, // TODO: look at configuration
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),

@@ -165,7 +165,7 @@ impl MultiWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AbstractTree, Config};
+    use crate::{AbstractTree, Config, SeqNo};
     use test_log::test;
 
     // NOTE: Tests that versions of the same key stay
@@ -184,11 +184,11 @@ mod tests {
         tree.insert("a", "a5".repeat(4_000), 4);
         tree.flush_active_memtable(0)?;
         assert_eq!(1, tree.segment_count());
-        assert_eq!(1, tree.len(None, None)?);
+        assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
         tree.major_compact(1_024, 0)?;
         assert_eq!(1, tree.segment_count());
-        assert_eq!(1, tree.len(None, None)?);
+        assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
         Ok(())
     }
@@ -207,11 +207,11 @@ mod tests {
         tree.insert("c", "a1".repeat(4_000), 1);
         tree.flush_active_memtable(0)?;
         assert_eq!(1, tree.segment_count());
-        assert_eq!(3, tree.len(None, None)?);
+        assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
         tree.major_compact(1_024, 0)?;
         assert_eq!(3, tree.segment_count());
-        assert_eq!(3, tree.len(None, None)?);
+        assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
         Ok(())
     }

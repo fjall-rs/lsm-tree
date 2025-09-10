@@ -143,7 +143,7 @@ impl TreeIter {
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         level_manifest: &LevelManifest,
     ) -> Self {
         Self::new(guard, |lock| {
@@ -232,14 +232,10 @@ impl TreeIter {
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ));
 
-                            if let Some(seqno) = seqno {
-                                iters.push(Box::new(reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                })));
-                            } else {
-                                iters.push(Box::new(reader));
-                            }
+                            iters.push(Box::new(reader.filter(move |item| match item {
+                                Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                Err(_) => true,
+                            })));
                         }
                     }
                     _ => {
@@ -251,14 +247,10 @@ impl TreeIter {
                             ),
                             CachePolicy::Write,
                         ) {
-                            if let Some(seqno) = seqno {
-                                iters.push(Box::new(reader.filter(move |item| match item {
-                                    Ok(item) => seqno_filter(item.key.seqno, seqno),
-                                    Err(_) => true,
-                                })));
-                            } else {
-                                iters.push(Box::new(reader));
-                            }
+                            iters.push(Box::new(reader.filter(move |item| match item {
+                                Ok(item) => seqno_filter(item.key.seqno, seqno),
+                                Err(_) => true,
+                            })));
                         }
                     }
                 }
@@ -300,28 +292,20 @@ impl TreeIter {
             for memtable in &lock.sealed {
                 let iter = memtable.range(range.clone());
 
-                if let Some(seqno) = seqno {
-                    iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                            .map(Ok),
-                    ));
-                } else {
-                    iters.push(Box::new(iter.map(Ok)));
-                }
+                iters.push(Box::new(
+                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
+                        .map(Ok),
+                ));
             }
 
             // Active memtable
             {
                 let iter = lock.active.range(range.clone());
 
-                if let Some(seqno) = seqno {
-                    iters.push(Box::new(
-                        iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
-                            .map(Ok),
-                    ));
-                } else {
-                    iters.push(Box::new(iter.map(Ok)));
-                }
+                iters.push(Box::new(
+                    iter.filter(move |item| seqno_filter(item.key.seqno, seqno))
+                        .map(Ok),
+                ));
             }
 
             if let Some(index) = &lock.ephemeral {

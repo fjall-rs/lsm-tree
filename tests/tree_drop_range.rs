@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, KeyRange, UserKey};
+use lsm_tree::{AbstractTree, Config, KeyRange, SeqNo, UserKey};
 use test_log::test;
 
 #[test]
@@ -18,11 +18,11 @@ fn tree_drop_range() -> lsm_tree::Result<()> {
 
         tree.drop_range(KeyRange::new((UserKey::from("a"), UserKey::from("c"))))?;
 
-        assert!(!tree.contains_key("a", None)?);
-        assert!(!tree.contains_key("b", None)?);
-        assert!(!tree.contains_key("c", None)?);
-        assert!(tree.contains_key("d", None)?);
-        assert!(tree.contains_key("e", None)?);
+        assert!(!tree.contains_key("a", SeqNo::MAX)?);
+        assert!(!tree.contains_key("b", SeqNo::MAX)?);
+        assert!(!tree.contains_key("c", SeqNo::MAX)?);
+        assert!(tree.contains_key("d", SeqNo::MAX)?);
+        assert!(tree.contains_key("e", SeqNo::MAX)?);
 
         assert_eq!(1, tree.l0_run_count());
         assert_eq!(2, tree.segment_count());

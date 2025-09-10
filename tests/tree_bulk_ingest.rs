@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100_000;
@@ -16,13 +16,18 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
         (k.into(), v.into())
     }))?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
 
@@ -41,13 +46,18 @@ fn tree_copy() -> lsm_tree::Result<()> {
         (k.into(), v.into())
     }))?;
 
-    assert_eq!(src.len(None, None)?, ITEM_COUNT);
+    assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        src.iter(None, None).filter(|x| x.is_ok()).count(),
+        src.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        src.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        src.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert!(src.lock_active_memtable().is_empty());
@@ -55,18 +65,24 @@ fn tree_copy() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let dest = Config::new(folder).open()?;
 
-    dest.ingest(src.iter(None, None).map(|kv| {
-        let (k, v) = kv.unwrap();
-        (k, v)
-    }))?;
+    dest.ingest(
+        src.iter(SeqNo::MAX, None)
+            .map(|x| x.into_inner())
+            .map(|x| x.unwrap()),
+    )?;
 
-    assert_eq!(dest.len(None, None)?, ITEM_COUNT);
+    assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        dest.iter(None, None).filter(|x| x.is_ok()).count(),
+        dest.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        dest.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        dest.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert!(dest.lock_active_memtable().is_empty());
@@ -89,13 +105,18 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
         (k.into(), v.into())
     }))?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(1, tree.blob_file_count());
@@ -117,13 +138,18 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         (k.into(), v.into())
     }))?;
 
-    assert_eq!(src.len(None, None)?, ITEM_COUNT);
+    assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        src.iter(None, None).filter(|x| x.is_ok()).count(),
+        src.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        src.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        src.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert!(src.lock_active_memtable().is_empty());
@@ -134,18 +160,24 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         .blob_file_separation_threshold(1)
         .open_as_blob_tree()?;
 
-    dest.ingest(src.iter(None, None).map(|kv| {
-        let (k, v) = kv.unwrap();
-        (k, v)
-    }))?;
+    dest.ingest(
+        src.iter(SeqNo::MAX, None)
+            .map(|x| x.into_inner())
+            .map(|x| x.unwrap()),
+    )?;
 
-    assert_eq!(dest.len(None, None)?, ITEM_COUNT);
+    assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        dest.iter(None, None).filter(|x| x.is_ok()).count(),
+        dest.iter(SeqNo::MAX, None)
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert_eq!(
-        dest.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        dest.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
     assert!(dest.lock_active_memtable().is_empty());

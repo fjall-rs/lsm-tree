@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::vlog::ValueHandle;
 use crate::{
     blob_tree::value::MaybeInlineValue, coding::Encode, value::InternalValue, Memtable, SeqNo,
     UserKey,
 };
-use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcWriter<'a> {
@@ -25,7 +25,7 @@ impl<'a> GcWriter<'a> {
     }
 }
 
-impl value_log::IndexWriter for GcWriter<'_> {
+impl crate::vlog::IndexWriter for GcWriter<'_> {
     fn insert_indirect(
         &mut self,
         key: &[u8],

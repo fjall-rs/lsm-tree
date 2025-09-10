@@ -3,9 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::vlog::ValueHandle;
+use crate::{Slice, UserValue};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
-use value_log::{Slice, UserValue, ValueHandle};
 use varint_rs::{VarintReader, VarintWriter};
 
 /// A value which may or may not be inlined into an index tree

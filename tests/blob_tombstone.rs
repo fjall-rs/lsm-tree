@@ -1,4 +1,4 @@
-use lsm_tree::AbstractTree;
+use lsm_tree::{AbstractTree, SeqNo};
 use test_log::test;
 
 #[test]
@@ -14,30 +14,30 @@ fn blob_tree_tombstone() -> lsm_tree::Result<()> {
     tree.insert("a", &big_value, 0);
     tree.insert("b", &big_value, 0);
     tree.insert("c", &big_value, 0);
-    assert_eq!(3, tree.len(None, None)?);
+    assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(3, tree.len(None, None)?);
+    assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
     tree.remove("b", 1);
-    assert_eq!(2, tree.len(None, None)?);
+    assert_eq!(2, tree.len(SeqNo::MAX, None)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.len(None, None)?);
+    assert_eq!(2, tree.len(SeqNo::MAX, None)?);
 
-    assert_eq!(&*tree.get("a", None)?.unwrap(), big_value);
-    assert!(tree.get("b", None)?.is_none());
-    assert_eq!(&*tree.get("c", None)?.unwrap(), big_value);
+    assert_eq!(&*tree.get("a", SeqNo::MAX)?.unwrap(), big_value);
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert_eq!(&*tree.get("c", SeqNo::MAX)?.unwrap(), big_value);
 
     tree.gc_scan_stats(2, 0)?;
 
     let strategy = lsm_tree::gc::StaleThresholdStrategy::new(0.01);
     tree.apply_gc_strategy(&strategy, 2)?;
-    assert_eq!(2, tree.len(None, None)?);
+    assert_eq!(2, tree.len(SeqNo::MAX, None)?);
 
-    assert_eq!(&*tree.get("a", None)?.unwrap(), big_value);
-    assert!(tree.get("b", None)?.is_none());
-    assert_eq!(&*tree.get("c", None)?.unwrap(), big_value);
+    assert_eq!(&*tree.get("a", SeqNo::MAX)?.unwrap(), big_value);
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert_eq!(&*tree.get("c", SeqNo::MAX)?.unwrap(), big_value);
 
     Ok(())
 }

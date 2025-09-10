@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000_000;
@@ -19,13 +19,25 @@ fn segment_ranges() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
+    let iter = tree.range(
+        1_000u64.to_be_bytes()..11_000u64.to_be_bytes(),
+        SeqNo::MAX,
+        None,
+    );
     assert_eq!(10_000, iter.count());
 
-    let iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
+    let iter = tree.range(
+        1_000u64.to_be_bytes()..11_000u64.to_be_bytes(),
+        SeqNo::MAX,
+        None,
+    );
     assert_eq!(10_000, iter.rev().count());
 
-    let mut iter = tree.range(1_000u64.to_be_bytes()..11_000u64.to_be_bytes(), None, None);
+    let mut iter = tree.range(
+        1_000u64.to_be_bytes()..11_000u64.to_be_bytes(),
+        SeqNo::MAX,
+        None,
+    );
     let mut count = 0;
 
     for x in 0.. {
@@ -66,19 +78,19 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.count());
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.rev().count());
 
-    let mut iter = tree.range(0u64.to_be_bytes()..5u64.to_be_bytes(), None, None);
+    let mut iter = tree.range(0u64.to_be_bytes()..5u64.to_be_bytes(), SeqNo::MAX, None);
 
-    assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(2u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(3u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(4u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
+    assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(2u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(3u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(4u64.to_be_bytes(), &*iter.next().unwrap().key()?);
     assert!(iter.next_back().is_none());
 
     Ok(())
@@ -103,26 +115,26 @@ fn segment_range_last_back_2() -> lsm_tree::Result<()> {
     tree.insert(11u64.to_be_bytes(), [], 0);
     tree.flush_active_memtable(0)?;
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.count());
 
-    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), None, None);
+    let iter = tree.range(0u64.to_be_bytes()..10u64.to_be_bytes(), SeqNo::MAX, None);
     assert_eq!(10, iter.rev().count());
 
-    let mut iter = tree.range(0u64.to_be_bytes()..12u64.to_be_bytes(), None, None);
+    let mut iter = tree.range(0u64.to_be_bytes()..12u64.to_be_bytes(), SeqNo::MAX, None);
 
-    assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(2u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(3u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(4u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(5u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(6u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(7u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(8u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(9u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(10u64.to_be_bytes(), &*iter.next().unwrap().unwrap().0);
-    assert_eq!(11u64.to_be_bytes(), &*iter.next_back().unwrap().unwrap().0);
+    assert_eq!(0u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(1u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(2u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(3u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(4u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(5u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(6u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(7u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(8u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(9u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(10u64.to_be_bytes(), &*iter.next().unwrap().key()?);
+    assert_eq!(11u64.to_be_bytes(), &*iter.next_back().unwrap().key()?);
     assert!(iter.next().is_none());
     assert!(iter.next_back().is_none());
 

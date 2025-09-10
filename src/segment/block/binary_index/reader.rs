@@ -20,7 +20,7 @@ impl<'a> Reader<'a> {
 
         Self {
             // NOTE: We consider the caller to be trustworthy
-            #[warn(clippy::indexing_slicing)]
+            #[allow(clippy::indexing_slicing)]
             bytes: &bytes[offset..end],
             step_size,
         }
@@ -33,16 +33,8 @@ impl<'a> Reader<'a> {
     pub(crate) fn get(&self, idx: usize) -> usize {
         let offset = idx * self.step_size;
 
-        // TODO: 3.0.0 is not worth it, just use safe impl
-
-        // SAFETY: We consider the caller to be trustworthy
-        #[allow(unsafe_code)]
-        #[cfg(feature = "use_unsafe")]
-        let mut bytes = unsafe { self.bytes.get_unchecked(offset..) };
-
         // NOTE: We consider the caller to be trustworthy
-        #[cfg(not(feature = "use_unsafe"))]
-        #[warn(clippy::indexing_slicing)]
+        #[allow(clippy::indexing_slicing)]
         let mut bytes = &self.bytes[offset..];
 
         if self.step_size == 2 {

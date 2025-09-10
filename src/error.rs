@@ -32,9 +32,6 @@ pub enum Error {
 
     /// Invalid checksum value (got, expected)
     InvalidChecksum((Checksum, Checksum)),
-
-    /// Value log errors
-    ValueLog(value_log::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -49,7 +46,6 @@ impl std::error::Error for Error {
             Self::Io(e) => Some(e),
             Self::Encode(e) => Some(e),
             Self::Decode(e) => Some(e),
-            Self::ValueLog(e) => Some(e),
             Self::Decompress(_)
             | Self::InvalidVersion(_)
             | Self::Unrecoverable
@@ -73,12 +69,6 @@ impl From<EncodeError> for Error {
 impl From<DecodeError> for Error {
     fn from(value: DecodeError) -> Self {
         Self::Decode(value)
-    }
-}
-
-impl From<value_log::Error> for Error {
-    fn from(value: value_log::Error) -> Self {
-        Self::ValueLog(value)
     }
 }
 

@@ -68,15 +68,8 @@ impl<'a> Reader<'a> {
 
         let bucket_pos = calculate_bucket_position(key, bucket_count);
 
-        // TODO: 3.0.0 is not worth it, just use safe impl
-        // SAFETY: We use modulo in `calculate_bucket_position`
-        #[allow(unsafe_code)]
-        #[cfg(feature = "use_unsafe")]
-        let marker = unsafe { *self.0.get_unchecked(bucket_pos) };
-
         // SAFETY: We use modulo in `calculate_bucket_position`
         #[allow(clippy::indexing_slicing)]
-        #[cfg(not(feature = "use_unsafe"))]
         let marker = self.0[bucket_pos];
 
         match marker {

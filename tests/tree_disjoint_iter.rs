@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Slice};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -30,38 +30,38 @@ fn tree_disjoint_iter() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let mut iter = tree.iter(None, None);
+    let mut iter = tree.iter(SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"d"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"d"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
-    let mut iter = tree.iter(None, None).rev();
+    let mut iter = tree.iter(SeqNo::MAX, None).rev();
 
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"d"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"d"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
-    let mut iter = tree.iter(None, None);
+    let mut iter = tree.iter(SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"a"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"b"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"e"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"c"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"d"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"b"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"e"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"c"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"d"), iter.next_back().unwrap().key()?);
     iter_closed!(iter);
 
     Ok(())

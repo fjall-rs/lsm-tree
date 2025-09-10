@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use test_log::test;
 
 #[test]
@@ -16,7 +16,7 @@ fn segment_remove_weak_simple() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert!(tree.get("a", None)?.is_none());
+    assert!(tree.get("a", SeqNo::MAX)?.is_none());
 
     Ok(())
 }

@@ -32,11 +32,7 @@ impl<'a> BitArrayReader<'a> {
     pub fn get(&self, idx: usize) -> bool {
         let byte_idx = idx / 8;
 
-        #[cfg(not(feature = "bloom_use_unsafe"))]
         let byte = self.0.get(byte_idx).expect("should be in bounds");
-
-        #[cfg(feature = "bloom_use_unsafe")]
-        let byte = unsafe { self.0.get_unchecked(byte_idx) };
 
         let bit_idx = idx % 8;
         get_bit(*byte, bit_idx)

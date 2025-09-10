@@ -14,6 +14,7 @@ type Item = Arc<File>;
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64);
 
+/// Caches file descriptors to disk segments and blob files
 pub struct DescriptorTable {
     inner: QuickCache<CacheKey, Item, UnitWeighter, rustc_hash::FxBuildHasher>,
 }
@@ -25,7 +26,7 @@ impl DescriptorTable {
 
         #[allow(clippy::default_trait_access)]
         let quick_cache = QuickCache::with(
-            100_000,
+            1_000,
             capacity as u64,
             UnitWeighter,
             Default::default(),

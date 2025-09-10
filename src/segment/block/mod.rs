@@ -20,7 +20,7 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
-    segment::BlockHandle,
+    segment::{BlockHandle, DataBlock},
     CompressionType, Slice,
 };
 use std::fs::File;
@@ -91,22 +91,15 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[cfg(feature = "use_unsafe")]
-                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
-
-                #[cfg(not(feature = "use_unsafe"))]
-                let mut data = Slice::with_size(header.uncompressed_length as usize);
+                let mut builder =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
                 {
-                    // NOTE: We know that we are the owner
-                    #[allow(clippy::expect_used)]
-                    let mut mutator = data.get_mut().expect("should be the owner");
-
-                    lz4_flex::decompress_into(&raw_data, &mut mutator)
+                    lz4_flex::decompress_into(&raw_data, &mut builder)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
 
-                data
+                builder.freeze().into()
             }
         };
 
@@ -137,7 +130,7 @@ impl Block {
                 *checksum,
                 *header.checksum,
             );
-            // return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
         Ok(Self { header, data })
@@ -150,20 +143,15 @@ impl Block {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        #[cfg(feature = "use_unsafe")]
-        let mut buf = Slice::with_size_unzeroed(handle.size() as usize);
-
-        #[cfg(not(feature = "use_unsafe"))]
-        let mut buf = Slice::with_size(handle.size() as usize);
+        #[warn(unsafe_code)]
+        let mut builder = unsafe { Slice::builder_unzeroed(handle.size() as usize) };
 
         {
-            let mut mutator = buf.get_mut().expect("should be the owner");
-
             #[cfg(unix)]
             {
                 use std::os::unix::fs::FileExt;
 
-                let bytes_read = file.read_at(&mut mutator, *handle.offset())?;
+                let bytes_read = file.read_at(&mut builder, *handle.offset())?;
 
                 assert_eq!(
                     bytes_read,
@@ -177,7 +165,7 @@ impl Block {
             {
                 use std::os::windows::fs::FileExt;
 
-                let bytes_read = file.seek_read(&mut mutator, *handle.offset())?;
+                let bytes_read = file.seek_read(&mut builder, *handle.offset())?;
 
                 assert_eq!(
                     bytes_read,
@@ -194,9 +182,10 @@ impl Block {
             }
         }
 
+        let buf = builder.freeze();
         let header = Header::decode_from(&mut &buf[..])?;
 
-        let data = match compression {
+        let buf = match compression {
             CompressionType::None => buf.slice(Header::serialized_len()..),
 
             #[cfg(feature = "lz4")]
@@ -206,28 +195,22 @@ impl Block {
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                #[cfg(feature = "use_unsafe")]
-                let mut data = Slice::with_size_unzeroed(header.uncompressed_length as usize);
-
-                #[cfg(not(feature = "use_unsafe"))]
-                let mut data = Slice::with_size(header.uncompressed_length as usize);
+                #[warn(unsafe_code)]
+                let mut builder =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
                 {
-                    // NOTE: We know that we are the owner
-                    #[allow(clippy::expect_used)]
-                    let mut mutator = data.get_mut().expect("should be the owner");
-
-                    lz4_flex::decompress_into(raw_data, &mut mutator)
+                    lz4_flex::decompress_into(raw_data, &mut builder)
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
 
-                data
+                builder.freeze().into()
             }
         };
 
         #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
         {
-            debug_assert_eq!(header.uncompressed_length, data.len() as u32);
+            debug_assert_eq!(header.uncompressed_length, buf.len() as u32);
         }
 
         if header.block_type != block_type {
@@ -243,16 +226,20 @@ impl Block {
             ))));
         }
 
-        let checksum = Checksum::from_raw(crate::hash::hash128(&data));
+        let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
         if checksum != header.checksum {
             log::warn!(
                 "Checksum mismatch for block {block_type:?}@{handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
-            // return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+
+            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
-        Ok(Self { header, data })
+        Ok(Self {
+            header,
+            data: Slice::from(buf),
+        })
     }
 }

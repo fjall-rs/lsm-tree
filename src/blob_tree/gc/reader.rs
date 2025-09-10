@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::vlog::ValueHandle;
 use crate::{blob_tree::value::MaybeInlineValue, coding::Decode, Memtable, SeqNo};
 use std::io::Cursor;
-use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcReader<'a> {
@@ -33,7 +33,7 @@ impl<'a> GcReader<'a> {
     }
 }
 
-impl value_log::IndexReader for GcReader<'_> {
+impl crate::vlog::IndexReader for GcReader<'_> {
     fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
         use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};

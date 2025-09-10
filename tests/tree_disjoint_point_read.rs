@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use std::sync::Arc;
 use test_log::test;
 
@@ -24,7 +24,7 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in [b"a", b"b", b"c", b"d", b"e", b"f"] {
-        let value = tree.get(key, None).unwrap().unwrap();
+        let value = tree.get(key, SeqNo::MAX).unwrap().unwrap();
         assert_eq!(&*value, key)
     }
 
@@ -53,7 +53,7 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in [b"a", b"b", b"c", b"d", b"e", b"f"] {
-        let value = tree.get(key, None).unwrap().unwrap();
+        let value = tree.get(key, SeqNo::MAX).unwrap().unwrap();
         assert_eq!(&*value, key)
     }
 
@@ -108,7 +108,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in [b"z", b"b", b"c", b"d", b"e", b"f"] {
-        let value = tree.get(key, None).unwrap().unwrap();
+        let value = tree.get(key, SeqNo::MAX).unwrap().unwrap();
         assert_eq!(&*value, key)
     }
 
@@ -164,7 +164,7 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     for key in [b"z", b"b", b"c", b"d", b"e", b"f"] {
-        let value = tree.get(key, None).unwrap().unwrap();
+        let value = tree.get(key, SeqNo::MAX).unwrap().unwrap();
         assert_eq!(&*value, key)
     }
 

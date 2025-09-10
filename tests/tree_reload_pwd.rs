@@ -1,5 +1,5 @@
 use fs_extra::dir::CopyOptions;
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
@@ -21,7 +21,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
+        assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     let folder_new = tempfile::tempdir()?;
@@ -37,7 +37,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
 
     {
         let tree = Config::new(&folder_new_subfolder).open()?;
-        assert_eq!(ITEM_COUNT, tree.len(None, None)?);
+        assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     Ok(())

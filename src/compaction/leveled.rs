@@ -28,17 +28,20 @@ fn pick_minimal_compaction(
 ) -> Option<(HashSet<SegmentId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
     if let Some(window) = curr_run.shrinking_windows().find(|window| {
-        let key_range = aggregate_run_key_range(window);
-
-        if let Some(next_run) = &next_run {
-            if next_run.get_overlapping(&key_range).is_empty() {
-                return true;
-            }
-        } else {
-            return true;
+        if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+            // IMPORTANT: Compaction is blocked because of other
+            // on-going compaction
+            return false;
         }
 
-        false
+        let Some(next_run) = &next_run else {
+            // No run in next level, so we can trivially move
+            return true;
+        };
+
+        let key_range = aggregate_run_key_range(window);
+
+        next_run.get_overlapping(&key_range).is_empty()
     }) {
         let ids = window.iter().map(Segment::id).collect();
         return Some((ids, true));
@@ -92,6 +95,7 @@ fn pick_minimal_compaction(
 
                 Some((window, curr_level_pull_in, write_amp))
             })
+            // Find the compaction with the smallest write amplification factor
             .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(window, curr_level_pull_in, _)| {
                 let mut ids: HashSet<_> = window.iter().map(Segment::id).collect();
@@ -107,7 +111,7 @@ fn pick_minimal_compaction(
 ///
 /// When a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
-/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^n` segments.
+/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` segments.
 ///
 /// LCS suffers from comparatively high write amplification, but has decent read amplification and great space amplification (~1.1x).
 ///
@@ -161,6 +165,7 @@ impl Strategy {
     /// L2 = `level_base_size * ratio`
     ///
     /// L3 = `level_base_size * ratio * ratio`
+    ///
     /// ...
     fn level_target_size(&self, level_idx: u8) -> u64 {
         assert!(level_idx >= 1, "level_target_size does not apply to L0");
@@ -182,7 +187,7 @@ impl CompactionStrategy for Strategy {
 
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        assert!(levels.as_slice().len() <= 7, "too many levels???");
+        assert!(levels.as_slice().len() == 7, "should have exactly 7 levels");
 
         // Scoring
         let mut scores = [(0.0, 0u64); 7];
@@ -230,6 +235,7 @@ impl CompactionStrategy for Strategy {
             }
 
             // NOTE: Never score Lmax
+            //
             // NOTE: We check for level length above
             #[allow(clippy::indexing_slicing)]
             {
@@ -297,7 +303,7 @@ impl CompactionStrategy for Strategy {
             return Choice::Merge(choice);
         }
 
-        // We choose L1+ compaction
+        // We choose L1+ compaction instead
 
         // NOTE: Level count is 255 max
         #[allow(clippy::cast_possible_truncation)]

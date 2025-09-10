@@ -1311,24 +1311,24 @@ mod tests {
         let items = [
             InternalValue::from_components(
                 Slice::new(&[0]),
-                Slice::new(&[]),
+                Slice::empty(),
                 3_834_029_160_418_063_669,
                 Value,
             ),
             InternalValue::from_components(Slice::new(&[0]), Slice::new(&[]), 127, Tombstone),
             InternalValue::from_components(
                 Slice::new(&[53, 53, 53]),
-                Slice::new(&[]),
+                Slice::empty(),
                 18_446_744_073_709_551_615,
                 Tombstone,
             ),
             InternalValue::from_components(
                 Slice::new(&[255]),
-                Slice::new(&[]),
+                Slice::empty(),
                 18_446_744_069_414_584_831,
                 Tombstone,
             ),
-            InternalValue::from_components(Slice::new(&[255, 255]), Slice::new(&[]), 47, Value),
+            InternalValue::from_components(Slice::new(&[255, 255]), Slice::empty(), 47, Value),
         ];
 
         let bytes = DataBlock::encode_into_vec(&items, 2, 1.0)?;

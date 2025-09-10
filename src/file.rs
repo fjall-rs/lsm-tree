@@ -10,7 +10,7 @@ pub const MANIFEST_FILE: &str = "manifest";
 pub const SEGMENTS_FOLDER: &str = "segments";
 pub const BLOBS_FOLDER: &str = "blobs";
 
-/// Atomically rewrites a file
+/// Atomically rewrites a file.
 pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     // NOTE: Nothing we can do
     #[allow(clippy::expect_used)]

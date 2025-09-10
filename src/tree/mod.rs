@@ -13,13 +13,13 @@ use crate::{
     compaction::CompactionStrategy,
     config::Config,
     format_version::FormatVersion,
+    iter_guard::{IterGuard, IterGuardImpl},
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
     value::InternalValue,
-    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, Snapshot, UserKey, UserValue,
-    ValueType,
+    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -28,6 +28,24 @@ use std::{
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+
+pub struct Guard(crate::Result<(UserKey, UserValue)>);
+
+impl IterGuard for Guard {
+    fn key(self) -> crate::Result<UserKey> {
+        self.0.map(|(k, _)| k)
+    }
+
+    fn size(self) -> crate::Result<u32> {
+        // NOTE: We know LSM-tree values are 32 bits in length max
+        #[allow(clippy::cast_possible_truncation)]
+        self.into_inner().map(|(_, v)| v.len() as u32)
+    }
+
+    fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
+        self.0
+    }
+}
 
 fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
     if item.is_tombstone() {
@@ -50,6 +68,41 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        Box::new(
+            self.create_prefix(&prefix, seqno, index)
+                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+        )
+    }
+
+    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        Box::new(
+            self.create_range(&range, seqno, index)
+                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+        )
+    }
+
+    // TODO: doctest
+    fn tombstone_count(&self) -> u64 {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::tombstone_count)
+            .sum()
+    }
+
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
@@ -127,7 +180,7 @@ impl AbstractTree for Tree {
             .unwrap_or_default()
     }
 
-    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>> {
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
         // NOTE: We know that values are u32 max
         #[allow(clippy::cast_possible_truncation)]
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
@@ -176,22 +229,6 @@ impl AbstractTree for Tree {
 
         Ok(sum)
     } */
-
-    fn keys(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static> {
-        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(k, _)| k)))
-    }
-
-    fn values(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static> {
-        Box::new(self.create_iter(seqno, index).map(|x| x.map(|(_, v)| v)))
-    }
 
     fn flush_memtable(
         &self,
@@ -421,38 +458,10 @@ impl AbstractTree for Tree {
             .max()
     }
 
-    fn snapshot(&self, seqno: SeqNo) -> Snapshot {
-        use crate::AnyTree::Standard;
-
-        Snapshot::new(Standard(self.clone()), seqno)
-    }
-
-    fn get<K: AsRef<[u8]>>(
-        &self,
-        key: K,
-        seqno: Option<SeqNo>,
-    ) -> crate::Result<Option<UserValue>> {
+    fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>> {
         Ok(self
-            .get_internal_entry(key.as_ref(), seqno.unwrap_or(SeqNo::MAX))?
+            .get_internal_entry(key.as_ref(), seqno)?
             .map(|x| x.value))
-    }
-
-    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_range(&range, seqno, index))
-    }
-
-    fn prefix<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        Box::new(self.create_prefix(prefix, seqno, index))
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
@@ -728,7 +737,7 @@ impl Tree {
     #[must_use]
     pub fn create_iter(
         &self,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
@@ -738,7 +747,7 @@ impl Tree {
     pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &'a self,
         range: &'a R,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
@@ -780,9 +789,9 @@ impl Tree {
 
     #[doc(hidden)]
     pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
-        &'a self,
+        &self,
         range: &'a R,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_internal_range(range, seqno, ephemeral)
@@ -794,9 +803,9 @@ impl Tree {
 
     #[doc(hidden)]
     pub fn create_prefix<'a, K: AsRef<[u8]> + 'a>(
-        &'a self,
+        &self,
         prefix: K,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use crate::range::prefix_to_range;
@@ -946,7 +955,6 @@ impl Tree {
 
         for (idx, dirent) in std::fs::read_dir(&segment_base_folder)?.enumerate() {
             let dirent = dirent?;
-
             let file_name = dirent.file_name();
 
             // https://en.wikipedia.org/wiki/.DS_Store

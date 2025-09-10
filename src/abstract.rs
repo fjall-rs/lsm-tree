@@ -3,9 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, segment::Segment, tree::inner::MemtableId,
-    AnyTree, BlobTree, Config, KvPair, Memtable, SegmentId, SeqNo, Snapshot, Tree, UserKey,
-    UserValue,
+    compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
+    tree::inner::MemtableId, AnyTree, BlobTree, Config, Guard, KvPair, Memtable, SegmentId, SeqNo,
+    Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -19,6 +19,37 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    /// Returns an iterator that scans through the entire tree.
+    ///
+    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
+    fn iter(
+        &self,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        self.range::<&[u8], _>(.., seqno, index)
+    }
+
+    /// Returns an iterator over a prefixed set of items.
+    ///
+    /// Avoid using an empty prefix as it may scan a lot of items (unless limited).
+    fn prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_>;
+
+    /// Returns an iterator over a range of items.
+    ///
+    /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).
+    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        &self,
+        range: R,
+        seqno: SeqNo,
+        index: Option<Arc<Memtable>>,
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_>;
+
     /// Ingests a sorted stream of key-value pairs into the tree.
     ///
     /// Can only be called on a new fresh, empty tree.
@@ -34,6 +65,9 @@ pub trait AbstractTree {
     /// Will panic if the input iterator is not sorted in ascending order.
     #[doc(hidden)]
     fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
+
+    /// Returns the approximate number of tombstones in the tree.
+    fn tombstone_count(&self) -> u64;
 
     // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
 
@@ -71,7 +105,7 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn flush_memtable(
         &self,
-        segment_id: SegmentId,
+        segment_id: SegmentId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<Segment>>;
@@ -138,25 +172,25 @@ pub trait AbstractTree {
     /// Seals the active memtable, and returns a reference to it.
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
 
-    /// Returns the amount of disk segments currently in the tree.
+    /// Returns the number of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
 
-    /// Returns the amount of segments in levels[idx].
+    /// Returns the number of segments in levels[idx].
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize>;
 
-    /// Returns the amount of disjoint runs in L0.
+    /// Returns the number of disjoint runs in L0.
     ///
     /// Can be used to determine whether to write stall.
     fn l0_run_count(&self) -> usize;
 
-    /// Returns the amount of blob files currently in the tree.
+    /// Returns the number of blob files currently in the tree.
     fn blob_file_count(&self) -> usize {
         0
     }
 
-    /// Approximates the amount of items in the tree.
+    /// Approximates the number of items in the tree.
     fn approximate_len(&self) -> usize;
 
     /// Returns the disk space usage.
@@ -168,7 +202,7 @@ pub trait AbstractTree {
     /// Returns the highest sequence number that is flushed to disk.
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo>;
 
-    /// Scans the entire tree, returning the amount of items.
+    /// Scans the entire tree, returning the number of items.
     ///
     /// ###### Caution
     ///
@@ -186,11 +220,11 @@ pub trait AbstractTree {
     /// let folder = tempfile::tempdir()?;
     /// let tree = Config::new(folder).open()?;
     ///
-    /// assert_eq!(tree.len(None, None)?, 0);
+    /// assert_eq!(tree.len(0, None)?, 0);
     /// tree.insert("1", "abc", 0);
     /// tree.insert("3", "abc", 1);
     /// tree.insert("5", "abc", 2);
-    /// assert_eq!(tree.len(None, None)?, 3);
+    /// assert_eq!(tree.len(3, None)?, 3);
     /// #
     /// # Ok::<(), TreeError>(())
     /// ```
@@ -198,11 +232,11 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn len(&self, seqno: Option<SeqNo>, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
+    fn len(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
         let mut count = 0;
 
         for item in self.iter(seqno, index) {
-            let _ = item?;
+            let _ = item.key()?;
             count += 1;
         }
 
@@ -220,10 +254,10 @@ pub trait AbstractTree {
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let tree = Config::new(folder).open()?;
-    /// assert!(tree.is_empty(None, None)?);
+    /// assert!(tree.is_empty(0, None)?);
     ///
     /// tree.insert("a", "abc", 0);
-    /// assert!(!tree.is_empty(None, None)?);
+    /// assert!(!tree.is_empty(1, None)?);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -231,7 +265,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn is_empty(&self, seqno: Option<SeqNo>, index: Option<Arc<Memtable>>) -> crate::Result<bool> {
+    fn is_empty(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<bool> {
         self.first_key_value(seqno, index).map(|x| x.is_none())
     }
 
@@ -251,7 +285,7 @@ pub trait AbstractTree {
     /// tree.insert("3", "abc", 1);
     /// tree.insert("5", "abc", 2);
     ///
-    /// let (key, _) = tree.first_key_value(None, None)?.expect("item should exist");
+    /// let (key, _) = tree.first_key_value(3, None)?.expect("item should exist");
     /// assert_eq!(&*key, "1".as_bytes());
     /// #
     /// # Ok::<(), TreeError>(())
@@ -262,10 +296,13 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn first_key_value(
         &self,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> crate::Result<Option<KvPair>> {
-        self.iter(seqno, index).next().transpose()
+        self.iter(seqno, index)
+            .next()
+            .map(Guard::into_inner)
+            .transpose()
     }
 
     /// Returns the last key-value pair in the tree.
@@ -284,7 +321,7 @@ pub trait AbstractTree {
     /// tree.insert("3", "abc", 1);
     /// tree.insert("5", "abc", 2);
     ///
-    /// let (key, _) = tree.last_key_value(None, None)?.expect("item should exist");
+    /// let (key, _) = tree.last_key_value(3, None)?.expect("item should exist");
     /// assert_eq!(&*key, "5".as_bytes());
     /// #
     /// # Ok::<(), TreeError>(())
@@ -295,140 +332,14 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn last_key_value(
         &self,
-        seqno: Option<SeqNo>,
+        seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> crate::Result<Option<KvPair>> {
-        self.iter(seqno, index).next_back().transpose()
+        self.iter(seqno, index)
+            .next_back()
+            .map(Guard::into_inner)
+            .transpose()
     }
-
-    /// Returns an iterator that scans through the entire tree.
-    ///
-    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("f", "abc", 1);
-    /// tree.insert("g", "abc", 2);
-    /// assert_eq!(3, tree.iter(None, None).count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn iter(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static> {
-        self.range::<&[u8], _>(.., seqno, index)
-    }
-
-    /// Returns an iterator that scans through the entire tree, returning keys only.
-    ///
-    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("f", "abc", 1);
-    /// tree.insert("g", "abc", 2);
-    /// assert_eq!(3, tree.keys(None, None).count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn keys(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserKey>> + 'static>;
-
-    /// Returns an iterator that scans through the entire tree, returning values only.
-    ///
-    /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("f", "abc", 1);
-    /// tree.insert("g", "abc", 2);
-    /// assert_eq!(3, tree.values(None, None).count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn values(
-        &self,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<UserValue>> + 'static>;
-
-    /// Returns an iterator over a range of items.
-    ///
-    /// Avoid using full or unbounded ranges as they may scan a lot of items (unless limited).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("f", "abc", 1);
-    /// tree.insert("g", "abc", 2);
-    /// assert_eq!(2, tree.range("a"..="f", None, None).into_iter().count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        &self,
-        range: R,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
-
-    /// Returns an iterator over a prefixed set of items.
-    ///
-    /// Avoid using an empty prefix as it may scan a lot of items (unless limited).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    /// tree.insert("ab", "abc", 1);
-    /// tree.insert("abc", "abc", 2);
-    /// assert_eq!(2, tree.prefix("ab", None, None).count());
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn prefix<K: AsRef<[u8]>>(
-        &self,
-        prefix: K,
-        seqno: Option<SeqNo>,
-        index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static>;
 
     /// Returns the size of a value if it exists.
     ///
@@ -441,10 +352,10 @@ pub trait AbstractTree {
     /// let tree = Config::new(folder).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
-    /// let size = tree.size_of("a", None)?.unwrap_or_default();
+    /// let size = tree.size_of("a", 1)?.unwrap_or_default();
     /// assert_eq!("my_value".len() as u32, size);
     ///
-    /// let size = tree.size_of("b", None)?.unwrap_or_default();
+    /// let size = tree.size_of("b", 1)?.unwrap_or_default();
     /// assert_eq!(0, size);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -453,7 +364,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<Option<u32>>;
+    fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>>;
 
     /// Retrieves an item from the tree.
     ///
@@ -466,7 +377,7 @@ pub trait AbstractTree {
     /// let tree = Config::new(folder).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
-    /// let item = tree.get("a", None)?;
+    /// let item = tree.get("a", 1)?;
     /// assert_eq!(Some("my_value".as_bytes().into()), item);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -475,42 +386,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn get<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>)
-        -> crate::Result<Option<UserValue>>;
-
-    /// Opens a read-only point-in-time snapshot of the tree
-    ///
-    /// Dropping the snapshot will close the snapshot
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # let folder = tempfile::tempdir()?;
-    /// use lsm_tree::{AbstractTree, Config, Tree};
-    ///
-    /// let tree = Config::new(folder).open()?;
-    ///
-    /// tree.insert("a", "abc", 0);
-    ///
-    /// let snapshot = tree.snapshot(1);
-    /// assert_eq!(snapshot.len()?, tree.len(None, None)?);
-    ///
-    /// tree.insert("b", "abc", 1);
-    ///
-    /// assert_eq!(2, tree.len(None, None)?);
-    /// assert_eq!(1, snapshot.len()?);
-    ///
-    /// assert!(snapshot.contains_key("a")?);
-    /// assert!(!snapshot.contains_key("b")?);
-    /// #
-    /// # Ok::<(), lsm_tree::Error>(())
-    /// ```
-    fn snapshot(&self, seqno: SeqNo) -> Snapshot;
-
-    /// Opens a snapshot of this partition with a given sequence number
-    fn snapshot_at(&self, seqno: SeqNo) -> Snapshot {
-        self.snapshot(seqno)
-    }
+    fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>>;
 
     /// Returns `true` if the tree contains the specified key.
     ///
@@ -521,10 +397,10 @@ pub trait AbstractTree {
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
     /// let tree = Config::new(folder).open()?;
-    /// assert!(!tree.contains_key("a", None)?);
+    /// assert!(!tree.contains_key("a", 0)?);
     ///
     /// tree.insert("a", "abc", 0);
-    /// assert!(tree.contains_key("a", None)?);
+    /// assert!(tree.contains_key("a", 1)?);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
     /// ```
@@ -532,7 +408,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: Option<SeqNo>) -> crate::Result<bool> {
+    fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
@@ -577,12 +453,12 @@ pub trait AbstractTree {
     /// # let tree = Config::new(folder).open()?;
     /// tree.insert("a", "abc", 0);
     ///
-    /// let item = tree.get("a", None)?.expect("should have item");
+    /// let item = tree.get("a", 1)?.expect("should have item");
     /// assert_eq!("abc".as_bytes(), &*item);
     ///
     /// tree.remove("a", 1);
     ///
-    /// let item = tree.get("a", None)?;
+    /// let item = tree.get("a", 2)?;
     /// assert_eq!(None, item);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -611,12 +487,12 @@ pub trait AbstractTree {
     /// # let tree = Config::new(folder).open()?;
     /// tree.insert("a", "abc", 0);
     ///
-    /// let item = tree.get("a", None)?.expect("should have item");
+    /// let item = tree.get("a", 1)?.expect("should have item");
     /// assert_eq!("abc".as_bytes(), &*item);
     ///
     /// tree.remove_weak("a", 1);
     ///
-    /// let item = tree.get("a", None)?;
+    /// let item = tree.get("a", 2)?;
     /// assert_eq!(None, item);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -625,5 +501,6 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
 }

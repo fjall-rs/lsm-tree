@@ -47,21 +47,21 @@
 //! // So you can handle I/O errors if they occur
 //! tree.insert("my_key", "my_value", /* sequence number */ 0);
 //!
-//! let item = tree.get("my_key", None)?;
+//! let item = tree.get("my_key", 1)?;
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // Search by prefix
-//! for item in tree.prefix("prefix", None, None) {
+//! for item in tree.prefix("prefix", 1, None) {
 //!   // ...
 //! }
 //!
 //! // Search by range
-//! for item in tree.range("a"..="z", None, None) {
+//! for item in tree.range("a"..="z", 1, None) {
 //!   // ...
 //! }
 //!
 //! // Iterators implement DoubleEndedIterator, so you can search backwards, too!
-//! for item in tree.prefix("prefix", None, None).rev() {
+//! for item in tree.prefix("prefix", 1, None).rev() {
 //!   // ...
 //! }
 //!
@@ -90,7 +90,6 @@
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
-#![warn(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
@@ -100,6 +99,9 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 #![warn(clippy::redundant_feature_names)]
+// the bytes feature uses unsafe to improve from_reader performance; so we need to relax this lint
+// #![cfg_attr(feature = "bytes", deny(unsafe_code))]
+// #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
 
 pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
@@ -130,7 +132,12 @@ pub mod binary_search;
 #[doc(hidden)]
 pub mod blob_tree;
 
-mod clipping_iter;
+#[doc(hidden)]
+mod cache;
+
+#[doc(hidden)]
+pub mod coding;
+
 pub mod compaction;
 mod compression;
 mod config;
@@ -145,7 +152,10 @@ pub mod file;
 
 mod hash;
 
+mod iter_guard;
+
 mod key;
+mod key_range;
 
 #[doc(hidden)]
 pub mod level_manifest;
@@ -155,9 +165,6 @@ mod run_scanner;
 
 mod manifest;
 mod memtable;
-
-#[doc(hidden)]
-mod cache;
 
 #[doc(hidden)]
 mod descriptor_table;
@@ -179,8 +186,8 @@ mod path;
 pub mod range;
 
 mod seqno;
+mod slice;
 mod slice_windows;
-mod snapshot;
 
 #[doc(hidden)]
 pub mod stop_signal;
@@ -190,6 +197,7 @@ mod time;
 mod tree;
 mod value;
 mod version;
+mod vlog;
 
 #[doc(hidden)]
 pub mod segment;
@@ -198,12 +206,7 @@ pub mod segment;
 pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
-pub use value_log::KeyRange;
-
-#[doc(hidden)]
-pub mod coding {
-    pub use value_log::coding::{Decode, DecodeError, Encode, EncodeError};
-}
+pub use key_range::KeyRange;
 
 #[doc(hidden)]
 pub use {
@@ -221,33 +224,46 @@ pub use {
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
+    iter_guard::IterGuard as Guard,
     memtable::Memtable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
-    snapshot::Snapshot,
     tree::Tree,
-    value::{SeqNo, UserKey, UserValue, ValueType},
+    value::{SeqNo, ValueType},
 };
 
 pub use any_tree::AnyTree;
 
 pub use blob_tree::BlobTree;
 
-pub use value_log::{BlobCache, Slice};
+pub use slice::Slice;
+
+/// User defined key
+pub type UserKey = Slice;
+
+/// User defined data (byte array)
+pub type UserValue = Slice;
 
 /// Blob garbage collection utilities
 pub mod gc {
-    pub use value_log::{
+    pub use super::vlog::{
         GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
     };
 }
 
+// TODO: investigate perf
 macro_rules! unwrap {
-    ($x:expr) => {
-        $x.expect("should read")
+    ($x:expr) => {{
+        #[cfg(not(feature = "use_unsafe"))]
+        {
+            $x.expect("should read")
+        }
 
-        // unsafe { $x.unwrap_unchecked() }
-    };
+        #[cfg(feature = "use_unsafe")]
+        {
+            unsafe { $x.unwrap_unchecked() }
+        }
+    }};
 }
 
 pub(crate) use unwrap;

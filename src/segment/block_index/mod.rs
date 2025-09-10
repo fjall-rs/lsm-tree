@@ -5,7 +5,8 @@
 pub(crate) mod iter;
 
 use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
-use crate::segment::block::ParsedItem;
+use crate::{segment::block::ParsedItem, Cache};
+use std::sync::Arc;
 
 #[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {

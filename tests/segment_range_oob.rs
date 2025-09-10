@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
@@ -18,11 +18,11 @@ fn segment_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(4, tree.range(..="k", None, None).count());
-    assert_eq!(4, tree.range(..="k", None, None).rev().count());
+    assert_eq!(4, tree.range(..="k", SeqNo::MAX, None).count());
+    assert_eq!(4, tree.range(..="k", SeqNo::MAX, None).rev().count());
 
-    assert_eq!(4, tree.range("0"..="k", None, None).count());
-    assert_eq!(4, tree.range("0"..="k", None, None).rev().count());
+    assert_eq!(4, tree.range("0"..="k", SeqNo::MAX, None).count());
+    assert_eq!(4, tree.range("0"..="k", SeqNo::MAX, None).rev().count());
 
     Ok(())
 }
@@ -43,24 +43,36 @@ fn segment_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     }
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(50, tree.range((50u64.to_be_bytes()).., None, None).count());
     assert_eq!(
         50,
-        tree.range((50u64.to_be_bytes()).., None, None)
+        tree.range((50u64.to_be_bytes()).., SeqNo::MAX, None)
+            .count()
+    );
+    assert_eq!(
+        50,
+        tree.range((50u64.to_be_bytes()).., SeqNo::MAX, None)
             .rev()
             .count()
     );
 
     assert_eq!(
         50,
-        tree.range((50u64.to_be_bytes())..(150u64.to_be_bytes()), None, None)
-            .count()
+        tree.range(
+            (50u64.to_be_bytes())..(150u64.to_be_bytes()),
+            SeqNo::MAX,
+            None
+        )
+        .count()
     );
     assert_eq!(
         50,
-        tree.range((50u64.to_be_bytes())..(150u64.to_be_bytes()), None, None)
-            .rev()
-            .count()
+        tree.range(
+            (50u64.to_be_bytes())..(150u64.to_be_bytes()),
+            SeqNo::MAX,
+            None
+        )
+        .rev()
+        .count()
     );
 
     Ok(())
