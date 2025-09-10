@@ -26,6 +26,7 @@ metrics = []
 
 [dependencies]
 byteorder = "1.5.0"
+byteview = { git = "https://github.com/fjall-rs/byteview" }
 crossbeam-skiplist = "0.1.3"
 enum_dispatch = "0.3.13"
 interval-heap = "0.0.5"
