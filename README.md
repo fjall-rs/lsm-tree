@@ -22,7 +22,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Thread-safe `BTreeMap`-like API
 - Mostly [safe](./UNSAFE.md) & 100% stable Rust
 - Block-based tables with compression support & prefix truncation
-  - Optional block hash indexes in blocks for faster point lookups [[3]](#footnotes)
+  - Optional block hash indexes in data blocks for faster point lookups [[3]](#footnotes)
   - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
 - Block caching to keep hot data in memory
