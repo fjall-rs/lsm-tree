@@ -73,6 +73,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::trace!("Acquiring levels manifest lock");
     let original_levels = opts.levels.write().expect("lock is poisoned");
 
+    let start = Instant::now();
     log::trace!(
         "Consulting compaction strategy {:?}",
         opts.strategy.get_name(),
