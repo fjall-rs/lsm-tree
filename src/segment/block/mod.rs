@@ -20,7 +20,7 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
     coding::{Decode, Encode},
-    segment::{BlockHandle, DataBlock},
+    segment::BlockHandle,
     CompressionType, Slice,
 };
 use std::fs::File;
@@ -204,7 +204,7 @@ impl Block {
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
 
-                builder.freeze().into()
+                builder.freeze()
             }
         };
 
