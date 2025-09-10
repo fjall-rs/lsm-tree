@@ -18,9 +18,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -48,9 +46,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        src.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        src.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -73,9 +69,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        dest.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        dest.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -107,9 +101,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -140,9 +132,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        src.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        src.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -168,9 +158,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        dest.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        dest.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(

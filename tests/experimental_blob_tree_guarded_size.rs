@@ -12,9 +12,7 @@ fn experimental_blob_tree_guarded_size() -> lsm_tree::Result<()> {
 
     assert_eq!(
         10_003u32,
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(Guard::size)
-            .sum(),
+        tree.iter(SeqNo::MAX, None).flat_map(Guard::size).sum(),
     );
 
     Ok(())

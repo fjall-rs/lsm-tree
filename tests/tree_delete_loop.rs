@@ -24,18 +24,15 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 3);
     assert_eq!(
-        tree.prefix("a:".as_bytes(), SeqNo::MAX, None)
-            .count(),
+        tree.prefix("a:".as_bytes(), SeqNo::MAX, None).count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.prefix("b:".as_bytes(), SeqNo::MAX, None)
-            .count(),
+        tree.prefix("b:".as_bytes(), SeqNo::MAX, None).count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.prefix("c:".as_bytes(), SeqNo::MAX, None)
-            .count(),
+        tree.prefix("c:".as_bytes(), SeqNo::MAX, None).count(),
         ITEM_COUNT
     );
 
@@ -46,18 +43,12 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
     assert_eq!(
-        tree.prefix("a:".as_bytes(), SeqNo::MAX, None)
-            .count(),
+        tree.prefix("a:".as_bytes(), SeqNo::MAX, None).count(),
         ITEM_COUNT
     );
+    assert_eq!(tree.prefix("b:".as_bytes(), SeqNo::MAX, None).count(), 0);
     assert_eq!(
-        tree.prefix("b:".as_bytes(), SeqNo::MAX, None)
-            .count(),
-        0
-    );
-    assert_eq!(
-        tree.prefix("c:".as_bytes(), SeqNo::MAX, None)
-            .count(),
+        tree.prefix("c:".as_bytes(), SeqNo::MAX, None).count(),
         ITEM_COUNT
     );
 

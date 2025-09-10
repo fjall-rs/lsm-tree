@@ -12,12 +12,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .flat_map(|x| x.key())
-                .count(),
-            0
-        );
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
         assert_eq!(
             tree.iter(SeqNo::MAX, None)
                 .map(|x| x.key())
@@ -33,12 +28,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .flat_map(|x| x.key())
-                .count(),
-            0
-        );
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
         assert_eq!(
             tree.iter(SeqNo::MAX, None)
                 .map(|x| x.key())
@@ -56,12 +46,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
         let tree = Config::new(&folder).open_as_blob_tree()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .flat_map(|x| x.key())
-                .count(),
-            0
-        );
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
         assert_eq!(
             tree.iter(SeqNo::MAX, None)
                 .map(|x| x.key())
@@ -102,9 +87,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .flat_map(|x| x.key())
-                .count(),
+            tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
             ITEM_COUNT * 2
         );
         assert_eq!(
@@ -123,9 +106,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .flat_map(|x| x.key())
-                .count(),
+            tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
             ITEM_COUNT * 2
         );
         assert_eq!(

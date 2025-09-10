@@ -17,9 +17,7 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -49,9 +47,7 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
@@ -81,9 +77,7 @@ fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(SeqNo::MAX, None)
-            .flat_map(|x| x.key())
-            .count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
