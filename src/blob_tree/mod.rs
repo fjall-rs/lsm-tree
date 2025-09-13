@@ -131,8 +131,7 @@ impl BlobTree {
         })
     }
 
-    /// Scans the index tree, collecting statistics about
-    /// value log fragmentation
+    /// Scans the index tree, collecting statistics about value log fragmentation.
     #[doc(hidden)]
     pub fn gc_scan_stats(
         &self,
@@ -512,6 +511,9 @@ impl AbstractTree for BlobTree {
         }
 
         let _memtable_lock = self.lock_active_memtable();
+
+        // TODO: 3.0.0
+        // TODO: add to vlog atomically together with the segment (that way, we don't need the pending_segments monkey patch)
 
         log::trace!("Register blob writer into value log");
         self.blobs.register_writer(blob_writer)?;

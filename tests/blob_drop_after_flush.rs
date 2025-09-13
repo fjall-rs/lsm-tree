@@ -2,6 +2,10 @@ use lsm_tree::{AbstractTree, Config, SeqNo};
 use std::time::Duration;
 use test_log::test;
 
+// NOTE: This was a race condition in v2 that could drop a blob file
+// before its corresponding segment was registered
+//
+// https://github.com/fjall-rs/lsm-tree/commit/a3a174ed9eff0755f671f793626d17f4ef3f5f57
 #[test]
 #[ignore = "restore"]
 fn blob_drop_after_flush() -> lsm_tree::Result<()> {

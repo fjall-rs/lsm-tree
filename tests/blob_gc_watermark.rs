@@ -1,6 +1,10 @@
 use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
+// NOTE: This was a logic/MVCC error in v2 that could drop
+// a blob file while it was maybe accessible by a snapshot read
+//
+// https://github.com/fjall-rs/lsm-tree/commit/79c6ead4b955051cbb4835913e21d08b8aeafba1
 #[test]
 #[ignore]
 fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
