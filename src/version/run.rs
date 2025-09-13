@@ -112,7 +112,7 @@ impl<T: Ranged> Run<T> {
     pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
         let range = key_range.min()..=key_range.max();
 
-        let Some((lo, hi)) = self.range_indexes::<crate::Slice, _>(&range) else {
+        let Some((lo, hi)) = self.range_overlap_indexes::<crate::Slice, _>(&range) else {
             return &[];
         };
 
@@ -137,7 +137,7 @@ impl<T: Ranged> Run<T> {
 
         let range = key_range.min()..=key_range.max();
 
-        let Some((lo, hi)) = self.range_indexes::<crate::Slice, _>(&range) else {
+        let Some((lo, hi)) = self.range_overlap_indexes::<crate::Slice, _>(&range) else {
             return &[];
         };
 
@@ -147,7 +147,7 @@ impl<T: Ranged> Run<T> {
     }
 
     /// Returns the indexes of the interval [min, max] of segments that overlap with a given range.
-    pub fn range_indexes<K: AsRef<[u8]>, R: RangeBounds<K>>(
+    pub fn range_overlap_indexes<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         key_range: &R,
     ) -> Option<(usize, usize)> {
@@ -278,18 +278,47 @@ mod tests {
         ];
         let run = Run(items);
 
-        assert_eq!(Some((0, 3)), run.range_indexes::<&[u8], _>(&..));
-        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"a")));
-        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"b")));
-        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..=b"d")));
-        assert_eq!(Some((0, 0)), run.range_indexes(&(b"d" as &[u8]..=b"d")));
-        assert_eq!(Some((0, 0)), run.range_indexes(&(b"a" as &[u8]..b"d")));
-        assert_eq!(Some((0, 1)), run.range_indexes(&(b"a" as &[u8]..=b"g")));
-        assert_eq!(Some((1, 1)), run.range_indexes(&(b"j" as &[u8]..=b"j")));
-        assert_eq!(Some((0, 3)), run.range_indexes(&(b"a" as &[u8]..=b"z")));
-        assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..=b"zzz")));
-        assert_eq!(Some((3, 3)), run.range_indexes(&(b"z" as &[u8]..)));
-        assert!(run.range_indexes(&(b"zzz" as &[u8]..=b"zzzzzzz")).is_none());
+        assert_eq!(Some((0, 3)), run.range_overlap_indexes::<&[u8], _>(&..));
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..=b"a"))
+        );
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..=b"b"))
+        );
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..=b"d"))
+        );
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes(&(b"d" as &[u8]..=b"d"))
+        );
+        assert_eq!(
+            Some((0, 0)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..b"d"))
+        );
+        assert_eq!(
+            Some((0, 1)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..=b"g"))
+        );
+        assert_eq!(
+            Some((1, 1)),
+            run.range_overlap_indexes(&(b"j" as &[u8]..=b"j"))
+        );
+        assert_eq!(
+            Some((0, 3)),
+            run.range_overlap_indexes(&(b"a" as &[u8]..=b"z"))
+        );
+        assert_eq!(
+            Some((3, 3)),
+            run.range_overlap_indexes(&(b"z" as &[u8]..=b"zzz"))
+        );
+        assert_eq!(Some((3, 3)), run.range_overlap_indexes(&(b"z" as &[u8]..)));
+        assert!(run
+            .range_overlap_indexes(&(b"zzz" as &[u8]..=b"zzzzzzz"))
+            .is_none());
     }
 
     #[test]
