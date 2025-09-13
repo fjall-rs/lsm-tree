@@ -5,7 +5,7 @@
 pub(crate) mod hidden_set;
 
 use crate::{
-    coding::DecodeError,
+    coding::{DecodeError, Encode},
     file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
     segment::Segment,
     version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
@@ -142,6 +142,7 @@ impl LevelManifest {
         Ok(manifest)
     }
 
+    // TODO: move into Version::decode
     pub(crate) fn load_version(path: &Path) -> crate::Result<Vec<Vec<Vec<SegmentId>>>> {
         let mut level_manifest = Cursor::new(std::fs::read(path)?);
 
@@ -280,32 +281,7 @@ impl LevelManifest {
         let file = std::fs::File::create_new(folder.join(format!("v{}", version.id())))?;
         let mut writer = BufWriter::new(file);
 
-        // Magic
-        writer.write_all(&MAGIC_BYTES)?;
-
-        // Level count
-        // NOTE: We know there are always less than 256 levels
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u8(version.level_count() as u8)?;
-
-        for level in version.iter_levels() {
-            // Run count
-            // NOTE: We know there are always less than 256 runs
-            #[allow(clippy::cast_possible_truncation)]
-            writer.write_u8(level.len() as u8)?;
-
-            for run in level.iter() {
-                // Segment count
-                // NOTE: We know there are always less than 4 billion segments in a run
-                #[allow(clippy::cast_possible_truncation)]
-                writer.write_u32::<LittleEndian>(run.len() as u32)?;
-
-                // Segment IDs
-                for id in run.iter().map(Segment::id) {
-                    writer.write_u64::<LittleEndian>(id)?;
-                }
-            }
-        }
+        version.encode_into(&mut writer)?;
 
         writer.flush()?;
         writer.get_mut().sync_all()?;
@@ -447,13 +423,13 @@ mod tests {
     use crate::{
         coding::Encode,
         level_manifest::{hidden_set::HiddenSet, LevelManifest},
+        version::Version,
         AbstractTree,
     };
+    use std::collections::VecDeque;
     use test_log::test;
 
-    // TODO: restore
-    /* #[test]
-    #[ignore]
+    #[test]
     fn level_manifest_atomicity() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
@@ -479,12 +455,12 @@ mod tests {
 
         // NOTE: Purposefully change level manifest to have invalid path
         // to force an I/O error
-        tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
+        tree.manifest.write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
 
         assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
             .hidden_set
@@ -493,30 +469,5 @@ mod tests {
         assert_eq!(segment_count_before_major_compact, tree.segment_count());
 
         Ok(())
-    } */
-
-    /*    #[test]
-    fn level_manifest_raw_empty() -> crate::Result<()> {
-        let manifest = LevelManifest {
-            hidden_set: HiddenSet::default(),
-            levels: Vec::default(),
-            path: "a".into(),
-            is_disjoint: false,
-        };
-
-        let bytes = Runs(&manifest.deep_clone()).encode_into_vec();
-
-        #[rustfmt::skip]
-        let raw = &[
-            // Magic
-            b'L', b'S', b'M', 3,
-
-            // Count
-            0,
-        ];
-
-        assert_eq!(bytes, raw);
-
-        Ok(())
-    } */
+    }
 }

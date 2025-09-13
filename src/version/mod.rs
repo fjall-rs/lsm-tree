@@ -7,7 +7,7 @@ pub mod run;
 
 pub use run::Run;
 
-use crate::{HashSet, KeyRange, Segment, SegmentId, SeqNo};
+use crate::{coding::Encode, HashSet, KeyRange, Segment, SegmentId, SeqNo};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
@@ -358,5 +358,78 @@ impl Version {
             inner: Arc::new(VersionInner { id, levels }),
             seqno_watermark: 0,
         }
+    }
+}
+
+impl Encode for Version {
+    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::EncodeError> {
+        use crate::file::MAGIC_BYTES;
+        use byteorder::{LittleEndian, WriteBytesExt};
+
+        // Magic
+        writer.write_all(&MAGIC_BYTES)?;
+
+        // Level count
+        // NOTE: We know there are always less than 256 levels
+        #[allow(clippy::cast_possible_truncation)]
+        writer.write_u8(self.level_count() as u8)?;
+
+        for level in self.iter_levels() {
+            // Run count
+            // NOTE: We know there are always less than 256 runs
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u8(level.len() as u8)?;
+
+            for run in level.iter() {
+                // Segment count
+                // NOTE: We know there are always less than 4 billion segments in a run
+                #[allow(clippy::cast_possible_truncation)]
+                writer.write_u32::<LittleEndian>(run.len() as u32)?;
+
+                // Segment IDs
+                for id in run.iter().map(Segment::id) {
+                    writer.write_u64::<LittleEndian>(id)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn version_encode_empty() {
+        let bytes = Version::new(0).encode_into_vec();
+
+        #[rustfmt::skip]
+        let raw = &[
+            // Magic
+            b'L', b'S', b'M', 3,
+
+            // Level count
+            7,
+
+            // L0 runs
+            0,
+            // L1 runs
+            0,
+            // L2 runs
+            0,
+            // L3 runs
+            0,
+            // L4 runs
+            0,
+            // L5 runs
+            0,
+            // L6 runs
+            0,
+        ];
+
+        assert_eq!(bytes, raw);
     }
 }
