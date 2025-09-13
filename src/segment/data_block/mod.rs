@@ -271,10 +271,6 @@ pub struct DataBlock {
 }
 
 impl DataBlock {
-    // TODO: maybe make the constructor check the block type, so we don't have to do it in the
-    // block loading routine...
-    // TODO:  for index block etc. too
-
     /// Interprets a block as a data block.
     ///
     /// The caller needs to make sure the block is actually a data block
