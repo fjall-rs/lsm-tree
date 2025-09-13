@@ -208,6 +208,14 @@ mod tests {
             },
             [0; 50],
         );
+        assert_eq!(
+            &*unsafe {
+                let mut b = Slice::builder_unzeroed(50);
+                b.fill(77);
+                b.freeze()
+            },
+            [77; 50],
+        );
     }
 
     /// This test verifies that we can create a `Slice` from various types and compare a `Slice` with them.
