@@ -295,7 +295,7 @@ impl DataBlock {
         self.inner.size()
     }
 
-    pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader {
+    pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
         let trailer = Trailer::new(&self.inner);
         let mut reader = trailer.as_slice();
 
