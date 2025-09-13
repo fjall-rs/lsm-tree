@@ -83,39 +83,6 @@ impl InternalKey {
     }
 }
 
-// TODO: 3.0.0 remove
-impl Encode for InternalKey {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_u8(u8::from(self.value_type))?;
-
-        writer.write_u64_varint(self.seqno)?;
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16_varint(self.user_key.len() as u16)?;
-        writer.write_all(&self.user_key)?;
-
-        Ok(())
-    }
-}
-
-// TODO: 3.0.0 remove
-impl Decode for InternalKey {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let value_type = reader.read_u8()?;
-        let value_type = value_type
-            .try_into()
-            .map_err(|()| DecodeError::InvalidTag(("ValueType", value_type)))?;
-
-        let seqno = reader.read_u64_varint()?;
-
-        let key_len = reader.read_u16_varint()?;
-        let key = UserKey::from_reader(reader, key_len.into())?;
-
-        Ok(Self::new(key, seqno, value_type))
-    }
-}
-
 impl PartialOrd for InternalKey {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))

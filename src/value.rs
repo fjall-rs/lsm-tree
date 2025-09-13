@@ -2,13 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    key::InternalKey,
-    Slice,
-};
-use std::io::{Read, Write};
-use varint_rs::{VarintReader, VarintWriter};
+use crate::{key::InternalKey, Slice};
 
 /// User defined key
 pub type UserKey = Slice;
@@ -22,7 +16,8 @@ pub type UserValue = Slice;
 /// Values with the same seqno are part of the same batch.
 ///
 /// A value with a higher sequence number shadows an item with the
-/// same key and lower sequence number. This enables MVCC.
+/// same key and lower sequence number.
+/// This enables MVCC.
 ///
 /// Stale items are lazily garbage-collected during compaction.
 pub type SeqNo = u64;
@@ -170,44 +165,6 @@ impl std::fmt::Debug for InternalValue {
     }
 }
 
-// TODO: 3.0.0 remove
-impl Encode for InternalValue {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        self.key.encode_into(writer)?;
-
-        // NOTE: Only write value len + value if we are actually a value
-        if !self.is_tombstone() {
-            // NOTE: We know values are limited to 32-bit length
-            #[allow(clippy::cast_possible_truncation)]
-            writer.write_u32_varint(self.value.len() as u32)?;
-            writer.write_all(&self.value)?;
-        }
-
-        Ok(())
-    }
-}
-
-// TODO: 3.0.0 remove
-impl Decode for InternalValue {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let key = InternalKey::decode_from(reader)?;
-
-        if key.is_tombstone() {
-            Ok(Self {
-                key,
-                value: UserValue::empty(),
-            })
-        } else {
-            // NOTE: Only read value if we are actually a value
-
-            let value_len = reader.read_u32_varint()?;
-            let value = UserValue::from_reader(reader, value_len as usize)?;
-
-            Ok(Self { key, value })
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,76 +182,5 @@ mod tests {
         let a = InternalKey::new(*b"a", 0, ValueType::Value);
         let b = InternalKey::new(*b"a", 1, ValueType::Value);
         assert!(a > b);
-    }
-
-    /*   #[test]
-    fn value_raw() -> crate::Result<()> {
-        // Create an empty Value instance
-        let value =
-            InternalValue::from_components(vec![1, 2, 3], vec![3, 2, 1], 1, ValueType::Value);
-
-        #[rustfmt::skip]
-        let bytes = [
-            // Seqno
-            1,
-
-            // Type
-            0,
-
-            // User key
-            3, 1, 2, 3,
-
-            // User value
-            3, 3, 2, 1,
-        ];
-
-        // Deserialize the empty Value
-        let deserialized = InternalValue::decode_from(&mut Cursor::new(bytes))?;
-
-        // Check if deserialized Value is equivalent to the original empty Value
-        assert_eq!(value, deserialized);
-
-        Ok(())
-    } */
-
-    #[test]
-    fn value_empty_value() -> crate::Result<()> {
-        // Create an empty Value instance
-        let value = InternalValue::from_components(vec![1, 2, 3], vec![], 42, ValueType::Value);
-
-        // Serialize the empty Value
-        let mut serialized = Vec::new();
-        value.encode_into(&mut serialized)?;
-
-        // Deserialize the empty Value
-        let deserialized = InternalValue::decode_from(&mut &serialized[..])?;
-
-        // Check if deserialized Value is equivalent to the original empty Value
-        assert_eq!(value, deserialized);
-
-        Ok(())
-    }
-
-    #[test]
-    fn value_with_value() -> crate::Result<()> {
-        // Create an empty Value instance
-        let value = InternalValue::from_components(
-            vec![1, 2, 3],
-            vec![6, 2, 6, 2, 7, 5, 7, 8, 98],
-            42,
-            ValueType::Value,
-        );
-
-        // Serialize the empty Value
-        let mut serialized = Vec::new();
-        value.encode_into(&mut serialized)?;
-
-        // Deserialize the empty Value
-        let deserialized = InternalValue::decode_from(&mut &serialized[..])?;
-
-        // Check if deserialized Value is equivalent to the original empty Value
-        assert_eq!(value, deserialized);
-
-        Ok(())
     }
 }
