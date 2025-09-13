@@ -3,10 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{
-    config::Config, level_manifest::LevelManifest, segment::Segment, version::run::Ranged, HashSet,
-    KeyRange,
-};
+use crate::{config::Config, level_manifest::LevelManifest, KeyRange};
+use crate::{HashSet, Segment};
 
 /// Drops all segments that are **contained** in a key range
 pub struct Strategy {
@@ -33,8 +31,10 @@ impl CompactionStrategy for Strategy {
 
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         let segment_ids: HashSet<_> = levels
-            .iter()
-            .filter(|segment| self.key_range.contains_range(segment.key_range()))
+            .current_version()
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .flat_map(|run| run.get_contained(&self.key_range))
             .map(Segment::id)
             .collect();
 
