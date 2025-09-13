@@ -531,7 +531,7 @@ impl Tree {
             return Ok(None);
         };
 
-        log::debug!("Finalized segment write at {segment_file_path:?}");
+        log::debug!("Finalized segment write at {}", segment_file_path.display());
 
         /* let block_index =
             FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
