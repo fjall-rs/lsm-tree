@@ -408,9 +408,15 @@ impl Segment {
                 let block = Block::from_file(
                     &file,
                     regions.tli,
-                    BlockType::Index,
                     CompressionType::None, // TODO: allow setting index block compression
                 )?;
+
+                if block.header.block_type != BlockType::Index {
+                    return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                        "BlockType",
+                        block.header.block_type.into(),
+                    ))));
+                }
 
                 IndexBlock::new(block)
             };
@@ -425,7 +431,7 @@ impl Segment {
             BlockIndexImpl::VolatileFull
         };
 
-        // TODO: load FilterBlock
+        // TODO: load FilterBlock, check block type
         let pinned_filter_block = if pin_filter {
             regions
                 .filter
@@ -437,7 +443,6 @@ impl Segment {
                     Block::from_file(
                         &file,
                         filter_handle,
-                        BlockType::Filter,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                     )
                 })

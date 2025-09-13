@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
-use crate::{coding::Decode, CompressionType, KeyRange, SegmentId, SeqNo};
+use crate::{
+    coding::Decode, segment::block::BlockType, CompressionType, KeyRange, SegmentId, SeqNo,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 
@@ -49,12 +51,15 @@ pub struct ParsedMeta {
 impl ParsedMeta {
     #[allow(clippy::expect_used, clippy::too_many_lines)]
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
-        let block = Block::from_file(
-            file,
-            *handle,
-            crate::segment::block::BlockType::Meta,
-            CompressionType::None,
-        )?;
+        let block = Block::from_file(file, *handle, CompressionType::None)?;
+
+        if block.header.block_type != BlockType::Meta {
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                block.header.block_type.into(),
+            ))));
+        }
+
         let block = DataBlock::new(block);
 
         assert_eq!(

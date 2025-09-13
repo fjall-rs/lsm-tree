@@ -5,7 +5,7 @@
 use super::{Block, BlockHandle};
 use crate::{
     coding::{Decode, Encode},
-    segment::DataBlock,
+    segment::{block::BlockType, DataBlock},
     CompressionType, InternalValue, SeqNo, UserValue,
 };
 use std::fs::File;
@@ -21,12 +21,15 @@ pub struct ParsedRegions {
 
 impl ParsedRegions {
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
-        let block = Block::from_file(
-            file,
-            *handle,
-            crate::segment::block::BlockType::Regions,
-            CompressionType::None,
-        )?;
+        let block = Block::from_file(file, *handle, CompressionType::None)?;
+
+        if block.header.block_type != BlockType::Regions {
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                block.header.block_type.into(),
+            ))));
+        }
+
         let block = DataBlock::new(block);
 
         let tli = {

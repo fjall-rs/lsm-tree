@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, DataBlock};
-use crate::{segment::iter::OwnedDataBlockIter, CompressionType, InternalValue};
+use crate::{
+    segment::{block::BlockType, iter::OwnedDataBlockIter},
+    CompressionType, InternalValue,
+};
 use std::{fs::File, io::BufReader, path::Path};
 
 /// Segment reader that is optimized for consuming an entire segment
@@ -42,8 +45,21 @@ impl Scanner {
         reader: &mut BufReader<File>,
         compression: CompressionType,
     ) -> crate::Result<DataBlock> {
-        Block::from_reader(reader, crate::segment::block::BlockType::Data, compression)
-            .map(DataBlock::new)
+        let block = Block::from_reader(reader, compression);
+
+        match block {
+            Ok(block) => {
+                if block.header.block_type != BlockType::Data {
+                    return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                        "BlockType",
+                        block.header.block_type.into(),
+                    ))));
+                }
+
+                Ok(DataBlock::new(block))
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

@@ -80,7 +80,6 @@ impl Block {
     /// Reads a block from a reader.
     pub fn from_reader<R: std::io::Read>(
         reader: &mut R,
-        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
@@ -110,23 +109,10 @@ impl Block {
             }
         });
 
-        if header.block_type != block_type {
-            log::error!(
-                "Block type mismatch, got={:?}, expected={:?}",
-                header.block_type,
-                block_type,
-            );
-
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                "BlockType",
-                header.block_type.into(),
-            ))));
-        }
-
         let checksum = Checksum::from_raw(crate::hash::hash128(&data));
         if checksum != header.checksum {
             log::warn!(
-                "Checksum mismatch for {block_type:?}@<bufreader>, got={}, expected={}",
+                "Checksum mismatch for <bufreader>, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
@@ -140,7 +126,6 @@ impl Block {
     pub fn from_file(
         file: &File,
         handle: BlockHandle,
-        block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Self> {
         #[warn(unsafe_code)]
@@ -213,23 +198,10 @@ impl Block {
             debug_assert_eq!(header.uncompressed_length, buf.len() as u32);
         }
 
-        if header.block_type != block_type {
-            log::error!(
-                "Block type mismatch, got={:?}, expected={:?}",
-                header.block_type,
-                block_type,
-            );
-
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                "BlockType",
-                header.block_type.into(),
-            ))));
-        }
-
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
         if checksum != header.checksum {
             log::warn!(
-                "Checksum mismatch for block {block_type:?}@{handle:?}, got={}, expected={}",
+                "Checksum mismatch for block {handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
