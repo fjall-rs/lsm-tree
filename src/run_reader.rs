@@ -27,7 +27,7 @@ impl RunReader {
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
 
-        let (lo, hi) = run.range_indexes(&range)?;
+        let (lo, hi) = run.range_overlap_indexes(&range)?;
 
         Some(Self::culled(run, range, (Some(lo), Some(hi)), cache_policy))
     }
