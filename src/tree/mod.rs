@@ -141,6 +141,7 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
+    // TODO: change API to RangeBounds<K>
     fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
 
