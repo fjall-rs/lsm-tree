@@ -833,7 +833,7 @@ impl Tree {
         use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
         use inner::get_next_tree_id;
 
-        log::info!("Recovering LSM-tree at {:?}", config.path);
+        log::info!("Recovering LSM-tree at {}", config.path.display());
 
         let bytes = std::fs::read(config.path.join(MANIFEST_FILE))?;
         let mut bytes = Cursor::new(bytes);
