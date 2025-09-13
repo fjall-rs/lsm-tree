@@ -78,7 +78,7 @@ impl IndexBlock {
 
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<'_> {
         Iter::new(Decoder::<KeyedBlockHandle, IndexBlockParsedItem>::new(
             &self.inner,
         ))
