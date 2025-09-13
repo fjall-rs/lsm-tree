@@ -25,7 +25,8 @@ bloom_use_unsafe = []
 metrics = []
 
 [dependencies]
-byteorder = "1.5.0"
+bytes = { version = "1", optional = true }
+byteorder = { package = "byteorder-lite", version = "0.1.0" }
 byteview = { git = "https://github.com/fjall-rs/byteview" }
 crossbeam-skiplist = "0.1.3"
 enum_dispatch = "0.3.13"
