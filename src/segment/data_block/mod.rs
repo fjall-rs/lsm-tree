@@ -11,6 +11,7 @@ use super::block::{
     Decodable, Decoder, Encodable, Encoder, ParsedItem, Trailer, TRAILER_START_MARKER,
 };
 use crate::key::InternalKey;
+use crate::segment::block::hash_index::{MARKER_CONFLICT, MARKER_FREE};
 use crate::segment::util::{compare_prefixed_slice, SliceIndexes};
 use crate::{unwrap, InternalValue, SeqNo, Slice, ValueType};
 use byteorder::WriteBytesExt;
@@ -297,11 +298,11 @@ impl DataBlock {
 
     pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
         let trailer = Trailer::new(&self.inner);
-        let mut reader = trailer.as_slice();
 
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
+        // NOTE: Skip item count (u32) and restart interval (u8)
+        let offset = std::mem::size_of::<u32>() + std::mem::size_of::<u8>();
 
-        let _restart_interval = unwrap!(reader.read_u8());
+        let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
         let binary_index_step_size = unwrap!(reader.read_u8());
 
@@ -359,45 +360,54 @@ impl DataBlock {
     // TODO: handle seqno more nicely (make Key generic, so we can do binary search over (key, seqno))
     #[must_use]
     pub fn point_read(&self, needle: &[u8], seqno: SeqNo) -> Option<InternalValue> {
-        let mut iter = self.iter();
-
-        if let Some(hash_index_reader) = self.get_hash_index_reader() {
-            use super::block::hash_index::Lookup::{Conflicted, Found, NotFound};
-
+        let iter = if let Some(hash_index_reader) = self.get_hash_index_reader() {
             match hash_index_reader.get(needle) {
-                Found(idx) => {
-                    let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
-                    iter.seek_to_offset(offset);
-                }
-                NotFound => {
+                MARKER_FREE => {
                     return None;
                 }
-                Conflicted => {
+                MARKER_CONFLICT => {
                     // NOTE: Fallback to binary search
+                    let mut iter = self.iter();
+
                     if !iter.seek(needle) {
                         return None;
                     }
+
+                    iter
+                }
+                idx => {
+                    let offset: usize = self.get_binary_index_reader().get(usize::from(idx));
+
+                    let mut iter = self.iter();
+                    iter.seek_to_offset(offset);
+
+                    iter
                 }
             }
         } else {
+            let mut iter = self.iter();
+
             // NOTE: Fallback to binary search
             if !iter.seek(needle) {
                 return None;
             }
-        }
 
+            iter
+        };
+
+        // Linear scan
         for item in iter {
             match item.compare_key(needle, &self.inner.data) {
-                std::cmp::Ordering::Less => {
-                    // We are past our searched key
-                    continue;
-                }
                 std::cmp::Ordering::Greater => {
                     // We are before our searched key/seqno
                     return None;
                 }
                 std::cmp::Ordering::Equal => {
                     // If key is same as needle, check sequence number
+                }
+                std::cmp::Ordering::Less => {
+                    // We are past our searched key
+                    continue;
                 }
             }
 

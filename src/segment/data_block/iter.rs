@@ -40,7 +40,7 @@ impl<'a> Iter<'a> {
         if !self
             .decoder
             .inner_mut()
-            .seek(needle, |head_key| head_key < needle, false)
+            .seek(|head_key| head_key < needle, false)
         {
             return false;
         }

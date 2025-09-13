@@ -24,7 +24,7 @@ impl<'a> Iter<'a> {
     pub fn seek(&mut self, needle: &[u8]) -> bool {
         self.decoder
             .inner_mut()
-            .seek(needle, |end_key| end_key < needle, true)
+            .seek(|end_key| end_key < needle, true)
     }
 
     pub fn seek_upper(&mut self, needle: &[u8]) -> bool {

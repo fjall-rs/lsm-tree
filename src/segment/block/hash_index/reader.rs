@@ -4,19 +4,6 @@
 
 use super::{calculate_bucket_position, MARKER_CONFLICT, MARKER_FREE};
 
-/// Hash index lookup result
-#[derive(Debug, Eq, PartialEq)]
-pub enum Lookup {
-    /// Key is found, can skip the binary index search - fast path
-    Found(u8),
-
-    /// Key's bucket was still FREE, so it definitely does not exist
-    NotFound,
-
-    /// Key is conflicted - we need to look in the binary index instead - slow path
-    Conflicted,
-}
-
 /// Helper to read from an embedded block hash index
 pub struct Reader<'a>(&'a [u8]);
 
@@ -60,7 +47,7 @@ impl<'a> Reader<'a> {
 
     /// Returns the binary index position if the key is not conflicted.
     #[must_use]
-    pub fn get(&self, key: &[u8]) -> Lookup {
+    pub fn get(&self, key: &[u8]) -> u8 {
         // NOTE: Even with very high hash ratio, there will be nearly enough items to
         // cause us to create u32 buckets
         #[allow(clippy::cast_possible_truncation)]
@@ -69,13 +56,7 @@ impl<'a> Reader<'a> {
         let bucket_pos = calculate_bucket_position(key, bucket_count);
 
         // SAFETY: We use modulo in `calculate_bucket_position`
-        #[allow(clippy::indexing_slicing)]
-        let marker = self.0[bucket_pos];
-
-        match marker {
-            MARKER_CONFLICT => Lookup::Conflicted,
-            MARKER_FREE => Lookup::NotFound,
-            idx => Lookup::Found(idx),
-        }
+        // SAFETY: Also we already did a bounds check in the constructor using indexing slicing
+        *unsafe { self.0.get_unchecked(bucket_pos) }
     }
 }

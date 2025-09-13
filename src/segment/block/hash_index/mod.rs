@@ -22,10 +22,10 @@ mod builder;
 mod reader;
 
 pub use builder::{Builder, MAX_POINTERS_FOR_HASH_INDEX};
-pub use reader::{Lookup, Reader};
+pub use reader::Reader;
 
-const MARKER_FREE: u8 = u8::MAX - 1; // 254
-const MARKER_CONFLICT: u8 = u8::MAX; // 255
+pub(crate) const MARKER_FREE: u8 = u8::MAX - 1; // 254
+pub(crate) const MARKER_CONFLICT: u8 = u8::MAX; // 255
 
 // NOTE: We know the hash index has a bucket count <= u32
 #[allow(clippy::cast_possible_truncation)]
@@ -69,10 +69,10 @@ mod tests {
         let reader = Reader::new(&bytes, 0, 100);
         assert_eq!(0, reader.conflict_count());
 
-        assert_eq!(Lookup::Found(5), reader.get(b"a"));
-        assert_eq!(Lookup::Found(8), reader.get(b"b"));
-        assert_eq!(Lookup::Found(10), reader.get(b"c"));
-        assert_eq!(Lookup::NotFound, reader.get(b"d"));
+        assert_eq!(5, reader.get(b"a"));
+        assert_eq!(8, reader.get(b"b"));
+        assert_eq!(10, reader.get(b"c"));
+        assert_eq!(MARKER_FREE, reader.get(b"d"));
     }
 
     #[test]
@@ -102,8 +102,8 @@ mod tests {
 
         let reader = Reader::new(&bytes, 0, 1);
         assert_eq!(0, reader.conflict_count());
-        assert_eq!(Lookup::Found(5), reader.get(b"a"));
-        assert_eq!(Lookup::Found(5), reader.get(b"b"));
+        assert_eq!(5, reader.get(b"a"));
+        assert_eq!(5, reader.get(b"b"));
     }
 
     #[test]
@@ -131,9 +131,9 @@ mod tests {
         let bytes = hash_index.into_inner();
 
         let reader = Reader::new(&bytes, 0, 1);
-        assert_eq!(Lookup::Conflicted, reader.get(b"a"));
-        assert_eq!(Lookup::Conflicted, reader.get(b"b"));
-        assert_eq!(Lookup::Conflicted, reader.get(b"c"));
+        assert_eq!(MARKER_CONFLICT, reader.get(b"a"));
+        assert_eq!(MARKER_CONFLICT, reader.get(b"b"));
+        assert_eq!(MARKER_CONFLICT, reader.get(b"c"));
 
         assert_eq!(1, Reader::new(&bytes, 0, 1).conflict_count());
     }

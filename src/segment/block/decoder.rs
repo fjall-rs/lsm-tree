@@ -257,12 +257,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     /// Seeks using the given predicate.
     ///
     /// Returns `false` if the key does not possible exist.
-    pub fn seek(
-        &mut self,
-        needle: &[u8],
-        pred: impl Fn(&[u8]) -> bool,
-        second_partition: bool,
-    ) -> bool {
+    pub fn seek(&mut self, pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         // TODO: make this nicer, maybe predicate that can affect the resulting index...?
         let result = if second_partition {
             self.partition_point_2(pred)
