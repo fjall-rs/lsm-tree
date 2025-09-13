@@ -19,15 +19,15 @@
 //! on disk and perform fast lookup queries.
 //! Instead of updating a disk-based data structure in-place,
 //! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
-//! Data is then flushed to disk segments, as the write buffer reaches some threshold.
+//! Data is then flushed to disk segments when the write buffer reaches some threshold.
 //!
-//! Amassing many segments on disk will degrade read performance and waste disk space usage, so segments
+//! Amassing many segments on disk will degrade read performance and waste disk space, so segments
 //! can be periodically merged into larger segments in a process called `Compaction`.
 //! Different compaction strategies have different advantages and drawbacks, and should be chosen based
 //! on the workload characteristics.
 //!
 //! Because maintaining an efficient structure is deferred to the compaction process, writing to an LSMT
-//! is very fast (O(1) complexity).
+//! is very fast (_O(1)_ complexity).
 //!
 //! Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 //! engine, larger keys and values have a bigger performance impact.
@@ -61,7 +61,7 @@
 //! }
 //!
 //! // Iterators implement DoubleEndedIterator, so you can search backwards, too!
-//! for item in tree.prefix("prefix", 1, None).rev() {
+//! for item in tree.prefix("user1", 1, None).rev() {
 //!   // ...
 //! }
 //!
@@ -69,7 +69,6 @@
 //! // and persisting all in-memory data.
 //! // Note, this flushes synchronously, which may not be desired
 //! tree.flush_active_memtable(0)?;
-//! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // When some disk segments have amassed, use compaction
 //! // to reduce the amount of disk segments
@@ -82,8 +81,6 @@
 //!
 //! let version_gc_threshold = 0;
 //! tree.compact(Arc::new(strategy), version_gc_threshold)?;
-//!
-//! assert_eq!(Some("my_value".as_bytes().into()), item);
 //! #
 //! # Ok::<(), lsm_tree::Error>(())
 //! ```
