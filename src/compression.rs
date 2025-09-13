@@ -6,7 +6,7 @@ use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-/// Compression algorithm to use.
+/// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
