@@ -48,8 +48,8 @@ impl<'a> Reader<'a> {
     /// Returns the binary index position if the key is not conflicted.
     #[must_use]
     pub fn get(&self, key: &[u8]) -> u8 {
-        // NOTE: Even with very high hash ratio, there will be nearly enough items to
-        // cause us to create u32 buckets
+        // NOTE: Even with very high hash ratio, there won't be nearly enough items to
+        // cause us to create ~4 billion buckets
         #[allow(clippy::cast_possible_truncation)]
         let bucket_count = self.0.len() as u32;
 
