@@ -18,10 +18,10 @@ pub struct Builder {
     inner: BitArrayBuilder,
 
     /// Number of hash functions
-    k: usize,
+    pub(crate) k: usize,
 
     /// Number of blocks in the blocked bloom filter
-    num_blocks: usize,
+    pub(crate) num_blocks: usize,
 }
 
 #[allow(clippy::len_without_is_empty)]

@@ -30,10 +30,10 @@ pub struct BlockedBloomFilterReader<'a> {
     inner: BitArrayReader<'a>,
 
     /// Number of hash functions
-    k: usize,
+    pub(crate) k: usize,
 
     /// Number of blocks in the blocked bloom filter
-    num_blocks: usize,
+    pub(crate) num_blocks: usize,
 }
 
 impl<'a> BlockedBloomFilterReader<'a> {
@@ -117,6 +117,7 @@ impl<'a> BlockedBloomFilterReader<'a> {
     }
 
     /// Gets the hash of a key.
+    #[must_use]
     pub fn get_hash(key: &[u8]) -> u64 {
         Builder::get_hash(key)
     }
@@ -130,137 +131,66 @@ impl<'a> BlockedBloomFilterReader<'a> {
     }
 }
 
-// impl<'a> Encode for BlockedBloomFilter<'a> {
-//     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-//         // Write header
-//         writer.write_all(&MAGIC_BYTES)?;
-
-//         writer.write_u8(BloomFilterType::BlockedBloom as u8)?;
-
-//         // NOTE: Hash type (unused)
-//         writer.write_u8(0)?;
-
-//         writer.write_u64::<LittleEndian>(self.num_blocks as u64)?;
-//         writer.write_u64::<LittleEndian>(self.k as u64)?;
-//         writer.write_all(self.inner.bytes())?;
-
-//         Ok(())
-//     }
-// }
-
-// impl<'a> BlockedBloomFilter<'a> {
-//     // To be used by AMQFilter after magic bytes and filter type have been read and parsed
-//     pub(super) fn decode_from<R: Read>(reader: &mut R) -> Result<AMQFilter, DecodeError> {
-//         // NOTE: Hash type (unused)
-//         let hash_type = reader.read_u8()?;
-//         assert_eq!(0, hash_type, "Invalid bloom hash type");
-
-//         let num_blocks = reader.read_u64::<LittleEndian>()? as usize;
-//         let k = reader.read_u64::<LittleEndian>()? as usize;
-
-//         let mut bytes = vec![0; num_blocks * CACHE_LINE_BYTES];
-//         reader.read_exact(&mut bytes)?;
-
-//         Ok(AMQFilter::BlockedBloom(Self::from_raw(
-//             num_blocks,
-//             k,
-//             bytes.into(),
-//         )))
-//     }
-
-//     fn from_raw(num_blocks: usize, k: usize, slice: crate::Slice) -> Self {
-//         Self {
-//             inner: BitArrayReader::new(slice),
-//             k,
-//             num_blocks,
-//         }
-//     }
-
-//     /// Gets the hash of a key.
-//     pub fn get_hash(key: &[u8]) -> CompositeHash {
-//         Builder::get_hash(key)
-//     }
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
     use test_log::test;
 
-    // #[test]
-    // fn blocked_bloom_serde_round_trip() -> crate::Result<()> {
-    //     let dir = tempfile::tempdir()?;
+    #[test]
+    fn filter_bloom_blocked_serde_round_trip() -> crate::Result<()> {
+        let mut filter = Builder::with_fp_rate(10, 0.0001);
 
-    //     let path = dir.path().join("bf");
-    //     let mut file = File::create(&path)?;
+        let keys = &[
+            b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
+            b"item8", b"item9",
+        ];
 
-    //     let mut filter = Builder::with_fp_rate(10, 0.0001);
+        for key in keys {
+            filter.set_with_hash(BlockedBloomFilterReader::get_hash(*key));
+        }
 
-    //     let keys = &[
-    //         b"item0", b"item1", b"item2", b"item3", b"item4", b"item5", b"item6", b"item7",
-    //         b"item8", b"item9",
-    //     ];
+        let filter_bytes = filter.build();
+        let filter_copy = BlockedBloomFilterReader::new(&filter_bytes)?;
 
-    //     for key in keys {
-    //         filter.set_with_hash(BlockedBloomFilter::get_hash(*key));
-    //     }
+        assert_eq!(filter.k, filter_copy.k);
+        assert_eq!(filter.num_blocks, filter_copy.num_blocks);
+        assert!(!filter_copy.contains(b"asdasads"));
+        assert!(!filter_copy.contains(b"item10"));
+        assert!(!filter_copy.contains(b"cxycxycxy"));
 
-    //     let filter = filter.build();
+        Ok(())
+    }
 
-    //     for key in keys {
-    //         assert!(filter.contains(&**key));
-    //     }
-    //     assert!(!filter.contains(b"asdasads"));
-    //     assert!(!filter.contains(b"item10"));
-    //     assert!(!filter.contains(b"cxycxycxy"));
+    #[test]
+    fn filter_bloom_blocked_basic() -> crate::Result<()> {
+        let mut filter = Builder::with_fp_rate(10, 0.0001);
 
-    //     filter.encode_into(&mut file)?;
-    //     file.sync_all()?;
-    //     drop(file);
+        let keys = [
+            b"item0" as &[u8],
+            b"item1",
+            b"item2",
+            b"item3",
+            b"item4",
+            b"item5",
+            b"item6",
+            b"item7",
+            b"item8",
+            b"item9",
+        ];
 
-    //     let mut file = File::open(&path)?;
-    //     let filter_copy = AMQFilterBuilder::decode_from(&mut file)?;
+        for key in &keys {
+            filter.set_with_hash(Builder::get_hash(key));
+        }
 
-    //     assert_eq!(filter.inner.bytes(), filter_copy.bytes());
-    //     assert!(matches!(filter_copy, AMQFilter::BlockedBloom(_)));
+        let filter_bytes = filter.build();
+        let filter = BlockedBloomFilterReader::new(&filter_bytes)?;
 
-    //     for key in keys {
-    //         assert!(filter.contains(&**key));
-    //     }
-    //     assert!(!filter_copy.contains(b"asdasads"));
-    //     assert!(!filter_copy.contains(b"item10"));
-    //     assert!(!filter_copy.contains(b"cxycxycxy"));
+        for key in &keys {
+            assert!(filter.contains(key));
+        }
 
-    //     Ok(())
-    // }
+        assert!(!filter.contains(b"asdasdasdasdasdasdasd"));
 
-    // #[test]
-    // fn blocked_bloom_basic() {
-    //     let mut filter = Builder::with_fp_rate(10, 0.0001);
-    //     let keys = [
-    //         b"item0" as &[u8],
-    //         b"item1",
-    //         b"item2",
-    //         b"item3",
-    //         b"item4",
-    //         b"item5",
-    //         b"item6",
-    //         b"item7",
-    //         b"item8",
-    //         b"item9",
-    //     ];
-
-    //     for key in &keys {
-    //         filter.set_with_hash(Builder::get_hash(key));
-    //     }
-
-    //     let filter = filter.build();
-
-    //     for key in &keys {
-    //         assert!(filter.contains(key));
-    //     }
-
-    //     assert!(!filter.contains(b"asdasdasdasdasdasdasd"));
-    // }
+        Ok(())
+    }
 }
