@@ -23,20 +23,7 @@ impl Slice {
         Self(Bytes::from_static(&[]))
     }
 
-    #[must_use]
-    #[doc(hidden)]
-    pub fn with_size(len: usize) -> Self {
-        let bytes = vec![0; len];
-        Self(Bytes::from(bytes))
-    }
-
-    #[must_use]
-    #[doc(hidden)]
-    pub fn with_size_unzeroed(len: usize) -> Self {
-        Self(Self::get_unzeroed_builder(len).freeze())
-    }
-
-    fn get_unzeroed_builder(len: usize) -> BytesMut {
+    pub(crate) unsafe fn builder_unzeroed(len: usize) -> BytesMut {
         // Use `with_capacity` & `set_len`` to avoid zeroing the buffer
         let mut builder = BytesMut::with_capacity(len);
 
@@ -63,7 +50,7 @@ impl Slice {
         use std::io::Write;
 
         let len = left.len() + right.len();
-        let mut builder = Self::get_unzeroed_builder(len);
+        let mut builder = unsafe { Self::builder_unzeroed(len) };
         {
             let mut writer = &mut builder[..];
 
@@ -74,20 +61,12 @@ impl Slice {
         Self(builder.freeze())
     }
 
-    #[must_use]
-    #[doc(hidden)]
-    pub fn get_mut(&mut self) -> Option<impl std::ops::DerefMut<Target = [u8]> + '_> {
-        todo!();
-
-        Option::<&mut [u8]>::None
-    }
-
     /// Constructs a [`Slice`] from an I/O reader by pulling in `len` bytes.
     ///
     /// The reader may not read the existing buffer.
     #[doc(hidden)]
     pub fn from_reader<R: std::io::Read>(reader: &mut R, len: usize) -> std::io::Result<Self> {
-        let mut builder = Self::get_unzeroed_builder(len);
+        let mut builder = unsafe { Self::builder_unzeroed(len) };
 
         // SAFETY: Normally, read_exact over an uninitialized buffer is UB,
         // however we know that in lsm-tree etc. only I/O readers or cursors over Vecs are used

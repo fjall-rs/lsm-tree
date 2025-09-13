@@ -25,14 +25,6 @@ impl Slice {
         ByteView::builder_unzeroed(len)
     }
 
-    // pub(crate) fn with_size(len: usize) -> Self {
-    //     Self(ByteView::with_size(len))
-    // }
-
-    // pub(crate) fn with_size_unzeroed(len: usize) -> Self {
-    //     Self(ByteView::with_size_unzeroed(len))
-    // }
-
     pub(crate) fn slice(&self, range: impl std::ops::RangeBounds<usize>) -> Self {
         Self(self.0.slice(range))
     }

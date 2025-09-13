@@ -19,10 +19,9 @@ path = "src/lib.rs"
 [features]
 default = []
 lz4 = ["dep:lz4_flex"]
-# bytes = ["value-log/bytes"] # TODO: restore
-use_unsafe = []
-bloom_use_unsafe = []
+bytes_1 = ["dep:bytes"]
 metrics = []
+use_unsafe = []         # TODO: 3.0.0 remove
 
 [dependencies]
 bytes = { version = "1", optional = true }
@@ -37,8 +36,6 @@ quick_cache = { version = "0.6.16", default-features = false, features = [] }
 rustc-hash = "2.1.1"
 self_cell = "1.2.0"
 tempfile = "3.20.0"
-value-log = { git = "https://github.com/fjall-rs/value-log", rev = "1075697727579e5a885b9b88533dc9128d79780e", default-features = false, features = [
-] }
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 
