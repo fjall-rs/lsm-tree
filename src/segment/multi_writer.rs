@@ -18,6 +18,7 @@ pub struct MultiWriter {
 
     data_block_hash_ratio: f32,
     data_block_size: u32,
+    data_block_restart_interval: u8,
 
     /// Target size of segments in bytes
     ///
@@ -32,7 +33,7 @@ pub struct MultiWriter {
 
     pub writer: Writer,
 
-    pub compression: CompressionType,
+    pub data_block_compression: CompressionType,
 
     bloom_policy: BloomConstructionPolicy,
 
@@ -57,6 +58,7 @@ impl MultiWriter {
 
             data_block_hash_ratio: 0.0,
             data_block_size: 4_096,
+            data_block_restart_interval: 16,
 
             target_size,
             results: Vec::with_capacity(10),
@@ -64,12 +66,19 @@ impl MultiWriter {
             current_segment_id,
             writer,
 
-            compression: CompressionType::None,
+            data_block_compression: CompressionType::None,
 
             bloom_policy: BloomConstructionPolicy::default(),
 
             current_key: None,
         })
+    }
+
+    #[must_use]
+    pub fn use_data_block_restart_interval(mut self, interval: u8) -> Self {
+        self.data_block_restart_interval = interval;
+        self.writer = self.writer.use_data_block_restart_interval(interval);
+        self
     }
 
     #[must_use]
@@ -91,9 +100,9 @@ impl MultiWriter {
     }
 
     #[must_use]
-    pub fn use_compression(mut self, compression: CompressionType) -> Self {
-        self.compression = compression;
-        self.writer = self.writer.use_compression(compression);
+    pub fn use_data_block_compression(mut self, compression: CompressionType) -> Self {
+        self.data_block_compression = compression;
+        self.writer = self.writer.use_data_block_compression(compression);
         self
     }
 
@@ -120,7 +129,7 @@ impl MultiWriter {
         let path = self.base_path.join(new_segment_id.to_string());
 
         let new_writer = Writer::new(path, new_segment_id)?
-            .use_compression(self.compression)
+            .use_data_block_compression(self.data_block_compression)
             .use_data_block_size(self.data_block_size)
             .use_bloom_policy(self.bloom_policy)
             .use_data_block_hash_ratio(self.data_block_hash_ratio);

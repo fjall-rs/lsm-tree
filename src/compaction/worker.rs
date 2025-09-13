@@ -271,7 +271,8 @@ fn merge_segments(
     };
 
     let mut segment_writer = segment_writer
-        .use_compression(opts.config.compression)
+        .use_data_block_restart_interval(16)
+        .use_data_block_compression(opts.config.compression)
         .use_data_block_size(opts.config.data_block_size)
         .use_data_block_hash_ratio(opts.config.data_block_hash_ratio)
         .use_bloom_policy({

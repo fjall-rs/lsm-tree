@@ -443,7 +443,7 @@ impl AbstractTree for BlobTree {
                 folder: lsm_segment_folder,
             } */
         )?
-        .use_compression(self.index.config.compression);
+        .use_data_block_compression(self.index.config.compression);
 
         /* segment_writer = segment_writer.use_bloom_policy(
             crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),

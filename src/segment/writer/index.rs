@@ -23,7 +23,9 @@ pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
         block_file_writer: &mut W,
     ) -> crate::Result<(BlockHandle, Option<BlockHandle>)>;
 
-    fn use_compression(&mut self, compression: CompressionType);
+    fn use_compression(self, compression: CompressionType) -> Self
+    where
+        Self: Sized;
 
     fn len(&self) -> usize;
 }
@@ -47,8 +49,9 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         1
     }
 
-    fn use_compression(&mut self, compression: CompressionType) {
+    fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression = compression;
+        self
     }
 
     fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()> {

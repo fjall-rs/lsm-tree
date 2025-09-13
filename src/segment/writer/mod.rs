@@ -26,14 +26,14 @@ pub struct Writer {
 
     segment_id: SegmentId,
 
-    data_block_restart_interval: u8, // TODO:
+    data_block_restart_interval: u8,
     data_block_hash_ratio: f32,
 
     data_block_size: u32,
     index_block_size: u32, // TODO: implement
 
-    /// Compression to use
-    compression: CompressionType,
+    /// Compression to use for data blocks
+    data_block_compression: CompressionType,
 
     /// Buffer to serialize blocks into
     block_buffer: Vec<u8>,
@@ -80,7 +80,7 @@ impl Writer {
             data_block_size: 4_096,
             index_block_size: 4_096,
 
-            compression: CompressionType::None,
+            data_block_compression: CompressionType::None,
 
             path: std::path::absolute(path)?,
 
@@ -103,6 +103,12 @@ impl Writer {
     }
 
     #[must_use]
+    pub fn use_data_block_restart_interval(mut self, interval: u8) -> Self {
+        self.data_block_restart_interval = interval;
+        self
+    }
+
+    #[must_use]
     pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
         self.data_block_hash_ratio = ratio;
         self
@@ -119,9 +125,8 @@ impl Writer {
     }
 
     #[must_use]
-    pub fn use_compression(mut self, compression: CompressionType) -> Self {
-        self.compression = compression;
-        self.index_writer.use_compression(compression);
+    pub fn use_data_block_compression(mut self, compression: CompressionType) -> Self {
+        self.data_block_compression = compression;
         self
     }
 
@@ -208,7 +213,7 @@ impl Writer {
             &mut self.block_writer,
             &self.block_buffer,
             super::block::BlockType::Data,
-            self.compression,
+            self.data_block_compression,
         )?;
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
@@ -337,8 +342,14 @@ impl Writer {
 
             let meta_items = [
                 meta("#checksum_type", b"xxh3"),
-                meta("#compression#data", &self.compression.encode_into_vec()),
-                meta("#compression#index", &self.compression.encode_into_vec()),
+                meta(
+                    "#compression#data",
+                    &self.data_block_compression.encode_into_vec(),
+                ),
+                meta(
+                    "#compression#index",
+                    &self.data_block_compression.encode_into_vec(),
+                ),
                 meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
                     "#data_block_count",

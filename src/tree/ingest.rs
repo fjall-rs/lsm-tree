@@ -28,9 +28,9 @@ impl<'a> Ingestion<'a> {
             tree.segment_id_counter.clone(),
             64 * 1_024 * 1_024, // TODO: look at tree configuration
         )?
-        .use_data_block_hash_ratio(tree.config.data_block_hash_ratio)
         // TODO: use restart interval etc.
-        .use_compression(tree.config.compression);
+        .use_data_block_hash_ratio(tree.config.data_block_hash_ratio)
+        .use_data_block_compression(tree.config.compression);
 
         Ok(Self {
             folder,
