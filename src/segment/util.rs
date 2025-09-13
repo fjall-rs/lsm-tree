@@ -13,6 +13,9 @@ use std::{path::Path, sync::Arc};
 #[derive(Debug)]
 pub struct SliceIndexes(pub usize, pub usize);
 
+/// Loads a block from disk or block cache, if cached.
+///
+/// Also handles file descriptor opening and caching.
 pub fn load_block(
     segment_id: GlobalSegmentId,
     path: &Path,
@@ -44,7 +47,14 @@ pub fn load_block(
         Arc::new(std::fs::File::open(path)?)
     };
 
-    let block = Block::from_file(&fd, *handle, block_type, compression)?;
+    let block = Block::from_file(&fd, *handle, compression)?;
+
+    if block.header.block_type != block_type {
+        return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+            "BlockType",
+            block.header.block_type.into(),
+        ))));
+    }
 
     #[cfg(feature = "metrics")]
     metrics.block_load_io.fetch_add(1, Relaxed);
@@ -81,9 +91,11 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
     let max_pfx_len = prefix.len().min(needle.len());
 
     {
+        // SAFETY: We checked for max_pfx_len
         #[allow(unsafe_code)]
         let prefix = unsafe { prefix.get_unchecked(0..max_pfx_len) };
 
+        // SAFETY: We checked for max_pfx_len
         #[allow(unsafe_code)]
         let needle = unsafe { needle.get_unchecked(0..max_pfx_len) };
 
