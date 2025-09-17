@@ -13,11 +13,11 @@ pub struct Metrics {
     /// Number of blocks that were read from block cache
     pub(crate) block_load_cached: AtomicUsize,
 
-    /// Number of bloom filter queries that were performed
-    pub(crate) bloom_filter_queries: AtomicUsize,
+    /// Number of filter queries that were performed
+    pub(crate) filter_queries: AtomicUsize,
 
-    /// Number of IOs that were skipped due to bloom filter hits
-    pub(crate) bloom_filter_hits: AtomicUsize,
+    /// Number of IOs that were skipped due to filter
+    pub(crate) io_skipped_by_filter: AtomicUsize,
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -40,9 +40,20 @@ impl Metrics {
     }
 
     /// Filter efficiency in percent (0.0 - 1.0).
-    pub fn bloom_filter_efficiency(&self) -> f64 {
-        let queries = self.bloom_filter_queries.load(Relaxed) as f64;
-        let hits = self.bloom_filter_hits.load(Relaxed) as f64;
-        hits / queries
+    /// Represents the ratio of I/O operations avoided due to filter.
+    pub fn filter_efficiency(&self) -> f64 {
+        let queries = self.filter_queries.load(Relaxed) as f64;
+        let io_skipped = self.io_skipped_by_filter.load(Relaxed) as f64;
+        io_skipped / queries
+    }
+
+    /// Number of filter queries performed.
+    pub fn filter_queries(&self) -> usize {
+        self.filter_queries.load(Relaxed)
+    }
+
+    /// Number of I/O operations skipped by filter.
+    pub fn io_skipped_by_filter(&self) -> usize {
+        self.io_skipped_by_filter.load(Relaxed)
     }
 }

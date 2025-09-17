@@ -7,7 +7,8 @@ use crate::metrics::Metrics;
 
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
+    cache::Cache, descriptor_table::DescriptorTable, prefix::SharedPrefixExtractor,
+    tree::inner::TreeId, GlobalSegmentId,
 };
 use std::{
     path::PathBuf,
@@ -42,6 +43,9 @@ pub struct Inner {
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<Block>,
+
+    /// Prefix extractor for filters
+    pub prefix_extractor: Option<SharedPrefixExtractor>,
 
     // /// Pinned filter
     // #[doc(hidden)]

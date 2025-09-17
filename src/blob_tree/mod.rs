@@ -394,8 +394,8 @@ impl AbstractTree for BlobTree {
         }))
     }
 
-    fn pinned_bloom_filter_size(&self) -> usize {
-        self.index.pinned_bloom_filter_size()
+    fn pinned_filter_size(&self) -> usize {
+        self.index.pinned_filter_size()
     }
 
     fn pinned_block_index_size(&self) -> usize {

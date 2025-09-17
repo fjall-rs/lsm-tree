@@ -85,8 +85,8 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
-    /// Gets the memory usage of all pinned bloom filters in the tree.
-    fn pinned_bloom_filter_size(&self) -> usize;
+    /// Gets the memory usage of all pinned filters in the tree.
+    fn pinned_filter_size(&self) -> usize;
 
     /// Gets the memory usage of all pinned index blocks in the tree.
     fn pinned_block_index_size(&self) -> usize;
