@@ -36,7 +36,7 @@ const TRAILER_SIZE: usize = 32;
 /// | trailer      | <- fixed size
 /// |--------------|
 ///
-/// Through this indirection, we can have a variable amount of region block handles.
+/// Through this indirection, we can have a variable number of region block handles.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Trailer {
     regions_block_handle: BlockHandle,

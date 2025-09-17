@@ -346,7 +346,7 @@ impl LevelManifest {
         self.len() == 0
     }
 
-    /// Returns the amount of levels in the tree
+    /// Returns the number of levels in the tree
     #[must_use]
     pub fn level_count(&self) -> u8 {
         // NOTE: Level count is u8
@@ -356,13 +356,13 @@ impl LevelManifest {
         }
     }
 
-    /// Returns the amount of levels in the tree.
+    /// Returns the number of levels in the tree.
     #[must_use]
     pub fn last_level_index(&self) -> u8 {
         DEFAULT_LEVEL_COUNT - 1
     }
 
-    /// Returns the amount of segments, summed over all levels
+    /// Returns the number of segments, summed over all levels
     #[must_use]
     pub fn len(&self) -> usize {
         self.current.segment_count()

@@ -129,7 +129,7 @@ pub trait AbstractTree {
     /// after tree recovery.
     fn set_active_memtable(&self, memtable: Memtable);
 
-    /// Returns the amount of sealed memtables.
+    /// Returns the number of sealed memtables.
     fn sealed_memtable_count(&self) -> usize;
 
     /// Adds a sealed memtables.

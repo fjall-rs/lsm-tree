@@ -10,7 +10,7 @@ use crate::{config::Config, level_manifest::LevelManifest, HashSet};
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)
 /// when the threshold is reached.
 ///
-/// Will also merge segments if the amount of segments in level 0 grows too much, which
+/// Will also merge segments if the number of segments in level 0 grows too much, which
 /// could cause write stalls.
 ///
 /// Additionally, a (lazy) TTL can be configured to drop old segments.

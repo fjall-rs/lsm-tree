@@ -33,7 +33,7 @@ impl<'a> Trailer<'a> {
         self.block.data.len() - TRAILER_SIZE
     }
 
-    /// Returns the amount of items in the block
+    /// Returns the number of items in the block
     #[must_use]
     pub fn item_count(&self) -> usize {
         let mut reader = self.as_slice();

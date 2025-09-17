@@ -70,7 +70,7 @@ pub struct Config {
     /// Block size of index blocks
     pub index_block_size: u32,
 
-    /// Amount of levels of the LSM tree (depth of tree)
+    /// Number of levels of the LSM tree (depth of tree)
     pub level_count: u8,
 
     /// Bits per key for levels that are not L0, L1, L2
@@ -199,7 +199,7 @@ impl Config {
         self
     }
 
-    /// Sets the amount of levels of the LSM tree (depth of tree).
+    /// Sets the number of levels of the LSM tree (depth of tree).
     ///
     /// Defaults to 7, like `LevelDB` and `RocksDB`.
     ///
@@ -233,9 +233,7 @@ impl Config {
     pub fn data_block_size(mut self, block_size: u32) -> Self {
         assert!(block_size >= 1_024);
         assert!(block_size <= 512 * 1_024);
-
         self.data_block_size = block_size;
-
         self
     }
 
@@ -256,9 +254,7 @@ impl Config {
     pub fn index_block_size(mut self, block_size: u32) -> Self {
         assert!(block_size >= 1_024);
         assert!(block_size <= 512 * 1_024);
-
         self.index_block_size = block_size;
-
         self
     }
 

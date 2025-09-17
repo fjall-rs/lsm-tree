@@ -26,6 +26,8 @@ pub struct Builder {
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
+    // NOTE: We write into a Vec<u8>, so no I/O error can happen
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn build(&self) -> Vec<u8> {
         let mut v = vec![];

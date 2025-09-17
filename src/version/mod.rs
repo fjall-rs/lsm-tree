@@ -133,17 +133,24 @@ impl Level {
 }
 
 pub struct VersionInner {
+    /// The version's ID
     id: VersionId,
 
+    /// The individual LSM-tree levels which consist of runs of tables
     pub(crate) levels: Vec<Level>,
 }
 
-/// A version is a point-in-time view of a tree's structure
+/// A version is an immutable, point-in-time view of a tree's structure
 ///
 /// Any time a segment is created or deleted, a new version is created.
 #[derive(Clone)]
 pub struct Version {
     inner: Arc<VersionInner>,
+
+    /// The sequence number at the time the version was installed
+    ///
+    /// We keep all versions that have `seqno_watermark` > `mvcc_watermark` to prevent
+    /// snapshots losing data
     pub(crate) seqno_watermark: SeqNo,
 }
 

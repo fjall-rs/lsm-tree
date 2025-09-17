@@ -138,7 +138,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         &self.block.data
     }
 
-    /// Returns the amount of items in the block.
+    /// Returns the number of items in the block.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {

@@ -71,7 +71,7 @@
 //! tree.flush_active_memtable(0)?;
 //!
 //! // When some disk segments have amassed, use compaction
-//! // to reduce the amount of disk segments
+//! // to reduce the number of disk segments
 //!
 //! // Choose compaction strategy based on workload
 //! use lsm_tree::compaction::Leveled;

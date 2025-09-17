@@ -443,7 +443,7 @@ impl DataBlock {
         unwrap!(reader.read_u32::<LittleEndian>())
     }
 
-    /// Returns the amount of items in the block.
+    /// Returns the number of items in the block.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {

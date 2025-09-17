@@ -35,6 +35,9 @@ impl Builder {
     /// Sets the i-th bit
     pub fn enable_bit(&mut self, idx: usize) {
         let byte_idx = idx / 8;
+
+        // NOTE: We trust the caller
+        #[allow(clippy::expect_used)]
         let byte = self.0.get_mut(byte_idx).expect("should be in bounds");
 
         let bit_idx = idx % 8;

@@ -179,7 +179,10 @@ mod tests {
 
     // NOTE: Tests that versions of the same key stay
     // in the same segment even if it needs to be rotated
+    //
     // This avoids segments' key ranges overlapping
+    //
+    // http://github.com/fjall-rs/lsm-tree/commit/f46b6fe26a1e90113dc2dbb0342db160a295e616
     #[test]
     fn segment_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
@@ -202,6 +205,9 @@ mod tests {
         Ok(())
     }
 
+    // NOTE: Follow-up fix for non-disjoint output
+    //
+    // https://github.com/fjall-rs/lsm-tree/commit/1609a57c2314420b858d826790ecd1442aa76720
     #[test]
     fn segment_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
