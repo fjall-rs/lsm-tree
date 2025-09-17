@@ -23,7 +23,7 @@ pub enum CompressionType {
     Lz4,
 
     /// Zlib compression
-    /// 
+    ///
     #[cfg(feature = "zlib")]
     Zlib(u8),
 }
@@ -43,7 +43,7 @@ impl Encode for CompressionType {
             #[cfg(feature = "zlib")]
             Self::Zlib(level) => {
                 writer.write_u8(2)?;
-                let lvl  = (*level).min(9);
+                let lvl = (*level).min(9);
                 writer.write_u8(lvl)?;
             }
         }
@@ -61,7 +61,7 @@ impl Decode for CompressionType {
 
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
-            
+
             #[cfg(feature = "zlib")]
             2 => {
                 let level = reader.read_u8()?;
