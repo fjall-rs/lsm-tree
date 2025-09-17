@@ -24,9 +24,10 @@ use crate::{
     CompressionType, Slice,
 };
 use std::fs::File;
+use std::io::{Read, Write};
 
 #[cfg(feature = "zlib")]
-use flate2::{write::ZlibEncoder, Compression as ZCompression,read::ZlibDecoder};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression as ZCompression};
 
 /// A block on disk
 ///
@@ -59,15 +60,15 @@ impl Block {
             previous_block_offset: BlockOffset(0), // <-- TODO:
         };
 
-        let data = match compression {
-            CompressionType::None => data,
+        let data: Vec<u8> = match compression {
+            CompressionType::None => data.to_vec(),
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => &lz4_flex::compress(data),
+            CompressionType::Lz4 => lz4_flex::compress(data),
 
             #[cfg(feature = "zlib")]
             CompressionType::Zlib(level) => {
-                let lvl = (*level).min(9) as u32;
+                let lvl = level.min(9) as u32;
                 let mut e = ZlibEncoder::new(Vec::new(), ZCompression::new(lvl));
                 e.write_all(data)?;
                 e.finish()?
@@ -76,7 +77,7 @@ impl Block {
         header.data_length = data.len() as u32;
 
         header.encode_into(&mut writer)?;
-        writer.write_all(data)?;
+        writer.write_all(&data)?;
 
         log::trace!(
             "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
@@ -116,7 +117,8 @@ impl Block {
             CompressionType::Zlib(_level) => {
                 let mut d = ZlibDecoder::new(&raw_data[..]);
                 let mut decompressed_data = Vec::with_capacity(header.uncompressed_length as usize);
-                d.read_to_end(&mut decompressed_data).map_err(|_| crate::Error::Decompress(compression))?;
+                d.read_to_end(&mut decompressed_data)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
                 Slice::from(decompressed_data)
             }
         };
@@ -217,8 +219,9 @@ impl Block {
                 let raw_data = &buf[Header::serialized_len()..];
                 let mut d = ZlibDecoder::new(raw_data);
                 let mut decompressed_data = Vec::with_capacity(header.uncompressed_length as usize);
-                d.read_to_end(&mut decompressed_data).map_err(|_| crate::Error::Decompress(compression))?;
-                Slice::from(decompressed_data)
+                d.read_to_end(&mut decompressed_data)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
+                byteview::ByteView::from(decompressed_data)
             }
         };
 
