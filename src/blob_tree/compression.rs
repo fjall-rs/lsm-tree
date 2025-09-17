@@ -4,6 +4,9 @@
 
 use crate::vlog::Compressor;
 use crate::CompressionType;
+use std::io::{Read, Write};
+#[cfg(feature = "zlib")]
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression as ZCompression};
 
 #[derive(Copy, Clone, Debug)]
 pub struct MyCompressor(pub(crate) CompressionType);
@@ -21,6 +24,14 @@ impl Compressor for MyCompressor {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => lz4_flex::compress_prepend_size(bytes),
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(level) => {
+                let lvl = level.min(9) as u32;
+                let mut e = ZlibEncoder::new(Vec::new(), ZCompression::new(lvl));
+                e.write_all(bytes)?;
+                e.finish()?
+            }
         })
     }
 
@@ -31,6 +42,15 @@ impl Compressor for MyCompressor {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => lz4_flex::decompress_size_prepended(bytes)
                 .map_err(|_| crate::Error::Decompress(self.0)),
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(_level) => {
+                let mut d = ZlibDecoder::new(bytes);
+                let mut out = Vec::new();
+                d.read_to_end(&mut out)
+                    .map_err(|_| crate::Error::Decompress(self.0))?;
+                Ok(out)
+            }
         }
     }
 }
