@@ -24,6 +24,8 @@ use crate::{
     CompressionType, Slice,
 };
 use std::fs::File;
+
+#[cfg(feature = "zlib")]
 use flate2::{write::ZlibEncoder, Compression as ZCompression,read::ZlibDecoder};
 
 /// A block on disk
