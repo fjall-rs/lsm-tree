@@ -24,6 +24,7 @@ use crate::{
     CompressionType, Slice,
 };
 use std::fs::File;
+use flate2::{write::ZlibEncoder, Compression as ZCompression,read::ZlibDecoder};
 
 /// A block on disk
 ///
@@ -61,6 +62,14 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => &lz4_flex::compress(data),
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(level) => {
+                let lvl = (*level).min(9) as u32;
+                let mut e = ZlibEncoder::new(Vec::new(), ZCompression::new(lvl));
+                e.write_all(data)?;
+                e.finish()?
+            }
         };
         header.data_length = data.len() as u32;
 
@@ -99,6 +108,14 @@ impl Block {
                 }
 
                 builder.freeze().into()
+            }
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(_level) => {
+                let mut d = ZlibDecoder::new(&raw_data[..]);
+                let mut decompressed_data = Vec::with_capacity(header.uncompressed_length as usize);
+                d.read_to_end(&mut decompressed_data).map_err(|_| crate::Error::Decompress(compression))?;
+                Slice::from(decompressed_data)
             }
         };
 
