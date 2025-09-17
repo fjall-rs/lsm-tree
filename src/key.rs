@@ -7,6 +7,7 @@ use crate::{
     SeqNo, UserKey, ValueType,
 };
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use equivalent::{Comparable, Equivalent};
 use std::{
     cmp::Reverse,
     io::{Read, Write},
@@ -98,37 +99,27 @@ impl Ord for InternalKey {
     }
 }
 
-// TODO: wait for new crossbeam-skiplist
-// TODO: https://github.com/crossbeam-rs/crossbeam/pull/1162
-//
-// impl Equivalent<InternalKeyRef<'_>> for InternalKey {
-//     fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
-//         self.user_key == other.user_key && self.seqno == other.seqno
-//     }
-// }
+impl Equivalent<InternalKeyRef<'_>> for InternalKey {
+    fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
 
-// impl Comparable<InternalKeyRef<'_>> for InternalKey {
-//     fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
-//         (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
-//     }
-// }
+impl Comparable<InternalKeyRef<'_>> for InternalKey {
+    fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
+        (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
+    }
+}
 
-/* /// Temporary internal key without heap allocation
-#[derive(Clone, Debug, Eq)]
+/// Temporary internal key without heap allocation
+#[derive(Debug, Eq)]
 pub struct InternalKeyRef<'a> {
     pub user_key: &'a [u8],
     pub seqno: SeqNo,
     pub value_type: ValueType,
 }
 
-impl<'a> AsRef<[u8]> for InternalKeyRef<'a> {
-    fn as_ref(&self) -> &[u8] {
-        self.user_key
-    }
-}
-
 impl<'a> InternalKeyRef<'a> {
-    // Constructor for InternalKeyRef
     pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
         InternalKeyRef {
             user_key,
@@ -154,4 +145,16 @@ impl<'a> Ord for InternalKeyRef<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
     }
-} */
+}
+
+impl Equivalent<InternalKey> for InternalKeyRef<'_> {
+    fn equivalent(&self, other: &InternalKey) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl Comparable<InternalKey> for InternalKeyRef<'_> {
+    fn compare(&self, other: &InternalKey) -> std::cmp::Ordering {
+        (self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+    }
+}
