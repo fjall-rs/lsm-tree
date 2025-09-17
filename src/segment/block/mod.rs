@@ -210,6 +210,16 @@ impl Block {
 
                 builder.freeze()
             }
+
+            #[cfg(feature = "zlib")]
+            CompressionType::Zlib(_level) => {
+                #[allow(clippy::indexing_slicing)]
+                let raw_data = &buf[Header::serialized_len()..];
+                let mut d = ZlibDecoder::new(raw_data);
+                let mut decompressed_data = Vec::with_capacity(header.uncompressed_length as usize);
+                d.read_to_end(&mut decompressed_data).map_err(|_| crate::Error::Decompress(compression))?;
+                Slice::from(decompressed_data)
+            }
         };
 
         #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
