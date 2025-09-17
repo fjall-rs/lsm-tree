@@ -19,6 +19,7 @@ path = "src/lib.rs"
 [features]
 default = []
 lz4 = ["dep:lz4_flex"]
+zlib =["dep:flate2"]
 bytes_1 = ["dep:bytes"]
 metrics = []
 use_unsafe = []         # TODO: 3.0.0 remove
@@ -32,6 +33,7 @@ enum_dispatch = "0.3.13"
 interval-heap = "0.0.5"
 log = "0.4.27"
 lz4_flex = { version = "0.11.5", optional = true, default-features = false }
+flate2 = { version = "1.0.17", optional = true, default-features = false, features = ["zlib-rs"] }
 quick_cache = { version = "0.6.16", default-features = false, features = [] }
 rustc-hash = "2.1.1"
 self_cell = "1.2.0"
