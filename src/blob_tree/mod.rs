@@ -120,9 +120,6 @@ impl BlobTree {
 
             #[cfg(feature = "lz4")]
             c => Some(MyCompressor(c)),
-
-            #[cfg(feature = "zlib")]
-            c => Some(MyCompressor(c)),
         });
 
         let index: IndexTree = config.open()?.into();
