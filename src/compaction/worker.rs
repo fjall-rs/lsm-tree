@@ -546,7 +546,6 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[ignore]
     fn compaction_drop_segments() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
@@ -554,9 +553,9 @@ mod tests {
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
-        tree.insert("a", "a", 1);
+        tree.insert("b", "a", 1);
         tree.flush_active_memtable(0)?;
-        tree.insert("a", "a", 2);
+        tree.insert("c", "a", 2);
         tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());
