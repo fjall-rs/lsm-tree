@@ -154,7 +154,7 @@ impl Cache {
     #[doc(hidden)]
     pub fn insert_blob(
         &self,
-        vlog_id: crate::vlog::ValueLogId,
+        vlog_id: crate::TreeId,
         vhandle: &crate::vlog::ValueHandle,
         value: UserValue,
     ) {
@@ -168,7 +168,7 @@ impl Cache {
     #[must_use]
     pub fn get_blob(
         &self,
-        vlog_id: crate::vlog::ValueLogId,
+        vlog_id: crate::TreeId,
         vhandle: &crate::vlog::ValueHandle,
     ) -> Option<UserValue> {
         let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.blob_file_id, vhandle.offset).into();

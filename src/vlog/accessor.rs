@@ -30,7 +30,7 @@ impl<'a> Accessor<'a> {
         cache: &Cache,
         descriptor_table: &DescriptorTable,
     ) -> crate::Result<Option<UserValue>> {
-        if let Some(value) = cache.get_blob(0 /* TODO: vlog ID... */, vhandle) {
+        if let Some(value) = cache.get_blob(0 /* TODO: tree ID... */, vhandle) {
             return Ok(Some(value));
         }
 
@@ -38,7 +38,7 @@ impl<'a> Accessor<'a> {
             return Ok(None);
         };
 
-        let bf_id = GlobalSegmentId::from((0 /* TODO: vlog ID */, vhandle.blob_file_id));
+        let bf_id = GlobalSegmentId::from((0 /* TODO: tree ID */, vhandle.blob_file_id));
 
         let file = if let Some(fd) = descriptor_table.access_for_blob_file(&bf_id) {
             fd

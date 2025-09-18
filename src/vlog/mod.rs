@@ -21,7 +21,7 @@ pub use {
     gc::{GcStrategy, SpaceAmpStrategy, StaleThresholdStrategy},
     handle::ValueHandle,
     index::{Reader as IndexReader, Writer as IndexWriter},
-    value_log::{ValueLog, ValueLogId},
+    value_log::ValueLog,
 };
 
 #[doc(hidden)]

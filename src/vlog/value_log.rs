@@ -46,16 +46,6 @@ use std::{
 //     }
 // }
 
-/// Unique value log ID
-#[allow(clippy::module_name_repetitions)]
-pub type ValueLogId = u64;
-
-/// Hands out a unique (monotonically increasing) value log ID.
-pub fn get_next_vlog_id() -> ValueLogId {
-    static VLOG_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-    VLOG_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-}
-
 fn unlink_blob_files(base_path: &Path, ids: &[BlobFileId]) {
     unimplemented!()
 
