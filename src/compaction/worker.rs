@@ -2,9 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::{stream::CompactionStream, Choice},
@@ -21,6 +18,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
