@@ -9,7 +9,7 @@ readme = "README.md"
 include = ["src/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md"]
 repository = "https://github.com/fjall-rs/lsm-tree"
 homepage = "https://github.com/fjall-rs/lsm-tree"
-keywords = ["database", "lsmt", "lsm", "rocksdb", "leveldb"]
+keywords = ["lsmt", "lsm", "rocksdb", "leveldb", "key-value"]
 categories = ["data-structures", "database-implementations", "algorithms"]
 
 [lib]
