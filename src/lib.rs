@@ -227,7 +227,11 @@ pub use {
     seqno::SequenceNumberCounter,
     tree::Tree,
     value::{SeqNo, ValueType},
+    vlog::BlobFile,
 };
+
+#[cfg(feature = "metrics")]
+pub use metrics::Metrics;
 
 pub use any_tree::AnyTree;
 
