@@ -4,8 +4,8 @@
 
 use crate::{
     compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
-    tree::inner::MemtableId, AnyTree, BlobTree, Config, Guard, KvPair, Memtable, SegmentId, SeqNo,
-    Tree, UserKey, UserValue,
+    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, KvPair, Memtable,
+    SegmentId, SeqNo, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -91,6 +91,9 @@ pub trait AbstractTree {
     /// Gets the memory usage of all pinned index blocks in the tree.
     fn pinned_block_index_size(&self) -> usize;
 
+    /// Gets the length of the version free list.
+    fn version_free_list_len(&self) -> usize;
+
     // TODO:?
     /* #[doc(hidden)]
     fn verify(&self) -> crate::Result<usize>; */
@@ -108,14 +111,19 @@ pub trait AbstractTree {
         segment_id: SegmentId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Segment>>;
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()>;
+    fn register_segments(
+        &self,
+        segments: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
     fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
@@ -175,7 +183,7 @@ pub trait AbstractTree {
     /// Returns the number of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
 
-    /// Returns the number of segments in levels[idx].
+    /// Returns the number of segments in `levels[idx]`.
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize>;
