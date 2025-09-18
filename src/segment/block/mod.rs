@@ -93,10 +93,8 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                {
-                    lz4_flex::decompress_into(&raw_data, &mut builder)
-                        .map_err(|_| crate::Error::Decompress(compression))?;
-                }
+                lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
 
                 builder.freeze().into()
             }
@@ -184,10 +182,8 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                {
-                    lz4_flex::decompress_into(raw_data, &mut builder)
-                        .map_err(|_| crate::Error::Decompress(compression))?;
-                }
+                lz4_flex::decompress_into(raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
 
                 builder.freeze()
             }
@@ -213,5 +209,53 @@ impl Block {
             header,
             data: Slice::from(buf),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    // TODO: Block::from_file roundtrips
+
+    #[test]
+    fn block_roundtrip_uncompressed() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::None,
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::None)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
+    }
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_roundtrip_lz4() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::Lz4,
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Lz4)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
     }
 }
