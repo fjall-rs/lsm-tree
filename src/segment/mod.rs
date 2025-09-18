@@ -431,7 +431,7 @@ impl Segment {
             BlockIndexImpl::VolatileFull
         };
 
-        // TODO: load FilterBlock, check block type
+        // TODO: FilterBlock newtype
         let pinned_filter_block = if pin_filter {
             regions
                 .filter
@@ -445,6 +445,16 @@ impl Segment {
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                     )
+                    .and_then(|block| {
+                        if block.header.block_type == BlockType::Filter {
+                            Ok(block)
+                        } else {
+                            Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                                "BlockType",
+                                block.header.block_type.into(),
+                            ))))
+                        }
+                    })
                 })
                 .transpose()?
         } else {
