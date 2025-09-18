@@ -15,12 +15,13 @@ use crate::{
     segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    vlog::{BlobFile, BlobFileWriter, ValueHandle, ValueLog},
+    vlog::{Accessor, BlobFile, BlobFileId, BlobFileWriter, ValueHandle, ValueLog},
     Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
 };
 use gc::{reader::GcReader, writer::GcWriter};
 use index::IndexTree;
 use std::{
+    collections::BTreeMap,
     io::Cursor,
     ops::{RangeBounds, RangeFull},
     path::PathBuf,
@@ -31,17 +32,21 @@ use std::{
 };
 use value::MaybeInlineValue;
 
-pub struct Guard<'a>(&'a ValueLog, crate::Result<(UserKey, UserValue)>);
+pub struct Guard<'a>(
+    &'a BlobTree,
+    Arc<BTreeMap<BlobFileId, BlobFile>>,
+    crate::Result<(UserKey, UserValue)>,
+);
 
 impl IterGuard for Guard<'_> {
     fn key(self) -> crate::Result<UserKey> {
-        self.1.map(|(k, _)| k)
+        self.2.map(|(k, _)| k)
     }
 
     fn size(self) -> crate::Result<u32> {
         use MaybeInlineValue::{Indirect, Inline};
 
-        let value = self.1?.1;
+        let value = self.2?.1;
         let mut cursor = Cursor::new(value);
 
         Ok(match MaybeInlineValue::decode_from(&mut cursor)? {
@@ -55,11 +60,15 @@ impl IterGuard for Guard<'_> {
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
-        resolve_value_handle(self.0, self.1)
+        resolve_value_handle(self.0, &self.1, self.2)
     }
 }
 
-fn resolve_value_handle(vlog: &crate::vlog::ValueLog, item: RangeItem) -> RangeItem {
+fn resolve_value_handle(
+    tree: &BlobTree,
+    vlog: &BTreeMap<BlobFileId, BlobFile>,
+    item: RangeItem,
+) -> RangeItem {
     use MaybeInlineValue::{Indirect, Inline};
 
     match item {
@@ -70,7 +79,13 @@ fn resolve_value_handle(vlog: &crate::vlog::ValueLog, item: RangeItem) -> RangeI
                 Inline(bytes) => Ok((key, bytes)),
                 Indirect { vhandle, .. } => {
                     // Resolve indirection using value log
-                    match vlog.get(&vhandle) {
+                    match Accessor::new(vlog).get(
+                        &tree.blobs_folder,
+                        &key,
+                        &vhandle,
+                        &tree.index.config.cache,
+                        &tree.index.config.descriptor_table,
+                    ) {
                         Ok(Some(bytes)) => Ok((key, bytes)),
                         Err(e) => Err(e),
                         _ => {
@@ -368,14 +383,21 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
-        todo!()
+        let version = self
+            .index
+            .manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .clone();
 
-        // Box::new(
-        //     self.index
-        //         .0
-        //         .create_prefix(&prefix, seqno, index)
-        //         .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
-        // )
+        // TODO: PERF: ugly Arc clone
+        Box::new(
+            self.index
+                .0
+                .create_prefix(&prefix, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(self, version.value_log.clone(), kv))),
+        )
     }
 
     fn range<K: AsRef<[u8]>, R: RangeBounds<K>>(
@@ -384,14 +406,21 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
-        todo!()
+        let version = self
+            .index
+            .manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .clone();
 
-        // Box::new(
-        //     self.index
-        //         .0
-        //         .create_range(&range, seqno, index)
-        //         .map(move |kv| IterGuardImpl::Blob(Guard(&self.blobs, kv))),
-        // )
+        // TODO: PERF: ugly Arc clone
+        Box::new(
+            self.index
+                .0
+                .create_range(&range, seqno, index)
+                .map(move |kv| IterGuardImpl::Blob(Guard(self, version.value_log.clone(), kv))),
+        )
     }
 
     fn tombstone_count(&self) -> u64 {
