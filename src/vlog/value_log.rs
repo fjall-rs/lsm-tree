@@ -72,9 +72,6 @@ impl std::ops::Deref for ValueLog {
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ValueLogInner {
-    /// Unique value log ID
-    id: u64,
-
     /// Base folder
     pub path: PathBuf,
 
@@ -192,7 +189,6 @@ impl ValueLog {
         // let manifest = Manifest::create_new(&path)?;
 
         Ok(Self(Arc::new(ValueLogInner {
-            id: get_next_vlog_id(),
             // config,
             path,
             // blob_cache,
