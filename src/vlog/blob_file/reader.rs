@@ -96,6 +96,9 @@ impl Iterator for Reader {
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
 
         let val_len = fail_iter!(self.inner.read_u32::<BigEndian>());
+
+        // TODO: finish compression
+        #[warn(clippy::match_single_binding)]
         let val = match &self.compression {
             _ => {
                 // NOTE: When not using compression, we can skip

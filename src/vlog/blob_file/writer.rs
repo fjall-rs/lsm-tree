@@ -143,7 +143,8 @@ impl Writer {
         self.active_writer
             .write_u32::<BigEndian>(value.len() as u32)?;
 
-        // TODO:
+        // TODO: finish compression
+        #[warn(clippy::match_single_binding)]
         let value = match &self.compression {
             _ => value,
         };
