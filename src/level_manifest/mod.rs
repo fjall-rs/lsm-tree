@@ -9,9 +9,10 @@ use crate::{
     file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
     segment::Segment,
     version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
-    SegmentId, SeqNo,
+    vlog::BlobFileId,
+    BlobFile, SegmentId, SeqNo,
 };
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use hidden_set::HiddenSet;
 use std::{
     collections::VecDeque,
@@ -19,6 +20,12 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+pub struct Recovery {
+    pub curr_version_id: VersionId,
+    pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
+    pub blob_file_ids: Vec<BlobFileId>,
+}
 
 /// Represents the levels of a log-structured merge tree
 pub struct LevelManifest {
@@ -35,7 +42,7 @@ pub struct LevelManifest {
     hidden_set: HiddenSet,
 
     /// Holds onto versions until they are safe to drop.
-    version_free_list: VecDeque<Version>,
+    pub(crate) version_free_list: VecDeque<Version>,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -142,9 +149,17 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    // TODO: move into Version::decode
-    pub(crate) fn load_version(path: &Path) -> crate::Result<Vec<Vec<Vec<SegmentId>>>> {
-        let mut level_manifest = Cursor::new(std::fs::read(path)?);
+    pub(crate) fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
+        let curr_version_id = Self::get_current_version(folder)?;
+        let version_file_path = folder.join(format!("v{curr_version_id}"));
+
+        log::info!(
+            "Recovering current manifest at {}",
+            version_file_path.display(),
+        );
+        let mut level_manifest = Cursor::new(std::fs::read(version_file_path)?);
+
+        // TODO: vvv move into Version::decode? vvv
 
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
@@ -179,66 +194,35 @@ impl LevelManifest {
             levels.push(level);
         }
 
-        Ok(levels)
-    }
+        let blob_file_count = level_manifest.read_u32::<LittleEndian>()?;
+        let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
 
-    pub(crate) fn recover_ids(
-        folder: &Path,
-    ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
-        let curr_version = Self::get_current_version(folder)?;
-        let version_file_path = folder.join(format!("v{curr_version}"));
-
-        let manifest = Self::load_version(&version_file_path)?;
-        let mut result = crate::HashMap::default();
-
-        for (level_idx, segment_ids) in manifest.into_iter().enumerate() {
-            for run in segment_ids {
-                for segment_id in run {
-                    // NOTE: We know there are always less than 256 levels
-                    #[allow(clippy::expect_used)]
-                    result.insert(
-                        segment_id,
-                        level_idx
-                            .try_into()
-                            .expect("there are less than 256 levels"),
-                    );
-                }
-            }
+        for _ in 0..blob_file_count {
+            let id = level_manifest.read_u64::<LittleEndian>()?;
+            blob_file_ids.push(id);
         }
 
-        Ok(result)
+        Ok(Recovery {
+            curr_version_id,
+            segment_ids: levels,
+            blob_file_ids,
+        })
     }
 
     pub fn get_current_version(folder: &Path) -> crate::Result<VersionId> {
-        let mut buf = [0; 8];
-
-        {
-            let mut file = std::fs::File::open(folder.join("current"))?;
-            file.read_exact(&mut buf)?;
-        }
-
-        Ok(u64::from_le_bytes(buf))
+        std::fs::File::open(folder.join("current"))
+            .and_then(|mut f| f.read_u64::<LittleEndian>())
+            .map_err(Into::into)
     }
 
     pub(crate) fn recover<P: Into<PathBuf>>(
         folder: P,
+        recovery: &Recovery,
         segments: &[Segment],
+        blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
-        let folder = folder.into();
-
-        let curr_version = Self::get_current_version(&folder)?;
-        let version_file_path = folder.join(format!("v{curr_version}"));
-
-        let version_file = std::path::Path::new(&version_file_path);
-
-        if !version_file.try_exists()? {
-            log::error!("Cannot find version file {}", version_file_path.display());
-            return Err(crate::Error::Unrecoverable);
-        }
-
-        let raw_version = Self::load_version(&version_file_path)?;
-
-        let version_levels = raw_version
+        let version_levels = recovery
+            .segment_ids
             .iter()
             .map(|level| {
                 let level_runs = level
@@ -264,10 +248,12 @@ impl LevelManifest {
             .collect::<crate::Result<Vec<_>>>()?;
 
         Ok(Self {
-            current: Version::from_levels(curr_version, version_levels),
-            folder,
+            current: Version::from_levels(recovery.curr_version_id, version_levels, {
+                blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()
+            }),
+            folder: folder.into(),
             hidden_set: HiddenSet::default(),
-            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT
+            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT, or delete old versions eagerly...
         })
     }
 
@@ -323,6 +309,8 @@ impl LevelManifest {
     }
 
     pub(crate) fn maintenance(&mut self, gc_watermark: SeqNo) -> crate::Result<()> {
+        log::debug!("Running manifest GC");
+
         loop {
             let Some(head) = self.version_free_list.front() else {
                 break;
@@ -336,6 +324,8 @@ impl LevelManifest {
                 break;
             }
         }
+
+        log::debug!("Manifest GC done");
 
         Ok(())
     }
@@ -420,13 +410,7 @@ impl LevelManifest {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use crate::{
-        coding::Encode,
-        level_manifest::{hidden_set::HiddenSet, LevelManifest},
-        version::Version,
-        AbstractTree,
-    };
-    use std::collections::VecDeque;
+    use crate::AbstractTree;
     use test_log::test;
 
     #[test]
