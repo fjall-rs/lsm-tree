@@ -7,7 +7,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 #[cfg(feature = "zlib")]
-const ZLIB_MAX_LEVEL: usize = 9;
+const ZLIB_MAX_LEVEL: u8 = 9;
 
 /// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
