@@ -34,7 +34,6 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 
@@ -129,7 +128,6 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "restore"]
 fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 

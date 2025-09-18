@@ -166,7 +166,6 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
@@ -283,7 +282,6 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_shadowing_prefix_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 

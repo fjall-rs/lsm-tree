@@ -19,14 +19,14 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         tree.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
 
     Ok(())
@@ -47,14 +47,14 @@ fn tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         src.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         src.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert!(src.lock_active_memtable().is_empty());
 
@@ -70,14 +70,14 @@ fn tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         dest.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         dest.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert!(dest.lock_active_memtable().is_empty());
 
@@ -102,14 +102,14 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         tree.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(1, tree.blob_file_count());
 
@@ -133,14 +133,14 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         src.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         src.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert!(src.lock_active_memtable().is_empty());
     assert_eq!(1, src.blob_file_count());
@@ -159,14 +159,14 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
         dest.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert_eq!(
         dest.iter(SeqNo::MAX, None)
             .rev()
             .flat_map(|x| x.key())
             .count(),
-        ITEM_COUNT
+        ITEM_COUNT,
     );
     assert!(dest.lock_active_memtable().is_empty());
     assert_eq!(1, dest.blob_file_count());
