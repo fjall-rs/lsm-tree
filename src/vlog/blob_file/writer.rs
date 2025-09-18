@@ -99,7 +99,7 @@ impl<C: Compressor + Clone> Writer<C> {
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
     pub fn write(&mut self, key: &[u8], value: &[u8]) -> crate::Result<u32> {
         assert!(!key.is_empty());
-        assert!(key.len() <= u16::MAX.into());
+        assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
 
         if self.first_key.is_none() {
