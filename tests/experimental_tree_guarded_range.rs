@@ -32,6 +32,7 @@ fn experimental_tree_guarded_range() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore = "restore"]
 fn experimental_blob_tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

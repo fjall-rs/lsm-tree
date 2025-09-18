@@ -18,7 +18,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     tree.insert("a", "neptune".repeat(10_000), 0);
     let (id, memtable) = tree.rotate_memtable().unwrap();
 
-    let segment = tree.flush_memtable(id, &memtable, 0).unwrap().unwrap();
+    let (segment, blob_file) = tree.flush_memtable(id, &memtable, 0).unwrap().unwrap();
 
     // NOTE: Segment is now in-flight
 
@@ -36,7 +36,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, 0)?;
 
-    tree.register_segments(&[segment], 0)?;
+    tree.register_segments(&[segment], Some(&[blob_file.unwrap()]), 0)?;
 
     assert_eq!(
         "neptune".repeat(10_000).as_bytes(),

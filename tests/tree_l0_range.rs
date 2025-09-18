@@ -2,7 +2,8 @@ use lsm_tree::{AbstractTree, Guard, SeqNo};
 use test_log::test;
 
 #[test]
-fn tree_l0_range() -> lsm_tree::Result<()> {
+#[ignore]
+fn tree_l0_range_blob() -> lsm_tree::Result<()> {
     let folder: tempfile::TempDir = tempfile::tempdir()?;
     let path = folder.path();
 

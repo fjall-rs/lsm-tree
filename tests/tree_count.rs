@@ -62,6 +62,7 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

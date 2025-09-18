@@ -2,7 +2,6 @@ use lsm_tree::{AbstractTree, SeqNo};
 use test_log::test;
 
 #[test]
-#[ignore = "wip"]
 fn blob_tree_simple() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
@@ -22,11 +21,14 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
-        assert_eq!(&*value, big_value);
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("smol", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, b"small value");
+
+        let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
+        assert_eq!(&*value, big_value);
 
         tree.insert("big", &new_big_value, 1);
 
@@ -37,6 +39,9 @@ fn blob_tree_simple() -> lsm_tree::Result<()> {
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, new_big_value);
+
+        let value = tree.get("big", 1)?.expect("should exist");
+        assert_eq!(&*value, big_value);
     }
 
     {
