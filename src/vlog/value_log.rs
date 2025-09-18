@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    file::VLOG_MARKER,
+    // file::VLOG_MARKER,
     vlog::{
         blob_file::{
             gc_stats::GcStats, merge::MergeReader, meta::Metadata, Inner as BlobFileInner,
@@ -13,7 +13,10 @@ use crate::{
         scanner::SizeMap,
         BlobFile, BlobFileId, BlobFileWriter, Config, GcStrategy, IndexReader, ValueHandle,
     },
-    Cache, DescriptorTable, KeyRange, UserValue,
+    Cache,
+    DescriptorTable,
+    KeyRange,
+    UserValue,
 };
 use std::{
     path::{Path, PathBuf},
@@ -113,13 +116,15 @@ impl ValueLog {
         path: P, // TODO: move path into config?
         config: Config,
     ) -> crate::Result<Self> {
-        let path = path.into();
+        // let path = path.into();
 
-        if path.join(VLOG_MARKER).try_exists()? {
-            Self::recover(path, config)
-        } else {
-            Self::create_new(path, config)
-        }
+        // if path.join(VLOG_MARKER).try_exists()? {
+        //     Self::recover(path, config)
+        // } else {
+        //     Self::create_new(path, config)
+        // }
+
+        unimplemented!()
     }
 
     /* /// Prints fragmentation histogram.
@@ -174,8 +179,8 @@ impl ValueLog {
 
         std::fs::create_dir_all(&path)?;
 
-        let marker_path = path.join(VLOG_MARKER);
-        assert!(!marker_path.try_exists()?);
+        // let marker_path = path.join(VLOG_MARKER);
+        // assert!(!marker_path.try_exists()?);
 
         // NOTE: Lastly, fsync .vlog marker, which contains the version
         // -> the V-log is fully initialized
