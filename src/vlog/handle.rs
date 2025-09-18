@@ -21,12 +21,16 @@ pub struct ValueHandle {
 
     /// Offset in file
     pub offset: u64,
+
+    /// On-disk size
+    pub on_disk_size: u32,
 }
 
 impl Encode for ValueHandle {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         writer.write_u64_varint(self.offset)?;
         writer.write_u64_varint(self.blob_file_id)?;
+        writer.write_u32_varint(self.on_disk_size)?;
         Ok(())
     }
 }
@@ -35,10 +39,12 @@ impl Decode for ValueHandle {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
         let offset = reader.read_u64_varint()?;
         let blob_file_id = reader.read_u64_varint()?;
+        let on_disk_size = reader.read_u32_varint()?;
 
         Ok(Self {
             blob_file_id,
             offset,
+            on_disk_size,
         })
     }
 }
