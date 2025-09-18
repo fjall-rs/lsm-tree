@@ -42,9 +42,11 @@ impl Encode for CompressionType {
 
             #[cfg(feature = "zlib")]
             Self::Zlib(level) => {
+                if *level > 9 {
+                    return Err(EncodeError::InvalidCompressionLevel(*level));
+                }
                 writer.write_u8(2)?;
-                let lvl = (*level).min(9);
-                writer.write_u8(lvl)?;
+                writer.write_u8(*level)?;
             }
         }
 
@@ -65,8 +67,10 @@ impl Decode for CompressionType {
             #[cfg(feature = "zlib")]
             2 => {
                 let level = reader.read_u8()?;
-                let lvl = level.min(9);
-                Ok(Self::Zlib(lvl))
+                if level > 9 {
+                    return Err(DecodeError::InvalidCompressionLevel(level));
+                }
+                Ok(Self::Zlib(level))
             }
             tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
@@ -125,6 +129,12 @@ mod tests {
         fn compression_serialize_zlib() {
             let serialized = CompressionType::Zlib(6).encode_into_vec();
             assert_eq!(2, serialized.len());
+        }
+
+        #[test]
+        fn compression_serialize_zlib_invalid_level() {
+            let err = CompressionType::Zlib(10).encode_into_vec_err();
+            assert!(matches!(err, Err(EncodeError::InvalidCompressionLevel(10))));
         }
     }
 }
