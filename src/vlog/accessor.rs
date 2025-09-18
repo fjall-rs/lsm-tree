@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
     vlog::{blob_file::writer::BLOB_HEADER_LEN, BlobFileId, ValueHandle},
     BlobFile, Cache, DescriptorTable, GlobalSegmentId, Slice, UserValue,
