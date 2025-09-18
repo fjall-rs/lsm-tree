@@ -5,13 +5,11 @@
 pub mod ingest;
 pub mod inner;
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use crate::{
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
+    file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     level_manifest::LevelManifest,
@@ -19,6 +17,7 @@ use crate::{
     memtable::Memtable,
     segment::Segment,
     value::InternalValue,
+    vlog::BlobFile,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
@@ -28,6 +27,9 @@ use std::{
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
@@ -68,6 +70,14 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn version_free_list_len(&self) -> usize {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .version_free_list
+            .len()
+    }
+
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
@@ -236,7 +246,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Segment>> {
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
         use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
         use std::time::Instant;
 
@@ -275,11 +285,20 @@ impl AbstractTree for Tree {
 
         log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
 
-        Ok(result)
+        Ok(result.map(|segment| (segment, None)))
     }
 
-    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()> {
-        log::trace!("Registering {} segments", segments.len());
+    fn register_segments(
+        &self,
+        segments: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()> {
+        log::trace!(
+            "Registering {} segments, {} blob files",
+            segments.len(),
+            blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
+        );
 
         // NOTE: Mind lock order L -> M -> S
         log::trace!("register: Acquiring levels manifest write lock");
@@ -291,9 +310,10 @@ impl AbstractTree for Tree {
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
         log::trace!("register: Acquired sealed memtables write lock");
 
-        manifest.atomic_swap(|version| version.with_new_l0_run(segments), seqno_threshold)?;
-
-        // eprintln!("{manifest}");
+        manifest.atomic_swap(
+            |version| version.with_new_l0_run(segments, blob_files),
+            seqno_threshold,
+        )?;
 
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
@@ -594,11 +614,12 @@ impl Tree {
             return Ok(None);
         };
 
-        let Some(segment) = self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
+        let Some((segment, _)) =
+            self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment), seqno_threshold)?;
+        self.register_segments(std::slice::from_ref(&segment), None, seqno_threshold)?;
 
         Ok(Some(segment))
     }
@@ -929,9 +950,30 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering manifest at {}", tree_path.display());
+        let recovery = LevelManifest::recover_ids(tree_path)?;
 
-        let segment_id_map = LevelManifest::recover_ids(tree_path)?;
+        let segment_id_map = {
+            let mut result: crate::HashMap<SegmentId, u8 /* Level index */> =
+                crate::HashMap::default();
+
+            for (level_idx, segment_ids) in recovery.segment_ids.iter().enumerate() {
+                for run in segment_ids {
+                    for segment_id in run {
+                        // NOTE: We know there are always less than 256 levels
+                        #[allow(clippy::expect_used)]
+                        result.insert(
+                            *segment_id,
+                            level_idx
+                                .try_into()
+                                .expect("there are less than 256 levels"),
+                        );
+                    }
+                }
+            }
+
+            result
+        };
+
         let cnt = segment_id_map.len();
 
         log::debug!(
@@ -989,7 +1031,7 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    level_idx <= 2, // TODO: look at configuration
+                    level_idx <= 1, // TODO: look at configuration
                     level_idx <= 2, // TODO: look at configuration
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
@@ -1021,6 +1063,11 @@ impl Tree {
 
         log::debug!("Successfully recovered {} segments", segments.len());
 
-        LevelManifest::recover(tree_path, &segments)
+        let blob_files = crate::vlog::recover_blob_files(
+            &tree_path.join(BLOBS_FOLDER),
+            &recovery.blob_file_ids,
+        )?;
+
+        LevelManifest::recover(tree_path, &recovery, &segments, &blob_files)
     }
 }
