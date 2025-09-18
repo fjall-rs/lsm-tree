@@ -179,6 +179,11 @@ fn move_segments(
         opts.eviction_seqno,
     )?;
 
+    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+        log::error!("Manifest maintenance failed: {e:?}");
+        return Err(e);
+    }
+
     Ok(())
 }
 
