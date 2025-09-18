@@ -3,11 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{meta::Metadata, trailer::Trailer};
-use crate::{
-    coding::Encode,
-    vlog::{compression::Compressor, BlobFileId},
-    KeyRange, UserKey,
-};
+use crate::{coding::Encode, vlog::BlobFileId, CompressionType, KeyRange, UserKey};
 use byteorder::{BigEndian, WriteBytesExt};
 use std::{
     fs::File,
@@ -15,10 +11,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const BLOB_HEADER_MAGIC: &[u8] = &[b'V', b'L', b'G', b'B', b'L', b'O', b'B', 1];
+pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
+
+pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
+    + std::mem::size_of::<u128>()
+    + std::mem::size_of::<u16>()
+    + std::mem::size_of::<u32>()
+    + std::mem::size_of::<u32>();
 
 /// Blob file writer
-pub struct Writer<C: Compressor + Clone> {
+pub struct Writer {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
@@ -34,10 +36,10 @@ pub struct Writer<C: Compressor + Clone> {
     pub(crate) first_key: Option<UserKey>,
     pub(crate) last_key: Option<UserKey>,
 
-    pub(crate) compression: Option<C>,
+    pub(crate) compression: CompressionType,
 }
 
-impl<C: Compressor + Clone> Writer<C> {
+impl Writer {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
@@ -63,11 +65,11 @@ impl<C: Compressor + Clone> Writer<C> {
             first_key: None,
             last_key: None,
 
-            compression: None,
+            compression: CompressionType::None,
         })
     }
 
-    pub fn use_compression(mut self, compressor: Option<C>) -> Self {
+    pub fn use_compression(mut self, compressor: CompressionType) -> Self {
         self.compression = compressor;
         self
     }
@@ -109,55 +111,60 @@ impl<C: Compressor + Clone> Writer<C> {
 
         self.uncompressed_bytes += value.len() as u64;
 
-        let value = match &self.compression {
-            Some(compressor) => compressor.compress(value)?,
-            None => value.to_vec(),
-        };
-
-        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
-        hasher.update(key);
-        hasher.update(&value);
-        let checksum = hasher.digest();
-
-        // TODO: 2.0.0 formalize blob header
-        // into struct... store uncompressed len as well
-        // so we can optimize rollover by avoiding
-        // repeated compression & decompression
+        // NOTE:
+        // BLOB HEADER LAYOUT
+        //
+        // [MAGIC_BYTES; 4B]
+        // [Checksum; 16B]
+        // [key len; 2B]
+        // [real val len; 4B]
+        // [on-disk val len; 4B]
+        // [...key; ?]
+        // [...val; ?]
 
         // Write header
         self.active_writer.write_all(BLOB_HEADER_MAGIC)?;
 
-        // Write checksum
-        self.active_writer.write_u64::<BigEndian>(checksum)?;
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        hasher.update(key);
+        hasher.update(value);
+        let checksum = hasher.digest128();
 
-        // Write key
+        // Write checksum
+        self.active_writer.write_u128::<BigEndian>(checksum)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
         self.active_writer
             .write_u16::<BigEndian>(key.len() as u16)?;
-        self.active_writer.write_all(key)?;
-
-        // Write value
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
         self.active_writer
             .write_u32::<BigEndian>(value.len() as u32)?;
-        self.active_writer.write_all(&value)?;
 
-        // Header
+        // TODO:
+        let value = match &self.compression {
+            _ => value,
+        };
+
+        // NOTE: Truncation is okay and actually needed
+        #[allow(clippy::cast_possible_truncation)]
+        self.active_writer
+            .write_u32::<BigEndian>(value.len() as u32)?;
+
+        self.active_writer.write_all(key)?;
+        self.active_writer.write_all(value)?;
+
+        // Update offset
         self.offset += BLOB_HEADER_MAGIC.len() as u64;
+        self.offset += std::mem::size_of::<u128>() as u64;
 
-        // Checksum
-        self.offset += std::mem::size_of::<u64>() as u64;
-
-        // Key
         self.offset += std::mem::size_of::<u16>() as u64;
-        self.offset += key.len() as u64;
-
-        // Value
         self.offset += std::mem::size_of::<u32>() as u64;
+        self.offset += std::mem::size_of::<u32>() as u64;
+
+        self.offset += key.len() as u64;
         self.offset += value.len() as u64;
 
         // Update metadata
