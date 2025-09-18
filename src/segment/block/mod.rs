@@ -23,9 +23,9 @@ use crate::{
     segment::BlockHandle,
     CompressionType, Slice,
 };
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::borrow::Cow;
 
 #[cfg(feature = "zlib")]
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression as ZCompression};
@@ -60,7 +60,7 @@ impl Block {
             uncompressed_length: data.len() as u32,
             previous_block_offset: BlockOffset(0), // <-- TODO:
         };
-        
+
         let data: Cow<[u8]> = match compression {
             CompressionType::None => Cow::Borrowed(data),
 
@@ -117,7 +117,8 @@ impl Block {
             #[cfg(feature = "zlib")]
             CompressionType::Zlib(_level) => {
                 let mut d = ZlibDecoder::new(&raw_data[..]);
-                let mut decompressed_data = unsafe{ Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                let mut decompressed_data =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
                 d.read_exact(&mut decompressed_data)
                     .map_err(|_| crate::Error::Decompress(compression))?;
                 decompressed_data.freeze().into()
@@ -219,7 +220,8 @@ impl Block {
                 #[allow(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
                 let mut d = ZlibDecoder::new(raw_data);
-                let mut decompressed_data = unsafe{ Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                let mut decompressed_data =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
                 d.read_exact(&mut decompressed_data)
                     .map_err(|_| crate::Error::Decompress(compression))?;
                 decompressed_data.freeze()
