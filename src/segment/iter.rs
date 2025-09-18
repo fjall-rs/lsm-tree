@@ -2,9 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
 use crate::{
     segment::{
@@ -14,6 +11,9 @@ use crate::{
 };
 use self_cell::self_cell;
 use std::{path::PathBuf, sync::Arc};
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 type InnerIter<'a> = DataBlockIter<'a>;
 
