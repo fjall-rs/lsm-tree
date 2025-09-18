@@ -4,13 +4,13 @@
 
 pub mod report;
 
-use crate::vlog::{BlobFileId, Compressor, ValueLog};
+use crate::vlog::{BlobFileId, ValueLog};
 
 /// GC strategy
 #[allow(clippy::module_name_repetitions)]
-pub trait GcStrategy<C: Compressor + Clone> {
+pub trait GcStrategy {
     /// Picks blob files based on a predicate.
-    fn pick(&self, value_log: &ValueLog<C>) -> Vec<BlobFileId>;
+    fn pick(&self, value_log: &ValueLog) -> Vec<BlobFileId>;
 }
 
 /// Picks blob files that have a certain percentage of stale blobs
@@ -32,17 +32,19 @@ impl StaleThresholdStrategy {
     }
 }
 
-impl<C: Compressor + Clone> GcStrategy<C> for StaleThresholdStrategy {
-    fn pick(&self, value_log: &ValueLog<C>) -> Vec<BlobFileId> {
-        value_log
-            .manifest
-            .blob_files
-            .read()
-            .expect("lock is poisoned")
-            .values()
-            .filter(|x| x.stale_ratio() > self.0)
-            .map(|x| x.id)
-            .collect::<Vec<_>>()
+impl GcStrategy for StaleThresholdStrategy {
+    fn pick(&self, value_log: &ValueLog) -> Vec<BlobFileId> {
+        unimplemented!()
+
+        // value_log
+        //     .manifest
+        //     .blob_files
+        //     .read()
+        //     .expect("lock is poisoned")
+        //     .values()
+        //     .filter(|x| x.stale_ratio() > self.0)
+        //     .map(|x| x.id)
+        //     .collect::<Vec<_>>()
     }
 }
 
@@ -62,62 +64,64 @@ impl SpaceAmpStrategy {
     }
 }
 
-impl<C: Compressor + Clone> GcStrategy<C> for SpaceAmpStrategy {
+impl GcStrategy for SpaceAmpStrategy {
     #[allow(clippy::cast_precision_loss, clippy::significant_drop_tightening)]
-    fn pick(&self, value_log: &ValueLog<C>) -> Vec<BlobFileId> {
-        let space_amp_target = self.0;
-        let current_space_amp = value_log.space_amp();
+    fn pick(&self, value_log: &ValueLog) -> Vec<BlobFileId> {
+        unimplemented!()
 
-        if current_space_amp < space_amp_target {
-            log::trace!("Space amp is <= target {space_amp_target}, nothing to do");
-            vec![]
-        } else {
-            log::debug!("Selecting blob files to GC, space_amp_target={space_amp_target}");
+        // let space_amp_target = self.0;
+        // let current_space_amp = value_log.space_amp();
 
-            let lock = value_log
-                .manifest
-                .blob_files
-                .read()
-                .expect("lock is poisoned");
+        // if current_space_amp < space_amp_target {
+        //     log::trace!("Space amp is <= target {space_amp_target}, nothing to do");
+        //     vec![]
+        // } else {
+        //     log::debug!("Selecting blob files to GC, space_amp_target={space_amp_target}");
 
-            let mut blob_files = lock
-                .values()
-                .filter(|x| x.stale_ratio() > 0.0)
-                .collect::<Vec<_>>();
+        //     let lock = value_log
+        //         .manifest
+        //         .blob_files
+        //         .read()
+        //         .expect("lock is poisoned");
 
-            // Sort by stale ratio descending
-            blob_files.sort_by(|a, b| {
-                b.stale_ratio()
-                    .partial_cmp(&a.stale_ratio())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+        //     let mut blob_files = lock
+        //         .values()
+        //         .filter(|x| x.stale_ratio() > 0.0)
+        //         .collect::<Vec<_>>();
 
-            let mut selection = vec![];
+        //     // Sort by stale ratio descending
+        //     blob_files.sort_by(|a, b| {
+        //         b.stale_ratio()
+        //             .partial_cmp(&a.stale_ratio())
+        //             .unwrap_or(std::cmp::Ordering::Equal)
+        //     });
 
-            let mut total_bytes = value_log.manifest.total_bytes();
-            let mut stale_bytes = value_log.manifest.stale_bytes();
+        //     let mut selection = vec![];
 
-            for blob_file in blob_files {
-                let blob_file_stale_bytes = blob_file.gc_stats.stale_bytes();
-                stale_bytes -= blob_file_stale_bytes;
-                total_bytes -= blob_file_stale_bytes;
+        //     let mut total_bytes = value_log.manifest.total_bytes();
+        //     let mut stale_bytes = value_log.manifest.stale_bytes();
 
-                selection.push(blob_file.id);
+        //     for blob_file in blob_files {
+        //         let blob_file_stale_bytes = blob_file.gc_stats.stale_bytes();
+        //         stale_bytes -= blob_file_stale_bytes;
+        //         total_bytes -= blob_file_stale_bytes;
 
-                let space_amp_after_gc =
-                    total_bytes as f32 / (total_bytes as f32 - stale_bytes as f32);
+        //         selection.push(blob_file.id);
 
-                log::debug!(
-                    "Selected blob file #{} for GC: will reduce space amp to {space_amp_after_gc}",
-                    blob_file.id,
-                );
+        //         let space_amp_after_gc =
+        //             total_bytes as f32 / (total_bytes as f32 - stale_bytes as f32);
 
-                if space_amp_after_gc <= space_amp_target {
-                    break;
-                }
-            }
+        //         log::debug!(
+        //             "Selected blob file #{} for GC: will reduce space amp to {space_amp_after_gc}",
+        //             blob_file.id,
+        //         );
 
-            selection
-        }
+        //         if space_amp_after_gc <= space_amp_target {
+        //             break;
+        //         }
+        //     }
+
+        //     selection
+        // }
     }
 }

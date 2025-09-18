@@ -2,11 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{vlog::compression::Compressor, Cache, DescriptorTable};
+use crate::{Cache, CompressionType, DescriptorTable};
 use std::sync::Arc;
 
 /// Value log configuration
-pub struct Config<C: Compressor + Clone> {
+pub struct Config {
     /// Target size of vLog blob files
     pub(crate) blob_file_size_bytes: u64,
 
@@ -17,24 +17,24 @@ pub struct Config<C: Compressor + Clone> {
     pub(crate) fd_cache: Arc<DescriptorTable>,
 
     /// Compression to use
-    pub(crate) compression: Option<C>,
+    pub(crate) compression: CompressionType,
 }
 
-impl<C: Compressor + Clone + Default> Config<C> {
+impl Config {
     /// Creates a new configuration builder.
     pub fn new(blob_cache: Arc<Cache>, fd_cache: Arc<DescriptorTable>) -> Self {
         Self {
             blob_cache,
             fd_cache,
-            compression: None,
+            compression: CompressionType::None,
             blob_file_size_bytes: 128 * 1_024 * 1_024,
         }
     }
 
     /// Sets the compression & decompression scheme.
     #[must_use]
-    pub fn compression(mut self, compressor: Option<C>) -> Self {
-        self.compression = compressor;
+    pub fn compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
         self
     }
 

@@ -3,11 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{
-    coding::DecodeError,
-    vlog::{BlobFileId, Compressor},
-    UserKey, UserValue,
-};
+use crate::{coding::DecodeError, vlog::BlobFileId, CompressionType, UserKey, UserValue};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::{
     fs::File,
@@ -27,14 +23,14 @@ macro_rules! fail_iter {
 // TODO: pread
 
 /// Reads through a blob file in order.
-pub struct Reader<C: Compressor + Clone> {
+pub struct Reader {
     pub(crate) blob_file_id: BlobFileId,
     inner: BufReader<File>,
     is_terminated: bool,
-    compression: Option<C>,
+    compression: CompressionType,
 }
 
-impl<C: Compressor + Clone> Reader<C> {
+impl Reader {
     /// Initializes a new blob file reader.
     ///
     /// # Errors
@@ -56,12 +52,12 @@ impl<C: Compressor + Clone> Reader<C> {
             blob_file_id,
             inner: file_reader,
             is_terminated: false,
-            compression: None,
+            compression: CompressionType::None,
         }
     }
 
-    pub(crate) fn use_compression(mut self, compressor: Option<C>) -> Self {
-        self.compression = compressor;
+    pub(crate) fn use_compression(mut self, compressoion: CompressionType) -> Self {
+        self.compression = compressoion;
         self
     }
 
@@ -70,7 +66,7 @@ impl<C: Compressor + Clone> Reader<C> {
     }
 }
 
-impl<C: Compressor + Clone> Iterator for Reader<C> {
+impl Iterator for Reader {
     type Item = crate::Result<(UserKey, UserValue, u64)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -101,18 +97,21 @@ impl<C: Compressor + Clone> Iterator for Reader<C> {
 
         let val_len = fail_iter!(self.inner.read_u32::<BigEndian>());
         let val = match &self.compression {
-            Some(compressor) => {
-                // TODO: https://github.com/PSeitz/lz4_flex/issues/166
-                let mut val = vec![0; val_len as usize];
-                fail_iter!(self.inner.read_exact(&mut val));
-                UserValue::from(fail_iter!(compressor.decompress(&val)))
-            }
-            None => {
+            _ => {
                 // NOTE: When not using compression, we can skip
                 // the intermediary heap allocation and read directly into a Slice
                 fail_iter!(UserValue::from_reader(&mut self.inner, val_len as usize))
             }
         };
+        // Some(compressor) => {
+        //     // TODO: https://github.com/PSeitz/lz4_flex/issues/166
+        //     let mut val = vec![0; val_len as usize];
+        //     fail_iter!(self.inner.read_exact(&mut val));
+        //     UserValue::from(fail_iter!(compressor.decompress(&val)))
+        // }
+        // None => {
+
+        // }
 
         Some(Ok((key, val, checksum)))
     }

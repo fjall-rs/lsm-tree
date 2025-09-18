@@ -3,43 +3,45 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    file::VLOG_MARKER,
     vlog::{
-        blob_file::merge::MergeReader,
+        blob_file::{
+            gc_stats::GcStats, merge::MergeReader, meta::Metadata, Inner as BlobFileInner,
+        },
         gc::report::GcReport,
         index::Writer as IndexWriter,
-        manifest::{Manifest, BLOB_FILES_FOLDER, VLOG_MARKER},
-        scanner::{Scanner, SizeMap},
-        BlobFileId, BlobFileWriter, Compressor, Config, GcStrategy, IndexReader, ValueHandle,
+        scanner::SizeMap,
+        BlobFile, BlobFileId, BlobFileWriter, Config, GcStrategy, IndexReader, ValueHandle,
     },
-    Cache, DescriptorTable, UserValue,
+    Cache, DescriptorTable, KeyRange, UserValue,
 };
 use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicU64, Arc, Mutex},
 };
 
-// TODO: use other counter struct
-#[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Default)]
-pub struct IdGenerator(Arc<AtomicU64>);
+// // TODO: use other counter struct
+// #[allow(clippy::module_name_repetitions)]
+// #[derive(Clone, Default)]
+// pub struct IdGenerator(Arc<AtomicU64>);
 
-impl std::ops::Deref for IdGenerator {
-    type Target = Arc<AtomicU64>;
+// impl std::ops::Deref for IdGenerator {
+//     type Target = Arc<AtomicU64>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
-impl IdGenerator {
-    pub fn new(start: u64) -> Self {
-        Self(Arc::new(AtomicU64::new(start)))
-    }
+// impl IdGenerator {
+//     pub fn new(start: u64) -> Self {
+//         Self(Arc::new(AtomicU64::new(start)))
+//     }
 
-    pub fn next(&self) -> BlobFileId {
-        self.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    }
-}
+//     pub fn next(&self) -> BlobFileId {
+//         self.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+//     }
+// }
 
 /// Unique value log ID
 #[allow(clippy::module_name_repetitions)]
@@ -52,21 +54,23 @@ pub fn get_next_vlog_id() -> ValueLogId {
 }
 
 fn unlink_blob_files(base_path: &Path, ids: &[BlobFileId]) {
-    for id in ids {
-        let path = base_path.join(BLOB_FILES_FOLDER).join(id.to_string());
+    unimplemented!()
 
-        if let Err(e) = std::fs::remove_file(&path) {
-            log::error!("Could not free blob file at {path:?}: {e:?}");
-        }
-    }
+    // for id in ids {
+    //     let path = base_path.join(BLOB_FILES_FOLDER).join(id.to_string());
+
+    //     if let Err(e) = std::fs::remove_file(&path) {
+    //         log::error!("Could not free blob file at {path:?}: {e:?}");
+    //     }
+    // }
 }
 
 /// A disk-resident value log
 #[derive(Clone)]
-pub struct ValueLog<C: Compressor + Clone>(Arc<ValueLogInner<C>>);
+pub struct ValueLog(Arc<ValueLogInner>);
 
-impl<C: Compressor + Clone> std::ops::Deref for ValueLog<C> {
-    type Target = ValueLogInner<C>;
+impl std::ops::Deref for ValueLog {
+    type Target = ValueLogInner;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -74,7 +78,7 @@ impl<C: Compressor + Clone> std::ops::Deref for ValueLog<C> {
 }
 
 #[allow(clippy::module_name_repetitions)]
-pub struct ValueLogInner<C: Compressor + Clone> {
+pub struct ValueLogInner {
     /// Unique value log ID
     id: u64,
 
@@ -82,20 +86,16 @@ pub struct ValueLogInner<C: Compressor + Clone> {
     pub path: PathBuf,
 
     /// Value log configuration
-    config: Config<C>,
+    config: Config,
 
     /// In-memory blob cache
-    blob_cache: Arc<Cache>,
+    // blob_cache: Arc<Cache>,
 
     /// In-memory FD cache
-    fd_cache: Arc<DescriptorTable>,
+    // fd_cache: Arc<DescriptorTable>,
 
-    /// Blob files manifest
-    #[doc(hidden)]
-    pub manifest: Manifest<C>,
-
-    /// Generator to get next blob file ID
-    id_generator: IdGenerator,
+    // /// Generator to get next blob file ID
+    // id_generator: IdGenerator,
 
     /// Guards the rollover (compaction) process to only
     /// allow one to happen at a time
@@ -103,7 +103,7 @@ pub struct ValueLogInner<C: Compressor + Clone> {
     pub rollover_guard: Mutex<()>,
 }
 
-impl<C: Compressor + Clone> ValueLog<C> {
+impl ValueLog {
     /// Creates or recovers a value log in the given directory.
     ///
     /// # Errors
@@ -111,7 +111,7 @@ impl<C: Compressor + Clone> ValueLog<C> {
     /// Will return `Err` if an IO error occurs.
     pub fn open<P: Into<PathBuf>>(
         path: P, // TODO: move path into config?
-        config: Config<C>,
+        config: Config,
     ) -> crate::Result<Self> {
         let path = path.into();
 
@@ -144,27 +144,29 @@ impl<C: Compressor + Clone> ValueLog<C> {
 
     #[doc(hidden)]
     pub fn verify(&self) -> crate::Result<usize> {
-        let _lock = self.rollover_guard.lock().expect("lock is poisoned");
+        unimplemented!()
 
-        let mut sum = 0;
+        // let _lock = self.rollover_guard.lock().expect("lock is poisoned");
 
-        for item in self.get_reader()? {
-            let (k, v, _, expected_checksum) = item?;
+        // let mut sum = 0;
 
-            let mut hasher = xxhash_rust::xxh3::Xxh3::new();
-            hasher.update(&k);
-            hasher.update(&v);
+        // for item in self.get_reader()? {
+        //     let (k, v, _, expected_checksum) = item?;
 
-            if hasher.digest() != expected_checksum {
-                sum += 1;
-            }
-        }
+        //     let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        //     hasher.update(&k);
+        //     hasher.update(&v);
 
-        Ok(sum)
+        //     if hasher.digest() != expected_checksum {
+        //         sum += 1;
+        //     }
+        // }
+
+        // Ok(sum)
     }
 
     /// Creates a new empty value log in a directory.
-    pub(crate) fn create_new<P: Into<PathBuf>>(path: P, config: Config<C>) -> crate::Result<Self> {
+    pub(crate) fn create_new<P: Into<PathBuf>>(path: P, config: Config) -> crate::Result<Self> {
         let path = path.into();
 
         let path = crate::path::absolute_path(&path);
@@ -174,8 +176,6 @@ impl<C: Compressor + Clone> ValueLog<C> {
 
         let marker_path = path.join(VLOG_MARKER);
         assert!(!marker_path.try_exists()?);
-
-        std::fs::create_dir_all(path.join(BLOB_FILES_FOLDER))?;
 
         // NOTE: Lastly, fsync .vlog marker, which contains the version
         // -> the V-log is fully initialized
@@ -188,85 +188,32 @@ impl<C: Compressor + Clone> ValueLog<C> {
         {
             // fsync folders on Unix
 
-            let folder = std::fs::File::open(path.join(BLOB_FILES_FOLDER))?;
-            folder.sync_all()?;
-
             let folder = std::fs::File::open(&path)?;
             folder.sync_all()?;
         }
 
-        let blob_cache = config.blob_cache.clone();
-        let fd_cache = config.fd_cache.clone();
-        let manifest = Manifest::create_new(&path)?;
+        // let blob_cache = config.blob_cache.clone();
+        // let fd_cache = config.fd_cache.clone();
+        // let manifest = Manifest::create_new(&path)?;
 
         Ok(Self(Arc::new(ValueLogInner {
             id: get_next_vlog_id(),
             config,
             path,
-            blob_cache,
-            fd_cache,
-            manifest,
-            id_generator: IdGenerator::default(),
+            // blob_cache,
+            // fd_cache,
+            // manifest,
+            // id_generator: IdGenerator::default(),
             rollover_guard: Mutex::new(()),
         })))
-    }
-
-    pub(crate) fn recover<P: Into<PathBuf>>(path: P, config: Config<C>) -> crate::Result<Self> {
-        let path = path.into();
-        log::info!("Recovering vLog at {}", path.display());
-
-        // {
-        //     let bytes = std::fs::read(path.join(VLOG_MARKER))?;
-
-        //     if let Some(version) = Version::parse_file_header(&bytes) {
-        //         if version != Version::V1 {
-        //             return Err(crate::Error::InvalidVersion(Some(version)));
-        //         }
-        //     } else {
-        //         return Err(crate::Error::InvalidVersion(None));
-        //     }
-        // }
-
-        let blob_cache = config.blob_cache.clone();
-        let fd_cache = config.fd_cache.clone();
-        let manifest = Manifest::recover(&path)?;
-
-        let highest_id = manifest
-            .blob_files
-            .read()
-            .expect("lock is poisoned")
-            .values()
-            .map(|x| x.id)
-            .max()
-            .unwrap_or_default();
-
-        Ok(Self(Arc::new(ValueLogInner {
-            id: get_next_vlog_id(),
-            config,
-            path,
-            blob_cache,
-            fd_cache,
-            manifest,
-            id_generator: IdGenerator::new(highest_id + 1),
-            rollover_guard: Mutex::new(()),
-        })))
-    }
-
-    /// Registers a [`BlobFileWriter`].
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn register_writer(&self, writer: BlobFileWriter<C>) -> crate::Result<()> {
-        let _lock = self.rollover_guard.lock().expect("lock is poisoned");
-        self.manifest.register(writer)?;
-        Ok(())
     }
 
     /// Returns the number of blob files in the value log.
     #[must_use]
     pub fn blob_file_count(&self) -> usize {
-        self.manifest.len()
+        unimplemented!()
+
+        // self.manifest.len()
     }
 
     /// Resolves a value handle.
@@ -341,13 +288,15 @@ impl<C: Compressor + Clone> ValueLog<C> {
         // Ok(Some(val))
     }
 
-    fn get_writer_raw(&self) -> crate::Result<BlobFileWriter<C>> {
-        BlobFileWriter::new(
-            self.id_generator.clone(),
-            self.config.blob_file_size_bytes,
-            self.path.join(BLOB_FILES_FOLDER),
-        )
-        .map_err(Into::into)
+    fn get_writer_raw(&self) -> crate::Result<BlobFileWriter> {
+        unimplemented!()
+
+        // BlobFileWriter::new(
+        //     self.id_generator.clone(),
+        //     self.config.blob_file_size_bytes,
+        //     &self.path,
+        // )
+        // .map_err(Into::into)
     }
 
     /// Initializes a new blob file writer.
@@ -355,9 +304,11 @@ impl<C: Compressor + Clone> ValueLog<C> {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn get_writer(&self) -> crate::Result<BlobFileWriter<C>> {
-        self.get_writer_raw()
-            .map(|x| x.use_compression(self.config.compression.clone()))
+    pub fn get_writer(&self) -> crate::Result<BlobFileWriter> {
+        unimplemented!()
+
+        // self.get_writer_raw()
+        //     .map(|x| x.use_compression(self.config.compression))
     }
 
     /// Drops stale blob files.
@@ -368,35 +319,37 @@ impl<C: Compressor + Clone> ValueLog<C> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn drop_stale_blob_files(&self) -> crate::Result<u64> {
-        // IMPORTANT: Only allow 1 rollover or GC at any given time
-        let _guard = self.rollover_guard.lock().expect("lock is poisoned");
+        unimplemented!()
 
-        let blob_files = self
-            .manifest
-            .blob_files
-            .read()
-            .expect("lock is poisoned")
-            .values()
-            .filter(|x| x.is_stale())
-            .cloned()
-            .collect::<Vec<_>>();
+        // // IMPORTANT: Only allow 1 rollover or GC at any given time
+        // let _guard = self.rollover_guard.lock().expect("lock is poisoned");
 
-        let bytes_freed = blob_files.iter().map(|x| x.meta.compressed_bytes).sum();
+        // let blob_files = self
+        //     .manifest
+        //     .blob_files
+        //     .read()
+        //     .expect("lock is poisoned")
+        //     .values()
+        //     .filter(|x| x.is_stale())
+        //     .cloned()
+        //     .collect::<Vec<_>>();
 
-        let ids = blob_files.iter().map(|x| x.id).collect::<Vec<_>>();
+        // let bytes_freed = blob_files.iter().map(|x| x.meta.compressed_bytes).sum();
 
-        if ids.is_empty() {
-            log::trace!("No blob files to drop");
-        } else {
-            log::info!("Dropping stale blob files: {ids:?}");
-            self.manifest.drop_blob_files(&ids)?;
+        // let ids = blob_files.iter().map(|x| x.id).collect::<Vec<_>>();
 
-            for blob_file in blob_files {
-                std::fs::remove_file(&blob_file.path)?;
-            }
-        }
+        // if ids.is_empty() {
+        //     log::trace!("No blob files to drop");
+        // } else {
+        //     log::info!("Dropping stale blob files: {ids:?}");
+        //     self.manifest.drop_blob_files(&ids)?;
 
-        Ok(bytes_freed)
+        //     for blob_file in blob_files {
+        //         std::fs::remove_file(&blob_file.path)?;
+        //     }
+        // }
+
+        // Ok(bytes_freed)
     }
 
     /// Marks some blob files as stale.
@@ -405,17 +358,19 @@ impl<C: Compressor + Clone> ValueLog<C> {
     ///
     /// Will return `Err` if an IO error occurs.
     fn mark_as_stale(&self, ids: &[BlobFileId]) {
-        // NOTE: Read-locking is fine because we are dealing with an atomic bool
-        #[allow(clippy::significant_drop_tightening)]
-        let blob_files = self.manifest.blob_files.read().expect("lock is poisoned");
+        unimplemented!()
 
-        for id in ids {
-            let Some(blob_file) = blob_files.get(id) else {
-                continue;
-            };
+        // // NOTE: Read-locking is fine because we are dealing with an atomic bool
+        // #[allow(clippy::significant_drop_tightening)]
+        // let blob_files = self.manifest.blob_files.read().expect("lock is poisoned");
 
-            blob_file.mark_as_stale();
-        }
+        // for id in ids {
+        //     let Some(blob_file) = blob_files.get(id) else {
+        //         continue;
+        //     };
+
+        //     blob_file.mark_as_stale();
+        // }
     }
 
     // TODO: remove?
@@ -424,67 +379,71 @@ impl<C: Compressor + Clone> ValueLog<C> {
     /// Returns 0.0 if there are no items.
     #[must_use]
     pub fn space_amp(&self) -> f32 {
-        self.manifest.space_amp()
+        unimplemented!()
+
+        // self.manifest.space_amp()
     }
 
     #[doc(hidden)]
     #[allow(clippy::cast_precision_loss)]
     #[must_use]
     pub fn consume_scan_result(&self, size_map: &SizeMap) -> GcReport {
-        let mut report = GcReport {
-            path: self.path.clone(),
-            blob_file_count: self.blob_file_count(),
-            stale_blob_file_count: 0,
-            stale_bytes: 0,
-            total_bytes: 0,
-            stale_blobs: 0,
-            total_blobs: 0,
-        };
+        unimplemented!()
 
-        for (&id, counter) in size_map {
-            let blob_file = self
-                .manifest
-                .get_blob_file(id)
-                .expect("blob file should exist");
+        // let mut report = GcReport {
+        //     path: self.path.clone(),
+        //     blob_file_count: self.blob_file_count(),
+        //     stale_blob_file_count: 0,
+        //     stale_bytes: 0,
+        //     total_bytes: 0,
+        //     stale_blobs: 0,
+        //     total_blobs: 0,
+        // };
 
-            let total_bytes = blob_file.meta.total_uncompressed_bytes;
-            let total_items = blob_file.meta.item_count;
+        // for (&id, counter) in size_map {
+        //     let blob_file = self
+        //         .manifest
+        //         .get_blob_file(id)
+        //         .expect("blob file should exist");
 
-            report.total_bytes += total_bytes;
-            report.total_blobs += total_items;
+        //     let total_bytes = blob_file.meta.total_uncompressed_bytes;
+        //     let total_items = blob_file.meta.item_count;
 
-            if counter.item_count > 0 {
-                let used_size = counter.size;
-                let alive_item_count = counter.item_count;
+        //     report.total_bytes += total_bytes;
+        //     report.total_blobs += total_items;
 
-                let blob_file = self
-                    .manifest
-                    .get_blob_file(id)
-                    .expect("blob file should exist");
+        //     if counter.item_count > 0 {
+        //         let used_size = counter.size;
+        //         let alive_item_count = counter.item_count;
 
-                let stale_bytes = total_bytes - used_size;
-                let stale_items = total_items - alive_item_count;
+        //         let blob_file = self
+        //             .manifest
+        //             .get_blob_file(id)
+        //             .expect("blob file should exist");
 
-                blob_file.gc_stats.set_stale_bytes(stale_bytes);
-                blob_file.gc_stats.set_stale_items(stale_items);
+        //         let stale_bytes = total_bytes - used_size;
+        //         let stale_items = total_items - alive_item_count;
 
-                report.stale_bytes += stale_bytes;
-                report.stale_blobs += stale_items;
-            } else {
-                log::debug!(
-                "Blob file #{id} has no incoming references - can be dropped, freeing {} KiB on disk (userdata={} MiB)",
-                blob_file.meta.compressed_bytes / 1_024,
-                total_bytes / 1_024 / 1_024,
-            );
-                self.mark_as_stale(&[id]);
+        //         blob_file.gc_stats.set_stale_bytes(stale_bytes);
+        //         blob_file.gc_stats.set_stale_items(stale_items);
 
-                report.stale_blob_file_count += 1;
-                report.stale_bytes += total_bytes;
-                report.stale_blobs += total_items;
-            }
-        }
+        //         report.stale_bytes += stale_bytes;
+        //         report.stale_blobs += stale_items;
+        //     } else {
+        //         log::debug!(
+        //         "Blob file #{id} has no incoming references - can be dropped, freeing {} KiB on disk (userdata={} MiB)",
+        //         blob_file.meta.compressed_bytes / 1_024,
+        //         total_bytes / 1_024 / 1_024,
+        //     );
+        //         self.mark_as_stale(&[id]);
 
-        report
+        //         report.stale_blob_file_count += 1;
+        //         report.stale_bytes += total_bytes;
+        //         report.stale_blobs += total_items;
+        //     }
+        // }
+
+        // report
     }
 
     /// Scans the given index and collects GC statistics.
@@ -497,30 +456,34 @@ impl<C: Compressor + Clone> ValueLog<C> {
         &self,
         iter: impl Iterator<Item = std::io::Result<(ValueHandle, u32)>>,
     ) -> crate::Result<GcReport> {
-        let lock_guard = self.rollover_guard.lock().expect("lock is poisoned");
+        unimplemented!()
 
-        let ids = self.manifest.list_blob_file_ids();
+        // let lock_guard = self.rollover_guard.lock().expect("lock is poisoned");
 
-        let mut scanner = Scanner::new(iter, lock_guard, &ids);
-        scanner.scan()?;
-        let size_map = scanner.finish();
-        let report = self.consume_scan_result(&size_map);
+        // let ids = self.manifest.list_blob_file_ids();
 
-        Ok(report)
+        // let mut scanner = Scanner::new(iter, lock_guard, &ids);
+        // scanner.scan()?;
+        // let size_map = scanner.finish();
+        // let report = self.consume_scan_result(&size_map);
+
+        // Ok(report)
     }
 
     #[doc(hidden)]
-    pub fn get_reader(&self) -> crate::Result<MergeReader<C>> {
-        let readers = self
-            .manifest
-            .blob_files
-            .read()
-            .expect("lock is poisoned")
-            .values()
-            .map(|x| x.scan())
-            .collect::<crate::Result<Vec<_>>>()?;
+    pub fn get_reader(&self) -> crate::Result<MergeReader> {
+        unimplemented!()
 
-        Ok(MergeReader::new(readers))
+        // let readers = self
+        //     .manifest
+        //     .blob_files
+        //     .read()
+        //     .expect("lock is poisoned")
+        //     .values()
+        //     .map(|x| x.scan())
+        //     .collect::<crate::Result<Vec<_>>>()?;
+
+        // Ok(MergeReader::new(readers))
     }
 
     /// Returns the amount of disk space (compressed data) freed.
@@ -530,8 +493,10 @@ impl<C: Compressor + Clone> ValueLog<C> {
         index_reader: &R,
         index_writer: W,
     ) -> crate::Result<u64> {
-        let ids = self.manifest.list_blob_file_ids();
-        self.rollover(&ids, index_reader, index_writer)
+        unimplemented!()
+
+        // let ids = self.manifest.list_blob_file_ids();
+        // self.rollover(&ids, index_reader, index_writer)
     }
 
     /// Applies a GC strategy.
@@ -541,38 +506,42 @@ impl<C: Compressor + Clone> ValueLog<C> {
     /// Will return `Err` if an IO error occurs.
     pub fn apply_gc_strategy<R: IndexReader, W: IndexWriter>(
         &self,
-        strategy: &impl GcStrategy<C>,
+        strategy: &impl GcStrategy,
         index_reader: &R,
         index_writer: W,
     ) -> crate::Result<u64> {
-        let blob_file_ids = strategy.pick(self);
-        self.rollover(&blob_file_ids, index_reader, index_writer)
+        unimplemented!()
+
+        // let blob_file_ids = strategy.pick(self);
+        // self.rollover(&blob_file_ids, index_reader, index_writer)
     }
 
     /// Atomically removes all data from the value log.
     ///
     /// If `prune_async` is set to `true`, the blob files will be removed from disk in a thread to avoid blocking.
     pub fn clear(&self, prune_async: bool) -> crate::Result<()> {
-        let guard = self.rollover_guard.lock().expect("lock is poisoned");
-        let ids = self.manifest.list_blob_file_ids();
-        self.manifest.clear()?;
-        drop(guard);
+        unimplemented!()
 
-        if prune_async {
-            let path = self.path.clone();
+        // let guard = self.rollover_guard.lock().expect("lock is poisoned");
+        // let ids = self.manifest.list_blob_file_ids();
+        // self.manifest.clear()?;
+        // drop(guard);
 
-            std::thread::spawn(move || {
-                log::trace!("Pruning dropped blob files in thread: {ids:?}");
-                unlink_blob_files(&path, &ids);
-                log::trace!("Successfully pruned all blob files");
-            });
-        } else {
-            log::trace!("Pruning dropped blob files: {ids:?}");
-            unlink_blob_files(&self.path, &ids);
-            log::trace!("Successfully pruned all blob files");
-        }
+        // if prune_async {
+        //     let path = self.path.clone();
 
-        Ok(())
+        //     std::thread::spawn(move || {
+        //         log::trace!("Pruning dropped blob files in thread: {ids:?}");
+        //         unlink_blob_files(&path, &ids);
+        //         log::trace!("Successfully pruned all blob files");
+        //     });
+        // } else {
+        //     log::trace!("Pruning dropped blob files: {ids:?}");
+        //     unlink_blob_files(&self.path, &ids);
+        //     log::trace!("Successfully pruned all blob files");
+        // }
+
+        // Ok(())
     }
 
     /// Rewrites some blob files into new blob files, blocking the caller
@@ -590,80 +559,82 @@ impl<C: Compressor + Clone> ValueLog<C> {
         index_reader: &R,
         mut index_writer: W,
     ) -> crate::Result<u64> {
-        if ids.is_empty() {
-            return Ok(0);
-        }
+        unimplemented!()
 
-        // IMPORTANT: Only allow 1 rollover or GC at any given time
-        let _guard = self.rollover_guard.lock().expect("lock is poisoned");
+        // if ids.is_empty() {
+        //     return Ok(0);
+        // }
 
-        let size_before = self.manifest.disk_space_used();
+        // // IMPORTANT: Only allow 1 rollover or GC at any given time
+        // let _guard = self.rollover_guard.lock().expect("lock is poisoned");
 
-        log::info!("Rollover blob files {ids:?}");
+        // let size_before = self.manifest.disk_space_used();
 
-        let blob_files = ids
-            .iter()
-            .map(|&x| self.manifest.get_blob_file(x))
-            .collect::<Option<Vec<_>>>();
+        // log::info!("Rollover blob files {ids:?}");
 
-        let Some(blob_files) = blob_files else {
-            return Ok(0);
-        };
+        // let blob_files = ids
+        //     .iter()
+        //     .map(|&x| self.manifest.get_blob_file(x))
+        //     .collect::<Option<Vec<_>>>();
 
-        let readers = blob_files
-            .into_iter()
-            .map(|x| x.scan())
-            .collect::<crate::Result<Vec<_>>>()?;
+        // let Some(blob_files) = blob_files else {
+        //     return Ok(0);
+        // };
 
-        // TODO: 3.0.0: Store uncompressed size per blob
-        // so we can avoid recompression costs during GC
-        // but have stats be correct
+        // let readers = blob_files
+        //     .into_iter()
+        //     .map(|x| x.scan())
+        //     .collect::<crate::Result<Vec<_>>>()?;
 
-        let reader = MergeReader::new(
-            readers
-                .into_iter()
-                .map(|x| x.use_compression(self.config.compression.clone()))
-                .collect(),
-        );
+        // // TODO: 3.0.0: Store uncompressed size per blob
+        // // so we can avoid recompression costs during GC
+        // // but have stats be correct
 
-        let mut writer = self
-            .get_writer_raw()?
-            .use_compression(self.config.compression.clone());
+        // let reader = MergeReader::new(
+        //     readers
+        //         .into_iter()
+        //         .map(|x| x.use_compression(self.config.compression.clone()))
+        //         .collect(),
+        // );
 
-        for item in reader {
-            let (k, v, blob_file_id, _) = item?;
+        // let mut writer = self
+        //     .get_writer_raw()?
+        //     .use_compression(self.config.compression.clone());
 
-            match index_reader.get(&k)? {
-                // If this value is in an older blob file, we can discard it
-                Some(vhandle) if blob_file_id < vhandle.blob_file_id => continue,
-                None => continue,
-                _ => {}
-            }
+        // for item in reader {
+        //     let (k, v, blob_file_id, _) = item?;
 
-            let vhandle = writer.get_next_value_handle();
+        //     match index_reader.get(&k)? {
+        //         // If this value is in an older blob file, we can discard it
+        //         Some(vhandle) if blob_file_id < vhandle.blob_file_id => continue,
+        //         None => continue,
+        //         _ => {}
+        //     }
 
-            // NOTE: Truncation is OK because we know values are u32 max
-            #[allow(clippy::cast_possible_truncation)]
-            index_writer.insert_indirect(&k, vhandle, v.len() as u32)?;
+        //     let vhandle = writer.get_next_value_handle();
 
-            writer.write(&k, &v)?;
-        }
+        //     // NOTE: Truncation is OK because we know values are u32 max
+        //     #[allow(clippy::cast_possible_truncation)]
+        //     index_writer.insert_indirect(&k, vhandle, v.len() as u32)?;
 
-        // IMPORTANT: New blob files need to be persisted before adding to index
-        // to avoid dangling pointers
-        self.manifest.register(writer)?;
+        //     writer.write(&k, &v)?;
+        // }
 
-        // NOTE: If we crash here, it's fine, the blob files are registered
-        // but never referenced, so they can just be dropped after recovery
-        index_writer.finish()?;
+        // // IMPORTANT: New blob files need to be persisted before adding to index
+        // // to avoid dangling pointers
+        // self.manifest.register(writer)?;
 
-        // IMPORTANT: We only mark the blob files as definitely stale
-        // The external index needs to decide when it is safe to drop
-        // the old blob files, as some reads may still be performed
-        self.mark_as_stale(ids);
+        // // NOTE: If we crash here, it's fine, the blob files are registered
+        // // but never referenced, so they can just be dropped after recovery
+        // index_writer.finish()?;
 
-        let size_after = self.manifest.disk_space_used();
+        // // IMPORTANT: We only mark the blob files as definitely stale
+        // // The external index needs to decide when it is safe to drop
+        // // the old blob files, as some reads may still be performed
+        // self.mark_as_stale(ids);
 
-        Ok(size_before.saturating_sub(size_after))
+        // let size_after = self.manifest.disk_space_used();
+
+        // Ok(size_before.saturating_sub(size_after))
     }
 }
