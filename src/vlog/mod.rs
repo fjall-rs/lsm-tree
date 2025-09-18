@@ -3,7 +3,6 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod blob_file;
-mod config;
 mod gc;
 mod handle;
 mod index;
@@ -18,7 +17,6 @@ mod value_log;
 pub use {
     accessor::Accessor,
     blob_file::multi_writer::MultiWriter as BlobFileWriter,
-    config::Config,
     gc::report::GcReport,
     gc::{GcStrategy, SpaceAmpStrategy, StaleThresholdStrategy},
     handle::ValueHandle,

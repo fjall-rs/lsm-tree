@@ -553,6 +553,7 @@ impl AbstractTree for BlobTree {
             u64::MAX,
             self.index.config.path.join(BLOBS_FOLDER),
         )?;
+        // TODO: select compression
 
         // let mut blob_writer = self.blobs.get_writer()?.use_target_size(u64::MAX);
 

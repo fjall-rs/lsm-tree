@@ -11,7 +11,7 @@ use crate::{
         gc::report::GcReport,
         index::Writer as IndexWriter,
         scanner::SizeMap,
-        BlobFile, BlobFileId, BlobFileWriter, Config, GcStrategy, IndexReader, ValueHandle,
+        BlobFile, BlobFileId, BlobFileWriter, GcStrategy, IndexReader, ValueHandle,
     },
     Cache,
     DescriptorTable,
@@ -89,7 +89,7 @@ pub struct ValueLogInner {
     pub path: PathBuf,
 
     /// Value log configuration
-    config: Config,
+    // config: Config,
 
     /// In-memory blob cache
     // blob_cache: Arc<Cache>,
@@ -114,7 +114,7 @@ impl ValueLog {
     /// Will return `Err` if an IO error occurs.
     pub fn open<P: Into<PathBuf>>(
         path: P, // TODO: move path into config?
-        config: Config,
+                 // config: Config,
     ) -> crate::Result<Self> {
         // let path = path.into();
 
@@ -171,7 +171,7 @@ impl ValueLog {
     }
 
     /// Creates a new empty value log in a directory.
-    pub(crate) fn create_new<P: Into<PathBuf>>(path: P, config: Config) -> crate::Result<Self> {
+    pub(crate) fn create_new<P: Into<PathBuf>>(path: P) -> crate::Result<Self> {
         let path = path.into();
 
         let path = crate::path::absolute_path(&path);
@@ -203,7 +203,7 @@ impl ValueLog {
 
         Ok(Self(Arc::new(ValueLogInner {
             id: get_next_vlog_id(),
-            config,
+            // config,
             path,
             // blob_cache,
             // fd_cache,
