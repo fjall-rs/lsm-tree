@@ -90,6 +90,7 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
