@@ -79,7 +79,7 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree.register_segments(&created_segments, 0)?;
+        self.tree.register_segments(&created_segments, None, 0)?;
 
         self.tree.compact(Arc::new(MoveDown(0, 2)), 0)?;
 
