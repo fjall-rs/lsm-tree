@@ -724,6 +724,12 @@ impl AbstractTree for BlobTree {
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster key reads
+    fn is_empty(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<bool> {
+        self.index.is_empty(seqno, index)
+    }
+
+    // NOTE: Override the default implementation to not fetch
+    // data from the value log, so we get much faster key reads
     fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
         self.index.contains_key(key, seqno)
     }
