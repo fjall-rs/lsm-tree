@@ -599,8 +599,8 @@ impl AbstractTree for BlobTree {
 
                 let indirection = MaybeInlineValue::Indirect {
                     vhandle: ValueHandle {
-                        offset,
                         blob_file_id,
+                        offset,
                         on_disk_size,
                     },
                     size: value_size,
