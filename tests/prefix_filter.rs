@@ -2209,3 +2209,452 @@ fn test_prefix_filter_empty_normalized_range() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+/// A test prefix extractor that extracts a fixed prefix with a custom name
+struct TestPrefixExtractor {
+    length: usize,
+    name: String,
+}
+
+impl TestPrefixExtractor {
+    fn new(length: usize, name: &str) -> Self {
+        Self {
+            length,
+            name: name.to_string(),
+        }
+    }
+}
+
+impl PrefixExtractor for TestPrefixExtractor {
+    fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        if key.len() >= self.length {
+            Box::new(std::iter::once(&key[..self.length]))
+        } else {
+            Box::new(std::iter::once(key))
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[test]
+fn test_same_extractor_compatibility() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    let extractor = Arc::new(TestPrefixExtractor::new(4, "test_extractor"));
+
+    // Create a tree with prefix extractor
+    {
+        let tree = Config::new(path)
+            .prefix_extractor(extractor.clone())
+            .open()?;
+
+        tree.insert("user_key1", "value1", 0);
+        tree.insert("user_key2", "value2", 0);
+        tree.insert("data_key1", "value3", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with the same extractor - should work fine with prefix filtering
+    {
+        let tree = Config::new(path).prefix_extractor(extractor).open()?;
+
+        // Should be able to use prefix filtering
+        #[cfg(feature = "metrics")]
+        let initial_queries = tree.0.metrics.filter_queries();
+
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+        assert_eq!(
+            &*tree.get("data_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+
+        #[cfg(feature = "metrics")]
+        {
+            let final_queries = tree.0.metrics.filter_queries();
+            // Should have incremented filter queries since extractor is compatible
+            assert!(
+                final_queries > initial_queries,
+                "Compatible extractor should increment filter queries: {} -> {}",
+                initial_queries,
+                final_queries
+            );
+        }
+
+        // Test range queries with prefix filtering optimization
+        let items: Vec<_> = tree
+            .range("user"..="user_zzzz", lsm_tree::SeqNo::MAX, None)
+            .collect();
+        assert_eq!(items.len(), 2);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_different_extractor_incompatible() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    let extractor1 = Arc::new(TestPrefixExtractor::new(4, "test_extractor_v1"));
+    let extractor2 = Arc::new(TestPrefixExtractor::new(4, "test_extractor_v2"));
+
+    // Create a tree with first extractor
+    {
+        let tree = Config::new(path).prefix_extractor(extractor1).open()?;
+
+        tree.insert("user_key1", "value1", 0);
+        tree.insert("user_key2", "value2", 0);
+        tree.insert("data_key1", "value3", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with different extractor - should disable prefix filtering for old segments
+    {
+        let tree = Config::new(path).prefix_extractor(extractor2).open()?;
+
+        // Should still work, but without prefix filtering optimization for old segments
+        // The incompatible extractor means filter is completely bypassed
+        #[cfg(feature = "metrics")]
+        let initial_queries = tree.0.metrics.filter_queries();
+
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+        assert_eq!(
+            &*tree.get("data_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+
+        #[cfg(feature = "metrics")]
+        {
+            let final_queries = tree.0.metrics.filter_queries();
+            // Should NOT have incremented filter queries since extractor is incompatible
+            assert_eq!(
+                final_queries, initial_queries,
+                "Incompatible extractor should not increment filter queries: {} -> {}",
+                initial_queries, final_queries
+            );
+        }
+
+        // Range queries should still work correctly (but without optimization for old segments)
+        let items: Vec<_> = tree
+            .range("user"..="user_zzzz", lsm_tree::SeqNo::MAX, None)
+            .collect();
+        assert_eq!(items.len(), 2);
+
+        // New writes should use the new extractor
+        tree.insert("test_key1", "value4", 1);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            &*tree.get("test_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value4"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_no_extractor_to_extractor() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    // Create a tree without prefix extractor
+    {
+        let tree = Config::new(path).open()?;
+
+        tree.insert("user_key1", "value1", 0);
+        tree.insert("user_key2", "value2", 0);
+        tree.insert("data_key1", "value3", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with prefix extractor - should disable prefix filtering for old segments
+    {
+        let extractor = Arc::new(TestPrefixExtractor::new(4, "test_extractor"));
+        let tree = Config::new(path).prefix_extractor(extractor).open()?;
+
+        // Should still work, but old segments won't use prefix filtering
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+        assert_eq!(
+            &*tree.get("data_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+
+        // New writes should use prefix extractor
+        tree.insert("test_key1", "value4", 1);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            &*tree.get("test_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value4"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_extractor_to_no_extractor() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    let extractor = Arc::new(TestPrefixExtractor::new(4, "test_extractor"));
+
+    // Create a tree with prefix extractor
+    {
+        let tree = Config::new(path).prefix_extractor(extractor).open()?;
+
+        tree.insert("user_key1", "value1", 0);
+        tree.insert("user_key2", "value2", 0);
+        tree.insert("data_key1", "value3", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen without prefix extractor - should disable prefix filtering for old segments
+    {
+        let tree = Config::new(path).open()?;
+
+        // Should still work, but old segments won't use prefix filtering
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+        assert_eq!(
+            &*tree.get("data_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+
+        // Range queries should still work
+        let items: Vec<_> = tree
+            .range("user"..="user_zzzz", lsm_tree::SeqNo::MAX, None)
+            .collect();
+        assert_eq!(items.len(), 2);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_builtin_extractors_compatibility() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    // Create with FixedPrefixExtractor
+    {
+        let tree = Config::new(path)
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+            .open()?;
+
+        tree.insert("user_key1", "value1", 0);
+        tree.insert("user_key2", "value2", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with FixedLengthExtractor (different name) - should be incompatible
+    {
+        let tree = Config::new(path)
+            .prefix_extractor(Arc::new(FixedLengthExtractor::new(4)))
+            .open()?;
+
+        // Should work but without prefix filtering for old segments
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+    }
+
+    // Reopen with same type (FixedPrefixExtractor) - should be compatible
+    {
+        let tree = Config::new(path)
+            .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
+            .open()?;
+
+        // Should work with prefix filtering for old segments
+        assert_eq!(
+            &*tree.get("user_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("user_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_new_segments_use_new_extractor() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    let extractor1 = Arc::new(TestPrefixExtractor::new(4, "old_extractor"));
+    let extractor2 = Arc::new(TestPrefixExtractor::new(4, "new_extractor"));
+
+    // Create first segment with old extractor
+    {
+        let tree = Config::new(path).prefix_extractor(extractor1).open()?;
+
+        tree.insert("old_key1", "value1", 0);
+        tree.insert("old_key2", "value2", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    // Reopen with new extractor and create new segment
+    {
+        let tree = Config::new(path).prefix_extractor(extractor2).open()?;
+
+        // Add data to create a new segment with the new extractor
+        tree.insert("new_key1", "value3", 1);
+        tree.insert("new_key2", "value4", 1);
+        tree.flush_active_memtable(0)?;
+
+        // Test that old segment uses no filtering (extractor incompatible)
+        #[cfg(feature = "metrics")]
+        let initial_queries = tree.0.metrics.filter_queries();
+
+        // Query old keys - should NOT increment filter queries (incompatible extractor)
+        assert_eq!(
+            &*tree.get("old_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("old_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+
+        #[cfg(feature = "metrics")]
+        let after_old_queries = tree.0.metrics.filter_queries();
+
+        // Query new keys - SHOULD increment filter queries (compatible extractor)
+        assert_eq!(
+            &*tree.get("new_key1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+        assert_eq!(
+            &*tree.get("new_key2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value4"
+        );
+
+        #[cfg(feature = "metrics")]
+        {
+            let final_queries = tree.0.metrics.filter_queries();
+
+            // Old keys should not have incremented filter queries
+            assert_eq!(
+                after_old_queries, initial_queries,
+                "Old keys should not increment filter queries due to incompatible extractor"
+            );
+
+            // New keys should have incremented filter queries
+            assert!(
+                final_queries > after_old_queries,
+                "New keys should increment filter queries with compatible extractor: {} -> {}",
+                after_old_queries,
+                final_queries
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_multiple_extractor_changes() -> lsm_tree::Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = temp_dir.path();
+
+    let extractor1 = Arc::new(TestPrefixExtractor::new(2, "v1"));
+    let extractor2 = Arc::new(TestPrefixExtractor::new(2, "v2"));
+    let extractor3 = Arc::new(TestPrefixExtractor::new(2, "v3"));
+
+    // Create segments with different extractors over time
+    {
+        let tree = Config::new(path).prefix_extractor(extractor1).open()?;
+        tree.insert("aa_data1", "value1", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = Config::new(path).prefix_extractor(extractor2).open()?;
+        tree.insert("bb_data2", "value2", 0);
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = Config::new(path).prefix_extractor(extractor3).open()?;
+        tree.insert("cc_data3", "value3", 0);
+        tree.flush_active_memtable(0)?;
+
+        // Only the last segment should use filtering
+        #[cfg(feature = "metrics")]
+        let initial_queries = tree.0.metrics.filter_queries();
+
+        // These should not increment filter queries (incompatible)
+        assert_eq!(
+            &*tree.get("aa_data1", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value1"
+        );
+        assert_eq!(
+            &*tree.get("bb_data2", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value2"
+        );
+
+        #[cfg(feature = "metrics")]
+        let middle_queries = tree.0.metrics.filter_queries();
+
+        // This should increment filter queries (compatible)
+        assert_eq!(
+            &*tree.get("cc_data3", lsm_tree::SeqNo::MAX)?.unwrap(),
+            b"value3"
+        );
+
+        #[cfg(feature = "metrics")]
+        {
+            let final_queries = tree.0.metrics.filter_queries();
+            assert_eq!(
+                middle_queries, initial_queries,
+                "Old segments should not increment metrics"
+            );
+            assert!(
+                final_queries > middle_queries,
+                "New segment should increment metrics"
+            );
+        }
+    }
+
+    Ok(())
+}

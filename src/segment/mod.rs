@@ -179,18 +179,32 @@ impl Segment {
         if let Some(block) = &self.pinned_filter_block {
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
-            #[cfg(feature = "metrics")]
-            self.metrics.filter_queries.fetch_add(1, Relaxed);
-
             let may_contain = if let Some(ref extractor) = self.prefix_extractor {
-                // If prefix extractor is configured, use prefix-based filtering
-                // None means out-of-domain - these keys bypass filter
-                filter
-                    .contains_prefix(key, extractor.as_ref())
-                    .unwrap_or(true)
+                if self.prefix_extractor_compatible {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                    // If prefix extractor is configured and compatible, use prefix-based filtering
+                    // None means out-of-domain - these keys bypass filter
+                    filter
+                        .contains_prefix(key, extractor.as_ref())
+                        .unwrap_or(true)
+                } else {
+                    // Extractor exists but is incompatible - disable filter entirely
+                    true
+                }
             } else {
-                // No prefix extractor, use standard hash-based filtering
-                filter.contains_hash(key_hash)
+                // No prefix extractor configured now
+                if self.prefix_extractor_compatible {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                    // Segment was also created without prefix extractor - use standard hash-based filtering
+                    filter.contains_hash(key_hash)
+                } else {
+                    // Segment was created with prefix extractor, but none configured now - disable filter
+                    true
+                }
             };
 
             if !may_contain {
@@ -207,18 +221,32 @@ impl Segment {
             )?;
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
-            #[cfg(feature = "metrics")]
-            self.metrics.filter_queries.fetch_add(1, Relaxed);
-
             let may_contain = if let Some(ref extractor) = self.prefix_extractor {
-                // If prefix extractor is configured, use prefix-based filtering
-                // None means out-of-domain - these keys bypass filter
-                filter
-                    .contains_prefix(key, extractor.as_ref())
-                    .unwrap_or(true)
+                if self.prefix_extractor_compatible {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                    // If prefix extractor is configured and compatible, use prefix-based filtering
+                    // None means out-of-domain - these keys bypass filter
+                    filter
+                        .contains_prefix(key, extractor.as_ref())
+                        .unwrap_or(true)
+                } else {
+                    // Extractor exists but is incompatible - disable filter entirely
+                    true
+                }
             } else {
-                // No prefix extractor, use standard hash-based filtering
-                filter.contains_hash(key_hash)
+                // No prefix extractor configured now
+                if self.prefix_extractor_compatible {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                    // Segment was also created without prefix extractor - use standard hash-based filtering
+                    filter.contains_hash(key_hash)
+                } else {
+                    // Segment was created with prefix extractor, but none configured now - disable filter
+                    true
+                }
             };
 
             if !may_contain {
@@ -335,6 +363,11 @@ impl Segment {
             return false;
         };
 
+        // Don't use prefix filtering if extractor is incompatible
+        if !self.prefix_extractor_compatible {
+            return false;
+        }
+
         // Try pinned filter block first
         if let Some(block) = &self.pinned_filter_block {
             if let Ok(filter) = StandardBloomFilterReader::new(&block.data) {
@@ -411,6 +444,11 @@ impl Segment {
         let Some(ref prefix_extractor) = self.prefix_extractor else {
             return false;
         };
+
+        // Don't use prefix filtering if extractor is incompatible
+        if !self.prefix_extractor_compatible {
+            return false;
+        }
 
         // First try: Check filter using common prefix from range bounds
         if let Some(common_prefix) =
@@ -548,6 +586,44 @@ impl Segment {
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
+        // Check prefix extractor compatibility
+        let prefix_extractor_compatible = match (&metadata.prefix_extractor_name, &prefix_extractor)
+        {
+            // No extractor configured on either side - compatible
+            (None, None) => true,
+
+            (None, Some(_)) => {
+                log::warn!(
+                    "Segment {} was created without prefix extractor, but one is now configured. Prefix filter will be disabled for this segment.",
+                    metadata.id
+                );
+                false
+            }
+
+            (Some(_), None) => {
+                log::warn!(
+                    "Segment {} was created with prefix extractor, but none is configured now. Prefix filter will be disabled for this segment.", 
+                    metadata.id
+                );
+                false
+            }
+
+            (Some(stored_name), Some(current_extractor)) => {
+                let current_name = current_extractor.name();
+                if stored_name == current_name {
+                    true
+                } else {
+                    log::warn!(
+                        "Segment {} was created with prefix extractor '{}', but current extractor is '{}'. Prefix filter will be disabled for this segment.",
+                        metadata.id,
+                        stored_name,
+                        current_name
+                    );
+                    false
+                }
+            }
+        };
+
         let block_index = if let Some(index_block_handle) = regions.index {
             log::debug!(
                 "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
@@ -627,6 +703,7 @@ impl Segment {
             pinned_filter_block,
 
             prefix_extractor,
+            prefix_extractor_compatible,
 
             is_deleted: AtomicBool::default(),
 
@@ -676,8 +753,8 @@ impl Segment {
     /// Returns true if the segment might contain data (or if we can't determine).
     #[must_use]
     pub fn might_contain_range<R: RangeBounds<UserKey>>(&self, range: &R) -> bool {
-        // If no prefix extractor, we can't use filter optimization
-        if self.prefix_extractor.is_none() {
+        // If no prefix extractor or extractor is incompatible, we can't use filter optimization
+        if self.prefix_extractor.is_none() || !self.prefix_extractor_compatible {
             return true;
         }
 

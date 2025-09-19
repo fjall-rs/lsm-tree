@@ -355,7 +355,7 @@ impl Writer {
                 InternalValue::from_components(key, value, 0, crate::ValueType::Value)
             }
 
-            let meta_items = [
+            let mut meta_items = vec![
                 meta("#checksum_type", b"xxh3"),
                 meta("#compression#data", &self.compression.encode_into_vec()),
                 meta("#compression#index", &self.compression.encode_into_vec()),
@@ -380,6 +380,13 @@ impl Writer {
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
+            ];
+
+            if let Some(ref extractor) = self.prefix_extractor {
+                meta_items.push(meta("#prefix_extractor", extractor.name().as_bytes()));
+            }
+
+            meta_items.extend([
                 meta("#prefix_truncation#data", &[1]),
                 meta("#prefix_truncation#index", &[0]),
                 meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
@@ -396,7 +403,7 @@ impl Writer {
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
                 meta("v#table", b"3"),
                 // TODO: tli_handle_count
-            ];
+            ]);
 
             // NOTE: Just to make sure the items are definitely sorted
             #[cfg(debug_assertions)]

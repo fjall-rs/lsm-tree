@@ -47,6 +47,10 @@ pub struct Inner {
     /// Prefix extractor for filters
     pub prefix_extractor: Option<SharedPrefixExtractor>,
 
+    /// Whether the prefix extractor is compatible with the one used during segment creation
+    /// If false, prefix filter should not be used for this segment
+    pub prefix_extractor_compatible: bool,
+
     // /// Pinned filter
     // #[doc(hidden)]
     // pub bloom_filter: Option<crate::bloom::BloomFilter>,

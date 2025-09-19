@@ -44,6 +44,10 @@ pub struct ParsedMeta {
     pub tombstone_count: u64,
 
     pub data_block_compression: CompressionType,
+
+    /// Name of the prefix extractor used when creating this segment
+    /// None if no prefix extractor was configured
+    pub prefix_extractor_name: Option<String>,
 }
 
 impl ParsedMeta {
@@ -179,6 +183,12 @@ impl ParsedMeta {
             CompressionType::decode_from(&mut bytes)?
         };
 
+        let prefix_extractor_name = {
+            block
+                .point_read(b"#prefix_extractor", SeqNo::MAX)
+                .map(|bytes| String::from_utf8_lossy(&bytes.value).into_owned())
+        };
+
         Ok(Self {
             id,
             created_at,
@@ -190,6 +200,7 @@ impl ParsedMeta {
             item_count,
             tombstone_count,
             data_block_compression,
+            prefix_extractor_name,
         })
     }
 }
