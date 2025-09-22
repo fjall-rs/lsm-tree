@@ -5,16 +5,21 @@
 use crate::{InternalValue, SeqNo, UserKey, ValueType};
 use std::iter::Peekable;
 
+type Item = crate::Result<InternalValue>;
+
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
 #[allow(clippy::module_name_repetitions)]
-pub struct CompactionStream<I: Iterator<Item = crate::Result<InternalValue>>> {
+pub struct CompactionStream<I: Iterator<Item = Item>> {
+    /// KV stream
     inner: Peekable<I>,
+
+    /// MVCC watermark to get rid of old versions
     gc_seqno_threshold: SeqNo,
 }
 
-impl<I: Iterator<Item = crate::Result<InternalValue>>> CompactionStream<I> {
+impl<I: Iterator<Item = Item>> CompactionStream<I> {
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I, gc_seqno_threshold: SeqNo) -> Self {
@@ -26,36 +31,26 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> CompactionStream<I> {
         }
     }
 
-    fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
+    /// Drains the remaining versions of the given key.
+    fn drain_key(&mut self, key: &UserKey) -> crate::Result<()> {
         loop {
-            let Some(next) = self.inner.peek() else {
+            let Some(next) = self.inner.next_if(|kv| {
+                if let Ok(kv) = kv {
+                    kv.key.user_key == key
+                } else {
+                    true
+                }
+            }) else {
                 return Ok(());
             };
 
-            let Ok(next) = next else {
-                // NOTE: We just asserted, the peeked value is an error
-                #[allow(clippy::expect_used)]
-                return Err(self
-                    .inner
-                    .next()
-                    .expect("should exist")
-                    .expect_err("should be error"));
-            };
-
-            // Consume version
-            if next.key.user_key == key {
-                // NOTE: We know the next value is not empty, because we just peeked it
-                #[allow(clippy::expect_used)]
-                self.inner.next().expect("should not be empty")?;
-            } else {
-                return Ok(());
-            }
+            next?;
         }
     }
 }
 
-impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionStream<I> {
-    type Item = crate::Result<InternalValue>;
+impl<I: Iterator<Item = Item>> Iterator for CompactionStream<I> {
+    type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -82,7 +77,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 
                     // NOTE: Next item is expired,
                     // so the tail of this user key is entirely expired, so drain it all
-                    fail_iter!(self.drain_key_min(&head.key.user_key));
+                    fail_iter!(self.drain_key(&head.key.user_key));
 
                     if drop_weak_tombstone {
                         continue;
@@ -90,7 +85,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
                 }
             }
 
-            // NOTE: Convert sequence number to zero if it is below the snapshot watermark
+            // NOTE: Convert sequence number to zero if it is below the snapshot watermark.
             //
             // This can save a lot of space, because "0" only takes 1 byte.
             if head.key.seqno < self.gc_seqno_threshold {
