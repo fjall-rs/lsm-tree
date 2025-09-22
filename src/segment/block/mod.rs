@@ -127,46 +127,8 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        #[warn(unsafe_code)]
-        let mut builder = unsafe { Slice::builder_unzeroed(handle.size() as usize) };
+        let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
-        {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::FileExt;
-
-                let bytes_read = file.read_at(&mut builder, *handle.offset())?;
-
-                assert_eq!(
-                    bytes_read,
-                    handle.size() as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::FileExt;
-
-                let bytes_read = file.seek_read(&mut builder, *handle.offset())?;
-
-                assert_eq!(
-                    bytes_read,
-                    handle.size() as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(not(any(unix, windows)))]
-            {
-                compile_error!("unsupported OS");
-                unimplemented!();
-            }
-        }
-
-        let buf = builder.freeze();
         let header = Header::decode_from(&mut &buf[..])?;
 
         let buf = match compression {
@@ -206,10 +168,7 @@ impl Block {
             return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
         }
 
-        Ok(Self {
-            header,
-            data: Slice::from(buf),
-        })
+        Ok(Self { header, data: buf })
     }
 }
 
