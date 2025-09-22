@@ -237,6 +237,10 @@ impl Version {
             .flat_map(|x| x.iter())
     }
 
+    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
+        self.iter_segments().find(|x| x.metadata.id == id)
+    }
+
     /// Gets the n-th level.
     pub fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)

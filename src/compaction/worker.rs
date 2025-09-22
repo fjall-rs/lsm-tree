@@ -210,7 +210,7 @@ fn merge_segments(
     let Some(segments) = payload
         .segment_ids
         .iter()
-        .map(|&id| levels.get_segment(id).cloned())
+        .map(|&id| levels.current_version().get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -503,7 +503,7 @@ fn drop_segments(
 
     let Some(segments) = ids_to_drop
         .iter()
-        .map(|&id| levels.get_segment(id).cloned())
+        .map(|&id| levels.current_version().get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
