@@ -4,6 +4,8 @@
 
 use byteview::ByteView;
 
+pub use byteview::Builder;
+
 /// An immutable byte slice that can be cloned without additional heap allocation
 ///
 /// There is no guarantee of any sort of alignment for zero-copy (de)serialization.
@@ -21,7 +23,7 @@ impl Slice {
         Self(ByteView::new(&[]))
     }
 
-    pub(crate) unsafe fn builder_unzeroed(len: usize) -> byteview::Builder {
+    pub(crate) unsafe fn builder_unzeroed(len: usize) -> Builder {
         ByteView::builder_unzeroed(len)
     }
 

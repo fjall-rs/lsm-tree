@@ -16,10 +16,10 @@ use std::{
 };
 
 #[cfg(not(feature = "bytes_1"))]
-pub use slice_default::Slice;
+pub use slice_default::{Builder, Slice};
 
 #[cfg(feature = "bytes_1")]
-pub use slice_bytes::Slice;
+pub use slice_bytes::{Builder, Slice};
 
 impl AsRef<[u8]> for Slice {
     fn as_ref(&self) -> &[u8] {

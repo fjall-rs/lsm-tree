@@ -4,6 +4,8 @@
 
 use bytes::{Bytes, BytesMut};
 
+pub use BytesMut as Builder;
+
 /// An immutable byte slice that can be cloned without additional heap allocation
 ///
 /// There is no guarantee of any sort of alignment for zero-copy (de)serialization.
@@ -23,7 +25,7 @@ impl Slice {
         Self(Bytes::from_static(&[]))
     }
 
-    pub(crate) unsafe fn builder_unzeroed(len: usize) -> BytesMut {
+    pub(crate) unsafe fn builder_unzeroed(len: usize) -> Builder {
         // Use `with_capacity` & `set_len`` to avoid zeroing the buffer
         let mut builder = BytesMut::with_capacity(len);
 
