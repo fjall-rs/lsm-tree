@@ -17,34 +17,24 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I) -> Self {
-        let iter = iter.double_ended_peekable();
-        Self { inner: iter }
+        Self {
+            inner: iter.double_ended_peekable(),
+        }
     }
 
     fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
         loop {
-            let Some(next) = self.inner.peek() else {
+            let Some(next) = self.inner.next_if(|kv| {
+                if let Ok(kv) = kv {
+                    kv.key.user_key == key
+                } else {
+                    true
+                }
+            }) else {
                 return Ok(());
             };
 
-            let Ok(next) = next else {
-                // NOTE: We just asserted, the peeked value is an error
-                #[allow(clippy::expect_used)]
-                return Err(self
-                    .inner
-                    .next()
-                    .expect("should exist")
-                    .expect_err("should be error"));
-            };
-
-            // Consume version
-            if next.key.user_key == key {
-                // NOTE: We know the next value is not empty, because we just peeked it
-                #[allow(clippy::expect_used)]
-                self.inner.next().expect("should not be empty")?;
-            } else {
-                return Ok(());
-            }
+            next?;
         }
     }
 }
