@@ -59,6 +59,16 @@ impl Metrics {
             + self.filter_block_load_io.load(Relaxed)
     }
 
+    /// Number of index blocks that were loaded from disk or OS page cache.
+    pub fn index_block_loads_cached(&self) -> usize {
+        self.index_block_load_cached.load(Relaxed)
+    }
+
+    /// Number of filter blocks that were loaded from disk or OS page cache.
+    pub fn filter_block_loads_cached(&self) -> usize {
+        self.filter_block_load_cached.load(Relaxed)
+    }
+
     /// Number of blocks that were loaded from disk or OS page cache.
     pub fn block_loads_cached(&self) -> usize {
         self.data_block_load_cached.load(Relaxed)
@@ -71,11 +81,40 @@ impl Metrics {
         self.block_loads_io() + self.block_loads_cached()
     }
 
+    /// Filter block cache efficiency in percent (0.0 - 1.0).
+    pub fn filter_block_cache_hit_rate(&self) -> f64 {
+        let queries = self.filter_block_loads() as f64;
+        let hits = self.filter_block_loads_cached() as f64;
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            hits / queries
+        }
+    }
+
+    /// Index block cache efficiency in percent (0.0 - 1.0).
+    pub fn index_block_cache_hit_rate(&self) -> f64 {
+        let queries = self.index_block_loads() as f64;
+        let hits = self.index_block_loads_cached() as f64;
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            hits / queries
+        }
+    }
+
     /// Block cache efficiency in percent (0.0 - 1.0).
     pub fn block_cache_hit_rate(&self) -> f64 {
         let queries = self.block_loads() as f64;
         let hits = self.block_loads_cached() as f64;
-        hits / queries
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            hits / queries
+        }
     }
 
     /// Filter efficiency in percent (0.0 - 1.0).
@@ -84,7 +123,12 @@ impl Metrics {
     pub fn filter_efficiency(&self) -> f64 {
         let queries = self.filter_queries.load(Relaxed) as f64;
         let io_skipped = self.io_skipped_by_filter.load(Relaxed) as f64;
-        io_skipped / queries
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            io_skipped / queries
+        }
     }
 
     /// Number of filter queries performed.
