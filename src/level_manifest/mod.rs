@@ -374,10 +374,6 @@ impl LevelManifest {
         })
     }
 
-    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
-        self.current.iter_segments().find(|x| x.metadata.id == id)
-    }
-
     #[must_use]
     pub fn as_slice(&self) -> &[Level] {
         &self.current.levels
