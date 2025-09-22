@@ -68,6 +68,23 @@ where
             .as_ref()
             .or_else(|| self.back.peeked_value_ref())
     }
+
+    /// Consumes and returns the next value of this iterator if a condition is true.
+    ///
+    /// See [`Peekable::next_if`] for more information.
+    ///
+    /// [`Peekable::next_if`]: core::iter::Peekable::next_if
+    #[inline]
+    pub fn next_if(&mut self, func: impl FnOnce(&I::Item) -> bool) -> Option<I::Item> {
+        match self.next() {
+            Some(item) if func(&item) => Some(item),
+            other => {
+                debug_assert!(self.front.is_unpeeked());
+                self.front = MaybePeeked::Peeked(other);
+                None
+            }
+        }
+    }
 }
 
 impl<T, I> DoubleEndedPeekable<T, I>
@@ -172,5 +189,9 @@ impl<T> MaybePeeked<T> {
             Self::Unpeeked | Self::Peeked(None) => None,
             Self::Peeked(Some(peeked)) => Some(peeked),
         }
+    }
+
+    const fn is_unpeeked(&self) -> bool {
+        matches!(self, MaybePeeked::Unpeeked)
     }
 }
