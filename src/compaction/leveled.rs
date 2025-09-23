@@ -167,10 +167,13 @@ impl Strategy {
     /// L3 = `level_base_size * ratio * ratio`
     ///
     /// ...
-    fn level_target_size(&self, level_idx: u8) -> u64 {
-        assert!(level_idx >= 1, "level_target_size does not apply to L0");
+    fn level_target_size(&self, canonical_level_idx: u8) -> u64 {
+        assert!(
+            canonical_level_idx >= 1,
+            "level_target_size does not apply to L0",
+        );
 
-        let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1) as u64;
+        let power = (self.level_ratio as usize).pow(u32::from(canonical_level_idx) - 1) as u64;
 
         power * self.level_base_size()
     }
@@ -189,8 +192,51 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
         assert!(levels.as_slice().len() == 7, "should have exactly 7 levels");
 
+        // Find the level that corresponds to L1
+        #[allow(clippy::map_unwrap_or)]
+        let mut canonical_l1_idx = levels
+            .as_slice()
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, lvl)| !lvl.is_empty())
+            .map(|(idx, _)| idx)
+            .unwrap_or_else(|| usize::from(levels.last_level_index()));
+
+        // Number of levels we have to shift to get from the actual level idx to the canonical
+        let mut level_shift = canonical_l1_idx - 1;
+
+        if canonical_l1_idx > 1 && levels.as_slice().iter().skip(1).any(|lvl| !lvl.is_empty()) {
+            let need_new_l1 = levels
+                .as_slice()
+                .iter()
+                .enumerate()
+                .skip(1)
+                .filter(|(_, lvl)| !lvl.is_empty())
+                .all(|(idx, level)| {
+                    let level_size = level
+                        .iter()
+                        .flat_map(|x| x.iter())
+                        // NOTE: Take bytes that are already being compacted into account,
+                        // otherwise we may be overcompensating
+                        .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                        .map(Segment::file_size)
+                        .sum::<u64>();
+
+                    let target_size = self.level_target_size((idx - level_shift) as u8);
+
+                    level_size > target_size
+                });
+
+            // Move up L1 one level if all current levels are at capacity
+            if need_new_l1 {
+                canonical_l1_idx -= 1;
+                level_shift -= 1;
+            }
+        }
+
         // Scoring
-        let mut scores = [(0.0, 0u64); 7];
+        let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
         {
             // Score first level
@@ -198,12 +244,19 @@ impl CompactionStrategy for Strategy {
             // NOTE: We always have at least one level
             #[allow(clippy::expect_used)]
             let first_level = levels.as_slice().first().expect("first level should exist");
-            if first_level.len() >= usize::from(self.l0_threshold) {
-                scores[0] = ((first_level.len() as f64) / f64::from(self.l0_threshold), 0);
+
+            // TODO: use run_count instead? but be careful because of version free list GC thingy
+            if first_level.segment_count() >= usize::from(self.l0_threshold) {
+                let ratio = (first_level.segment_count() as f64) / f64::from(self.l0_threshold);
+                scores[0] = (ratio, 0);
             }
 
             // Score L1+
             for (idx, level) in levels.as_slice().iter().enumerate().skip(1) {
+                if level.is_empty() {
+                    continue;
+                }
+
                 let level_size = level
                     .iter()
                     .flat_map(|x| x.iter())
@@ -213,7 +266,7 @@ impl CompactionStrategy for Strategy {
                     .map(Segment::file_size)
                     .sum::<u64>();
 
-                let target_size = self.level_target_size(idx as u8);
+                let target_size = self.level_target_size((idx - level_shift) as u8);
 
                 // NOTE: We check for level length above
                 #[allow(clippy::indexing_slicing)]
@@ -264,11 +317,11 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            if levels.level_is_busy(0) || levels.level_is_busy(1) {
+            if levels.level_is_busy(0) || levels.level_is_busy(canonical_l1_idx) {
                 return Choice::DoNothing;
             }
 
-            let Some(next_level) = &levels.current_version().level(1) else {
+            let Some(target_level) = &levels.current_version().level(canonical_l1_idx) else {
                 return Choice::DoNothing;
             };
 
@@ -277,17 +330,18 @@ impl CompactionStrategy for Strategy {
             let key_range = first_level.aggregate_key_range();
 
             // Get overlapping segments in next level
-            let next_level_overlapping_segment_ids: Vec<_> = next_level
+            let target_level_overlapping_segment_ids: Vec<_> = target_level
                 .iter()
                 .flat_map(|run| run.get_overlapping(&key_range))
                 .map(Segment::id)
                 .collect();
 
-            segment_ids.extend(&next_level_overlapping_segment_ids);
+            segment_ids.extend(&target_level_overlapping_segment_ids);
 
             let choice = CompactionInput {
                 segment_ids,
-                dest_level: 1,
+                dest_level: canonical_l1_idx as u8,
+                canonical_level: 1,
                 target_size: u64::from(self.target_size),
             };
 
@@ -297,7 +351,7 @@ impl CompactionStrategy for Strategy {
                 choice.segment_ids,
             ); */
 
-            if next_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
+            if target_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
                 return Choice::Move(choice);
             }
             return Choice::Merge(choice);
@@ -335,6 +389,7 @@ impl CompactionStrategy for Strategy {
         let choice = CompactionInput {
             segment_ids,
             dest_level: next_level_index,
+            canonical_level: next_level_index - (level_shift as u8),
             target_size: u64::from(self.target_size),
         };
 

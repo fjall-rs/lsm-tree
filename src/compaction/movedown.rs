@@ -32,6 +32,7 @@ impl CompactionStrategy for Strategy {
         Choice::Move(Input {
             segment_ids,
             dest_level: self.1,
+            canonical_level: self.1,
             target_size: u64::MAX,
         })
     }
