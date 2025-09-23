@@ -148,7 +148,7 @@ impl Block {
                 lz4_flex::decompress_into(raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                builder.freeze()
+                builder.freeze().into()
             }
         };
 
