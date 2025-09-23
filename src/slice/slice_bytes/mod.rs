@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 
-pub use BytesMut as Builder;
+pub use bytes::BytesMut as Builder;
 
 /// An immutable byte slice that can be cloned without additional heap allocation
 ///
@@ -27,7 +27,7 @@ impl Slice {
 
     pub(crate) unsafe fn builder_unzeroed(len: usize) -> Builder {
         // Use `with_capacity` & `set_len`` to avoid zeroing the buffer
-        let mut builder = BytesMut::with_capacity(len);
+        let mut builder = Builder::with_capacity(len);
 
         // SAFETY: we just allocated `len` bytes, and `read_exact` will fail if
         // it doesn't fill the buffer, subsequently dropping the uninitialized
