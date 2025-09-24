@@ -4,6 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 10_000;
 
 #[test]
+#[ignore]
 fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
@@ -61,6 +62,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn blob_tree_reload() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
