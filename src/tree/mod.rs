@@ -18,7 +18,8 @@ use crate::{
     segment::Segment,
     value::InternalValue,
     vlog::BlobFile,
-    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, UserKey, UserValue, ValueType,
+    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter, UserKey,
+    UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -118,18 +119,27 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+    fn ingest(
+        &self,
+        iter: impl Iterator<Item = (UserKey, UserValue)>,
+        seqno_generator: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
         // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
-        let lock = self.lock_active_memtable();
+        let memtable_lock = self.lock_active_memtable();
+
+        let seqno = seqno_generator.next();
+
+        // TODO: allow ingestion always, by flushing memtable
         assert!(
-            lock.is_empty(),
-            "can only perform bulk_ingest on empty trees",
+            memtable_lock.is_empty(),
+            "can only perform bulk ingestion with empty memtable",
         );
 
-        let mut writer = Ingestion::new(self)?;
+        let mut writer = Ingestion::new(self)?.with_seqno(seqno);
 
         let start = Instant::now();
         let mut count = 0;
@@ -150,6 +160,8 @@ impl AbstractTree for Tree {
         }
 
         writer.finish()?;
+
+        visible_seqno.fetch_max(seqno + 1);
 
         log::info!("Ingested {count} items in {:?}", start.elapsed());
 

@@ -5,7 +5,7 @@
 use crate::{
     compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
     tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, KvPair, Memtable,
-    SegmentId, SeqNo, Tree, UserKey, UserValue,
+    SegmentId, SeqNo, SequenceNumberCounter, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -64,7 +64,12 @@ pub trait AbstractTree {
     ///
     /// Will panic if the input iterator is not sorted in ascending order.
     #[doc(hidden)]
-    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
+    fn ingest(
+        &self,
+        iter: impl Iterator<Item = (UserKey, UserValue)>,
+        seqno_generator: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()>;
 
     /// Returns the approximate number of tombstones in the tree.
     fn tombstone_count(&self) -> u64;
