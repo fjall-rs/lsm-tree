@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{config::CompressionPolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 // NOTE: This was a logic/MVCC error in v2 that could drop
@@ -11,39 +11,51 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .compression(lsm_tree::CompressionType::None)
+        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .open_as_blob_tree()?;
     let seqno = SequenceNumberCounter::default();
 
     tree.insert("a", "neptune".repeat(10_000), seqno.next());
 
-    // TODO: test snapshot reads
-    // let snapshot = tree.snapshot(seqno.get());
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    let snapshot_seqno = seqno.get();
+
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(10_000),
+    );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune".repeat(10_000)
+        b"neptune".repeat(10_000),
     );
 
     tree.insert("a", "neptune2".repeat(10_000), seqno.next());
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(10_000),
+    );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune2".repeat(10_000)
+        b"neptune2".repeat(10_000),
     );
 
     tree.insert("a", "neptune3".repeat(10_000), seqno.next());
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(10_000),
+    );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000)
+        b"neptune3".repeat(10_000),
     );
 
     tree.flush_active_memtable(0)?;
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(10_000),
+    );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000)
+        b"neptune3".repeat(10_000),
     );
 
     let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
@@ -53,16 +65,19 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     tree.apply_gc_strategy(&strategy, 0)?;
 
     // IMPORTANT: We cannot drop any blobs yet
-    // because we the watermark is too low
+    // because the watermark is too low
     //
     // This would previously fail
     let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
     assert_eq!(2, report.stale_blobs);
 
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(10_000),
+    );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000)
+        b"neptune3".repeat(10_000),
     );
 
     Ok(())

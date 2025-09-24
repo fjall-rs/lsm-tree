@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -9,8 +9,8 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
 
     {
         let tree = Config::new(&folder)
-            .data_block_size(2_048)
-            .index_block_size(2_048)
+            .data_block_size_policy(BlockSizePolicy::all(2_048))
+            .index_block_size_policy(BlockSizePolicy::all(2_048))
             .open()?;
 
         let seqno = SequenceNumberCounter::default();
@@ -28,24 +28,24 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
 
     {
         let tree = Config::new(&folder)
-            .data_block_size(2_048)
-            .index_block_size(2_048)
+            .data_block_size_policy(BlockSizePolicy::all(2_048))
+            .index_block_size_policy(BlockSizePolicy::all(2_048))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     {
         let tree = Config::new(&folder)
-            .data_block_size(4_096)
-            .index_block_size(4_096)
+            .data_block_size_policy(BlockSizePolicy::all(4_096))
+            .index_block_size_policy(BlockSizePolicy::all(4_096))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
 
     {
         let tree = Config::new(&folder)
-            .data_block_size(78_652)
-            .index_block_size(78_652)
+            .data_block_size_policy(BlockSizePolicy::all(78_652))
+            .index_block_size_policy(BlockSizePolicy::all(78_652))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }

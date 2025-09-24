@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{config::CompressionPolicy, AbstractTree, Config, SeqNo};
 use std::time::Duration;
 use test_log::test;
 
@@ -12,7 +12,7 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .compression(lsm_tree::CompressionType::None)
+        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .open_as_blob_tree()?;
 
     tree.insert("a", "neptune".repeat(10_000), 0);

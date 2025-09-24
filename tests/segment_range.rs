@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, Guard, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000_000;
@@ -8,8 +8,8 @@ fn segment_ranges() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -66,8 +66,8 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
@@ -101,8 +101,8 @@ fn segment_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
