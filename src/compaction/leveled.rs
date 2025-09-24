@@ -407,6 +407,7 @@ impl CompactionStrategy for Strategy {
         Choice::Merge(choice)
     }
 }
+
 /*
 #[cfg(test)]
 mod tests {
