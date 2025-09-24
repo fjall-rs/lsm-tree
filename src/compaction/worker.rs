@@ -222,11 +222,30 @@ fn merge_segments(
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
+    let data_block_size = opts.config.data_block_size_policy.get(0);
+    let index_block_size = opts.config.index_block_size_policy.get(0);
+
+    let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(0);
+    let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(0);
+
+    let data_block_compression = opts
+        .config
+        .data_block_compression_policy
+        .get(payload.canonical_level.into());
+
+    let index_block_compression = opts
+        .config
+        .index_block_compression_policy
+        .get(payload.canonical_level.into());
+
+    let pin_filter = opts.config.filter_block_pinning_policy.get(0);
+    let pin_index = opts.config.filter_block_pinning_policy.get(0);
+
     log::debug!(
-        "Compacting segments {:?} into L{}, compression={}, mvcc_gc_watermark={}",
+        "Compacting segments {:?} into L{} (canonical L{}), data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
         payload.segment_ids,
         payload.dest_level,
-        opts.config.compression,
+        payload.canonical_level,
         opts.eviction_seqno,
     );
 
@@ -276,29 +295,28 @@ fn merge_segments(
     };
 
     let mut segment_writer = segment_writer
-        .use_data_block_restart_interval(16)
-        .use_data_block_compression(opts.config.compression)
-        .use_data_block_size(opts.config.data_block_size)
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_index_block_size(index_block_size)
         .use_data_block_hash_ratio(opts.config.data_block_hash_ratio)
+        .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
             use crate::segment::filter::BloomConstructionPolicy;
 
-            if opts.config.bloom_bits_per_key >= 0 {
-                // TODO:
-                // NOTE: Apply some MONKEY to have very high FPR on small levels
-                // because it's cheap
-                //
-                // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
-                /* match payload.dest_level {
-                    0 => BloomConstructionPolicy::FpRate(0.00001),
-                    1 => BloomConstructionPolicy::FpRate(0.0005),
-                    _ => BloomConstructionPolicy::BitsPerKey(
-                        opts.config.bloom_bits_per_key.unsigned_abs(),
-                    ),
-                } */
-                BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.unsigned_abs())
+            if is_last_level && opts.config.expect_point_read_hits {
+                BloomConstructionPolicy::BitsPerKey(0.0)
             } else {
-                BloomConstructionPolicy::BitsPerKey(0)
+                match opts
+                    .config
+                    .filter_policy
+                    .get(usize::from(payload.dest_level))
+                {
+                    Bloom(policy) => policy,
+                    None => BloomConstructionPolicy::BitsPerKey(0.0),
+                }
             }
         });
 
@@ -370,8 +388,8 @@ fn merge_segments(
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
-                payload.canonical_level <= 1, // TODO: look at configuration
-                payload.canonical_level <= 2, // TODO: look at configuration
+                pin_filter,
+                pin_index,
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),
             )
