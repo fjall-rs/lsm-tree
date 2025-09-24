@@ -110,12 +110,16 @@ impl Block {
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&data));
         if checksum != header.checksum {
-            log::warn!(
+            log::error!(
                 "Checksum mismatch for <bufreader>, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
         }
 
         Ok(Self { header, data })
@@ -159,13 +163,16 @@ impl Block {
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
         if checksum != header.checksum {
-            log::warn!(
+            log::error!(
                 "Checksum mismatch for block {handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
 
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
         }
 
         Ok(Self { header, data: buf })

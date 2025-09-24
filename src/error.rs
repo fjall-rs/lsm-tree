@@ -30,8 +30,14 @@ pub enum Error {
     /// Some required segments could not be recovered from disk
     Unrecoverable,
 
-    /// Invalid checksum value (got, expected)
-    InvalidChecksum((Checksum, Checksum)),
+    /// Checksum mismatch
+    ChecksumMismatch {
+        /// Checksum of loaded block
+        got: Checksum,
+
+        /// Checksum that was saved in block header
+        expected: Checksum,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -49,7 +55,7 @@ impl std::error::Error for Error {
             Self::Decompress(_)
             | Self::InvalidVersion(_)
             | Self::Unrecoverable
-            | Self::InvalidChecksum(_) => None,
+            | Self::ChecksumMismatch { .. } => None,
         }
     }
 }
