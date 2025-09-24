@@ -291,6 +291,8 @@ impl AbstractTree for Tree {
         let data_block_compression = self.config.data_block_compression_policy.get(0);
         let index_block_compression = self.config.index_block_compression_policy.get(0);
 
+        let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
+
         log::debug!(
             "Flushing segment to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             segment_file_path.display(),
@@ -303,7 +305,7 @@ impl AbstractTree for Tree {
             .use_index_block_compression(index_block_compression)
             .use_data_block_size(data_block_size)
             .use_index_block_size(index_block_size)
-            .use_data_block_hash_ratio(self.config.data_block_hash_ratio)
+            .use_data_block_hash_ratio(data_block_hash_ratio)
             .use_bloom_policy({
                 use crate::config::FilterPolicyEntry::{Bloom, None};
                 use crate::segment::filter::BloomConstructionPolicy;

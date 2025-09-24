@@ -5,12 +5,14 @@
 mod block_size;
 mod compression;
 mod filter;
+mod hash_ratio;
 mod pinning;
 mod restart_interval;
 
 pub use block_size::BlockSizePolicy;
 pub use compression::CompressionPolicy;
 pub use filter::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry};
+pub use hash_ratio::HashRatioPolicy;
 pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
@@ -87,9 +89,6 @@ pub struct Config {
     /// Restart interval inside index blocks
     pub index_block_restart_interval_policy: RestartIntervalPolicy,
 
-    /// Hash bytes per key in data blocks
-    pub data_block_hash_ratio: f32,
-
     /// Block size of data blocks
     pub data_block_size_policy: BlockSizePolicy,
 
@@ -101,6 +100,9 @@ pub struct Config {
 
     /// Whether to pin filter blocks
     pub filter_block_pinning_policy: PinningPolicy,
+
+    /// Data block hash ratio
+    pub data_block_hash_ratio_policy: HashRatioPolicy,
 
     /// If `true`, the last level will not build filters, reducing the filter size of a database
     /// by ~90% typically
@@ -132,8 +134,6 @@ impl Default for Config {
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
-            data_block_hash_ratio: 0.0,
-
             level_count: 7,
             tree_type: TreeType::Standard,
 
@@ -145,6 +145,8 @@ impl Default for Config {
 
             data_block_compression_policy: CompressionPolicy::default(),
             index_block_compression_policy:CompressionPolicy::all(CompressionType::None),
+
+            data_block_hash_ratio_policy: HashRatioPolicy::all(0.0),
 
             blob_compression: CompressionType::None,
 
@@ -234,22 +236,6 @@ impl Config {
         self
     }
 
-    /// Sets the hash ratio for the hash index in data blocks.
-    ///
-    /// The hash index speeds up point queries by using an embedded
-    /// hash map in data blocks, but uses more space/memory.
-    ///
-    /// Something along the lines of 1.0 - 2.0 is sensible.
-    ///
-    /// If 0, the hash index is not constructed.
-    ///
-    /// Default = 0.0
-    #[must_use]
-    pub fn data_block_hash_ratio(mut self, ratio: f32) -> Self {
-        self.data_block_hash_ratio = ratio; // TODO: policy
-        self
-    }
-
     /// Sets the filter construction policy.
     #[must_use]
     pub fn filter_policy(mut self, policy: FilterPolicy) -> Self {
@@ -306,6 +292,16 @@ impl Config {
     #[must_use]
     pub fn index_block_size_policy(mut self, policy: BlockSizePolicy) -> Self {
         self.index_block_size_policy = policy;
+        self
+    }
+
+    /// Sets the hash ratio policy for data blocks.
+    ///
+    /// If greater than 0.0, a hash index is embedded into data blocks that can speed up reads
+    /// inside the data block.
+    #[must_use]
+    pub fn data_block_hash_ratio_policy(mut self, policy: HashRatioPolicy) -> Self {
+        self.data_block_hash_ratio_policy = policy;
         self
     }
 

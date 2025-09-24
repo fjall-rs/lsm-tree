@@ -9,6 +9,8 @@ use crate::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+pub const INITIAL_CANONICAL_LEVEL: usize = 1;
+
 /// Bulk ingestion
 ///
 /// Items NEED to be added in ascending key order.
@@ -35,8 +37,16 @@ impl<'a> Ingestion<'a> {
             tree.segment_id_counter.clone(),
             64 * 1_024 * 1_024,
         )?
-        .use_data_block_hash_ratio(tree.config.data_block_hash_ratio)
-        .use_data_block_compression(tree.config.data_block_compression_policy.get(6));
+        .use_data_block_hash_ratio(
+            tree.config
+                .data_block_hash_ratio_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_data_block_compression(
+            tree.config
+                .data_block_compression_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        );
 
         Ok(Self {
             folder,
@@ -94,8 +104,16 @@ impl<'a> Ingestion<'a> {
 
         log::info!("Finished ingestion writer");
 
-        let pin_filter = self.tree.config.filter_block_pinning_policy.get(6);
-        let pin_index = self.tree.config.filter_block_pinning_policy.get(6);
+        let pin_filter = self
+            .tree
+            .config
+            .filter_block_pinning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+        let pin_index = self
+            .tree
+            .config
+            .filter_block_pinning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
 
         let created_segments = results
             .into_iter()

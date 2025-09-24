@@ -222,24 +222,21 @@ fn merge_segments(
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
-    let data_block_size = opts.config.data_block_size_policy.get(0);
-    let index_block_size = opts.config.index_block_size_policy.get(0);
+    let dst_lvl = payload.canonical_level.into();
 
-    let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(0);
-    let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(0);
+    let data_block_size = opts.config.data_block_size_policy.get(dst_lvl);
+    let index_block_size = opts.config.index_block_size_policy.get(dst_lvl);
 
-    let data_block_compression = opts
-        .config
-        .data_block_compression_policy
-        .get(payload.canonical_level.into());
+    let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(dst_lvl);
+    let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(dst_lvl);
 
-    let index_block_compression = opts
-        .config
-        .index_block_compression_policy
-        .get(payload.canonical_level.into());
+    let data_block_compression = opts.config.data_block_compression_policy.get(dst_lvl);
+    let index_block_compression = opts.config.index_block_compression_policy.get(dst_lvl);
 
-    let pin_filter = opts.config.filter_block_pinning_policy.get(0);
-    let pin_index = opts.config.filter_block_pinning_policy.get(0);
+    let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
+    let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
+
+    let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
 
     log::debug!(
         "Compacting segments {:?} into L{} (canonical L{}), data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
@@ -300,7 +297,7 @@ fn merge_segments(
         .use_data_block_compression(data_block_compression)
         .use_data_block_size(data_block_size)
         .use_index_block_size(index_block_size)
-        .use_data_block_hash_ratio(opts.config.data_block_hash_ratio)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
         .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
             use crate::config::FilterPolicyEntry::{Bloom, None};
