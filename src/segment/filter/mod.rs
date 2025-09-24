@@ -8,15 +8,15 @@ pub mod standard_bloom;
 
 use standard_bloom::Builder as StandardBloomFilterBuilder;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BloomConstructionPolicy {
-    BitsPerKey(u8),
-    FpRate(f32),
+    BitsPerKey(f32),
+    FpRate(f32), // TODO: 3.0.0 rename: FalsePositiveRate?
 }
 
 impl Default for BloomConstructionPolicy {
     fn default() -> Self {
-        Self::BitsPerKey(10)
+        Self::BitsPerKey(10.0)
     }
 }
 
@@ -34,7 +34,7 @@ impl BloomConstructionPolicy {
     #[must_use]
     pub fn is_active(&self) -> bool {
         match self {
-            Self::BitsPerKey(bpk) => *bpk > 0,
+            Self::BitsPerKey(bpk) => *bpk > 0.0,
             Self::FpRate(fpr) => *fpr > 0.0,
         }
     }

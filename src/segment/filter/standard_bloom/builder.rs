@@ -77,16 +77,14 @@ impl Builder {
     ///
     /// 10 bits per key is a sensible default.
     #[must_use]
-    pub fn with_bpk(n: usize, bpk: u8) -> Self {
+    pub fn with_bpk(n: usize, bpk: f32) -> Self {
         use std::f32::consts::LN_2;
 
-        assert!(bpk > 0);
+        assert!(bpk > 0.0);
         assert!(n > 0);
 
-        let bpk = bpk as usize;
-
-        let m = n * bpk;
-        let k = (((bpk as f32) * LN_2) as usize).max(1);
+        let m = n * (bpk as usize);
+        let k = ((bpk * LN_2) as usize).max(1);
 
         // NOTE: Round up so we don't get too little bits
         let bytes = (m as f32 / 8.0).ceil() as usize;

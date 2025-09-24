@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn filter_bloom_standard_bpk() -> crate::Result<()> {
         let item_count = 1_000;
-        let bpk = 5;
+        let bpk = 5.0;
 
         let mut filter = Builder::with_bpk(item_count, bpk);
 
