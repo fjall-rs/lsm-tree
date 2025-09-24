@@ -269,23 +269,36 @@ impl AbstractTree for Tree {
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         let segment_file_path = folder.join(segment_id.to_string());
-        log::debug!("writing segment to {}", segment_file_path.display());
+
+        let data_block_size = self.config.data_block_size_policy.get(0);
+        let index_block_size = self.config.index_block_size_policy.get(0);
+
+        let data_block_restart_interval = self.config.data_block_restart_interval_policy.get(0);
+        let index_block_restart_interval = self.config.index_block_restart_interval_policy.get(0);
+
+        let data_block_compression = self.config.data_block_compression_policy.get(0);
+        let index_block_compression = self.config.index_block_compression_policy.get(0);
+
+        log::debug!(
+            "Flushing segment to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            segment_file_path.display(),
+        );
 
         let mut segment_writer = Writer::new(segment_file_path, segment_id)?
-            .use_data_block_compression(self.config.compression)
-            .use_data_block_size(self.config.data_block_size)
+            .use_data_block_restart_interval(data_block_restart_interval)
+            .use_index_block_restart_interval(index_block_restart_interval)
+            .use_data_block_compression(data_block_compression)
+            .use_index_block_compression(index_block_compression)
+            .use_data_block_size(data_block_size)
+            .use_index_block_size(index_block_size)
             .use_data_block_hash_ratio(self.config.data_block_hash_ratio)
             .use_bloom_policy({
+                use crate::config::FilterPolicyEntry::{Bloom, None};
                 use crate::segment::filter::BloomConstructionPolicy;
 
-                if self.config.bloom_bits_per_key >= 0 {
-                    // TODO: enable monkey later on
-                    // BloomConstructionPolicy::FpRate(0.00001)
-                    BloomConstructionPolicy::BitsPerKey(
-                        self.config.bloom_bits_per_key.unsigned_abs(),
-                    )
-                } else {
-                    BloomConstructionPolicy::BitsPerKey(0)
+                match self.config.filter_policy.get(0) {
+                    Bloom(policy) => policy,
+                    None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             });
 
@@ -595,13 +608,16 @@ impl Tree {
         .descriptor_table
         .insert(segment_file_path, created_segment.global_id()); */
 
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.filter_block_pinning_policy.get(0);
+
         let created_segment = Segment::recover(
             segment_file_path,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
-            true, // TODO: look at configuration
-            true, // TODO: look at configuration
+            pin_filter,
+            pin_index,
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
         )?;
@@ -882,7 +898,6 @@ impl Tree {
 
         // IMPORTANT: Restore persisted config
         config.level_count = manifest.level_count;
-        // config.table_type = manifest.table_type;
         config.tree_type = manifest.tree_type;
 
         let tree_id = get_next_tree_id();
