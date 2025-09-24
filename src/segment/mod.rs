@@ -196,7 +196,7 @@ impl Segment {
             let block = self.load_block(
                 filter_block_handle,
                 BlockType::Filter,
-                CompressionType::None,
+                CompressionType::None, // NOTE: We never write a filter block with compression
             )?;
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
@@ -222,13 +222,11 @@ impl Segment {
         // TODO: enum_dispatch BlockIndex::iter
         let index_block = match &*self.block_index {
             BlockIndexImpl::Full(index) => index.inner(),
-            BlockIndexImpl::VolatileFull => {
-                &IndexBlock::new(self.load_block(
-                    &self.regions.tli,
-                    BlockType::Index,
-                    CompressionType::None, // TODO: allow index block compression
-                )?)
-            }
+            BlockIndexImpl::VolatileFull => &IndexBlock::new(self.load_block(
+                &self.regions.tli,
+                BlockType::Index,
+                self.metadata.index_block_compression,
+            )?),
         };
 
         let iter = {
@@ -329,7 +327,7 @@ impl Segment {
                     self.load_block(
                         &self.regions.tli,
                         BlockType::Index,
-                        CompressionType::None, // TODO: allow separate index block compression
+                        self.metadata.index_block_compression,
                     )
                     .expect("should load block"),
                 )
@@ -410,11 +408,7 @@ impl Segment {
             let tli_block = {
                 log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
 
-                let block = Block::from_file(
-                    &file,
-                    regions.tli,
-                    CompressionType::None, // TODO: allow setting index block compression
-                )?;
+                let block = Block::from_file(&file, regions.tli, metadata.index_block_compression)?;
 
                 if block.header.block_type != BlockType::Index {
                     return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
