@@ -580,7 +580,7 @@ impl AbstractTree for BlobTree {
                 folder: lsm_segment_folder,
             } */
         )?
-        .use_data_block_compression(self.index.config.compression);
+        .use_data_block_compression(self.index.config.data_block_compression_policy.get(0));
         // TODO: monkey
         /* segment_writer = segment_writer.use_bloom_policy(
             crate::segment::writer::BloomConstructionPolicy::FpRate(0.0001),
