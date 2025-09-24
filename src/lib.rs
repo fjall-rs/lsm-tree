@@ -137,7 +137,10 @@ pub mod coding;
 
 pub mod compaction;
 mod compression;
-mod config;
+
+/// Configuration
+pub mod config;
+
 mod double_ended_peekable;
 
 mod error;
