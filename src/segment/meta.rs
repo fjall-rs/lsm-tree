@@ -46,6 +46,7 @@ pub struct ParsedMeta {
     pub tombstone_count: u64,
 
     pub data_block_compression: CompressionType,
+    pub index_block_compression: CompressionType,
 }
 
 impl ParsedMeta {
@@ -184,6 +185,15 @@ impl ParsedMeta {
             CompressionType::decode_from(&mut bytes)?
         };
 
+        let index_block_compression = {
+            let bytes = block
+                .point_read(b"#compression#index", SeqNo::MAX)
+                .expect("size should exist");
+
+            let mut bytes = &bytes.value[..];
+            CompressionType::decode_from(&mut bytes)?
+        };
+
         Ok(Self {
             id,
             created_at,
@@ -195,6 +205,7 @@ impl ParsedMeta {
             item_count,
             tombstone_count,
             data_block_compression,
+            index_block_compression,
         })
     }
 }
