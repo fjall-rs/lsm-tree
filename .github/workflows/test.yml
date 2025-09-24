@@ -53,7 +53,7 @@ jobs:
       - name: Run tests
         run: cargo nextest run --all-features
       - name: Run doc tests
-        run: cargo test --doc
+        run: cargo test --doc --features lz4
       - name: Build & test LSM examples
         run: node compile_examples.mjs
   cross:
