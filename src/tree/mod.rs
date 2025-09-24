@@ -70,6 +70,11 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    #[cfg(feature = "metrics")]
+    fn metrics(&self) -> &Arc<crate::Metrics> {
+        &self.0.metrics
+    }
+
     fn version_free_list_len(&self) -> usize {
         self.manifest
             .read()

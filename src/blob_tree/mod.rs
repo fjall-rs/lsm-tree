@@ -373,6 +373,11 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    #[cfg(feature = "metrics")]
+    fn metrics(&self) -> &Arc<crate::Metrics> {
+        self.index.metrics()
+    }
+
     fn version_free_list_len(&self) -> usize {
         self.index.version_free_list_len()
     }
