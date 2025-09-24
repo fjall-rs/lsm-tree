@@ -23,14 +23,14 @@ impl<'a> Ingestion<'a> {
         let folder = tree.config.path.join(crate::file::SEGMENTS_FOLDER);
         log::debug!("Ingesting into disk segments in {}", folder.display());
 
+        // TODO: 3.0.0 look at tree configuration
         let writer = MultiWriter::new(
             folder.clone(),
             tree.segment_id_counter.clone(),
-            64 * 1_024 * 1_024, // TODO: look at tree configuration
+            64 * 1_024 * 1_024,
         )?
-        // TODO: use restart interval etc.
         .use_data_block_hash_ratio(tree.config.data_block_hash_ratio)
-        .use_data_block_compression(tree.config.compression);
+        .use_data_block_compression(tree.config.data_block_compression_policy.get(6));
 
         Ok(Self {
             folder,
