@@ -436,9 +436,17 @@ impl AbstractTree for BlobTree {
         self.index.drop_range(key_range)
     }
 
-    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+    fn ingest(
+        &self,
+        iter: impl Iterator<Item = (UserKey, UserValue)>,
+        seqno_generator: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
+
+        // TODO: take curr seqno for ingest, HOWEVER
+        // TODO: we need to take the next seqno AFTER locking the memtable
 
         todo!();
 
