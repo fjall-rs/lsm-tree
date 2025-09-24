@@ -63,23 +63,50 @@ impl ParsedMeta {
 
         let block = DataBlock::new(block);
 
-        assert_eq!(
-            b"xxh3",
-            &*block
-                .point_read(b"#hash_type", SeqNo::MAX)
+        #[allow(clippy::indexing_slicing)]
+        {
+            let table_version = block
+                .point_read(b"v#table_version", SeqNo::MAX)
                 .expect("Segment ID should exist")
-                .value,
-            "invalid hash type",
-        );
+                .value;
 
-        assert_eq!(
-            b"xxh3",
-            &*block
+            assert_eq!(1, table_version.len(), "invalid table version byte array");
+
+            assert_eq!(
+                [3u8],
+                &*table_version,
+                "unspported table version {}",
+                table_version[0],
+            );
+        }
+
+        {
+            let hash_type = block
+                .point_read(b"#filter_hash_type", SeqNo::MAX)
+                .expect("Segment ID should exist")
+                .value;
+
+            assert_eq!(
+                b"xxh3",
+                &*hash_type,
+                "invalid hash type: {:?}",
+                std::str::from_utf8(&hash_type),
+            );
+        }
+
+        {
+            let hash_type = block
                 .point_read(b"#checksum_type", SeqNo::MAX)
                 .expect("Segment ID should exist")
-                .value,
-            "invalid checksum type",
-        );
+                .value;
+
+            assert_eq!(
+                b"xxh3",
+                &*hash_type,
+                "invalid checksum type: {:?}",
+                std::str::from_utf8(&hash_type),
+            );
+        }
 
         let id = {
             let bytes = block

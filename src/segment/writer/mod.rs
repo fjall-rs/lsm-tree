@@ -379,7 +379,7 @@ impl Writer {
                     "#data_block_count",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
                 ),
-                meta("#hash_type", b"xxh3"),
+                meta("#filter_hash_type", b"xxh3"),
                 meta("#id", &self.segment_id.to_le_bytes()),
                 meta(
                     "#index_block_count",
@@ -421,7 +421,7 @@ impl Writer {
                     &self.meta.uncompressed_size.to_le_bytes(),
                 ),
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("v#table", b"3"),
+                meta("v#table_version", &[3u8]),
                 // TODO: tli_handle_count
                 // TODO: hash ratio etc
             ];
