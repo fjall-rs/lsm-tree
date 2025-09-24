@@ -488,7 +488,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .current_version()
             .iter_levels()
-            .map(|x| x.size())
+            .map(super::version::Level::size)
             .sum()
     }
 
@@ -588,7 +588,7 @@ impl Tree {
         &self,
         writer: crate::segment::Writer,
     ) -> crate::Result<Option<Segment>> {
-        let segment_file_path = writer.path.to_path_buf();
+        let segment_file_path = writer.path.clone();
 
         let Some(_) = writer.finish()? else {
             return Ok(None);

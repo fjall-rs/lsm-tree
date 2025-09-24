@@ -178,11 +178,19 @@ impl Encodable<()> for InternalValue {
         writer.write_u64_varint(self.key.seqno)?; // 2
 
         // TODO: maybe we can skip this varint altogether if prefix truncation = false
+
+        // NOTE: We know keys have u16 length max
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u16_varint(shared_len as u16)?; // 3
 
         let rest_len = self.key().len() - shared_len;
+
+        // NOTE: We know keys have u16 length max
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u16_varint(rest_len as u16)?; // 4
 
+        // NOTE: We trust the caller
+        #[allow(clippy::expect_used)]
         let truncated_user_key = self
             .key
             .user_key
@@ -468,12 +476,19 @@ impl DataBlock {
         Ok(buf)
     }
 
+    /// Builds an data block.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given item array if empty.
     pub fn encode_into(
         writer: &mut Vec<u8>,
         items: &[InternalValue],
         restart_interval: u8,
         hash_index_ratio: f32,
     ) -> crate::Result<()> {
+        // NOTE: We expect a non-empty chunk of items
+        #[allow(clippy::expect_used)]
         let first_key = &items
             .first()
             .expect("chunk should not be empty")
@@ -497,6 +512,7 @@ impl DataBlock {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use crate::{
         segment::{
@@ -509,7 +525,6 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn v3_data_block_ping_pong_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(
@@ -547,9 +562,9 @@ mod tests {
 
             for &x in &ping_pong_code {
                 if x == 0 {
-                    v.push(iter.next().cloned().unwrap());
+                    v.push(iter.next().cloned().expect("should have item"));
                 } else {
-                    v.push(iter.next_back().cloned().unwrap());
+                    v.push(iter.next_back().cloned().expect("should have item"));
                 }
             }
 
@@ -565,9 +580,9 @@ mod tests {
 
             for &x in &ping_pong_code {
                 if x == 0 {
-                    v.push(iter.next().unwrap());
+                    v.push(iter.next().expect("should have item"));
                 } else {
-                    v.push(iter.next_back().unwrap());
+                    v.push(iter.next_back().expect("should have item"));
                 }
             }
 

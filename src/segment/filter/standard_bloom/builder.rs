@@ -27,6 +27,8 @@ pub struct Builder {
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
+    // NOTE: We write into a Vec<u8>, so no I/O error can happen
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn build(&self) -> Vec<u8> {
         let mut v = vec![];
@@ -116,6 +118,8 @@ impl Builder {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
+            // NOTE: Even for a large segment, filters tend to be pretty small, definitely less than 4 GiB
+            #[allow(clippy::cast_possible_truncation)]
             self.inner.enable_bit(idx as usize);
 
             h1 = h1.wrapping_add(h2);

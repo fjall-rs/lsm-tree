@@ -323,7 +323,7 @@ impl Segment {
             BlockIndexImpl::Full(idx) => idx.inner(),
             BlockIndexImpl::VolatileFull => {
                 &IndexBlock::new(
-                    // TODO: handle error
+                    // TODO: load on initial access to block index
                     self.load_block(
                         &self.regions.tli,
                         BlockType::Index,

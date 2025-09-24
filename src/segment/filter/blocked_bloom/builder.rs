@@ -131,6 +131,8 @@ impl Builder {
         for i in 1..(self.k as u64) {
             let idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
+            // NOTE: Even for a large segment, filters tend to be pretty small, definitely less than 4 GiB
+            #[allow(clippy::cast_possible_truncation)]
             self.inner
                 .enable_bit(Self::get_bit_idx(block_idx as usize, idx as usize));
 

@@ -93,18 +93,25 @@ impl IndexBlock {
         Ok(buf)
     }
 
+    /// Builds an index block.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given item array if empty.
     pub fn encode_into(
         writer: &mut Vec<u8>,
         items: &[KeyedBlockHandle],
         // restart_interval: u8, // TODO: support prefix truncation + delta encoding
     ) -> crate::Result<()> {
+        // NOTE: We expect a non-empty chunk of items
+        #[allow(clippy::expect_used)]
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
             writer,
             items.len(),
-            1,   // TODO: hard coded for now
-            0.0, // NOTE: Index blocks do not support hash index
+            /* TODO: hard-coded for now */ 1,
+            /* Index blocks do not support hash index */ 0.0,
             first_key,
         );
 

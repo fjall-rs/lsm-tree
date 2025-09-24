@@ -30,7 +30,7 @@ pub struct Writer {
     index_block_restart_interval: u8,
 
     data_block_size: u32,
-    index_block_size: u32, // TODO: implement
+    index_block_size: u32, // TODO: 3.0.0 implement partitioned index
 
     data_block_hash_ratio: f32,
 
@@ -48,6 +48,7 @@ pub struct Writer {
     block_writer: BufWriter<File>,
 
     /// Writer of index blocks
+    #[allow(clippy::struct_field_names)]
     index_writer: Box<dyn BlockIndexWriter<BufWriter<File>>>,
 
     /// Buffer of KVs
@@ -249,6 +250,8 @@ impl Writer {
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
+        // NOTE: Block header is a couple of bytes only, so cast is fine
+        #[allow(clippy::cast_possible_truncation)]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         self.index_writer
@@ -259,13 +262,13 @@ impl Writer {
             ))?;
 
         // Adjust metadata
-        self.meta.file_pos += bytes_written as u64;
+        self.meta.file_pos += u64::from(bytes_written);
         self.meta.item_count += self.chunk.len();
         self.meta.data_block_count += 1;
 
         // Back link stuff
         self.prev_pos.0 = self.prev_pos.1;
-        self.prev_pos.1 += bytes_written as u64;
+        self.prev_pos.1 += u64::from(bytes_written);
 
         // Set last key
         self.meta.last_key = Some(
@@ -344,24 +347,14 @@ impl Writer {
                     CompressionType::None,
                 )?;
 
+                // NOTE: Block header is a couple of bytes only, so cast is fine
+                #[allow(clippy::cast_possible_truncation)]
                 let bytes_written = (BlockHeader::serialized_len() as u32) + header.data_length;
 
                 Some(BlockHandle::new(BlockOffset(filter_ptr), bytes_written))
             }
         };
         log::trace!("filter_ptr={filter_handle:?}");
-
-        // // TODO: #46 https://github.com/fjall-rs/lsm-tree/issues/46 - Write range filter
-        // let rf_ptr = BlockOffset(0);
-        // log::trace!("rf_ptr={rf_ptr}");
-
-        // // TODO: #2 https://github.com/fjall-rs/lsm-tree/issues/2 - Write range tombstones
-        // let range_tombstones_ptr = BlockOffset(0);
-        // log::trace!("range_tombstones_ptr={range_tombstones_ptr}");
-
-        // // TODO:
-        // let pfx_ptr = BlockOffset(0);
-        // log::trace!("pfx_ptr={pfx_ptr}");
 
         // Write metadata
         let metadata_start = BlockOffset(self.block_writer.stream_position()?);
@@ -395,10 +388,14 @@ impl Writer {
                 meta("#item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
                     "#key#max",
+                    // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
+                    #[allow(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
                     "#key#min",
+                    // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
+                    #[allow(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
@@ -450,6 +447,8 @@ impl Writer {
                 CompressionType::None,
             )?;
 
+            // NOTE: Block header is a couple of bytes only, so cast is fine
+            #[allow(clippy::cast_possible_truncation)]
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
             BlockHandle::new(metadata_start, bytes_written)
@@ -476,9 +475,11 @@ impl Writer {
                 CompressionType::None,
             )?;
 
+            // NOTE: Block header is a couple of bytes only, so cast is fine
+            #[allow(clippy::cast_possible_truncation)]
             let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
-            BlockHandle::new(regions_block_start, bytes_written as u32)
+            BlockHandle::new(regions_block_start, bytes_written)
         };
 
         // Write fixed-size trailer
@@ -490,6 +491,9 @@ impl Writer {
         self.block_writer.get_mut().sync_all()?;
 
         // IMPORTANT: fsync folder on Unix
+
+        // NOTE: If there's no parent folder, something has gone horribly wrong
+        #[allow(clippy::expect_used)]
         fsync_directory(self.path.parent().expect("should have folder"))?;
 
         log::debug!(
@@ -503,7 +507,7 @@ impl Writer {
     }
 }
 
-// TODO: restore
+// TODO: 3.0.0 restore
 /*
 #[cfg(test)]
 #[allow(clippy::expect_used)]
