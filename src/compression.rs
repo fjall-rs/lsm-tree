@@ -61,7 +61,7 @@ impl std::fmt::Display for CompressionType {
             f,
             "{}",
             match self {
-                Self::None => "no compression",
+                Self::None => "none",
 
                 #[cfg(feature = "lz4")]
                 Self::Lz4 => "lz4",
