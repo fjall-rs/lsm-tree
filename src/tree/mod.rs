@@ -202,13 +202,23 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn pinned_bloom_filter_size(&self) -> usize {
+    fn filter_size(&self) -> usize {
         self.manifest
             .read()
             .expect("lock is poisoned")
             .current_version()
             .iter_segments()
-            .map(Segment::pinned_bloom_filter_size)
+            .map(Segment::filter_size)
+            .sum()
+    }
+
+    fn pinned_filter_size(&self) -> usize {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::pinned_filter_size)
             .sum()
     }
 
