@@ -104,7 +104,12 @@ impl Segment {
     }
 
     #[must_use]
-    pub fn pinned_bloom_filter_size(&self) -> usize {
+    pub fn filter_size(&self) -> usize {
+        unimplemented!()
+    }
+
+    #[must_use]
+    pub fn pinned_filter_size(&self) -> usize {
         self.pinned_filter_block
             .as_ref()
             .map(Block::size)
