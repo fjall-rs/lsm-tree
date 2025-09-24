@@ -27,13 +27,18 @@ pub struct Writer {
     segment_id: SegmentId,
 
     data_block_restart_interval: u8,
-    data_block_hash_ratio: f32,
+    index_block_restart_interval: u8,
 
     data_block_size: u32,
     index_block_size: u32, // TODO: implement
 
+    data_block_hash_ratio: f32,
+
     /// Compression to use for data blocks
     data_block_compression: CompressionType,
+
+    /// Compression to use for data blocks
+    index_block_compression: CompressionType,
 
     /// Buffer to serialize blocks into
     block_buffer: Vec<u8>,
@@ -75,12 +80,15 @@ impl Writer {
             segment_id,
 
             data_block_restart_interval: 16,
+            index_block_restart_interval: 1,
+
             data_block_hash_ratio: 0.0,
 
             data_block_size: 4_096,
             index_block_size: 4_096,
 
             data_block_compression: CompressionType::None,
+            index_block_compression: CompressionType::None,
 
             path: std::path::absolute(path)?,
 
@@ -109,6 +117,12 @@ impl Writer {
     }
 
     #[must_use]
+    pub fn use_index_block_restart_interval(mut self, interval: u8) -> Self {
+        self.index_block_restart_interval = interval;
+        self
+    }
+
+    #[must_use]
     pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
         self.data_block_hash_ratio = ratio;
         self
@@ -125,8 +139,25 @@ impl Writer {
     }
 
     #[must_use]
+    pub fn use_index_block_size(mut self, size: u32) -> Self {
+        assert!(
+            size <= 4 * 1_024 * 1_024,
+            "index block size must be <= 4 MiB",
+        );
+        self.index_block_size = size;
+        self
+    }
+
+    #[must_use]
     pub fn use_data_block_compression(mut self, compression: CompressionType) -> Self {
         self.data_block_compression = compression;
+        self
+    }
+
+    #[must_use]
+    pub fn use_index_block_compression(mut self, compression: CompressionType) -> Self {
+        self.index_block_compression = compression;
+        self.index_writer.set_compression(compression);
         self
     }
 
@@ -348,7 +379,7 @@ impl Writer {
                 ),
                 meta(
                     "#compression#index",
-                    &self.data_block_compression.encode_into_vec(),
+                    &self.index_block_compression.encode_into_vec(),
                 ),
                 meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
@@ -373,6 +404,14 @@ impl Writer {
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("#prefix_truncation#data", &[1]),
                 meta("#prefix_truncation#index", &[0]),
+                meta(
+                    "#restart_interval#data",
+                    &self.data_block_restart_interval.to_le_bytes(),
+                ),
+                meta(
+                    "#restart_interval#index",
+                    &self.index_block_restart_interval.to_le_bytes(),
+                ),
                 meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
                 meta("#size", &self.meta.file_pos.to_le_bytes()),
@@ -387,6 +426,7 @@ impl Writer {
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
                 meta("v#table", b"3"),
                 // TODO: tli_handle_count
+                // TODO: hash ratio etc
             ];
 
             // NOTE: Just to make sure the items are definitely sorted
