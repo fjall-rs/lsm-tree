@@ -100,6 +100,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             "invalid binary index step size",
         );
 
+        // TODO: flip len, offset
         let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
