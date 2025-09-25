@@ -26,8 +26,9 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
   - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
 - Block caching to keep hot data in memory
+- File descriptor caching with upper bound to reduce fopen calls
 - *AMQ* filters (currently Bloom filters) to improve point lookup performance
-- Snapshots (*MVCC*)
+- Multi-versioning of KVs, enabling snapshot reads
 - Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)
