@@ -17,7 +17,10 @@ impl std::fmt::Display for EncodeError {
         match self {
             Self::Io(e) => write!(f, "EncodeError(Io: {})", e),
             Self::InvalidCompressionLevel((compression_type, level)) => {
-                write!(f, "EncodeError(InvalidCompressionLevel: {compression_type:?} level {level})")
+                write!(
+                    f,
+                    "EncodeError(InvalidCompressionLevel: {compression_type:?} level {level})"
+                )
             }
         }
     }
@@ -69,7 +72,8 @@ impl std::fmt::Display for DecodeError {
             "DecodeError({})",
             match self {
                 Self::Io(e) => e.to_string(),
-                Self::InvalidCompressionLevel((compression_type, level)) => format!("InvalidCompressionLevel: {compression_type:?} level {level}"),
+                Self::InvalidCompressionLevel((compression_type, level)) =>
+                    format!("InvalidCompressionLevel: {compression_type:?} level {level}"),
                 e => format!("{e:?}"),
             }
         )

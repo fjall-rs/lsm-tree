@@ -45,7 +45,10 @@ impl Encode for CompressionType {
             #[cfg(feature = "zlib")]
             Self::Zlib(level) => {
                 if *level > ZLIB_MAX_LEVEL {
-                    return Err(EncodeError::InvalidCompressionLevel((Self::Zlib(*level), *level as i32)));
+                    return Err(EncodeError::InvalidCompressionLevel((
+                        Self::Zlib(*level),
+                        *level as i32,
+                    )));
                 }
                 writer.write_u8(2)?;
                 writer.write_u8(*level)?;
@@ -70,7 +73,10 @@ impl Decode for CompressionType {
             2 => {
                 let level = reader.read_u8()?;
                 if level > ZLIB_MAX_LEVEL {
-                    return Err(DecodeError::InvalidCompressionLevel((Self::Zlib(level), level as i32)));
+                    return Err(DecodeError::InvalidCompressionLevel((
+                        Self::Zlib(level),
+                        level as i32,
+                    )));
                 }
                 Ok(Self::Zlib(level))
             }
@@ -138,7 +144,13 @@ mod tests {
         #[test]
         fn compression_serialize_zlib_invalid_level() {
             let err = CompressionType::Zlib(ZLIB_MAX_LEVEL + 1).encode_into_vec_err();
-            assert!(matches!(err, Err(EncodeError::InvalidCompressionLevel((CompressionType::Zlib(10), 10)))));
+            assert!(matches!(
+                err,
+                Err(EncodeError::InvalidCompressionLevel((
+                    CompressionType::Zlib(10),
+                    10
+                )))
+            ));
         }
     }
 }
