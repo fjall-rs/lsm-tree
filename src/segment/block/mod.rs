@@ -153,7 +153,6 @@ impl Block {
     ) -> crate::Result<Self> {
         #[warn(unsafe_code)]
         let mut builder = unsafe { Slice::builder_unzeroed(handle.size() as usize) };
-
         {
             #[cfg(unix)]
             {
@@ -212,7 +211,7 @@ impl Block {
                         .map_err(|_| crate::Error::Decompress(compression))?;
                 }
 
-                builder.freeze()
+                builder.freeze().into()
             }
 
             #[cfg(feature = "zlib")]
@@ -224,7 +223,7 @@ impl Block {
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
                 d.read_exact(&mut decompressed_data)
                     .map_err(|_| crate::Error::Decompress(compression))?;
-                decompressed_data.freeze()
+                decompressed_data.freeze().into
             }
         };
 
