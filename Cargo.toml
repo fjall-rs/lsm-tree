@@ -30,7 +30,7 @@ enum_dispatch = "0.3.13"
 guardian = "1.1.0"
 interval-heap = "0.0.5"
 log = "0.4.22"
-lz4_flex = { version = "=0.11.3", optional = true, default-features = false }
+lz4_flex = { version = "0.11.3", optional = true, default-features = false }
 miniz_oxide = { version = "0.8.0", optional = true }
 path-absolutize = "3.1.1"
 quick_cache = { version = "0.6.5", default-features = false, features = [] }
