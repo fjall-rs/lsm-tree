@@ -75,6 +75,8 @@ pub struct Config {
     pub tree_type: TreeType,
 
     /// Number of levels of the LSM tree (depth of tree)
+    ///
+    /// Once set, the level count is fixed (in the "manifest" file)
     pub level_count: u8,
 
     /// What type of compression is used for data blocks

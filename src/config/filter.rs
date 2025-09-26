@@ -45,6 +45,14 @@ impl FilterPolicy {
             .unwrap_or_else(|| self.last().copied().expect("policy should not be empty"))
     }
 
+    /// Disables all filters.
+    ///
+    /// **Not recommended unless you know what you are doing!**
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self::all(FilterPolicyEntry::None)
+    }
+
     // TODO: accept Vec... Into<Vec<...>>? or owned
 
     /// Uses the same block size in every level.

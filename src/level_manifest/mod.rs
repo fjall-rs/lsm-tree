@@ -5,8 +5,7 @@
 pub(crate) mod hidden_set;
 
 use crate::{
-    coding::{DecodeError, Encode},
-    file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
+    file::{fsync_directory, rewrite_atomic},
     segment::Segment,
     version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
     vlog::BlobFileId,
@@ -16,7 +15,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use hidden_set::HiddenSet;
 use std::{
     collections::VecDeque,
-    io::{BufWriter, Cursor, Read, Write},
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::Arc,
 };

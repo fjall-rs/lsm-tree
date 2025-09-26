@@ -37,6 +37,12 @@ impl CompressionPolicy {
             .unwrap_or_else(|| self.last().copied().expect("policy should not be empty"))
     }
 
+    /// Disables all compression.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self::all(CompressionType::None)
+    }
+
     // TODO: accept Vec... Into<Vec<...>>? or owned
 
     /// Uses the same compression in every level.
