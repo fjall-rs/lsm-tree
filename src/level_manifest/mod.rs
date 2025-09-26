@@ -157,50 +157,57 @@ impl LevelManifest {
             "Recovering current manifest at {}",
             version_file_path.display(),
         );
-        let mut level_manifest = Cursor::new(std::fs::read(version_file_path)?);
 
-        // TODO: vvv move into Version::decode? vvv
+        let reader = tft::Reader::new(&version_file_path)?;
+        let toc = reader.toc();
 
-        // Check header
-        let mut magic = [0u8; MAGIC_BYTES.len()];
-        level_manifest.read_exact(&mut magic)?;
-
-        if magic != MAGIC_BYTES {
-            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                "LevelManifest",
-            )));
-        }
-
+        // // TODO: vvv move into Version::decode vvv
         let mut levels = vec![];
 
-        let level_count = level_manifest.read_u8()?;
+        {
+            let mut reader = toc
+                .section(b"tables")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
 
-        for _ in 0..level_count {
-            let mut level = vec![];
-            let run_count = level_manifest.read_u8()?;
+            let level_count = reader.read_u8()?;
 
-            for _ in 0..run_count {
-                let mut run = vec![];
-                let segment_count = level_manifest.read_u32::<LittleEndian>()?;
+            for _ in 0..level_count {
+                let mut level = vec![];
+                let run_count = reader.read_u8()?;
 
-                for _ in 0..segment_count {
-                    let id = level_manifest.read_u64::<LittleEndian>()?;
-                    run.push(id);
+                for _ in 0..run_count {
+                    let mut run = vec![];
+                    let segment_count = reader.read_u32::<LittleEndian>()?;
+
+                    for _ in 0..segment_count {
+                        let id = reader.read_u64::<LittleEndian>()?;
+                        run.push(id);
+                    }
+
+                    level.push(run);
                 }
 
-                level.push(run);
+                levels.push(level);
+            }
+        }
+
+        let blob_file_ids = {
+            let mut reader = toc
+                .section(b"blob_files")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
+
+            let blob_file_count = reader.read_u32::<LittleEndian>()?;
+            let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
+
+            for _ in 0..blob_file_count {
+                let id = reader.read_u64::<LittleEndian>()?;
+                blob_file_ids.push(id);
             }
 
-            levels.push(level);
-        }
-
-        let blob_file_count = level_manifest.read_u32::<LittleEndian>()?;
-        let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
-
-        for _ in 0..blob_file_count {
-            let id = level_manifest.read_u64::<LittleEndian>()?;
-            blob_file_ids.push(id);
-        }
+            blob_file_ids
+        };
 
         Ok(Recovery {
             curr_version_id,
@@ -264,15 +271,20 @@ impl LevelManifest {
             folder.display(),
         );
 
-        let file = std::fs::File::create_new(folder.join(format!("v{}", version.id())))?;
-        let mut writer = BufWriter::new(file);
+        let path = folder.join(format!("v{}", version.id()));
+        let file = std::fs::File::create_new(path)?;
+        let writer = BufWriter::new(file);
+        let mut writer = tft::Writer::into_writer(writer);
 
         version.encode_into(&mut writer)?;
 
-        writer.flush()?;
-        writer.get_mut().sync_all()?;
+        writer.finish().map_err(|e| match e {
+            tft::Error::Io(e) => crate::Error::from(e),
+            _ => unreachable!(),
+        })?;
+
+        // IMPORTANT: fsync folder on Unix
         fsync_directory(folder)?;
-        // IMPORTANT: ^ wait for fsync and directory sync to fully finish
 
         rewrite_atomic(&folder.join("current"), &version.id().to_le_bytes())?;
 

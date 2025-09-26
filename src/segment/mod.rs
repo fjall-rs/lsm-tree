@@ -381,24 +381,7 @@ impl Segment {
         log::debug!("Recovering segment from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
-        let trailer = tft::Reader::from_reader(&mut file).map_err(|e| match e {
-            tft::Error::Io(e) => crate::Error::from(e),
-            tft::Error::ChecksumMismatch { got, expected } => {
-                log::error!("Archive ToC checksum mismatch");
-                crate::Error::ChecksumMismatch {
-                    got: got.into(),
-                    expected: expected.into(),
-                }
-            }
-            tft::Error::InvalidVersion => {
-                log::error!("Invalid archive version");
-                crate::Error::Unrecoverable
-            }
-            tft::Error::UnsupportedChecksumType => {
-                log::error!("Invalid archive checksum type");
-                crate::Error::Unrecoverable
-            }
-        })?;
+        let trailer = tft::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);

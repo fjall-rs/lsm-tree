@@ -433,10 +433,7 @@ impl Writer {
 
         // Write fixed-size trailer
         // and flush & fsync the table file
-        self.block_writer.finish().map_err(|e| match e {
-            tft::Error::Io(e) => crate::Error::from(e),
-            _ => unreachable!(),
-        })?;
+        self.block_writer.finish()?;
 
         // IMPORTANT: fsync folder on Unix
 
