@@ -2,22 +2,15 @@ mod index;
 mod meta;
 
 use super::{
-    block::Header as BlockHeader, filter::BloomConstructionPolicy, trailer::Trailer, Block,
-    BlockOffset, DataBlock, KeyedBlockHandle,
+    block::Header as BlockHeader, filter::BloomConstructionPolicy, Block, BlockOffset, DataBlock,
+    KeyedBlockHandle,
 };
 use crate::{
-    coding::Encode,
-    file::fsync_directory,
-    segment::{filter::standard_bloom::Builder, index_block::BlockHandle, regions::ParsedRegions},
-    time::unix_timestamp,
-    CompressionType, InternalValue, SegmentId, UserKey,
+    coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
+    time::unix_timestamp, CompressionType, InternalValue, SegmentId, UserKey,
 };
 use index::{BlockIndexWriter, FullIndexWriter};
-use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
-    path::PathBuf,
-};
+use std::{fs::File, io::BufWriter, path::PathBuf};
 
 /// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
@@ -45,7 +38,7 @@ pub struct Writer {
 
     /// Writer of data blocks
     #[allow(clippy::struct_field_names)]
-    block_writer: BufWriter<File>,
+    block_writer: tft::Writer,
 
     /// Writer of index blocks
     #[allow(clippy::struct_field_names)]
@@ -74,6 +67,8 @@ impl Writer {
     pub fn new(path: PathBuf, segment_id: SegmentId) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
+        let mut block_writer = tft::Writer::into_writer(block_writer);
+        block_writer.start("data")?;
 
         Ok(Self {
             meta: meta::Metadata::default(),
@@ -304,62 +299,50 @@ impl Writer {
             return Ok(None);
         }
 
-        // // Append index blocks to file
-        let (tli_handle, index_blocks_handle) = self.index_writer.finish(&mut self.block_writer)?;
-        log::trace!("tli_ptr={tli_handle:?}");
-        log::trace!("index_blocks_ptr={index_blocks_handle:?}");
+        // Write index
+        self.index_writer.finish(&mut self.block_writer)?;
 
         // Write filter
-        let filter_handle = {
-            if self.bloom_hash_buffer.is_empty() {
-                None
-            } else {
-                let filter_ptr = self.block_writer.stream_position()?;
-                let n = self.bloom_hash_buffer.len();
+        if !self.bloom_hash_buffer.is_empty() {
+            self.block_writer.start("filter")?;
 
-                log::trace!(
-                    "Constructing Bloom filter with {n} entries: {:?}",
-                    self.bloom_policy,
-                );
+            let n = self.bloom_hash_buffer.len();
 
-                let start = std::time::Instant::now();
+            log::trace!(
+                "Constructing Bloom filter with {n} entries: {:?}",
+                self.bloom_policy,
+            );
 
-                let filter_bytes = {
-                    let mut builder = self.bloom_policy.init(n);
+            let start = std::time::Instant::now();
 
-                    for hash in self.bloom_hash_buffer {
-                        builder.set_with_hash(hash);
-                    }
+            let filter_bytes = {
+                let mut builder = self.bloom_policy.init(n);
 
-                    builder.build()
-                };
+                for hash in self.bloom_hash_buffer {
+                    builder.set_with_hash(hash);
+                }
 
-                log::trace!(
-                    "Built Bloom filter ({} B) in {:?}",
-                    filter_bytes.len(),
-                    start.elapsed(),
-                );
+                builder.build()
+            };
 
-                let header = Block::write_into(
-                    &mut self.block_writer,
-                    &filter_bytes,
-                    crate::segment::block::BlockType::Filter,
-                    CompressionType::None,
-                )?;
+            log::trace!(
+                "Built Bloom filter ({} B) in {:?}",
+                filter_bytes.len(),
+                start.elapsed(),
+            );
 
-                // NOTE: Block header is a couple of bytes only, so cast is fine
-                #[allow(clippy::cast_possible_truncation)]
-                let bytes_written = (BlockHeader::serialized_len() as u32) + header.data_length;
-
-                Some(BlockHandle::new(BlockOffset(filter_ptr), bytes_written))
-            }
-        };
-        log::trace!("filter_ptr={filter_handle:?}");
+            Block::write_into(
+                &mut self.block_writer,
+                &filter_bytes,
+                crate::segment::block::BlockType::Filter,
+                CompressionType::None,
+            )?;
+        }
 
         // Write metadata
-        let metadata_start = BlockOffset(self.block_writer.stream_position()?);
+        self.block_writer.start("meta")?;
 
-        let metadata_handle = {
+        {
             fn meta(key: &str, value: &[u8]) -> InternalValue {
                 InternalValue::from_components(key, value, 0, crate::ValueType::Value)
             }
@@ -440,55 +423,20 @@ impl Writer {
             // TODO: no binary index
             DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
 
-            let header = Block::write_into(
+            Block::write_into(
                 &mut self.block_writer,
                 &self.block_buffer,
                 crate::segment::block::BlockType::Meta,
                 CompressionType::None,
             )?;
-
-            // NOTE: Block header is a couple of bytes only, so cast is fine
-            #[allow(clippy::cast_possible_truncation)]
-            let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
-
-            BlockHandle::new(metadata_start, bytes_written)
-        };
-
-        // Write regions block
-        let regions_block_handle = {
-            let regions_block_start = BlockOffset(self.block_writer.stream_position()?);
-
-            let regions = ParsedRegions {
-                tli: tli_handle,
-                index: None,
-                filter: filter_handle,
-                metadata: metadata_handle,
-            };
-
-            log::trace!("Encoding regions: {regions:#?}");
-
-            let bytes = regions.encode_into_vec()?;
-            let header = Block::write_into(
-                &mut self.block_writer,
-                &bytes,
-                crate::segment::block::BlockType::Regions,
-                CompressionType::None,
-            )?;
-
-            // NOTE: Block header is a couple of bytes only, so cast is fine
-            #[allow(clippy::cast_possible_truncation)]
-            let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
-
-            BlockHandle::new(regions_block_start, bytes_written)
         };
 
         // Write fixed-size trailer
-        let trailer = Trailer::from_handle(regions_block_handle);
-        trailer.write_into(&mut self.block_writer)?;
-
-        // Finally, flush & fsync the blocks file
-        self.block_writer.flush()?;
-        self.block_writer.get_mut().sync_all()?;
+        // and flush & fsync the table file
+        self.block_writer.finish().map_err(|e| match e {
+            tft::Error::Io(e) => crate::Error::from(e),
+            _ => unreachable!(),
+        })?;
 
         // IMPORTANT: fsync folder on Unix
 

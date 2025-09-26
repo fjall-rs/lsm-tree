@@ -14,7 +14,6 @@ mod meta;
 pub(crate) mod multi_writer;
 mod regions;
 mod scanner;
-mod trailer;
 pub mod util;
 mod writer;
 
@@ -378,19 +377,29 @@ impl Segment {
         use meta::ParsedMeta;
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
-        use trailer::Trailer;
 
         log::debug!("Recovering segment from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
-        let trailer = Trailer::from_file(&mut file)?;
-        log::trace!("Got trailer: {trailer:#?}");
-
-        log::debug!(
-            "Reading regions block, with region_ptr={:?}",
-            trailer.regions_block_handle(),
-        );
-        let regions = ParsedRegions::load_with_handle(&file, trailer.regions_block_handle())?;
+        let trailer = tft::Reader::from_reader(&mut file).map_err(|e| match e {
+            tft::Error::Io(e) => crate::Error::from(e),
+            tft::Error::ChecksumMismatch { got, expected } => {
+                log::error!("Archive ToC checksum mismatch");
+                crate::Error::ChecksumMismatch {
+                    got: got.into(),
+                    expected: expected.into(),
+                }
+            }
+            tft::Error::InvalidVersion => {
+                log::error!("Invalid archive version");
+                crate::Error::Unrecoverable
+            }
+            tft::Error::UnsupportedChecksumType => {
+                log::error!("Invalid archive checksum type");
+                crate::Error::Unrecoverable
+            }
+        })?;
+        let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
@@ -459,15 +468,6 @@ impl Segment {
         } else {
             None
         };
-
-        // TODO: Maybe only in L0/L1
-        // For larger levels, this will
-        // cache possibly many FDs
-        // causing kick-out of other
-        // FDs in the cache
-        //
-        // NOTE: We already have a file descriptor open, so let's just cache it immediately
-        // descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         let segment = Self(Arc::new(Inner {
             path: Arc::new(file_path),

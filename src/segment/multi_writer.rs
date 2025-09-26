@@ -100,8 +100,6 @@ impl MultiWriter {
 
     #[must_use]
     pub fn use_data_block_hash_ratio(mut self, ratio: f32) -> Self {
-        eprintln!("multi write writing data block: data_block_hash_ratio={ratio}");
-
         self.data_block_hash_ratio = ratio;
         self.writer = self.writer.use_data_block_hash_ratio(ratio);
         self

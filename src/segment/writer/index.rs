@@ -3,25 +3,18 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    segment::{
-        block::Header as BlockHeader,
-        index_block::{BlockHandle, KeyedBlockHandle},
-        Block, BlockOffset, IndexBlock,
-    },
+    segment::{block::Header as BlockHeader, index_block::KeyedBlockHandle, Block, IndexBlock},
     CompressionType,
 };
 
-pub trait BlockIndexWriter<W: std::io::Write + std::io::Seek> {
+pub trait BlockIndexWriter<W: std::io::Write> {
     /// Registers a data block in the block index.
     fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()>;
 
     /// Writes the block index to a file.
     ///
     /// Returns the (optional) index blocks handle and the TLI handle.
-    fn finish(
-        &mut self,
-        block_file_writer: &mut W,
-    ) -> crate::Result<(BlockHandle, Option<BlockHandle>)>;
+    fn finish(&mut self, block_file_writer: &mut tft::Writer) -> crate::Result<()>;
 
     fn set_compression(&mut self, compression: CompressionType);
 
@@ -64,11 +57,8 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         Ok(())
     }
 
-    fn finish(
-        &mut self,
-        block_file_writer: &mut W,
-    ) -> crate::Result<(BlockHandle, Option<BlockHandle>)> {
-        let tli_ptr = BlockOffset(block_file_writer.stream_position()?);
+    fn finish(&mut self, block_file_writer: &mut tft::Writer) -> crate::Result<()> {
+        block_file_writer.start("tli")?;
 
         let mut bytes = vec![];
         IndexBlock::encode_into(&mut bytes, &self.block_handles)?;
@@ -89,7 +79,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             self.block_handles.len(),
         );
 
-        Ok((BlockHandle::new(tli_ptr, bytes_written), None))
+        Ok(())
     }
 }
 
