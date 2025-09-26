@@ -9,17 +9,20 @@ use std::io::{Read, Write};
 pub enum EncodeError {
     /// I/O error
     Io(std::io::Error),
+    InvalidCompressionLevel((crate::CompressionType, i32)),
 }
 
 impl std::fmt::Display for EncodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "EncodeError({})",
-            match self {
-                Self::Io(e) => e.to_string(),
+        match self {
+            Self::Io(e) => write!(f, "EncodeError(Io: {})", e),
+            Self::InvalidCompressionLevel((compression_type, level)) => {
+                write!(
+                    f,
+                    "EncodeError(InvalidCompressionLevel: {compression_type:?} level {level})"
+                )
             }
-        )
+        }
     }
 }
 
@@ -33,6 +36,7 @@ impl std::error::Error for EncodeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
+            Self::InvalidCompressionLevel(_) => None,
         }
     }
 }
@@ -57,6 +61,8 @@ pub enum DecodeError {
 
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
+
+    InvalidCompressionLevel((crate::CompressionType, i32)),
 }
 
 impl std::fmt::Display for DecodeError {
@@ -66,6 +72,8 @@ impl std::fmt::Display for DecodeError {
             "DecodeError({})",
             match self {
                 Self::Io(e) => e.to_string(),
+                Self::InvalidCompressionLevel((compression_type, level)) =>
+                    format!("InvalidCompressionLevel: {compression_type:?} level {level}"),
                 e => format!("{e:?}"),
             }
         )

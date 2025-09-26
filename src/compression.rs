@@ -6,6 +6,9 @@ use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
+#[cfg(feature = "zlib")]
+const ZLIB_MAX_LEVEL: u8 = 9;
+
 /// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
@@ -21,6 +24,10 @@ pub enum CompressionType {
     /// on speed over compression ratio.
     #[cfg(feature = "lz4")]
     Lz4,
+
+    /// Zlib compression
+    #[cfg(feature = "zlib")]
+    Zlib(u8),
 }
 
 impl Encode for CompressionType {
@@ -33,6 +40,18 @@ impl Encode for CompressionType {
             #[cfg(feature = "lz4")]
             Self::Lz4 => {
                 writer.write_u8(1)?;
+            }
+
+            #[cfg(feature = "zlib")]
+            Self::Zlib(level) => {
+                if *level > ZLIB_MAX_LEVEL {
+                    return Err(EncodeError::InvalidCompressionLevel((
+                        Self::Zlib(*level),
+                        *level as i32,
+                    )));
+                }
+                writer.write_u8(2)?;
+                writer.write_u8(*level)?;
             }
         }
 
@@ -50,6 +69,17 @@ impl Decode for CompressionType {
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
 
+            #[cfg(feature = "zlib")]
+            2 => {
+                let level = reader.read_u8()?;
+                if level > ZLIB_MAX_LEVEL {
+                    return Err(DecodeError::InvalidCompressionLevel((
+                        Self::Zlib(level),
+                        level as i32,
+                    )));
+                }
+                Ok(Self::Zlib(level))
+            }
             tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
         }
     }
@@ -65,6 +95,11 @@ impl std::fmt::Display for CompressionType {
 
                 #[cfg(feature = "lz4")]
                 Self::Lz4 => "lz4",
+
+                #[cfg(feature = "zlib")]
+                Self::Zlib(level) => {
+                    return write!(f, "zlib (level {})", level);
+                }
             }
         )
     }
@@ -90,6 +125,32 @@ mod tests {
         fn compression_serialize_none() {
             let serialized = CompressionType::Lz4.encode_into_vec();
             assert_eq!(1, serialized.len());
+        }
+    }
+
+    #[cfg(feature = "zlib")]
+    mod zlib {
+        use super::*;
+        use test_log::test;
+
+        #[test]
+        fn compression_serialize_zlib() {
+            for level in 0..=ZLIB_MAX_LEVEL {
+                let serialized = CompressionType::Zlib(level).encode_into_vec();
+                assert_eq!(2, serialized.len());
+            }
+        }
+
+        #[test]
+        fn compression_serialize_zlib_invalid_level() {
+            let err = CompressionType::Zlib(ZLIB_MAX_LEVEL + 1).encode_into_vec_err();
+            assert!(matches!(
+                err,
+                Err(EncodeError::InvalidCompressionLevel((
+                    CompressionType::Zlib(10),
+                    10
+                )))
+            ));
         }
     }
 }
