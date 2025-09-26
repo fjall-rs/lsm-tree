@@ -38,7 +38,7 @@ pub struct Writer {
 
     /// Writer of data blocks
     #[allow(clippy::struct_field_names)]
-    block_writer: tft::Writer,
+    block_writer: sfa::Writer,
 
     /// Writer of index blocks
     #[allow(clippy::struct_field_names)]
@@ -67,7 +67,7 @@ impl Writer {
     pub fn new(path: PathBuf, segment_id: SegmentId) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
-        let mut block_writer = tft::Writer::into_writer(block_writer);
+        let mut block_writer = sfa::Writer::into_writer(block_writer);
         block_writer.start("data")?;
 
         Ok(Self {

@@ -38,7 +38,7 @@ self_cell = "1.2.0"
 tempfile = "3.20.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-tft = { git = "https://github.com/marvin-j97/tft" }
+sfa = "~0.0.1"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

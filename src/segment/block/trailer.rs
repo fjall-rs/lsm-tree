@@ -63,8 +63,6 @@ impl<'a> Trailer<'a> {
         // IMPORTANT: Terminator marker
         encoder.writer.write_u8(TRAILER_START_MARKER)?;
 
-        // TODO: version u8? -> add to segment metadata instead
-
         // NOTE: We know that data blocks will never even approach 4 GB in size
         #[allow(clippy::cast_possible_truncation)]
         let binary_index_offset = encoder.writer.len() as u32;

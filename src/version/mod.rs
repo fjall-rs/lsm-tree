@@ -425,7 +425,7 @@ impl Version {
 }
 
 impl Version {
-    pub(crate) fn encode_into(&self, writer: &mut tft::Writer) -> Result<(), crate::EncodeError> {
+    pub(crate) fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::EncodeError> {
         use byteorder::{LittleEndian, WriteBytesExt};
 
         writer.start("tables")?;

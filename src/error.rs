@@ -60,22 +60,26 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<tft::Error> for Error {
-    fn from(value: tft::Error) -> Self {
+impl From<sfa::Error> for Error {
+    fn from(value: sfa::Error) -> Self {
         match value {
-            tft::Error::Io(e) => Self::from(e),
-            tft::Error::ChecksumMismatch { got, expected } => {
+            sfa::Error::Io(e) => Self::from(e),
+            sfa::Error::ChecksumMismatch { got, expected } => {
                 log::error!("Archive ToC checksum mismatch");
                 Self::ChecksumMismatch {
                     got: got.into(),
                     expected: expected.into(),
                 }
             }
-            tft::Error::InvalidVersion => {
+            sfa::Error::InvalidHeader => {
+                log::error!("Invalid archive header");
+                Self::Unrecoverable
+            }
+            sfa::Error::InvalidVersion => {
                 log::error!("Invalid archive version");
                 Self::Unrecoverable
             }
-            tft::Error::UnsupportedChecksumType => {
+            sfa::Error::UnsupportedChecksumType => {
                 log::error!("Invalid archive checksum type");
                 Self::Unrecoverable
             }

@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{BlockHandle, BlockOffset};
-use tft::TocEntry;
+use sfa::TocEntry;
 
 fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
     BlockHandle::new(BlockOffset(entry.pos()), entry.len() as u32)
@@ -37,7 +37,7 @@ pub struct ParsedRegions {
 }
 
 impl ParsedRegions {
-    pub fn parse_from_toc(toc: &tft::Toc) -> crate::Result<Self> {
+    pub fn parse_from_toc(toc: &sfa::Toc) -> crate::Result<Self> {
         Ok(Self {
             tli: toc
                 .section(b"tli")

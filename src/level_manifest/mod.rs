@@ -157,7 +157,7 @@ impl LevelManifest {
             version_file_path.display(),
         );
 
-        let reader = tft::Reader::new(&version_file_path)?;
+        let reader = sfa::Reader::new(&version_file_path)?;
         let toc = reader.toc();
 
         // // TODO: vvv move into Version::decode vvv
@@ -273,12 +273,12 @@ impl LevelManifest {
         let path = folder.join(format!("v{}", version.id()));
         let file = std::fs::File::create_new(path)?;
         let writer = BufWriter::new(file);
-        let mut writer = tft::Writer::into_writer(writer);
+        let mut writer = sfa::Writer::into_writer(writer);
 
         version.encode_into(&mut writer)?;
 
         writer.finish().map_err(|e| match e {
-            tft::Error::Io(e) => crate::Error::from(e),
+            sfa::Error::Io(e) => crate::Error::from(e),
             _ => unreachable!(),
         })?;
 

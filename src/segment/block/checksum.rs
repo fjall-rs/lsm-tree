@@ -14,8 +14,8 @@ impl std::ops::Deref for Checksum {
     }
 }
 
-impl From<tft::Checksum> for Checksum {
-    fn from(value: tft::Checksum) -> Self {
+impl From<sfa::Checksum> for Checksum {
+    fn from(value: sfa::Checksum) -> Self {
         Self(value.into_u128())
     }
 }

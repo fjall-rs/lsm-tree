@@ -381,7 +381,7 @@ impl Segment {
         log::debug!("Recovering segment from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
-        let trailer = tft::Reader::from_reader(&mut file)?;
+        let trailer = sfa::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);

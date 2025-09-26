@@ -14,7 +14,7 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     /// Writes the block index to a file.
     ///
     /// Returns the (optional) index blocks handle and the TLI handle.
-    fn finish(&mut self, block_file_writer: &mut tft::Writer) -> crate::Result<()>;
+    fn finish(&mut self, block_file_writer: &mut sfa::Writer) -> crate::Result<()>;
 
     fn set_compression(&mut self, compression: CompressionType);
 
@@ -57,7 +57,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         Ok(())
     }
 
-    fn finish(&mut self, block_file_writer: &mut tft::Writer) -> crate::Result<()> {
+    fn finish(&mut self, block_file_writer: &mut sfa::Writer) -> crate::Result<()> {
         block_file_writer.start("tli")?;
 
         let mut bytes = vec![];
