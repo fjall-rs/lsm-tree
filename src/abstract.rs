@@ -78,10 +78,13 @@ pub trait AbstractTree {
 
     /// Drops segments that are fully contained in a given range.
     ///
+    /// Both range bounds must be inclusive and finite.
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if an IO error occurs.
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()>;
+    /// Will return `Err` if an IO error occurs or if the provided bounds are
+    /// not supported.
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()>;
 
     /// Performs major compaction, blocking the caller until it's done.
     ///

@@ -7,7 +7,7 @@ pub mod inner;
 
 use crate::{
     coding::{Decode, Encode},
-    compaction::CompactionStrategy,
+    compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
     format_version::FormatVersion,
@@ -16,6 +16,7 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
+    slice::Slice,
     value::InternalValue,
     vlog::BlobFile,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter, UserKey,
@@ -24,7 +25,7 @@ use crate::{
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
-    ops::RangeBounds,
+    ops::{Bound, RangeBounds},
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
@@ -168,9 +169,9 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
-    // TODO: change API to RangeBounds<K>
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
-        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
+        let bounds = Self::range_bounds_to_owned_bounds(&range)?;
+        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
         let _lock = self
@@ -549,6 +550,36 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        range: &R,
+    ) -> crate::Result<OwnedBounds> {
+        use Bound::{Excluded, Included, Unbounded};
+
+        let start = match range.start_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        let end = match range.end_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        if let (Included(lo), Included(hi))
+        | (Included(lo), Excluded(hi))
+        | (Excluded(lo), Included(hi))
+        | (Excluded(lo), Excluded(hi)) = (&start, &end)
+        {
+            if lo.as_ref() > hi.as_ref() {
+                return Err(crate::Error::InvalidRangeBounds);
+            }
+        }
+
+        Ok(OwnedBounds { start, end })
+    }
+
     /// Opens an LSM-tree in the given directory.
     ///
     /// Will recover previous state if the folder was previously
