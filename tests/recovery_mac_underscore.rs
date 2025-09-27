@@ -3,7 +3,7 @@ use test_log::test;
 
 #[test]
 fn recovery_mac_underscore_file() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     {
         let tree = Config::new(&folder).open()?;

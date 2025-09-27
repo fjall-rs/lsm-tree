@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
@@ -16,13 +16,11 @@ fn snapshot_after_compaction() -> lsm_tree::Result<()> {
         tree.insert(key, "abc".as_bytes(), seqno.next());
     }
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 
     let snapshot_seqno = seqno.get();
-    let snapshot = tree.snapshot(snapshot_seqno);
 
-    assert_eq!(tree.len(None, None)?, snapshot.len()?);
-    assert_eq!(tree.len(None, None)?, snapshot.iter().rev().count());
+    assert_eq!(tree.len(SeqNo::MAX, None)?, tree.len(snapshot_seqno, None)?);
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -32,10 +30,9 @@ fn snapshot_after_compaction() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
     tree.major_compact(u64::MAX, 0)?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
 
-    assert_eq!(ITEM_COUNT, snapshot.len()?);
-    assert_eq!(ITEM_COUNT, snapshot.iter().rev().count());
+    assert_eq!(ITEM_COUNT, tree.len(snapshot_seqno, None)?);
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SeqNo};
 use test_log::test;
 
 #[test]
@@ -14,7 +14,7 @@ fn tree_recover_large_value() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open()?;
         assert_eq!(
-            &*tree.get("a", None)?.expect("should exist"),
+            &*tree.get("a", SeqNo::MAX)?.expect("should exist"),
             "a".repeat(100_000).as_bytes()
         );
     }

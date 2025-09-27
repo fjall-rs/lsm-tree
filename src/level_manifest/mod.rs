@@ -3,33 +3,36 @@
 // (found in the LICENSE-* files in the repository)
 
 pub(crate) mod hidden_set;
-pub(crate) mod level;
 
 use crate::{
-    coding::{DecodeError, Encode, EncodeError},
-    file::{rewrite_atomic, MAGIC_BYTES},
-    segment::{meta::SegmentId, Segment},
-    HashMap, HashSet, KeyRange,
+    file::{fsync_directory, rewrite_atomic},
+    segment::Segment,
+    version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
+    vlog::BlobFileId,
+    BlobFile, SegmentId, SeqNo,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use hidden_set::HiddenSet;
-use level::Level;
 use std::{
-    io::{Cursor, Read, Write},
+    collections::VecDeque,
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-type Levels = Vec<Arc<Level>>;
+pub struct Recovery {
+    pub curr_version_id: VersionId,
+    pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
+    pub blob_file_ids: Vec<BlobFileId>,
+}
 
 /// Represents the levels of a log-structured merge tree
 pub struct LevelManifest {
-    /// Path of level manifest file.
-    path: PathBuf,
+    /// Path of tree folder.
+    folder: PathBuf,
 
-    /// Actual levels containing segments.
-    #[doc(hidden)]
-    pub levels: Levels,
+    /// Current version.
+    current: Version,
 
     /// Set of segment IDs that are masked.
     ///
@@ -37,72 +40,82 @@ pub struct LevelManifest {
     /// as to not cause conflicts between multiple compaction threads (compacting the same segments).
     hidden_set: HiddenSet,
 
-    is_disjoint: bool,
+    /// Holds onto versions until they are safe to drop.
+    pub(crate) version_free_list: VecDeque<Version>,
 }
 
 impl std::fmt::Display for LevelManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (idx, level) in self.levels.iter().enumerate() {
-            write!(
+        for (idx, level) in self.current.iter_levels().enumerate() {
+            writeln!(
                 f,
-                "{idx} [{}]: ",
-                match (level.is_empty(), level.compute_is_disjoint()) {
+                "{idx} [{}], r={}: ",
+                match (level.is_empty(), level.is_disjoint()) {
                     (true, _) => ".",
                     (false, true) => "D",
                     (false, false) => "_",
-                }
+                },
+                level.len(),
             )?;
 
-            if level.segments.is_empty() {
-                write!(f, "<empty>")?;
-            } else if level.segments.len() >= 30 {
-                #[allow(clippy::indexing_slicing)]
-                for segment in level.segments.iter().take(2) {
-                    let id = segment.id();
-                    let is_hidden = self.hidden_set.is_hidden(id);
+            for run in level.iter() {
+                write!(f, "  ")?;
 
-                    write!(
+                if run.len() >= 30 {
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().take(2) {
+                        let id = segment.id();
+                        let is_hidden = self.hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+                    write!(f, " . . . ")?;
+
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().rev().take(2).rev() {
+                        let id = segment.id();
+                        let is_hidden = self.hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+
+                    writeln!(
                         f,
-                        "{}{id}{}",
-                        if is_hidden { "(" } else { "[" },
-                        if is_hidden { ")" } else { "]" },
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
-                }
-                write!(f, " . . . ")?;
+                } else {
+                    for segment in run.iter() {
+                        let id = segment.id();
+                        let is_hidden = self.hidden_set.is_hidden(id);
 
-                #[allow(clippy::indexing_slicing)]
-                for segment in level.segments.iter().rev().take(2).rev() {
-                    let id = segment.id();
-                    let is_hidden = self.hidden_set.is_hidden(id);
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
 
-                    write!(
+                    writeln!(
                         f,
-                        "{}{id}{}",
-                        if is_hidden { "(" } else { "[" },
-                        if is_hidden { ")" } else { "]" },
-                    )?;
-                }
-            } else {
-                for segment in &level.segments {
-                    let id = segment.id();
-                    let is_hidden = self.hidden_set.is_hidden(id);
-
-                    write!(
-                        f,
-                        "{}{id}{}",
-                        if is_hidden { "(" } else { "[" },
-                        /*       segment.metadata.file_size / 1_024 / 1_024, */
-                        if is_hidden { ")" } else { "]" },
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 }
             }
-
-            writeln!(
-                f,
-                " | # = {}, {} MiB",
-                level.len(),
-                level.size() / 1_024 / 1_024,
-            )?;
         }
 
         Ok(())
@@ -110,217 +123,222 @@ impl std::fmt::Display for LevelManifest {
 }
 
 impl LevelManifest {
+    #[must_use]
+    pub fn current_version(&self) -> &Version {
+        &self.current
+    }
+
     pub(crate) fn is_compacting(&self) -> bool {
         !self.hidden_set.is_empty()
     }
 
-    pub(crate) fn create_new<P: Into<PathBuf>>(level_count: u8, path: P) -> crate::Result<Self> {
-        assert!(level_count > 0, "level_count should be >= 1");
-
-        let levels = (0..level_count).map(|_| Arc::default()).collect::<Vec<_>>();
+    pub(crate) fn create_new<P: Into<PathBuf>>(folder: P) -> crate::Result<Self> {
+        // assert!(level_count > 0, "level_count should be >= 1");
 
         #[allow(unused_mut)]
         let mut manifest = Self {
-            path: path.into(),
-            levels,
+            folder: folder.into(),
+            current: Version::new(0),
             hidden_set: HiddenSet::default(),
-            is_disjoint: true,
+            version_free_list: VecDeque::default(),
         };
-        Self::write_to_disk(&manifest.path, &manifest.deep_clone())?;
+
+        Self::persist_version(&manifest.folder, &manifest.current)?;
 
         Ok(manifest)
     }
 
-    fn set_disjoint_flag(&mut self) {
-        // TODO: store key range in levels precomputed
-        let key_ranges = self
-            .levels
-            .iter()
-            .filter(|x| !x.is_empty())
-            .map(|x| KeyRange::aggregate(x.iter().map(|s| &s.metadata.key_range)))
-            .collect::<Vec<_>>();
+    pub(crate) fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
+        let curr_version_id = Self::get_current_version(folder)?;
+        let version_file_path = folder.join(format!("v{curr_version_id}"));
 
-        self.is_disjoint = KeyRange::is_disjoint(&key_ranges.iter().collect::<Vec<_>>());
-    }
+        log::info!(
+            "Recovering current manifest at {}",
+            version_file_path.display(),
+        );
 
-    pub(crate) fn load_level_manifest(path: &Path) -> crate::Result<Vec<Vec<SegmentId>>> {
-        let mut level_manifest = Cursor::new(std::fs::read(path)?);
+        let reader = sfa::Reader::new(&version_file_path)?;
+        let toc = reader.toc();
 
-        // Check header
-        let mut magic = [0u8; MAGIC_BYTES.len()];
-        level_manifest.read_exact(&mut magic)?;
-
-        if magic != MAGIC_BYTES {
-            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                "LevelManifest",
-            )));
-        }
-
+        // // TODO: vvv move into Version::decode vvv
         let mut levels = vec![];
 
-        let level_count = level_manifest.read_u8()?;
+        {
+            let mut reader = toc
+                .section(b"tables")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
 
-        for _ in 0..level_count {
-            let mut level = vec![];
-            let segment_count = level_manifest.read_u32::<BigEndian>()?;
+            let level_count = reader.read_u8()?;
 
-            for _ in 0..segment_count {
-                let id = level_manifest.read_u64::<BigEndian>()?;
-                level.push(id);
+            for _ in 0..level_count {
+                let mut level = vec![];
+                let run_count = reader.read_u8()?;
+
+                for _ in 0..run_count {
+                    let mut run = vec![];
+                    let segment_count = reader.read_u32::<LittleEndian>()?;
+
+                    for _ in 0..segment_count {
+                        let id = reader.read_u64::<LittleEndian>()?;
+                        run.push(id);
+                    }
+
+                    level.push(run);
+                }
+
+                levels.push(level);
             }
-
-            levels.push(level);
         }
 
-        Ok(levels)
+        let blob_file_ids = {
+            let mut reader = toc
+                .section(b"blob_files")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
+
+            let blob_file_count = reader.read_u32::<LittleEndian>()?;
+            let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
+
+            for _ in 0..blob_file_count {
+                let id = reader.read_u64::<LittleEndian>()?;
+                blob_file_ids.push(id);
+            }
+
+            blob_file_ids
+        };
+
+        Ok(Recovery {
+            curr_version_id,
+            segment_ids: levels,
+            blob_file_ids,
+        })
     }
 
-    pub(crate) fn recover_ids(
-        path: &Path,
-    ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
-        let manifest = Self::load_level_manifest(path)?;
-        let mut result = crate::HashMap::default();
-
-        for (level_idx, segment_ids) in manifest.into_iter().enumerate() {
-            for segment_id in segment_ids {
-                result.insert(
-                    segment_id,
-                    level_idx
-                        .try_into()
-                        .expect("there are less than 256 levels"),
-                );
-            }
-        }
-
-        Ok(result)
-    }
-
-    fn resolve_levels(
-        level_manifest: Vec<Vec<SegmentId>>,
-        segments: &HashMap<SegmentId, Segment>,
-    ) -> Levels {
-        let mut levels = Vec::with_capacity(level_manifest.len());
-
-        for level in level_manifest {
-            let mut created_level = Level::default();
-
-            for id in level {
-                let segment = segments.get(&id).cloned().expect("should find segment");
-                created_level.insert(segment);
-            }
-
-            levels.push(Arc::new(created_level));
-        }
-
-        levels
+    pub fn get_current_version(folder: &Path) -> crate::Result<VersionId> {
+        std::fs::File::open(folder.join("current"))
+            .and_then(|mut f| f.read_u64::<LittleEndian>())
+            .map_err(Into::into)
     }
 
     pub(crate) fn recover<P: Into<PathBuf>>(
-        path: P,
-        segments: Vec<Segment>,
+        folder: P,
+        recovery: &Recovery,
+        segments: &[Segment],
+        blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
-        let path = path.into();
+        let version_levels = recovery
+            .segment_ids
+            .iter()
+            .map(|level| {
+                let level_runs = level
+                    .iter()
+                    .map(|run| {
+                        let run_segments = run
+                            .iter()
+                            .map(|segment_id| {
+                                segments
+                                    .iter()
+                                    .find(|x| x.id() == *segment_id)
+                                    .cloned()
+                                    .ok_or(crate::Error::Unrecoverable)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?;
 
-        let level_manifest = Self::load_level_manifest(&path)?;
+                        Ok(Arc::new(Run::new(run_segments)))
+                    })
+                    .collect::<crate::Result<Vec<_>>>()?;
 
-        let segments: HashMap<_, _> = segments.into_iter().map(|seg| (seg.id(), seg)).collect();
+                Ok(Level::from_runs(level_runs))
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
 
-        let levels = Self::resolve_levels(level_manifest, &segments);
-
-        let mut manifest = Self {
-            levels,
+        Ok(Self {
+            current: Version::from_levels(recovery.curr_version_id, version_levels, {
+                blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()
+            }),
+            folder: folder.into(),
             hidden_set: HiddenSet::default(),
-            path,
-            is_disjoint: false,
-        };
-        manifest.set_disjoint_flag();
-
-        Ok(manifest)
+            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT, or delete old versions eagerly...
+        })
     }
 
-    pub(crate) fn write_to_disk(path: &Path, levels: &[Level]) -> crate::Result<()> {
-        log::trace!("Writing level manifest to {path:?}");
+    fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
+        log::trace!(
+            "Persisting version {} in {}",
+            version.id(),
+            folder.display(),
+        );
 
-        let serialized = Runs(levels).encode_into_vec();
+        let path = folder.join(format!("v{}", version.id()));
+        let file = std::fs::File::create_new(path)?;
+        let writer = BufWriter::new(file);
+        let mut writer = sfa::Writer::into_writer(writer);
 
-        // NOTE: Compaction threads don't have concurrent access to the level manifest
-        // because it is behind a mutex
-        // *However*, the file still needs to be rewritten atomically, because
-        // the system could crash at any moment, so
-        //
-        // a) truncating is not an option, because for a short moment, the file is empty
-        // b) just overwriting corrupts the file content
-        rewrite_atomic(path, &serialized)?;
+        version.encode_into(&mut writer)?;
+
+        writer.finish().map_err(|e| match e {
+            sfa::Error::Io(e) => crate::Error::from(e),
+            _ => unreachable!(),
+        })?;
+
+        // IMPORTANT: fsync folder on Unix
+        fsync_directory(folder)?;
+
+        rewrite_atomic(&folder.join("current"), &version.id().to_le_bytes())?;
 
         Ok(())
     }
 
-    /// Clones the level to get a mutable copy for atomic swap.
-    fn deep_clone(&self) -> Vec<Level> {
-        self.levels
-            .iter()
-            .map(|x| Level {
-                segments: x.segments.clone(),
-                is_disjoint: x.is_disjoint,
-            })
-            .collect()
-    }
-
     /// Modifies the level manifest atomically.
-    pub(crate) fn atomic_swap<F: FnOnce(&mut Vec<Level>)>(&mut self, f: F) -> crate::Result<()> {
+    ///
+    /// The function accepts a transition function that receives the current version
+    /// and returns a new version.
+    ///
+    /// The function takes care of persisting the version changes on disk.
+    pub(crate) fn atomic_swap<F: FnOnce(&Version) -> Version>(
+        &mut self,
+        f: F,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<()> {
         // NOTE: Copy-on-write...
         //
         // Create a copy of the levels we can operate on
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let mut working_copy = self.deep_clone();
+        let next_version = f(&self.current);
 
-        f(&mut working_copy);
+        Self::persist_version(&self.folder, &next_version)?;
 
-        Self::write_to_disk(&self.path, &working_copy)?;
-        self.levels = working_copy.into_iter().map(Arc::new).collect();
-        self.update_metadata();
-        self.set_disjoint_flag();
+        let mut old_version = std::mem::replace(&mut self.current, next_version);
+        old_version.seqno_watermark = gc_watermark;
 
-        log::trace!("Swapped level manifest to:\n{self}");
+        self.version_free_list.push_back(old_version);
 
         Ok(())
     }
 
-    #[allow(unused)]
-    #[cfg(test)]
-    pub(crate) fn add(&mut self, segment: Segment) {
-        self.insert_into_level(0, segment);
-    }
+    pub(crate) fn maintenance(&mut self, gc_watermark: SeqNo) -> crate::Result<()> {
+        log::debug!("Running manifest GC");
 
-    pub fn update_metadata(&mut self) {
-        for level in &mut self.levels {
-            Arc::get_mut(level)
-                .expect("could not get mutable Arc - this is a bug")
-                .update_metadata();
+        loop {
+            let Some(head) = self.version_free_list.front() else {
+                break;
+            };
+
+            if head.seqno_watermark < gc_watermark {
+                let path = self.folder.join(format!("v{}", head.id()));
+                std::fs::remove_file(path)?;
+                self.version_free_list.pop_front();
+            } else {
+                break;
+            }
         }
-    }
 
-    #[allow(unused)]
-    #[cfg(test)]
-    pub(crate) fn insert_into_level(&mut self, level_no: u8, segment: Segment) {
-        let last_level_index = self.depth() - 1;
-        let index = level_no.clamp(0, last_level_index);
+        log::debug!("Manifest GC done");
 
-        let level = self
-            .levels
-            .get_mut(index as usize)
-            .expect("level should exist");
-
-        let level = Arc::get_mut(level).expect("only used in tests");
-
-        level.insert(segment);
-    }
-
-    #[must_use]
-    pub fn is_disjoint(&self) -> bool {
-        self.is_disjoint && self.levels.iter().all(|x| x.is_disjoint)
+        Ok(())
     }
 
     /// Returns `true` if there are no segments
@@ -329,84 +347,51 @@ impl LevelManifest {
         self.len() == 0
     }
 
-    /// Returns the amount of levels in the tree
+    /// Returns the number of levels in the tree
     #[must_use]
-    pub fn depth(&self) -> u8 {
+    pub fn level_count(&self) -> u8 {
         // NOTE: Level count is u8
         #[allow(clippy::cast_possible_truncation)]
-        let len = self.levels.len() as u8;
-
-        len
+        {
+            self.current.level_count() as u8
+        }
     }
 
-    #[must_use]
-    pub fn first_level_segment_count(&self) -> usize {
-        self.levels.first().map(|lvl| lvl.len()).unwrap_or_default()
-    }
-
-    /// Returns the amount of levels in the tree
+    /// Returns the number of levels in the tree.
     #[must_use]
     pub fn last_level_index(&self) -> u8 {
-        self.depth() - 1
+        DEFAULT_LEVEL_COUNT - 1
     }
 
-    /// Returns the amount of segments, summed over all levels
+    /// Returns the number of segments, summed over all levels
     #[must_use]
     pub fn len(&self) -> usize {
-        self.levels.iter().map(|lvl| lvl.len()).sum()
+        self.current.segment_count()
     }
 
     /// Returns the (compressed) size of all segments
     #[must_use]
     pub fn size(&self) -> u64 {
-        self.iter().map(|s| s.metadata.file_size).sum()
+        self.iter().map(Segment::file_size).sum()
     }
 
     #[must_use]
-    pub fn busy_levels(&self) -> HashSet<u8> {
-        let mut output =
-            HashSet::with_capacity_and_hasher(self.len(), xxhash_rust::xxh3::Xxh3Builder::new());
-
-        for (idx, level) in self.levels.iter().enumerate() {
-            if level.ids().any(|id| self.hidden_set.is_hidden(id)) {
-                // NOTE: Level count is u8
-                #[allow(clippy::cast_possible_truncation)]
-                output.insert(idx as u8);
-            }
-        }
-
-        output
+    pub fn level_is_busy(&self, idx: usize) -> bool {
+        self.current.level(idx).is_some_and(|level| {
+            level
+                .iter()
+                .flat_map(|run| run.iter())
+                .any(|segment| self.hidden_set.is_hidden(segment.id()))
+        })
     }
 
-    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<Segment> {
-        for level in &self.levels {
-            if let Some(segment) = level.segments.iter().find(|x| x.id() == id).cloned() {
-                return Some(segment);
-            }
-        }
-        None
-    }
-
-    /// Returns a view into the levels, hiding all segments that currently are being compacted
     #[must_use]
-    pub fn resolved_view(&self) -> Vec<Level> {
-        let mut output = Vec::with_capacity(self.len());
-
-        for raw_level in &self.levels {
-            let mut level = raw_level.iter().cloned().collect::<Vec<_>>();
-            level.retain(|x| !self.hidden_set.is_hidden(x.id()));
-
-            output.push(Level {
-                segments: level,
-                is_disjoint: raw_level.is_disjoint,
-            });
-        }
-
-        output
+    pub fn as_slice(&self) -> &[Level] {
+        &self.current.levels
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Segment> + '_ {
-        self.levels.iter().flat_map(|x| &x.segments)
+    pub fn iter(&self) -> impl Iterator<Item = &Segment> {
+        self.current.iter_segments()
     }
 
     pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
@@ -429,48 +414,10 @@ impl LevelManifest {
     }
 }
 
-struct Runs<'a>(&'a [Level]);
-
-impl<'a> std::ops::Deref for Runs<'a> {
-    type Target = [Level];
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl<'a> Encode for Runs<'a> {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // Write header
-        writer.write_all(&MAGIC_BYTES)?;
-
-        // NOTE: "Truncation" is OK, because levels are created from a u8
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u8(self.len() as u8)?;
-
-        for level in self.iter() {
-            // NOTE: "Truncation" is OK, because there are never 4 billion segments in a tree, I hope
-            #[allow(clippy::cast_possible_truncation)]
-            writer.write_u32::<BigEndian>(level.segments.len() as u32)?;
-
-            for segment in &level.segments {
-                writer.write_u64::<BigEndian>(segment.id())?;
-            }
-        }
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::Runs;
-    use crate::{
-        coding::Encode,
-        level_manifest::{hidden_set::HiddenSet, LevelManifest},
-        AbstractTree,
-    };
+    use crate::AbstractTree;
     use test_log::test;
 
     #[test]
@@ -499,43 +446,18 @@ mod tests {
 
         // NOTE: Purposefully change level manifest to have invalid path
         // to force an I/O error
-        tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
+        tree.manifest.write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
 
         assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
             .hidden_set
             .is_empty());
 
         assert_eq!(segment_count_before_major_compact, tree.segment_count());
-
-        Ok(())
-    }
-
-    #[test]
-    fn level_manifest_raw_empty() -> crate::Result<()> {
-        let manifest = LevelManifest {
-            hidden_set: HiddenSet::default(),
-            levels: Vec::default(),
-            path: "a".into(),
-            is_disjoint: false,
-        };
-
-        let bytes = Runs(&manifest.deep_clone()).encode_into_vec();
-
-        #[rustfmt::skip]
-        let raw = &[
-            // Magic
-            b'L', b'S', b'M', 2,
-
-            // Count
-            0,
-        ];
-
-        assert_eq!(bytes, raw);
 
         Ok(())
     }

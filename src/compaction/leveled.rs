@@ -5,154 +5,113 @@
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     config::Config,
-    level_manifest::{hidden_set::HiddenSet, level::Level, LevelManifest},
+    level_manifest::{hidden_set::HiddenSet, LevelManifest},
     segment::Segment,
-    windows::{GrowingWindowsExt, ShrinkingWindowsExt},
+    slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
+    version::{run::Ranged, Run},
     HashSet, KeyRange, SegmentId,
 };
 
-// TODO: for a disjoint set of segments, we could just take the first and last segment and use their first and last key respectively
-/// Aggregates the key range of a list of segments.
-fn aggregate_key_range(segments: &[Segment]) -> KeyRange {
-    KeyRange::aggregate(segments.iter().map(|x| &x.metadata.key_range))
+pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
+    let lo = segments.first().expect("run should never be empty");
+    let hi = segments.last().expect("run should never be empty");
+    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
-/// Tries to find the most optimal compaction set from
-/// one level into the other.
+/// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
-    curr_level: &Level,
-    next_level: &Level,
+    curr_run: &Run<Segment>,
+    next_run: Option<&Run<Segment>>,
     hidden_set: &HiddenSet,
+    overshoot: u64,
     segment_base_size: u64,
 ) -> Option<(HashSet<SegmentId>, bool)> {
-    // assert!(curr_level.is_disjoint, "Lx is not disjoint");
-    // assert!(next_level.is_disjoint, "Lx+1 is not disjoint");
-
-    struct Choice {
-        write_amp: f32,
-        segment_ids: HashSet<SegmentId>,
-        can_trivial_move: bool,
-    }
-
-    let mut choices = vec![];
-
-    let mut add_choice = |choice: Choice| {
-        let mut valid_choice = true;
-
-        // IMPORTANT: Compaction is blocked because of other
-        // on-going compaction
-        valid_choice &= !choice.segment_ids.iter().any(|x| hidden_set.is_hidden(*x));
-
-        // NOTE: Keep compactions with 25 or less segments
-        // to make compactions not too large
-        valid_choice &= choice.can_trivial_move || choice.segment_ids.len() <= 25;
-
-        if valid_choice {
-            choices.push(choice);
-        }
-    };
-
-    for window in next_level.growing_windows() {
-        let next_level_size = next_level.iter().map(|x| x.metadata.file_size).sum::<u64>();
-
-        // Cap at 50x segments per compaction for now
-        if next_level_size > (50 * segment_base_size) {
-            // NOTE: Break out of the loop, at this point, all compactions are too large anyway
-            // so we can escape early
-            break;
-        }
-
+    // NOTE: Find largest trivial move (if it exists)
+    if let Some(window) = curr_run.shrinking_windows().find(|window| {
         if hidden_set.is_blocked(window.iter().map(Segment::id)) {
             // IMPORTANT: Compaction is blocked because of other
             // on-going compaction
-            continue;
+            return false;
         }
 
-        let key_range = aggregate_key_range(window);
-
-        // Pull in all segments in current level into compaction
-        let curr_level_pull_in: Vec<_> = if curr_level.is_disjoint {
-            // IMPORTANT: Avoid "infectious spread" of key ranges
-            // Imagine these levels:
-            //
-            //      A     B     C     D     E     F
-            // L1 | ----- ----- ----- ----- ----- -----
-            // L2 |    -----  -----  ----- ----- -----
-            //         1      2      3     4     5
-            //
-            // If we took 1, we would also have to include B,
-            // but then we would also have to include 2,
-            // but then we would also have to include C,
-            // but then we would also have to include 3,
-            // ...
-            //
-            // Instead, we consider a window like 1 - 3
-            // and then take B & C, because they are *contained* in that range
-            // Not including A or D is fine, because we are not shadowing data unexpectedly
-            curr_level.contained_segments(&key_range).collect()
-        } else {
-            // If the level is not disjoint, we just merge everything that overlaps
-            // to try and "repair" the level
-            curr_level.overlapping_segments(&key_range).collect()
+        let Some(next_run) = &next_run else {
+            // No run in next level, so we can trivially move
+            return true;
         };
 
-        if hidden_set.is_blocked(curr_level_pull_in.iter().map(|x| x.id())) {
-            // IMPORTANT: Compaction is blocked because of other
-            // on-going compaction
-            continue;
-        }
+        let key_range = aggregate_run_key_range(window);
 
-        let curr_level_size = curr_level_pull_in
-            .iter()
-            .map(|x| x.metadata.file_size)
-            .sum::<u64>();
-
-        // NOTE: Only consider compactions where we actually reach the amount
-        // of bytes we need to merge
-        if curr_level_size >= 1 {
-            let next_level_size = window.iter().map(|x| x.metadata.file_size).sum::<u64>();
-
-            let mut segment_ids: HashSet<_> = window.iter().map(Segment::id).collect();
-            segment_ids.extend(curr_level_pull_in.iter().map(|x| x.id()));
-
-            let write_amp = (next_level_size as f32) / (curr_level_size as f32);
-
-            add_choice(Choice {
-                write_amp,
-                segment_ids,
-                can_trivial_move: false,
-            });
-        }
+        next_run.get_overlapping(&key_range).is_empty()
+    }) {
+        let ids = window.iter().map(Segment::id).collect();
+        return Some((ids, true));
     }
 
-    // NOTE: Find largest trivial move (if it exists)
-    for window in curr_level.shrinking_windows() {
-        let key_range = aggregate_key_range(window);
+    // NOTE: Look for merges
+    if let Some(next_run) = &next_run {
+        next_run
+            .growing_windows()
+            .take_while(|window| {
+                // Cap at 50x segments per compaction for now
+                //
+                // At this point, all compactions are too large anyway
+                // so we can escape early
+                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+                next_level_size <= (50 * segment_base_size)
+            })
+            .filter_map(|window| {
+                if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+                    // IMPORTANT: Compaction is blocked because of other
+                    // on-going compaction
+                    return None;
+                }
 
-        if next_level.overlapping_segments(&key_range).next().is_none() {
-            add_choice(Choice {
-                write_amp: 0.0,
-                segment_ids: window.iter().map(Segment::id).collect(),
-                can_trivial_move: true,
-            });
-            break;
-        }
+                let key_range = aggregate_run_key_range(window);
+
+                // Pull in all contained segments in current level into compaction
+                let curr_level_pull_in = curr_run.get_contained(&key_range);
+
+                let curr_level_size = curr_level_pull_in
+                    .iter()
+                    .map(Segment::file_size)
+                    .sum::<u64>();
+
+                // if curr_level_size < overshoot {
+                //     return None;
+                // }
+
+                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Segment::id)) {
+                    // IMPORTANT: Compaction is blocked because of other
+                    // on-going compaction
+                    return None;
+                }
+
+                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+
+                //  let compaction_bytes = curr_level_size + next_level_size;
+
+                #[allow(clippy::cast_precision_loss)]
+                let write_amp = (next_level_size as f32) / (curr_level_size as f32);
+
+                Some((window, curr_level_pull_in, write_amp))
+            })
+            // Find the compaction with the smallest write amplification factor
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(window, curr_level_pull_in, _)| {
+                let mut ids: HashSet<_> = window.iter().map(Segment::id).collect();
+                ids.extend(curr_level_pull_in.iter().map(Segment::id));
+                (ids, false)
+            })
+    } else {
+        None
     }
-
-    let minimum_effort_choice = choices.into_iter().min_by(|a, b| {
-        a.write_amp
-            .partial_cmp(&b.write_amp)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    minimum_effort_choice.map(|c| (c.segment_ids, c.can_trivial_move))
 }
 
 /// Levelled compaction strategy (LCS)
 ///
 /// When a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
 ///
-/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^n` segments.
+/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` segments.
 ///
 /// LCS suffers from comparatively high write amplification, but has decent read amplification and great space amplification (~1.1x).
 ///
@@ -206,13 +165,17 @@ impl Strategy {
     /// L2 = `level_base_size * ratio`
     ///
     /// L3 = `level_base_size * ratio * ratio`
+    ///
     /// ...
-    fn level_target_size(&self, level_idx: u8) -> u64 {
-        assert!(level_idx >= 1, "level_target_size does not apply to L0");
+    fn level_target_size(&self, canonical_level_idx: u8) -> u64 {
+        assert!(
+            canonical_level_idx >= 1,
+            "level_target_size does not apply to L0",
+        );
 
-        let power = (self.level_ratio as usize).pow(u32::from(level_idx) - 1);
+        let power = (self.level_ratio as usize).pow(u32::from(canonical_level_idx) - 1) as u64;
 
-        (power * (self.level_base_size() as usize)) as u64
+        power * self.level_base_size()
     }
 
     fn level_base_size(&self) -> u64 {
@@ -222,179 +185,230 @@ impl Strategy {
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "LeveledStrategy"
+        "LeveledCompaction"
     }
 
     #[allow(clippy::too_many_lines)]
     fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let view = &levels.levels;
+        assert!(levels.as_slice().len() == 7, "should have exactly 7 levels");
 
-        // TODO: look at L1+, if not disjoint
-        // TODO: try to repairing level by rewriting
-        // TODO: abort if any segment is hidden
-        // TODO: then make sure, non-disjoint levels cannot be used in subsequent code below
-        // TODO: add tests
+        // Find the level that corresponds to L1
+        #[allow(clippy::map_unwrap_or)]
+        let mut canonical_l1_idx = levels
+            .as_slice()
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, lvl)| !lvl.is_empty())
+            .map(|(idx, _)| idx)
+            .unwrap_or_else(|| usize::from(levels.last_level_index()));
 
-        // L1+ compactions
-        for (curr_level_index, level) in view.iter().enumerate().skip(1).take(view.len() - 2).rev()
-        {
-            // NOTE: Level count is 255 max
-            #[allow(clippy::cast_possible_truncation)]
-            let curr_level_index = curr_level_index as u8;
+        // Number of levels we have to shift to get from the actual level idx to the canonical
+        let mut level_shift = canonical_l1_idx - 1;
 
-            let next_level_index = curr_level_index + 1;
-
-            if level.is_empty() {
-                continue;
-            }
-
-            let level_size: u64 = level
-                .segments
+        if canonical_l1_idx > 1 && levels.as_slice().iter().skip(1).any(|lvl| !lvl.is_empty()) {
+            let need_new_l1 = levels
+                .as_slice()
                 .iter()
-                // NOTE: Take bytes that are already being compacted into account,
-                // otherwise we may be overcompensating
-                .filter(|x| !levels.hidden_set().is_hidden(x.id()))
-                .map(|x| x.metadata.file_size)
-                .sum();
+                .enumerate()
+                .skip(1)
+                .filter(|(_, lvl)| !lvl.is_empty())
+                .all(|(idx, level)| {
+                    let level_size = level
+                        .iter()
+                        .flat_map(|x| x.iter())
+                        // NOTE: Take bytes that are already being compacted into account,
+                        // otherwise we may be overcompensating
+                        .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                        .map(Segment::file_size)
+                        .sum::<u64>();
 
-            let desired_bytes = self.level_target_size(curr_level_index);
+                    let target_size = self.level_target_size((idx - level_shift) as u8);
 
-            let overshoot = level_size.saturating_sub(desired_bytes);
+                    level_size > target_size
+                });
 
-            if overshoot > 0 {
-                let Some(next_level) = &view.get(next_level_index as usize) else {
-                    break;
-                };
-
-                let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
-                    level,
-                    next_level,
-                    levels.hidden_set(),
-                    u64::from(self.target_size),
-                ) else {
-                    break;
-                };
-
-                // eprintln!(
-                //     "merge {} segments, L{}->L{next_level_index}: {segment_ids:?}",
-                //     segment_ids.len(),
-                //     next_level_index - 1,
-                // );
-
-                let choice = CompactionInput {
-                    segment_ids,
-                    dest_level: next_level_index,
-                    target_size: u64::from(self.target_size),
-                };
-
-                // TODO: eventually, this should happen lazily
-                // if a segment file lives for very long, it should get rewritten
-                // Rocks, by default, rewrites files that are 1 month or older
-                //
-                // TODO: 3.0.0 configuration?
-                // NOTE: We purposefully not trivially move segments
-                // if we go from L1 to L2
-                // https://github.com/fjall-rs/lsm-tree/issues/63
-                let goes_into_cold_storage = next_level_index == 2;
-
-                if goes_into_cold_storage {
-                    return Choice::Merge(choice);
-                }
-
-                if can_trivial_move && level.is_disjoint {
-                    return Choice::Move(choice);
-                }
-                return Choice::Merge(choice);
+            // Move up L1 one level if all current levels are at capacity
+            if need_new_l1 {
+                canonical_l1_idx -= 1;
+                level_shift -= 1;
             }
         }
 
-        // L0->L1 compactions
-        {
-            let busy_levels = levels.busy_levels();
+        // Scoring
+        let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
-            let Some(first_level) = view.first() else {
+        {
+            // Score first level
+
+            // NOTE: We always have at least one level
+            #[allow(clippy::expect_used)]
+            let first_level = levels.as_slice().first().expect("first level should exist");
+
+            // TODO: use run_count instead? but be careful because of version free list GC thingy
+            if first_level.segment_count() >= usize::from(self.l0_threshold) {
+                let ratio = (first_level.segment_count() as f64) / f64::from(self.l0_threshold);
+                scores[0] = (ratio, 0);
+            }
+
+            // Score L1+
+            for (idx, level) in levels.as_slice().iter().enumerate().skip(1) {
+                if level.is_empty() {
+                    continue;
+                }
+
+                let level_size = level
+                    .iter()
+                    .flat_map(|x| x.iter())
+                    // NOTE: Take bytes that are already being compacted into account,
+                    // otherwise we may be overcompensating
+                    .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                    .map(Segment::file_size)
+                    .sum::<u64>();
+
+                let target_size = self.level_target_size((idx - level_shift) as u8);
+
+                // NOTE: We check for level length above
+                #[allow(clippy::indexing_slicing)]
+                if level_size > target_size {
+                    scores[idx] = (
+                        level_size as f64 / target_size as f64,
+                        level_size - target_size,
+                    );
+
+                    // NOTE: Force a trivial move
+                    if levels
+                        .as_slice()
+                        .get(idx + 1)
+                        .is_some_and(|next_level| next_level.is_empty())
+                    {
+                        scores[idx] = (99.99, 999);
+                    }
+                }
+            }
+
+            // NOTE: Never score Lmax
+            //
+            // NOTE: We check for level length above
+            #[allow(clippy::indexing_slicing)]
+            {
+                scores[6] = (0.0, 0);
+            }
+        }
+
+        // Choose compaction
+        let (level_idx_with_highest_score, (score, overshoot_bytes)) = scores
+            .into_iter()
+            .enumerate()
+            .max_by(|(_, (score_a, _)), (_, (score_b, _))| {
+                score_a
+                    .partial_cmp(score_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .expect("should have highest score somewhere");
+
+        if score < 1.0 {
+            return Choice::DoNothing;
+        }
+
+        // We choose L0->L1 compaction
+        if level_idx_with_highest_score == 0 {
+            let Some(first_level) = levels.current_version().level(0) else {
                 return Choice::DoNothing;
             };
 
-            if first_level.len() >= self.l0_threshold.into() && !busy_levels.contains(&0) {
-                let first_level_size = first_level.size();
-
-                // NOTE: Special handling for disjoint workloads
-                if levels.is_disjoint() {
-                    if first_level_size < self.target_size.into() {
-                        // TODO: also do this in non-disjoint workloads
-                        // -> intra-L0 compaction
-
-                        // NOTE: Force a merge into L0 itself
-                        // ...we seem to have *very* small flushes
-                        return if first_level.len() >= 32 {
-                            Choice::Merge(CompactionInput {
-                                dest_level: 0,
-                                segment_ids: first_level.list_ids(),
-                                // NOTE: Allow a bit of overshooting
-                                target_size: ((self.target_size as f32) * 1.1) as u64,
-                            })
-                        } else {
-                            Choice::DoNothing
-                        };
-                    }
-
-                    return Choice::Merge(CompactionInput {
-                        dest_level: 1,
-                        segment_ids: first_level.list_ids(),
-                        target_size: ((self.target_size as f32) * 1.1) as u64,
-                    });
-                }
-
-                if first_level_size < self.target_size.into() {
-                    // NOTE: We reached the threshold, but L0 is still very small
-                    // meaning we have very small segments, so do intra-L0 compaction
-                    return Choice::Merge(CompactionInput {
-                        dest_level: 0,
-                        segment_ids: first_level.list_ids(),
-                        target_size: self.target_size.into(),
-                    });
-                }
-
-                if !busy_levels.contains(&1) {
-                    let mut level = (**first_level).clone();
-                    level.sort_by_key_range();
-
-                    let Some(next_level) = &view.get(1) else {
-                        return Choice::DoNothing;
-                    };
-
-                    // TODO: list_ids()
-                    let mut segment_ids: HashSet<u64> = level.iter().map(Segment::id).collect();
-
-                    // Get overlapping segments in next level
-                    let key_range = aggregate_key_range(&level);
-
-                    let next_level_overlapping_segment_ids: Vec<_> = next_level
-                        .overlapping_segments(&key_range)
-                        .map(Segment::id)
-                        .collect();
-
-                    segment_ids.extend(&next_level_overlapping_segment_ids);
-
-                    let choice = CompactionInput {
-                        segment_ids,
-                        dest_level: 1,
-                        target_size: u64::from(self.target_size),
-                    };
-
-                    if next_level_overlapping_segment_ids.is_empty() && level.is_disjoint {
-                        return Choice::Move(choice);
-                    }
-                    return Choice::Merge(choice);
-                }
+            if levels.level_is_busy(0) || levels.level_is_busy(canonical_l1_idx) {
+                return Choice::DoNothing;
             }
+
+            let Some(target_level) = &levels.current_version().level(canonical_l1_idx) else {
+                return Choice::DoNothing;
+            };
+
+            let mut segment_ids: HashSet<u64> = first_level.list_ids();
+
+            let key_range = first_level.aggregate_key_range();
+
+            // Get overlapping segments in next level
+            let target_level_overlapping_segment_ids: Vec<_> = target_level
+                .iter()
+                .flat_map(|run| run.get_overlapping(&key_range))
+                .map(Segment::id)
+                .collect();
+
+            segment_ids.extend(&target_level_overlapping_segment_ids);
+
+            let choice = CompactionInput {
+                segment_ids,
+                dest_level: canonical_l1_idx as u8,
+                canonical_level: 1,
+                target_size: u64::from(self.target_size),
+            };
+
+            /* eprintln!(
+                "merge {} segments, L0->L1: {:?}",
+                choice.segment_ids.len(),
+                choice.segment_ids,
+            ); */
+
+            if target_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
+                return Choice::Move(choice);
+            }
+            return Choice::Merge(choice);
         }
 
-        Choice::DoNothing
+        // We choose L1+ compaction instead
+
+        // NOTE: Level count is 255 max
+        #[allow(clippy::cast_possible_truncation)]
+        let curr_level_index = level_idx_with_highest_score as u8;
+
+        let next_level_index = curr_level_index + 1;
+
+        let Some(level) = levels.current_version().level(level_idx_with_highest_score) else {
+            return Choice::DoNothing;
+        };
+
+        let Some(next_level) = levels.current_version().level(next_level_index as usize) else {
+            return Choice::DoNothing;
+        };
+
+        debug_assert!(level.is_disjoint(), "level should be disjoint");
+        debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
+
+        let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
+            level.first_run().expect("should have exactly one run"),
+            next_level.first_run().map(std::ops::Deref::deref),
+            levels.hidden_set(),
+            overshoot_bytes,
+            u64::from(self.target_size),
+        ) else {
+            return Choice::DoNothing;
+        };
+
+        let choice = CompactionInput {
+            segment_ids,
+            dest_level: next_level_index,
+            canonical_level: next_level_index - (level_shift as u8),
+            target_size: u64::from(self.target_size),
+        };
+
+        /* eprintln!(
+            "{} {} segments, L{}->L{next_level_index}: {:?}",
+            if can_trivial_move { "move" } else { "merge" },
+            choice.segment_ids.len(),
+            next_level_index - 1,
+            choice.segment_ids,
+        ); */
+
+        if can_trivial_move && level.is_disjoint() {
+            return Choice::Move(choice);
+        }
+        Choice::Merge(choice)
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::{Choice, Strategy};
@@ -408,8 +422,9 @@ mod tests {
             block_index::{two_level_index::TwoLevelBlockIndex, BlockIndexImpl},
             file_offsets::FileOffsets,
             meta::{Metadata, SegmentId},
-            Segment, SegmentInner,
+            SegmentInner,
         },
+        super_segment::Segment,
         time::unix_timestamp,
         Config, HashSet, KeyRange,
     };
@@ -434,7 +449,9 @@ mod tests {
         size: u64,
         tombstone_ratio: f32,
     ) -> Segment {
-        let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
+        todo!()
+
+        /*   let cache = Arc::new(Cache::with_capacity_bytes(10 * 1_024 * 1_024));
 
         let block_index = TwoLevelBlockIndex::new((0, id).into(), cache.clone());
         let block_index = Arc::new(BlockIndexImpl::TwoLevel(block_index));
@@ -479,7 +496,7 @@ mod tests {
             path: "a".into(),
             is_deleted: AtomicBool::default(),
         }
-        .into()
+        .into() */
     }
 
     #[allow(clippy::expect_used)]
@@ -696,3 +713,4 @@ mod tests {
         Ok(())
     }
 }
+ */

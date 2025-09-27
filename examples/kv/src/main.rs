@@ -1,6 +1,6 @@
 mod wal;
 
-use lsm_tree::{AbstractTree, Config, InternalValue, SequenceNumberCounter, Tree};
+use lsm_tree::{AbstractTree, Config, InternalValue, SeqNo, SequenceNumberCounter, Tree};
 use nanoid::nanoid;
 use std::{
     path::Path,
@@ -121,7 +121,7 @@ impl KvStore {
         Ok(())
     }
 
-    pub fn maintenance(&mut self, memtable_size: u32) -> lsm_tree::Result<()> {
+    pub fn maintenance(&mut self, memtable_size: u64) -> lsm_tree::Result<()> {
         // 8 MiB limit
         if memtable_size > 8 * 1_024 * 1_024 {
             self.force_flush()?;
@@ -151,7 +151,7 @@ impl KvStore {
     }
 
     pub fn get<K: AsRef<str>>(&self, key: K) -> lsm_tree::Result<Option<Arc<str>>> {
-        Ok(self.tree.get(key.as_ref(), None)?.map(|bytes| {
+        Ok(self.tree.get(key.as_ref(), SeqNo::MAX)?.map(|bytes| {
             std::str::from_utf8(&bytes)
                 .expect("should be valid utf-8")
                 .into()
@@ -159,15 +159,15 @@ impl KvStore {
     }
 
     pub fn contains_key<K: AsRef<str>>(&self, key: K) -> lsm_tree::Result<bool> {
-        self.tree.contains_key(key.as_ref(), None)
+        self.tree.contains_key(key.as_ref(), SeqNo::MAX)
     }
 
     pub fn is_empty(&self) -> lsm_tree::Result<bool> {
-        self.tree.is_empty(None, None)
+        self.tree.is_empty(SeqNo::MAX, None)
     }
 
     pub fn len(&self) -> lsm_tree::Result<usize> {
-        self.tree.len(None, None)
+        self.tree.len(SeqNo::MAX, None)
     }
 }
 

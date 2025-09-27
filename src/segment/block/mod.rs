@@ -1,233 +1,227 @@
-// Copyright (c) 2024-present, fjall-rs
+// Copyright (c) 2025-present, fjall-rs
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub mod checksum;
-pub mod header;
-pub mod offset;
+pub(crate) mod binary_index;
+mod checksum;
+pub mod decoder;
+mod encoder;
+pub mod hash_index;
+mod header;
+mod offset;
+mod trailer;
 
-use super::meta::CompressionType;
-use crate::coding::{Decode, Encode};
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use checksum::Checksum;
-use header::Header as BlockHeader;
-use offset::BlockOffset;
-use std::io::{Cursor, Read};
+pub use checksum::Checksum;
+pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
+pub(crate) use encoder::{Encodable, Encoder};
+pub use header::{BlockType, Header};
+pub use offset::BlockOffset;
+pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
-// TODO: better name
-pub trait ItemSize {
-    fn size(&self) -> usize;
+use crate::{
+    coding::{Decode, Encode},
+    segment::BlockHandle,
+    CompressionType, Slice,
+};
+use std::fs::File;
+
+/// A block on disk
+///
+/// Consists of a fixed-size header and some bytes (the data/payload).
+#[derive(Clone)]
+pub struct Block {
+    pub header: Header,
+    pub data: Slice,
 }
 
-impl<T: ItemSize> ItemSize for [T] {
-    fn size(&self) -> usize {
-        self.iter().map(ItemSize::size).sum()
+impl Block {
+    /// Returns the uncompressed block size in bytes.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.data.len()
     }
-}
 
-/// A disk-based block
-///
-/// A block is split into its header and a blob of data.
-/// The data blob may be compressed.
-///
-/// \[ header \]
-/// \[  data  \]
-///
-/// The integrity of a block can be checked using the checksum value that is saved in its header.
-#[derive(Clone, Debug)]
-pub struct Block<T: Clone + Encode + Decode + ItemSize> {
-    pub header: BlockHeader,
-    pub items: Box<[T]>,
-}
+    /// Encodes a block into a writer.
+    pub fn write_into<W: std::io::Write>(
+        mut writer: &mut W,
+        data: &[u8],
+        block_type: BlockType,
+        compression: CompressionType,
+    ) -> crate::Result<Header> {
+        let mut header = Header {
+            block_type,
+            checksum: Checksum::from_raw(crate::hash::hash128(data)),
+            data_length: 0, // <-- NOTE: Is set later on
+            uncompressed_length: data.len() as u32,
+            previous_block_offset: BlockOffset(0), // <-- TODO:
+        };
 
-impl<T: Clone + Encode + Decode + ItemSize> Block<T> {
-    pub fn from_reader<R: Read>(reader: &mut R) -> crate::Result<Self> {
-        // Read block header
-        let header = BlockHeader::decode_from(reader)?;
-        log::trace!("Got block header: {header:?}");
-
-        // Read the (possibly compressed) data
-        let mut bytes = vec![0u8; header.data_length as usize];
-        reader.read_exact(&mut bytes)?;
-
-        // TODO: 3.0.0 when header.compressed is reliable
-        // can we preallocate a vector to stream the compression into?
-        // -> saves reallocation costs
-        let bytes = match header.compression {
-            super::meta::CompressionType::None => bytes,
+        let data = match compression {
+            CompressionType::None => data,
 
             #[cfg(feature = "lz4")]
-            super::meta::CompressionType::Lz4 => lz4_flex::decompress_size_prepended(&bytes)
-                .map_err(|_| crate::Error::Decompress(header.compression))?,
+            CompressionType::Lz4 => &lz4_flex::compress(data),
+        };
+        header.data_length = data.len() as u32;
 
-            #[cfg(feature = "miniz")]
-            super::meta::CompressionType::Miniz(_) => {
-                miniz_oxide::inflate::decompress_to_vec(&bytes)
-                    .map_err(|_| crate::Error::Decompress(header.compression))?
+        header.encode_into(&mut writer)?;
+        writer.write_all(data)?;
+
+        log::trace!(
+            "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
+            header.uncompressed_length,
+            header.data_length,
+            Header::serialized_len(),
+        );
+
+        Ok(header)
+    }
+
+    /// Reads a block from a reader.
+    pub fn from_reader<R: std::io::Read>(
+        reader: &mut R,
+        compression: CompressionType,
+    ) -> crate::Result<Self> {
+        let header = Header::decode_from(reader)?;
+        let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
+
+        let data = match compression {
+            CompressionType::None => raw_data,
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
+                let mut builder =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+
+                lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
+
+                builder.freeze().into()
             }
         };
-        let mut bytes = Cursor::new(bytes);
 
-        // TODO: 3.0.0 varint?
-        // Read number of items
-        let item_count = bytes.read_u32::<BigEndian>()? as usize;
+        debug_assert_eq!(header.uncompressed_length, {
+            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+            {
+                data.len() as u32
+            }
+        });
 
-        // Deserialize each value
-        let mut items = Vec::with_capacity(item_count);
-        for _ in 0..item_count {
-            items.push(T::decode_from(&mut bytes)?);
+        let checksum = Checksum::from_raw(crate::hash::hash128(&data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for <bufreader>, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
         }
 
-        Ok(Self {
-            header,
-            items: items.into_boxed_slice(),
-        })
+        Ok(Self { header, data })
     }
 
-    pub fn from_file<R: std::io::Read + std::io::Seek>(
-        reader: &mut R,
-        offset: BlockOffset,
-    ) -> crate::Result<Self> {
-        reader.seek(std::io::SeekFrom::Start(*offset))?;
-        Self::from_reader(reader)
-    }
-
-    pub fn to_bytes_compressed(
-        items: &[T],
-        previous_block_offset: BlockOffset,
+    /// Reads a block from a file.
+    pub fn from_file(
+        file: &File,
+        handle: BlockHandle,
         compression: CompressionType,
-    ) -> crate::Result<(BlockHeader, Vec<u8>)> {
-        let packed = Self::pack_items(items, compression)?;
-        let checksum = Checksum::from_bytes(&packed);
+    ) -> crate::Result<Self> {
+        let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
-        let header = BlockHeader {
-            checksum,
-            compression,
-            previous_block_offset,
+        let header = Header::decode_from(&mut &buf[..])?;
 
-            // NOTE: Truncation is OK because block size is max 512 KiB
-            #[allow(clippy::cast_possible_truncation)]
-            data_length: packed.len() as u32,
-
-            // TODO: 3.0.0 pack_items should return the uncompressed, serialized
-            // size directly
-
-            // NOTE: Truncation is OK because a block cannot possible contain 4 billion items
-            #[allow(clippy::cast_possible_truncation)]
-            uncompressed_length: items.size() as u32,
-        };
-
-        Ok((header, packed))
-    }
-
-    fn pack_items(items: &[T], compression: CompressionType) -> crate::Result<Vec<u8>> {
-        let mut buf = Vec::with_capacity(u16::MAX.into());
-
-        // NOTE: There cannot be 4 billion items in a block
-        #[allow(clippy::cast_possible_truncation)]
-        buf.write_u32::<BigEndian>(items.len() as u32)?;
-
-        // Serialize each value
-        for value in items {
-            value.encode_into(&mut buf)?;
-        }
-
-        // TODO: 3.0.0 return buf.len() - 4 as uncompressed size
-
-        Ok(match compression {
-            CompressionType::None => buf,
+        let buf = match compression {
+            CompressionType::None => buf.slice(Header::serialized_len()..),
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => lz4_flex::compress_prepend_size(&buf),
+            CompressionType::Lz4 => {
+                // NOTE: We know that a header always exists and data is never empty
+                // So the slice is fine
+                #[allow(clippy::indexing_slicing)]
+                let raw_data = &buf[Header::serialized_len()..];
 
-            #[cfg(feature = "miniz")]
-            CompressionType::Miniz(level) => miniz_oxide::deflate::compress_to_vec(&buf, level),
-        })
+                #[warn(unsafe_code)]
+                let mut builder =
+                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+
+                lz4_flex::decompress_into(raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
+
+                builder.freeze().into()
+            }
+        };
+
+        #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+        {
+            debug_assert_eq!(header.uncompressed_length, buf.len() as u32);
+        }
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block {handle:?}, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
+        }
+
+        Ok(Self { header, data: buf })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        segment::value_block::ValueBlock,
-        value::{InternalValue, ValueType},
-    };
-    use std::io::Write;
     use test_log::test;
 
+    // TODO: Block::from_file roundtrips
+
     #[test]
-    fn disk_block_deserialization_success() -> crate::Result<()> {
-        let item1 =
-            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 =
-            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+    fn block_roundtrip_uncompressed() -> crate::Result<()> {
+        let mut writer = vec![];
 
-        let items = vec![item1.clone(), item2.clone()];
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::None,
+        )?;
 
-        // Serialize to bytes
-        let mut serialized = Vec::new();
-
-        let (header, data) =
-            ValueBlock::to_bytes_compressed(&items, BlockOffset(0), CompressionType::None)?;
-
-        header.encode_into(&mut serialized)?;
-        serialized.write_all(&data)?;
-
-        assert_eq!(serialized.len(), BlockHeader::serialized_len() + data.len());
-
-        // Deserialize from bytes
-        let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader(&mut cursor)?;
-
-        assert_eq!(2, block.items.len());
-        assert_eq!(block.items.first().cloned(), Some(item1));
-        assert_eq!(block.items.get(1).cloned(), Some(item2));
-
-        let checksum = {
-            let (_, data) = ValueBlock::to_bytes_compressed(
-                &block.items,
-                block.header.previous_block_offset,
-                block.header.compression,
-            )?;
-            Checksum::from_bytes(&data)
-        };
-        assert_eq!(block.header.checksum, checksum);
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::None)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
 
         Ok(())
     }
-
     #[test]
-    fn disk_block_deserialization_failure_checksum() -> crate::Result<()> {
-        let item1 =
-            InternalValue::from_components(vec![1, 2, 3], vec![4, 5, 6], 42, ValueType::Value);
-        let item2 =
-            InternalValue::from_components(vec![7, 8, 9], vec![10, 11, 12], 43, ValueType::Value);
+    #[cfg(feature = "lz4")]
+    fn block_roundtrip_lz4() -> crate::Result<()> {
+        let mut writer = vec![];
 
-        let items = vec![item1, item2];
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::Lz4,
+        )?;
 
-        // Serialize to bytes
-        let mut serialized = Vec::new();
-
-        let (header, data) =
-            ValueBlock::to_bytes_compressed(&items, BlockOffset(0), CompressionType::None)?;
-
-        header.encode_into(&mut serialized)?;
-        serialized.write_all(&data)?;
-
-        // Deserialize from bytes
-        let mut cursor = Cursor::new(serialized);
-        let block = ValueBlock::from_reader(&mut cursor)?;
-
-        let checksum = {
-            let (_, data) = ValueBlock::to_bytes_compressed(
-                &block.items,
-                block.header.previous_block_offset,
-                block.header.compression,
-            )?;
-            Checksum::from_bytes(&data)
-        };
-        assert_eq!(block.header.checksum, checksum);
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Lz4)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
 
         Ok(())
     }

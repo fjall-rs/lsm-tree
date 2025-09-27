@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Slice};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -35,29 +35,29 @@ fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let mut iter = tree.prefix("d", None, None);
+    let mut iter = tree.prefix("d", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
-    let mut iter = tree.prefix("d", None, None).rev();
+    let mut iter = tree.prefix("d", SeqNo::MAX, None).rev();
 
-    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"dc"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
-    let mut iter = tree.prefix("d", None, None);
+    let mut iter = tree.prefix("d", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"da"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"dc"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"db"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"da"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"dc"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"db"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     Ok(())

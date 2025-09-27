@@ -16,7 +16,7 @@ fn tree_weak_remove_flush_eviction() -> lsm_tree::Result<()> {
         tree.remove_weak(c, idx as SeqNo + 1000);
     }
 
-    assert_eq!(0, tree.len(None, None)?);
+    assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     tree.flush_active_memtable(1_100)?;
 

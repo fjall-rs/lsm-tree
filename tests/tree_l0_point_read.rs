@@ -1,4 +1,4 @@
-use lsm_tree::AbstractTree;
+use lsm_tree::{AbstractTree, SeqNo};
 use test_log::test;
 
 #[test]
@@ -31,13 +31,13 @@ fn tree_l0_point_read() -> lsm_tree::Result<()> {
     tree.insert("g", "g", 3);
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(b"A", &*tree.get("a", None)?.unwrap());
-    assert_eq!(b"B", &*tree.get("b", None)?.unwrap());
-    assert_eq!(b"C", &*tree.get("c", None)?.unwrap());
-    assert_eq!(b"d", &*tree.get("d", None)?.unwrap());
-    assert_eq!(b"e", &*tree.get("e", None)?.unwrap());
-    assert_eq!(b"f", &*tree.get("f", None)?.unwrap());
-    assert_eq!(b"g", &*tree.get("g", None)?.unwrap());
+    assert_eq!(b"A", &*tree.get("a", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"B", &*tree.get("b", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"C", &*tree.get("c", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"d", &*tree.get("d", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"e", &*tree.get("e", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"f", &*tree.get("f", SeqNo::MAX)?.unwrap());
+    assert_eq!(b"g", &*tree.get("g", SeqNo::MAX)?.unwrap());
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Cache, Config};
+use lsm_tree::{AbstractTree, Cache, Config, SeqNo};
 use std::sync::Arc;
 use test_log::test;
 
@@ -19,7 +19,7 @@ fn open_file_limit() -> lsm_tree::Result<()> {
     }
 
     for _ in 0..5 {
-        assert!(tree.first_key_value(None, None)?.is_some());
+        assert!(tree.first_key_value(SeqNo::MAX, None)?.is_some());
     }
 
     Ok(())

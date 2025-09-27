@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -8,8 +8,8 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let seqno = SequenceNumberCounter::default();
@@ -21,15 +21,16 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    let level_manifest = tree.levels.read().expect("lock is poisoned");
+    let level_manifest = tree.manifest.read().expect("lock is poisoned");
 
     let segment = level_manifest
-        .levels
+        .current_version()
+        .level(0)
+        .expect("level should exist")
         .first()
-        .expect("should exist")
-        .segments
+        .expect("run should exist")
         .first()
-        .expect("should exist");
+        .expect("segment should exist");
 
     let reader = segment.iter();
     assert_eq!(reader.count(), ITEM_COUNT + 1);
@@ -44,8 +45,8 @@ fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();
@@ -57,15 +58,16 @@ fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    let level_manifest = tree.index.levels.read().expect("lock is poisoned");
+    let level_manifest = tree.index.manifest.read().expect("lock is poisoned");
 
     let segment = level_manifest
-        .levels
+        .current_version()
+        .level(0)
+        .expect("level should exist")
         .first()
-        .expect("should exist")
-        .segments
+        .expect("run should exist")
         .first()
-        .expect("should exist");
+        .expect("segment should exist");
 
     let reader = segment.iter();
     assert_eq!(reader.count(), ITEM_COUNT + 1);

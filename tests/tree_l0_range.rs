@@ -1,8 +1,8 @@
-use lsm_tree::AbstractTree;
+use lsm_tree::{AbstractTree, Guard, SeqNo};
 use test_log::test;
 
 #[test]
-fn tree_l0_range() -> lsm_tree::Result<()> {
+fn tree_l0_range_blob() -> lsm_tree::Result<()> {
     let folder: tempfile::TempDir = tempfile::tempdir()?;
     let path = folder.path();
 
@@ -28,18 +28,18 @@ fn tree_l0_range() -> lsm_tree::Result<()> {
     tree.insert("f", "f", 3);
     tree.flush_active_memtable(0)?;
 
-    tree.insert("g", "g", 3);
+    tree.insert("g", "g".repeat(10_000), 3);
     tree.flush_active_memtable(0)?;
 
-    let mut range = tree.range("c"..="e", None, None);
-    assert_eq!(b"C", &*range.next().unwrap().unwrap().1);
-    assert_eq!(b"d", &*range.next().unwrap().unwrap().1);
-    assert_eq!(b"e", &*range.next().unwrap().unwrap().1);
+    let mut range = tree.range("c"..="e", SeqNo::MAX, None);
+    assert_eq!(b"C", &*range.next().unwrap().value()?);
+    assert_eq!(b"d", &*range.next().unwrap().value()?);
+    assert_eq!(b"e", &*range.next().unwrap().value()?);
     assert!(range.next().is_none());
 
-    let mut range = tree.range("f"..="g", None, None).rev();
-    assert_eq!(b"g", &*range.next().unwrap().unwrap().1);
-    assert_eq!(b"f", &*range.next().unwrap().unwrap().1);
+    let mut range = tree.range("f"..="g", SeqNo::MAX, None).rev();
+    assert_eq!(b"g".repeat(10_000), &*range.next().unwrap().value()?);
+    assert_eq!(b"f", &*range.next().unwrap().value()?);
     assert!(range.next().is_none());
 
     Ok(())

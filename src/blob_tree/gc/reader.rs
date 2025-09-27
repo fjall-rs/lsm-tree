@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{blob_tree::value::MaybeInlineValue, coding::Decode, Memtable};
+use crate::vlog::ValueHandle;
+use crate::{blob_tree::value::MaybeInlineValue, coding::Decode, Memtable, SeqNo};
 use std::io::Cursor;
-use value_log::ValueHandle;
 
 #[allow(clippy::module_name_repetitions)]
 pub struct GcReader<'a> {
@@ -20,7 +20,7 @@ impl<'a> GcReader<'a> {
     fn get_internal(&self, key: &[u8]) -> crate::Result<Option<MaybeInlineValue>> {
         let Some(item) = self
             .tree
-            .get_internal_entry_with_memtable(self.memtable, key, None)?
+            .get_internal_entry_with_memtable(self.memtable, key, SeqNo::MAX)?
             .map(|x| x.value)
         else {
             return Ok(None);
@@ -33,7 +33,7 @@ impl<'a> GcReader<'a> {
     }
 }
 
-impl<'a> value_log::IndexReader for GcReader<'a> {
+impl crate::vlog::IndexReader for GcReader<'_> {
     fn get(&self, key: &[u8]) -> std::io::Result<Option<ValueHandle>> {
         use std::io::Error as IoError;
         use MaybeInlineValue::{Indirect, Inline};

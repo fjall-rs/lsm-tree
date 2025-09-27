@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Slice};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -35,65 +35,65 @@ fn tree_disjoint_range() -> lsm_tree::Result<()> {
 
     // NOTE: Forwards
 
-    let mut iter = tree.range("e".."i", None, None);
+    let mut iter = tree.range("e".."i", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Forwards inclusive
 
-    let mut iter = tree.range("e"..="i", None, None);
+    let mut iter = tree.range("e"..="i", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"i"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Reverse
 
-    let mut iter = tree.range("e".."i", None, None).rev();
+    let mut iter = tree.range("e".."i", SeqNo::MAX, None).rev();
 
-    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Reverse inclusive
 
-    let mut iter = tree.range("e"..="i", None, None).rev();
+    let mut iter = tree.range("e"..="i", SeqNo::MAX, None).rev();
 
-    assert_eq!(Slice::from(*b"i"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"h"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Ping Pong
 
-    let mut iter = tree.range("e".."i", None, None);
+    let mut iter = tree.range("e".."i", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next_back().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next_back().unwrap().key()?);
     iter_closed!(iter);
 
     // NOTE: Ping Pong inclusive
 
-    let mut iter = tree.range("e"..="i", None, None);
+    let mut iter = tree.range("e"..="i", SeqNo::MAX, None);
 
-    assert_eq!(Slice::from(*b"e"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"i"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"f"), iter.next().unwrap()?.0);
-    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap()?.0);
-    assert_eq!(Slice::from(*b"g"), iter.next().unwrap()?.0);
+    assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"i"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key()?);
+    assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap().key()?);
+    assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key()?);
     iter_closed!(iter);
 
     Ok(())

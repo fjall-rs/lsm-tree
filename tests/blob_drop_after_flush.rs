@@ -1,19 +1,24 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{config::CompressionPolicy, AbstractTree, Config, SeqNo};
 use std::time::Duration;
 use test_log::test;
 
+// NOTE: This was a race condition in v2 that could drop a blob file
+// before its corresponding segment was registered
+//
+// https://github.com/fjall-rs/lsm-tree/commit/a3a174ed9eff0755f671f793626d17f4ef3f5f57
 #[test]
+#[ignore = "restore"]
 fn blob_drop_after_flush() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .compression(lsm_tree::CompressionType::None)
+        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .open_as_blob_tree()?;
 
     tree.insert("a", "neptune".repeat(10_000), 0);
     let (id, memtable) = tree.rotate_memtable().unwrap();
 
-    let segment = tree.flush_memtable(id, &memtable, 0).unwrap().unwrap();
+    let (segment, blob_file) = tree.flush_memtable(id, &memtable, 0).unwrap().unwrap();
 
     // NOTE: Segment is now in-flight
 
@@ -28,14 +33,14 @@ fn blob_drop_after_flush() -> lsm_tree::Result<()> {
 
     std::thread::sleep(Duration::from_secs(1));
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
+    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
     tree.apply_gc_strategy(&strategy, 0)?;
 
-    tree.register_segments(&[segment])?;
+    tree.register_segments(&[segment], Some(&[blob_file.unwrap()]), 0)?;
 
     assert_eq!(
         "neptune".repeat(10_000).as_bytes(),
-        &*tree.get("a", None)?.unwrap(),
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
     );
 
     let report = gc_report.join().unwrap()?;
