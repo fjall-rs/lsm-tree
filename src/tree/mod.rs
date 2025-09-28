@@ -145,6 +145,7 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
+        #[allow(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
