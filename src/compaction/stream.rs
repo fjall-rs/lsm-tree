@@ -126,7 +126,7 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{InternalValue, ValueType};
+    use crate::{value::InternalValue, ValueType};
     use test_log::test;
 
     macro_rules! stream {
