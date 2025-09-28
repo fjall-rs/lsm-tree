@@ -7,10 +7,15 @@ use super::{
 };
 use crate::{
     coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
-    time::unix_timestamp, CompressionType, InternalValue, SegmentId, UserKey,
+    time::unix_timestamp, vlog::BlobFileId, CompressionType, InternalValue, SegmentId, UserKey,
 };
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
+
+pub struct LinkedFile {
+    pub(crate) blob_file_id: BlobFileId,
+    pub(crate) bytes: u64,
+}
 
 /// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
@@ -61,6 +66,8 @@ pub struct Writer {
     ///
     /// using enhanced double hashing, so we got two u64s
     pub bloom_hash_buffer: Vec<u64>,
+
+    linked_blob_files: Vec<LinkedFile>,
 }
 
 impl Writer {
@@ -103,7 +110,16 @@ impl Writer {
             bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
+
+            linked_blob_files: Vec::new(),
         })
+    }
+
+    pub fn link_blob_file(&mut self, blob_file_id: BlobFileId, bytes: u64) {
+        self.linked_blob_files.push(LinkedFile {
+            blob_file_id,
+            bytes,
+        });
     }
 
     #[must_use]
@@ -337,6 +353,22 @@ impl Writer {
                 crate::segment::block::BlockType::Filter,
                 CompressionType::None,
             )?;
+        }
+
+        if !self.linked_blob_files.is_empty() {
+            use byteorder::{WriteBytesExt, LE};
+
+            self.block_writer.start("linked_blob_files")?;
+
+            // NOTE: We know that there are never 4 billion blob files linked to a single table
+            #[allow(clippy::cast_possible_truncation)]
+            self.block_writer
+                .write_u32::<LE>(self.linked_blob_files.len() as u32)?;
+
+            for file in self.linked_blob_files {
+                self.block_writer.write_u64::<LE>(file.blob_file_id)?;
+                self.block_writer.write_u64::<LE>(file.bytes)?;
+            }
         }
 
         // Write metadata

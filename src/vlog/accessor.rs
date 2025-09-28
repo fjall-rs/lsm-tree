@@ -3,8 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{blob_file::writer::BLOB_HEADER_LEN, BlobFileId, ValueHandle},
-    BlobFile, Cache, DescriptorTable, GlobalSegmentId, Slice, UserValue,
+    vlog::{blob_file::reader::Reader, BlobFileId, ValueHandle},
+    BlobFile, Cache, DescriptorTable, GlobalSegmentId, UserValue,
 };
 use std::{collections::BTreeMap, fs::File, path::Path, sync::Arc};
 
@@ -38,7 +38,7 @@ impl<'a> Accessor<'a> {
             return Ok(None);
         };
 
-        let bf_id = GlobalSegmentId::from((0 /* TODO: tree ID */, vhandle.blob_file_id));
+        let bf_id = GlobalSegmentId::from((0 /* TODO: tree ID */, blob_file.id()));
 
         let file = if let Some(fd) = descriptor_table.access_for_blob_file(&bf_id) {
             fd
@@ -50,49 +50,9 @@ impl<'a> Accessor<'a> {
             file
         };
 
-        let offset = vhandle.offset + (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        let value = Reader::new(blob_file, &file).get(key, vhandle)?;
+        cache.insert_blob(0 /* TODO: tree_id */, vhandle, value.clone());
 
-        #[warn(unsafe_code)]
-        let mut builder = unsafe { Slice::builder_unzeroed(vhandle.on_disk_size as usize) };
-
-        {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::FileExt;
-
-                let bytes_read = file.read_at(&mut builder, offset)?;
-
-                assert_eq!(
-                    bytes_read,
-                    vhandle.on_disk_size as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::FileExt;
-
-                let bytes_read = file.seek_read(&mut builder, offset)?;
-
-                assert_eq!(
-                    bytes_read,
-                    vhandle.on_disk_size as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(not(any(unix, windows)))]
-            {
-                compile_error!("unsupported OS");
-                unimplemented!();
-            }
-        }
-
-        // TODO: decompress? save compression type into blobfile.meta
-
-        Ok(Some(builder.freeze().into()))
+        Ok(Some(value))
     }
 }

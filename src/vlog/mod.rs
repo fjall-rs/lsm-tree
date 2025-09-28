@@ -2,32 +2,19 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub mod blob_file;
-mod gc;
-mod handle;
-mod index;
-// mod manifest;
 mod accessor;
+pub mod blob_file;
+mod handle;
 
 #[doc(hidden)]
 pub mod scanner;
 
-mod value_log;
-
 pub use {
-    accessor::Accessor,
-    blob_file::multi_writer::MultiWriter as BlobFileWriter,
-    gc::report::GcReport,
-    gc::{GcStrategy, SpaceAmpStrategy, StaleThresholdStrategy},
-    handle::ValueHandle,
-    index::{Reader as IndexReader, Writer as IndexWriter},
-    value_log::ValueLog,
+    accessor::Accessor, blob_file::multi_writer::MultiWriter as BlobFileWriter,
+    blob_file::BlobFile, handle::ValueHandle,
 };
 
-#[doc(hidden)]
-pub use blob_file::{reader::Reader as BlobFileReader, BlobFile};
-
-use crate::vlog::blob_file::{trailer::Trailer, GcStats, Inner as BlobFileInner};
+use crate::vlog::blob_file::{trailer::Trailer, Inner as BlobFileInner};
 use std::{path::Path, sync::Arc};
 
 pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Vec<BlobFile>> {
@@ -56,7 +43,6 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
             id,
             path,
             meta: trailer.metadata,
-            gc_stats: GcStats::default(),
         })));
 
         if idx % progress_mod == 0 {

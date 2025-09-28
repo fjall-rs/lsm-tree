@@ -9,7 +9,7 @@ use crate::{
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-pub const METADATA_HEADER_MAGIC: &[u8] = &[b'V', b'L', b'O', b'G', b'S', b'M', b'D', 1];
+pub const METADATA_HEADER_MAGIC: &[u8] = b"META";
 
 #[derive(Debug)]
 pub struct Metadata {

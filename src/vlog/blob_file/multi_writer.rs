@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::writer::Writer;
-use crate::{
-    vlog::{BlobFileId, ValueHandle},
-    CompressionType, SequenceNumberCounter,
-};
+use crate::{vlog::BlobFileId, CompressionType, SegmentId, SequenceNumberCounter};
 use std::path::{Path, PathBuf};
 
 /// Blob file writer, may write multiple blob files
@@ -19,6 +16,8 @@ pub struct MultiWriter {
     id_generator: SequenceNumberCounter,
 
     compression: CompressionType,
+
+    linked_table_ids: Vec<SegmentId>,
 }
 
 impl MultiWriter {
@@ -46,7 +45,13 @@ impl MultiWriter {
             writers: vec![Writer::new(blob_file_path, blob_file_id)?],
 
             compression: CompressionType::None,
+
+            linked_table_ids: Vec::new(), // TODO: 3.0.0 consume and reset after rotation
         })
+    }
+
+    pub fn link_table(&mut self, table_id: SegmentId) {
+        self.linked_table_ids.push(table_id);
     }
 
     /// Sets the blob file target size.

@@ -3,9 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
-    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, KvPair, Memtable,
-    SegmentId, SeqNo, SequenceNumberCounter, Tree, UserKey, UserValue,
+    blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
+    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, vlog::BlobFile, AnyTree,
+    BlobTree, Config, Guard, KvPair, Memtable, SegmentId, SeqNo, SequenceNumberCounter, Tree,
+    UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -120,12 +121,13 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[warn(clippy::type_complexity)]
     fn flush_memtable(
         &self,
         segment_id: SegmentId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>, Option<FragmentationMap>)>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
     ///
@@ -136,6 +138,7 @@ pub trait AbstractTree {
         &self,
         segments: &[Segment],
         blob_files: Option<&[BlobFile]>,
+        frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 

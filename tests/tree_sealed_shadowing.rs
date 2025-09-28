@@ -19,8 +19,8 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     let (id, memtable) = tree.rotate_memtable().unwrap();
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    let (segment, _) = tree.flush_memtable(id, &memtable, 0)?.unwrap();
-    tree.register_segments(&[segment], None, 0)?;
+    let (segment, _, _) = tree.flush_memtable(id, &memtable, 0)?.unwrap();
+    tree.register_segments(&[segment], None, None, 0)?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

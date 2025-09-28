@@ -6,6 +6,7 @@ pub mod ingest;
 pub mod inner;
 
 use crate::{
+    blob_tree::FragmentationMap,
     coding::{Decode, Encode},
     compaction::CompactionStrategy,
     config::Config,
@@ -273,7 +274,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>, Option<FragmentationMap>)>> {
         use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
         use std::time::Instant;
 
@@ -327,13 +328,14 @@ impl AbstractTree for Tree {
 
         log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
 
-        Ok(result.map(|segment| (segment, None)))
+        Ok(result.map(|segment| (segment, None, None)))
     }
 
     fn register_segments(
         &self,
         segments: &[Segment],
         blob_files: Option<&[BlobFile]>,
+        frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
@@ -353,7 +355,9 @@ impl AbstractTree for Tree {
         log::trace!("register: Acquired sealed memtables write lock");
 
         manifest.atomic_swap(
-            |version| version.with_new_l0_run(segments, blob_files),
+            |version| {
+                version.with_new_l0_run(segments, blob_files, frag_map.filter(|x| !x.is_empty()))
+            },
             seqno_threshold,
         )?;
 
@@ -659,12 +663,12 @@ impl Tree {
             return Ok(None);
         };
 
-        let Some((segment, _)) =
+        let Some((segment, _, _)) =
             self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment), None, seqno_threshold)?;
+        self.register_segments(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
 
         Ok(Some(segment))
     }
@@ -1040,6 +1044,9 @@ impl Tree {
             fsync_directory(&segment_base_folder)?;
         }
 
+        // TODO: 3.0.0 only remove unreferenced segments once we have successfully recovered the most recent version
+        // TODO: same for blob files
+
         for (idx, dirent) in std::fs::read_dir(&segment_base_folder)?.enumerate() {
             let dirent = dirent?;
             let file_name = dirent.file_name();
@@ -1112,6 +1119,6 @@ impl Tree {
             &recovery.blob_file_ids,
         )?;
 
-        LevelManifest::recover(tree_path, &recovery, &segments, &blob_files)
+        LevelManifest::recover(tree_path, recovery, &segments, &blob_files)
     }
 }

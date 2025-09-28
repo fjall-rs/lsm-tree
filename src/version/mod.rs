@@ -7,14 +7,15 @@ pub mod run;
 
 pub use run::Run;
 
+use crate::blob_tree::FragmentationMap;
+use crate::coding::Encode;
 use crate::{
-    coding::Encode,
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Segment, SegmentId, SeqNo,
 };
 use optimize::optimize_runs;
 use run::Ranged;
-use std::{collections::BTreeMap, io::Write, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
@@ -143,12 +144,16 @@ pub struct VersionInner {
     /// The individual LSM-tree levels which consist of runs of tables
     pub(crate) levels: Vec<Level>,
 
-    // We purposefully use Arc<_> to avoid deep cloning the blob files again and again
+    // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
     //
     // Changing the value log tends to happen way less often than other modifications to the
     // LSM-tree
+    //
     /// Blob files for large values (value log)
     pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
+
+    /// Blob file fragmentation
+    gc_stats: Arc<FragmentationMap>,
 }
 
 /// A version is an immutable, point-in-time view of a tree's structure
@@ -180,6 +185,10 @@ impl Version {
         self.id
     }
 
+    pub fn gc_stats(&self) -> &FragmentationMap {
+        &self.gc_stats
+    }
+
     /// Creates a new empty version.
     pub fn new(id: VersionId) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
@@ -189,6 +198,7 @@ impl Version {
                 id,
                 levels,
                 value_log: Arc::default(),
+                gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
         }
@@ -199,12 +209,14 @@ impl Version {
         id: VersionId,
         levels: Vec<Level>,
         blob_files: BTreeMap<BlobFileId, BlobFile>,
+        gc_stats: FragmentationMap,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: Arc::new(blob_files),
+                gc_stats: Arc::new(gc_stats),
             }),
             seqno_watermark: 0,
         }
@@ -247,7 +259,12 @@ impl Version {
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
-    pub fn with_new_l0_run(&self, run: &[Segment], blob_files: Option<&[BlobFile]>) -> Self {
+    pub fn with_new_l0_run(
+        &self,
+        run: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        diff: Option<FragmentationMap>,
+    ) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -290,11 +307,22 @@ impl Version {
             self.value_log.clone()
         };
 
+        let gc_map = if let Some(diff) = diff {
+            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+            diff.merge_into(&mut copy);
+            // TODO: if a blob file is not part of the version anymore, prune its entry from map
+            // to garbage collect old map entries -> otherwise, monotonically increasing memory usage
+            Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log,
+                gc_stats: gc_map,
             }),
             seqno_watermark: 0,
         }
@@ -326,11 +354,14 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
+        // TODO: adjust GC stats if needed
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
+                gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
         }
@@ -341,6 +372,7 @@ impl Version {
         old_ids: &[SegmentId],
         new_segments: &[Segment],
         dest_level: usize,
+        diff: Option<FragmentationMap>,
     ) -> Self {
         let id = self.id + 1;
 
@@ -368,11 +400,22 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
+        let gc_map = if let Some(diff) = diff {
+            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+            diff.merge_into(&mut copy);
+            // TODO: if a blob file is not part of the version anymore, prune its entry from map
+            // to garbage collect old map entries -> otherwise, monotonically increasing memory usage
+            Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
+                gc_stats: gc_map,
             }),
             seqno_watermark: 0,
         }
@@ -418,6 +461,7 @@ impl Version {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
+                gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
         }
@@ -467,53 +511,8 @@ impl Version {
 
         writer.start("blob_gc_stats")?;
 
-        // TODO: 3.0.0
-
-        writer.write_all(b":)")?;
+        self.gc_stats.encode_into(writer)?;
 
         Ok(())
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use test_log::test;
-
-//     #[test]
-//     fn version_encode_empty() {
-//         let bytes = Version::new(0).encode_into_vec();
-
-//         #[rustfmt::skip]
-//         let raw = &[
-//             // Magic
-//             b'L', b'S', b'M', 3,
-
-//             // Level count
-//             7,
-
-//             // L0 runs
-//             0,
-//             // L1 runs
-//             0,
-//             // L2 runs
-//             0,
-//             // L3 runs
-//             0,
-//             // L4 runs
-//             0,
-//             // L5 runs
-//             0,
-//             // L6 runs
-//             0,
-
-//             // Blob file count
-//             0,
-//             0,
-//             0,
-//             0,
-//         ];
-
-//         assert_eq!(bytes, raw);
-//     }
-// }

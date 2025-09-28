@@ -24,7 +24,7 @@ pub enum MaybeInlineValue {
 }
 
 const TAG_INLINE: u8 = 0;
-const TAG_INDIRECT: u8 = 1;
+pub const TAG_INDIRECT: u8 = 1;
 
 impl MaybeInlineValue {
     pub fn from_slice(bytes: &Slice) -> Result<Self, DecodeError> {

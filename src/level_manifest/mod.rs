@@ -5,6 +5,7 @@
 pub(crate) mod hidden_set;
 
 use crate::{
+    coding::Decode,
     file::{fsync_directory, rewrite_atomic},
     segment::Segment,
     version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
@@ -24,6 +25,7 @@ pub struct Recovery {
     pub curr_version_id: VersionId,
     pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
     pub blob_file_ids: Vec<BlobFileId>,
+    pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
 /// Represents the levels of a log-structured merge tree
@@ -194,7 +196,7 @@ impl LevelManifest {
         let blob_file_ids = {
             let mut reader = toc
                 .section(b"blob_files")
-                .expect("tables should exist")
+                .expect("blob_files should exist")
                 .buf_reader(&version_file_path)?;
 
             let blob_file_count = reader.read_u32::<LittleEndian>()?;
@@ -208,10 +210,20 @@ impl LevelManifest {
             blob_file_ids
         };
 
+        let gc_stats = {
+            let mut reader = toc
+                .section(b"blob_gc_stats")
+                .expect("blob_gc_stats should exist")
+                .buf_reader(&version_file_path)?;
+
+            crate::blob_tree::FragmentationMap::decode_from(&mut reader)?
+        };
+
         Ok(Recovery {
             curr_version_id,
             segment_ids: levels,
             blob_file_ids,
+            gc_stats,
         })
     }
 
@@ -223,7 +235,7 @@ impl LevelManifest {
 
     pub(crate) fn recover<P: Into<PathBuf>>(
         folder: P,
-        recovery: &Recovery,
+        recovery: Recovery,
         segments: &[Segment],
         blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
@@ -254,9 +266,12 @@ impl LevelManifest {
             .collect::<crate::Result<Vec<_>>>()?;
 
         Ok(Self {
-            current: Version::from_levels(recovery.curr_version_id, version_levels, {
-                blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()
-            }),
+            current: Version::from_levels(
+                recovery.curr_version_id,
+                version_levels,
+                blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect(),
+                recovery.gc_stats,
+            ),
             folder: folder.into(),
             hidden_set: HiddenSet::default(),
             version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT, or delete old versions eagerly...

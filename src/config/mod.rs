@@ -123,6 +123,7 @@ pub struct Config {
     /// Key-value separation threshold in bytes
     #[doc(hidden)]
     pub blob_file_separation_threshold: u32,
+    // TODO: blob_file_staleness_threshold AND/OR space_amp_threshold
 }
 
 impl Default for Config {

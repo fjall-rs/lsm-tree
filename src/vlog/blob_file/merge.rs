@@ -2,21 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    vlog::{BlobFileId, BlobFileReader},
-    UserKey, UserValue,
-};
+use super::scanner::Scanner as BlobFileScanner;
+use crate::{vlog::BlobFileId, Checksum, UserKey, UserValue};
 use interval_heap::IntervalHeap;
 use std::cmp::Reverse;
-
-macro_rules! fail_iter {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(e) => return Some(Err(e.into())),
-        }
-    };
-}
 
 type IteratorIndex = usize;
 
@@ -26,7 +15,7 @@ struct IteratorValue {
     key: UserKey,
     value: UserValue,
     blob_file_id: BlobFileId,
-    checksum: u64,
+    checksum: Checksum,
 }
 
 impl PartialEq for IteratorValue {
@@ -50,20 +39,22 @@ impl Ord for IteratorValue {
 
 /// Interleaves multiple blob file readers into a single, sorted stream
 #[allow(clippy::module_name_repetitions)]
-pub struct MergeReader {
-    readers: Vec<BlobFileReader>,
+pub struct MergeScanner {
+    readers: Vec<BlobFileScanner>,
     heap: IntervalHeap<IteratorValue>,
 }
 
-impl MergeReader {
+impl MergeScanner {
     /// Initializes a new merging reader
-    pub fn new(readers: Vec<BlobFileReader>) -> Self {
+    pub fn new(readers: Vec<BlobFileScanner>) -> Self {
         let heap = IntervalHeap::with_capacity(readers.len());
         Self { readers, heap }
     }
 
     fn advance_reader(&mut self, idx: usize) -> crate::Result<()> {
-        let reader = self.readers.get_mut(idx).expect("iter should exist");
+        // NOTE: We trust the caller
+        #[allow(clippy::indexing_slicing)]
+        let reader = &mut self.readers[idx];
 
         if let Some(value) = reader.next() {
             let (k, v, checksum) = value?;
@@ -90,8 +81,8 @@ impl MergeReader {
     }
 }
 
-impl Iterator for MergeReader {
-    type Item = crate::Result<(UserKey, UserValue, BlobFileId, u64)>;
+impl Iterator for MergeScanner {
+    type Item = crate::Result<(UserKey, UserValue, BlobFileId, Checksum)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.heap.is_empty() {
@@ -117,5 +108,75 @@ impl Iterator for MergeReader {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::super::scanner::Scanner;
+    use super::*;
+    use crate::{vlog::blob_file::writer::Writer as BlobFileWriter, Slice};
+    use tempfile::tempdir;
+    use test_log::test;
+
+    #[test]
+    fn blob_file_merger() -> crate::Result<()> {
+        let dir = tempdir()?;
+
+        let blob_file_0_path = dir.path().join("0");
+
+        let blob_file_1_path = dir.path().join("1");
+
+        {
+            let keys = [b"a", b"c", b"e"];
+
+            {
+                let mut writer = BlobFileWriter::new(&blob_file_0_path, 0)?;
+
+                for key in keys {
+                    writer.write(key, &key.repeat(100))?;
+                }
+
+                writer.flush()?;
+            }
+        }
+
+        {
+            let keys = [b"b", b"d"];
+
+            {
+                let mut writer = BlobFileWriter::new(&blob_file_1_path, 1)?;
+
+                for key in keys {
+                    writer.write(key, &key.repeat(100))?;
+                }
+
+                writer.flush()?;
+            }
+        }
+
+        {
+            let mut merger = MergeScanner::new(vec![
+                Scanner::new(&blob_file_0_path, 0)?,
+                Scanner::new(&blob_file_1_path, 1)?,
+            ]);
+
+            let merged_keys = [b"a", b"b", b"c", b"d", b"e"];
+
+            for key in merged_keys {
+                assert_eq!(
+                    (Slice::from(key), Slice::from(key.repeat(100))),
+                    merger
+                        .next()
+                        .map(|result| result.map(|(k, v, _, _)| { (k, v) }))
+                        .unwrap()?,
+                );
+            }
+
+            assert!(merger.next().is_none());
+        }
+
+        Ok(())
     }
 }

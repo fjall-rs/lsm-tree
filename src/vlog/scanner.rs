@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::vlog::{BlobFileId, ValueHandle};
-use std::{collections::BTreeMap, sync::MutexGuard};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
 pub struct BlobFileCounter {
@@ -14,28 +14,23 @@ pub struct BlobFileCounter {
 pub type SizeMap = BTreeMap<BlobFileId, BlobFileCounter>;
 
 /// Scans a value log, building a size map for the GC report
-pub struct Scanner<'a, I: Iterator<Item = std::io::Result<(ValueHandle, u32)>>> {
+pub struct Scanner<I: Iterator<Item = std::io::Result<(ValueHandle, u32)>>> {
     iter: I,
 
-    #[allow(unused)]
-    lock_guard: MutexGuard<'a, ()>,
-
+    // #[allow(unused)]
+    // lock_guard: MutexGuard<'a, ()>,
     size_map: SizeMap,
 }
 
-impl<'a, I: Iterator<Item = std::io::Result<(ValueHandle, u32)>>> Scanner<'a, I> {
-    pub fn new(iter: I, lock_guard: MutexGuard<'a, ()>, ids: &[BlobFileId]) -> Self {
+impl<I: Iterator<Item = std::io::Result<(ValueHandle, u32)>>> Scanner<I> {
+    pub fn new(iter: I, ids: &[BlobFileId]) -> Self {
         let mut size_map = BTreeMap::default();
 
         for &id in ids {
             size_map.insert(id, BlobFileCounter::default());
         }
 
-        Self {
-            iter,
-            lock_guard,
-            size_map,
-        }
+        Self { iter, size_map }
     }
 
     pub fn finish(self) -> SizeMap {
