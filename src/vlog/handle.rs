@@ -14,7 +14,7 @@ use varint_rs::{VarintReader, VarintWriter};
 
 /// A value handle points into the value log
 #[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ValueHandle {
     /// Blob file ID
     pub blob_file_id: BlobFileId,
