@@ -91,6 +91,11 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
+    /// Returns the disk space used by stale blobs.
+    fn stale_blob_bytes(&self) -> u64 {
+        0
+    }
+
     /// Gets the space usage of all filters in the tree.
     ///
     /// May not correspond to the actual memory size because filter blocks may be paged out.

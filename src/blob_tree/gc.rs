@@ -38,6 +38,11 @@ impl std::ops::Deref for FragmentationMap {
 }
 
 impl FragmentationMap {
+    #[must_use]
+    pub fn stale_bytes(&self) -> u64 {
+        self.0.values().map(|x| x.bytes).sum()
+    }
+
     // TODO: unit test
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.

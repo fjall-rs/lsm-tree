@@ -143,12 +143,6 @@ impl BlobTree {
         Ok(Some(item))
     }
 
-    #[must_use]
-    pub fn space_amp(&self) -> f32 {
-        // TODO: calculate using current version FragmentationMap
-        todo!()
-    }
-
     /// Consumes a [`BlobFileWriter`], returning a `BlobFile` handle.
     ///
     /// # Note
@@ -423,6 +417,16 @@ impl AbstractTree for BlobTree {
             // because the indirections already store the value size
             MaybeInlineValue::Indirect { size, .. } => size,
         }))
+    }
+
+    fn stale_blob_bytes(&self) -> u64 {
+        self.index
+            .manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .gc_stats()
+            .stale_bytes()
     }
 
     fn filter_size(&self) -> usize {
