@@ -597,32 +597,6 @@ impl Tree {
 
         log::debug!("Finalized segment write at {}", segment_file_path.display());
 
-        /* let block_index =
-            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
-        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
-
-        let created_segment: Segment = SegmentInner {
-            path: segment_file_path.clone(),
-
-            tree_id: self.id,
-
-            metadata: trailer.metadata,
-            offsets: trailer.offsets,
-
-            descriptor_table: self.config.descriptor_table.clone(),
-            block_index,
-            cache: self.config.cache.clone(),
-
-            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
-
-            is_deleted: AtomicBool::default(),
-        }
-        .into(); */
-
-        /* self.config
-        .descriptor_table
-        .insert(segment_file_path, created_segment.global_id()); */
-
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
 
