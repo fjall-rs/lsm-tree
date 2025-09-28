@@ -4,6 +4,7 @@
 
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
+    blob_tree::FragmentationMap,
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
@@ -12,7 +13,7 @@ use crate::{
     segment::{multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    Config, InternalValue, SegmentId, SeqNo,
+    Config, InternalValue, SegmentId, SeqNo, TreeType,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -101,7 +102,7 @@ fn create_compaction_stream<'a>(
     levels: &LevelManifest,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
-) -> crate::Result<Option<CompactionStream<Merger<CompactionReader<'a>>>>> {
+) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
@@ -246,7 +247,9 @@ fn merge_segments(
         opts.eviction_seqno,
     );
 
-    let Some(merge_iter) = create_compaction_stream(
+    let mut blob_frag_map = FragmentationMap::default();
+
+    let Some(mut merge_iter) = create_compaction_stream(
         &levels,
         &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
@@ -316,6 +319,11 @@ fn merge_segments(
                 }
             }
         });
+
+    // NOTE: If we are a blob tree, install callback to listen for evicted KVs
+    if opts.config.tree_type == TreeType::Blob {
+        merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
+    }
 
     for (idx, item) in merge_iter.enumerate() {
         let item = match item {
@@ -464,12 +472,19 @@ fn merge_segments(
     let mut levels = opts.levels.write().expect("lock is poisoned");
     log::trace!("compactor: acquired levels manifest write lock");
 
+    log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
+
     let swap_result = levels.atomic_swap(
         |current| {
             current.with_merge(
                 &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
                 &created_segments,
                 payload.dest_level as usize,
+                if blob_frag_map.is_empty() {
+                    None
+                } else {
+                    Some(blob_frag_map)
+                },
             )
         },
         opts.eviction_seqno,

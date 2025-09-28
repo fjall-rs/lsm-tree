@@ -7,19 +7,30 @@ use std::iter::Peekable;
 
 type Item = crate::Result<InternalValue>;
 
+/// A callback that receives all expired KVs
+///
+/// Used for counting blobs that are not referenced anymore because of
+/// vHandles that are being dropped through compaction.
+pub trait ExpiredKvCallback {
+    fn on_expired(&mut self, kv: &InternalValue);
+}
+
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
 #[allow(clippy::module_name_repetitions)]
-pub struct CompactionStream<I: Iterator<Item = Item>> {
+pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
     /// KV stream
     inner: Peekable<I>,
 
     /// MVCC watermark to get rid of old versions
     gc_seqno_threshold: SeqNo,
+
+    /// Event emitter that receives all expired KVs
+    expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
 }
 
-impl<I: Iterator<Item = Item>> CompactionStream<I> {
+impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I, gc_seqno_threshold: SeqNo) -> Self {
@@ -28,7 +39,14 @@ impl<I: Iterator<Item = Item>> CompactionStream<I> {
         Self {
             inner: iter,
             gc_seqno_threshold,
+            expiration_callback: None,
         }
+    }
+
+    /// Installs a callback that receives all expired KVs.
+    pub fn with_expiration_callback(mut self, cb: &'a mut dyn ExpiredKvCallback) -> Self {
+        self.expiration_callback = Some(cb);
+        self
     }
 
     /// Drains the remaining versions of the given key.
@@ -36,7 +54,15 @@ impl<I: Iterator<Item = Item>> CompactionStream<I> {
         loop {
             let Some(next) = self.inner.next_if(|kv| {
                 if let Ok(kv) = kv {
-                    kv.key.user_key == key
+                    let expired = kv.key.user_key == key;
+
+                    if expired {
+                        if let Some(watcher) = &mut self.expiration_callback {
+                            watcher.on_expired(kv);
+                        }
+                    }
+
+                    expired
                 } else {
                     true
                 }
@@ -49,7 +75,7 @@ impl<I: Iterator<Item = Item>> CompactionStream<I> {
     }
 }
 
-impl<I: Iterator<Item = Item>> Iterator for CompactionStream<I> {
+impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
     type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -134,6 +160,50 @@ mod tests {
         ($iter:expr) => {
             assert!($iter.next().is_none(), "iterator should be closed (done)");
         };
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn compaction_stream_expired_callback_1() -> crate::Result<()> {
+        #[derive(Default)]
+        struct MyCallback {
+            items: Vec<InternalValue>,
+        }
+
+        impl ExpiredKvCallback for MyCallback {
+            fn on_expired(&mut self, kv: &InternalValue) {
+                self.items.push(kv.clone());
+            }
+        }
+
+        #[rustfmt::skip]
+        let vec = stream![
+          "a", "", "T",
+          "a", "", "T",
+          "a", "", "T",
+        ];
+
+        let mut my_watcher = MyCallback::default();
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
+
+        assert_eq!(
+            // Seqno is reset to 0
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            iter.next().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        assert_eq!(
+            [
+                InternalValue::from_components("a", "", 998, ValueType::Value),
+                InternalValue::from_components("a", "", 997, ValueType::Value),
+            ],
+            &*my_watcher.items,
+        );
+
+        Ok(())
     }
 
     #[test]
