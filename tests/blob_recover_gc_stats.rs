@@ -20,13 +20,13 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.insert("big", &new_big_value, 1);
 
         tree.flush_active_memtable(0)?;
+        assert_eq!(2, tree.blob_file_count());
 
         tree.major_compact(64_000_000, 1_000)?;
 
