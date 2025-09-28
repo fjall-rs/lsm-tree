@@ -7,12 +7,62 @@ use crate::{
     config::Config, level_manifest::LevelManifest, slice::Slice, version::run::Ranged, KeyRange,
 };
 use crate::{HashSet, Segment};
-use std::ops::Bound;
+use std::ops::{Bound, RangeBounds};
 
 #[derive(Clone, Debug)]
 pub struct OwnedBounds {
     pub start: Bound<Slice>,
     pub end: Bound<Slice>,
+}
+
+impl RangeBounds<Slice> for OwnedBounds {
+    fn start_bound(&self) -> Bound<&Slice> {
+        match &self.start {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(key) => Bound::Included(key),
+            Bound::Excluded(key) => Bound::Excluded(key),
+        }
+    }
+
+    fn end_bound(&self) -> Bound<&Slice> {
+        match &self.end {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(key) => Bound::Included(key),
+            Bound::Excluded(key) => Bound::Excluded(key),
+        }
+    }
+}
+
+struct ContainedSegments<'a> {
+    segments: &'a [Segment],
+    bounds: &'a OwnedBounds,
+    pos: usize,
+}
+
+impl<'a> ContainedSegments<'a> {
+    fn new(segments: &'a [Segment], bounds: &'a OwnedBounds) -> Self {
+        Self {
+            segments,
+            bounds,
+            pos: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for ContainedSegments<'a> {
+    type Item = &'a Segment;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(segment) = self.segments.get(self.pos) {
+            self.pos += 1;
+
+            if self.bounds.contains(segment.key_range()) {
+                return Some(segment);
+            }
+        }
+
+        None
+    }
 }
 
 impl OwnedBounds {
@@ -65,8 +115,12 @@ impl CompactionStrategy for Strategy {
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| {
-                run.iter()
-                    .filter(|segment| self.bounds.contains(segment.key_range()))
+                let slice = run
+                    .range_overlap_indexes(&self.bounds)
+                    .and_then(|(lo, hi)| run.get(lo..=hi))
+                    .unwrap_or(&[]);
+
+                ContainedSegments::new(slice, &self.bounds)
             })
             .map(Segment::id)
             .collect();

@@ -34,6 +34,31 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn tree_drop_range_partial_segment_overlap_kept() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = Config::new(&folder).open()?;
+
+    for key in ['a', 'b', 'c', 'd', 'e'] {
+        tree.insert([key as u8], "", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    assert_eq!(1, tree.l0_run_count());
+    assert_eq!(1, tree.segment_count());
+
+    tree.drop_range("b".."d")?;
+
+    for key in ['a', 'b', 'c', 'd', 'e'] {
+        assert!(tree.contains_key([key as u8], SeqNo::MAX)?);
+    }
+
+    assert_eq!(1, tree.l0_run_count());
+    assert_eq!(1, tree.segment_count());
+
+    Ok(())
+}
+
+#[test]
 fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
