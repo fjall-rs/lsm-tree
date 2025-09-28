@@ -220,6 +220,7 @@ mod format_version;
 mod time;
 mod tree;
 mod value;
+mod value_type;
 mod version;
 mod vlog;
 
@@ -258,7 +259,8 @@ pub use {
     seqno::SequenceNumberCounter,
     slice::Slice,
     tree::Tree,
-    value::{SeqNo, ValueType},
+    value::SeqNo,
+    value_type::ValueType,
     vlog::BlobFile,
 };
 

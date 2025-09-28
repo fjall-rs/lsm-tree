@@ -152,12 +152,12 @@ impl TreeIter {
                 Bound::Included(key) => Bound::Included(InternalKey::new(
                     key.as_ref(),
                     SeqNo::MAX,
-                    crate::value::ValueType::Tombstone,
+                    crate::ValueType::Tombstone,
                 )),
                 Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.as_ref(),
                     0,
-                    crate::value::ValueType::Tombstone,
+                    crate::ValueType::Tombstone,
                 )),
                 Bound::Unbounded => Bound::Unbounded,
             };
@@ -177,15 +177,13 @@ impl TreeIter {
                 // abcdef -> 6
                 // abcdef -> 5
                 //
-                Bound::Included(key) => Bound::Included(InternalKey::new(
-                    key.as_ref(),
-                    0,
-                    crate::value::ValueType::Value,
-                )),
+                Bound::Included(key) => {
+                    Bound::Included(InternalKey::new(key.as_ref(), 0, crate::ValueType::Value))
+                }
                 Bound::Excluded(key) => Bound::Excluded(InternalKey::new(
                     key.as_ref(),
                     SeqNo::MAX,
-                    crate::value::ValueType::Value,
+                    crate::ValueType::Value,
                 )),
                 Bound::Unbounded => Bound::Unbounded,
             };
