@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Error, SeqNo, Tree};
+use lsm_tree::{AbstractTree, Config, SeqNo, Tree};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
 fn populate_segments(tree: &Tree) -> lsm_tree::Result<()> {
@@ -58,7 +58,7 @@ fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
 
     populate_segments(&tree)?;
 
-    tree.drop_range((Excluded("a"), Included("c")))?;
+    tree.drop_range::<&str, _>((Excluded("a"), Included("c")))?;
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -75,7 +75,7 @@ fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
 
     populate_segments(&tree)?;
 
-    tree.drop_range((Unbounded, Included("c")))?;
+    tree.drop_range::<&str, _>((Unbounded, Included("c")))?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -93,7 +93,7 @@ fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
 
     populate_segments(&tree)?;
 
-    tree.drop_range((Unbounded, Excluded("d")))?;
+    tree.drop_range::<&str, _>((Unbounded, Excluded("d")))?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("b", SeqNo::MAX)?);
@@ -110,7 +110,7 @@ fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
 
     populate_segments(&tree)?;
 
-    tree.drop_range((Excluded("b"), Excluded("b")))?;
+    tree.drop_range::<&str, _>((Excluded("b"), Excluded("b")))?;
 
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     assert!(tree.contains_key("b", SeqNo::MAX)?);
@@ -168,18 +168,19 @@ fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_invalid_bounds() -> lsm_tree::Result<()> {
+fn tree_drop_range_inverted_bounds_is_noop() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    assert!(matches!(
-        tree.drop_range("c"..="a"),
-        Err(Error::InvalidRangeBounds)
-    ));
-    assert!(matches!(
-        tree.drop_range("c".."a"),
-        Err(Error::InvalidRangeBounds)
-    ));
+    populate_segments(&tree)?;
+
+    tree.drop_range("c".."a")?;
+    tree.drop_range("c"..="a")?;
+
+    // All keys remain because the range is treated as empty.
+    for key in 'a'..='e' {
+        assert!(tree.contains_key([key as u8], SeqNo::MAX)?);
+    }
 
     Ok(())
 }

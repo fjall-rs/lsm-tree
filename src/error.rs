@@ -38,9 +38,6 @@ pub enum Error {
         /// Checksum that was saved in block header
         expected: Checksum,
     },
-
-    /// Provided range bounds are not supported by the requested operation
-    InvalidRangeBounds,
 }
 
 impl std::fmt::Display for Error {
@@ -58,8 +55,7 @@ impl std::error::Error for Error {
             Self::Decompress(_)
             | Self::InvalidVersion(_)
             | Self::Unrecoverable
-            | Self::ChecksumMismatch { .. }
-            | Self::InvalidRangeBounds => None,
+            | Self::ChecksumMismatch { .. } => None,
         }
     }
 }
