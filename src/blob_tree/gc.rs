@@ -6,7 +6,9 @@ use crate::{
     blob_tree::value::{MaybeInlineValue, TAG_INDIRECT},
     compaction::stream::ExpiredKvCallback,
     vlog::BlobFileId,
+    BlobFile,
 };
+use std::collections::BTreeMap;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FragmentationEntry {
@@ -36,6 +38,13 @@ impl std::ops::Deref for FragmentationMap {
 }
 
 impl FragmentationMap {
+    // TODO: unit test
+    /// Removes blob file entries that are not part of the value log (anymore)
+    /// to reduce linear memory growth.
+    pub fn prune(&mut self, value_log: &BTreeMap<BlobFileId, BlobFile>) {
+        self.0.retain(|k, _| value_log.contains_key(k));
+    }
+
     // TODO: unit test
     pub fn merge_into(self, other: &mut Self) {
         for (blob_file_id, diff) in self.0 {
@@ -106,7 +115,9 @@ impl ExpiredKvCallback for FragmentationMap {
             return;
         }
 
-        let tag = *kv.value.first().expect("value should not be empty");
+        let Some(tag) = kv.value.first().copied() else {
+            return;
+        };
 
         if tag == TAG_INDIRECT {
             let parsed_indirection =
@@ -135,6 +146,7 @@ impl ExpiredKvCallback for FragmentationMap {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{
@@ -146,7 +158,6 @@ mod tests {
     use std::collections::HashMap;
     use test_log::test;
 
-    /// Tests encoding and decoding traits
     #[test]
     fn frag_map_roundtrip() {
         let map = FragmentationMap({

@@ -310,8 +310,7 @@ impl Version {
         let gc_map = if let Some(diff) = diff {
             let mut copy: FragmentationMap = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
-            // TODO: if a blob file is not part of the version anymore, prune its entry from map
-            // to garbage collect old map entries -> otherwise, monotonically increasing memory usage
+            copy.prune(&self.value_log);
             Arc::new(copy)
         } else {
             self.gc_stats.clone()
@@ -330,7 +329,7 @@ impl Version {
 
     /// Returns a new version with a list of segments removed.
     ///
-    /// The segment files are not immediately deleted, this is handled in the compaction worker.
+    /// The segment files are not immediately deleted, this is handled by the version system's free list.
     pub fn with_dropped(&self, ids: &[SegmentId]) -> Self {
         let id = self.id + 1;
 
@@ -354,14 +353,15 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        // TODO: adjust GC stats if needed
+        // TODO: adjust GC stats by adjusting GC stats based on dropped table's blob file links
+        // TODO: add unit test
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
-                gc_stats: Arc::default(),
+                gc_stats: self.gc_stats.clone(),
             }),
             seqno_watermark: 0,
         }
@@ -403,8 +403,7 @@ impl Version {
         let gc_map = if let Some(diff) = diff {
             let mut copy: FragmentationMap = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
-            // TODO: if a blob file is not part of the version anymore, prune its entry from map
-            // to garbage collect old map entries -> otherwise, monotonically increasing memory usage
+            copy.prune(&self.value_log);
             Arc::new(copy)
         } else {
             self.gc_stats.clone()
