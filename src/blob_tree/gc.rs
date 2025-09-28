@@ -3,10 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::value::{MaybeInlineValue, TAG_INDIRECT},
-    compaction::stream::ExpiredKvCallback,
-    vlog::BlobFileId,
-    BlobFile,
+    blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::ExpiredKvCallback,
+    vlog::BlobFileId, BlobFile,
 };
 use std::collections::BTreeMap;
 
@@ -116,36 +114,24 @@ impl crate::coding::Decode for FragmentationMap {
 
 impl ExpiredKvCallback for FragmentationMap {
     fn on_expired(&mut self, kv: &crate::InternalValue) {
-        if kv.key.is_tombstone() {
-            return;
-        }
+        if kv.key.value_type.is_indirection() {
+            let mut reader = &kv.value[..];
 
-        let Some(tag) = kv.value.first().copied() else {
-            return;
-        };
+            let vptr =
+                BlobIndirection::decode_from(&mut reader).expect("should parse BlobIndirection");
 
-        if tag == TAG_INDIRECT {
-            let parsed_indirection =
-                MaybeInlineValue::from_slice(&kv.value).expect("should parse MaybeInlineValue");
+            let size = u64::from(vptr.size);
 
-            match parsed_indirection {
-                MaybeInlineValue::Indirect { vhandle, size } => {
-                    let size = u64::from(size);
-
-                    self.0
-                        .entry(vhandle.blob_file_id)
-                        .and_modify(|counter| {
-                            counter.len += 1;
-                            counter.bytes += size;
-                        })
-                        .or_insert_with(|| FragmentationEntry {
-                            bytes: size,
-                            len: 1,
-                        });
-                }
-                // NOTE: Unreachable because we check for the tag above
-                MaybeInlineValue::Inline(_) => unreachable!(),
-            }
+            self.0
+                .entry(vptr.vhandle.blob_file_id)
+                .and_modify(|counter| {
+                    counter.len += 1;
+                    counter.bytes += size;
+                })
+                .or_insert_with(|| FragmentationEntry {
+                    bytes: size,
+                    len: 1,
+                });
         }
     }
 }
@@ -157,8 +143,9 @@ mod tests {
     use crate::{
         coding::{Decode, Encode},
         compaction::stream::CompactionStream,
-        value::{InternalValue, ValueType},
+        value::InternalValue,
         vlog::ValueHandle,
+        ValueType,
     };
     use std::collections::HashMap;
     use test_log::test;
@@ -196,14 +183,14 @@ mod tests {
         let vec = &[
             InternalValue::from_components("a", b"abc", 1, ValueType::Value),
 
-            InternalValue::from_components("a", MaybeInlineValue::Indirect {
+            InternalValue::from_components("a", BlobIndirection {
               size: 1000,
               vhandle: ValueHandle {
                 blob_file_id: 0,
                 on_disk_size: 500,
                 offset: 0,
               }
-            }.encode_into_vec(), 0, ValueType::Value),
+            }.encode_into_vec(), 0, ValueType::Indirection),
         ];
 
         let mut my_watcher = FragmentationMap::default();

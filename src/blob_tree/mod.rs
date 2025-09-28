@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 mod gc;
-pub mod value;
+pub mod handle;
 
 #[doc(hidden)]
 pub use gc::{FragmentationEntry, FragmentationMap};
@@ -20,73 +20,64 @@ use crate::{
     vlog::{Accessor, BlobFile, BlobFileId, BlobFileWriter, ValueHandle},
     Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
 };
+use handle::BlobIndirection;
 use std::{collections::BTreeMap, io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
-use value::MaybeInlineValue;
 
 pub struct Guard<'a> {
     blob_tree: &'a BlobTree,
     vlog: Arc<BTreeMap<BlobFileId, BlobFile>>,
-    kv: crate::Result<(UserKey, UserValue)>,
+    kv: crate::Result<InternalValue>,
 }
 
 impl IterGuard for Guard<'_> {
     fn key(self) -> crate::Result<UserKey> {
-        self.kv.map(|(k, _)| k)
+        self.kv.map(|kv| kv.key.user_key)
     }
 
     fn size(self) -> crate::Result<u32> {
-        use MaybeInlineValue::{Indirect, Inline};
-
-        let (_, value) = self.kv?;
-        let mut cursor = Cursor::new(value);
-
-        Ok(match MaybeInlineValue::decode_from(&mut cursor)? {
-            // NOTE: We know LSM-tree values are 32 bits in length max
-            #[allow(clippy::cast_possible_truncation)]
-            Inline(bytes) => bytes.len() as u32,
-
-            // NOTE: No need to resolve vHandle, because the size is already stored
-            Indirect { size, .. } => size,
-        })
+        let mut cursor = Cursor::new(self.kv?.value);
+        Ok(BlobIndirection::decode_from(&mut cursor)?.size)
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
-        resolve_value_handle(self.blob_tree, &self.vlog, self.kv)
+        resolve_value_handle(self.blob_tree, &self.vlog, self.kv?)
     }
 }
 
 fn resolve_value_handle(
     tree: &BlobTree,
     vlog: &BTreeMap<BlobFileId, BlobFile>,
-    item: RangeItem,
+    item: InternalValue,
 ) -> RangeItem {
-    use MaybeInlineValue::{Indirect, Inline};
+    if item.key.value_type.is_indirection() {
+        let mut cursor = Cursor::new(item.value);
+        let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
-    match item {
-        Ok((key, value)) => {
-            let mut cursor = Cursor::new(value);
-
-            match MaybeInlineValue::decode_from(&mut cursor)? {
-                Inline(bytes) => Ok((key, bytes)),
-                Indirect { vhandle, .. } => {
-                    // Resolve indirection using value log
-                    match Accessor::new(vlog).get(
-                        &tree.blobs_folder,
-                        &key,
-                        &vhandle,
-                        &tree.index.config.cache,
-                        &tree.index.config.descriptor_table,
-                    ) {
-                        Ok(Some(bytes)) => Ok((key, bytes)),
-                        Err(e) => Err(e),
-                        _ => {
-                            panic!("value handle ({:?} => {vhandle:?}) did not match any blob - this is a bug", String::from_utf8_lossy(&key))
-                        }
-                    }
-                }
+        // Resolve indirection using value log
+        match Accessor::new(vlog).get(
+            &tree.blobs_folder,
+            &item.key.user_key,
+            &vptr.vhandle,
+            &tree.index.config.cache,
+            &tree.index.config.descriptor_table,
+        ) {
+            Ok(Some(v)) => {
+                let k = item.key.user_key;
+                Ok((k, v))
             }
+            Ok(None) => {
+                panic!(
+                    "value handle ({:?} => {:?}) did not match any blob - this is a bug",
+                    String::from_utf8_lossy(&item.key.user_key),
+                    vptr.vhandle,
+                )
+            }
+            Err(e) => Err(e),
         }
-        Err(e) => Err(e),
+    } else {
+        let k = item.key.user_key;
+        let v = item.value;
+        Ok((k, v))
     }
 }
 
@@ -131,16 +122,6 @@ impl BlobTree {
             blobs_folder,
             blob_file_id_generator: SequenceNumberCounter::new(blob_file_id_to_continue_with),
         })
-    }
-
-    fn get_vhandle(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<MaybeInlineValue>> {
-        let Some(item) = self.index.get(key, seqno)? else {
-            return Ok(None);
-        };
-
-        let item = MaybeInlineValue::from_slice(&item)?;
-
-        Ok(Some(item))
     }
 
     /// Consumes a [`BlobFileWriter`], returning a `BlobFile` handle.
@@ -249,6 +230,10 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+        use crate::range::prefix_to_range;
+
+        let range = prefix_to_range(prefix.as_ref());
+
         let version = self
             .index
             .manifest
@@ -259,7 +244,7 @@ impl AbstractTree for BlobTree {
 
         Box::new(
             self.index
-                .create_prefix(&prefix, seqno, index)
+                .create_internal_range(&range, seqno, index)
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         blob_tree: self,
@@ -287,7 +272,7 @@ impl AbstractTree for BlobTree {
         // TODO: PERF: ugly Arc clone
         Box::new(
             self.index
-                .create_range(&range, seqno, index)
+                .create_internal_range(&range, seqno, index)
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         blob_tree: self,
@@ -406,16 +391,20 @@ impl AbstractTree for BlobTree {
     // NOTE: We skip reading from the value log
     // because the vHandles already store the value size
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
-        let vhandle = self.get_vhandle(key.as_ref(), seqno)?;
+        let Some(item) = self.index.get_internal_entry(key.as_ref(), seqno)? else {
+            return Ok(None);
+        };
 
-        Ok(vhandle.map(|x| match x {
+        Ok(Some(if item.key.value_type.is_indirection() {
+            let mut cursor = Cursor::new(item.value);
+            let vptr = BlobIndirection::decode_from(&mut cursor)?;
+            vptr.size
+        } else {
             // NOTE: Values are u32 length max
             #[allow(clippy::cast_possible_truncation)]
-            MaybeInlineValue::Inline(v) => v.len() as u32,
-
-            // NOTE: We skip reading from the value log
-            // because the indirections already store the value size
-            MaybeInlineValue::Indirect { size, .. } => size,
+            {
+                item.value.len() as u32
+            }
         }))
     }
 
@@ -452,7 +441,7 @@ impl AbstractTree for BlobTree {
         eviction_seqno: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>, Option<FragmentationMap>)>> {
         use crate::{file::SEGMENTS_FOLDER, segment::Writer as SegmentWriter};
-        use value::MaybeInlineValue;
+        // use value::MaybeInlineValue;
 
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
@@ -497,24 +486,7 @@ impl AbstractTree for BlobTree {
                 continue;
             }
 
-            let mut cursor = Cursor::new(item.value);
-
-            let value = MaybeInlineValue::decode_from(&mut cursor)?;
-            let value = match value {
-                MaybeInlineValue::Inline(value) => value,
-                indirection @ MaybeInlineValue::Indirect { .. } => {
-                    // NOTE: This is a previous indirection, just write it to index tree
-                    // without writing the blob again
-
-                    let mut serialized_indirection = vec![];
-                    indirection.encode_into(&mut serialized_indirection)?;
-
-                    segment_writer
-                        .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
-
-                    continue;
-                }
-            };
+            let value = item.value;
 
             // NOTE: Values are 32-bit max
             #[allow(clippy::cast_possible_truncation)]
@@ -525,7 +497,7 @@ impl AbstractTree for BlobTree {
                 let blob_file_id = blob_writer.blob_file_id();
                 let on_disk_size = blob_writer.write(&item.key.user_key, value)?;
 
-                let indirection = MaybeInlineValue::Indirect {
+                let indirection = BlobIndirection {
                     vhandle: ValueHandle {
                         blob_file_id,
                         offset,
@@ -533,19 +505,17 @@ impl AbstractTree for BlobTree {
                     },
                     size: value_size,
                 };
-                // TODO: use Slice::with_size
-                let mut serialized_indirection = vec![];
-                indirection.encode_into(&mut serialized_indirection)?;
 
-                segment_writer
-                    .write(InternalValue::new(item.key.clone(), serialized_indirection))?;
+                segment_writer.write({
+                    let mut vptr =
+                        InternalValue::new(item.key.clone(), indirection.encode_into_vec());
+                    vptr.key.value_type = crate::ValueType::Indirection;
+                    vptr
+                })?;
 
                 blob_bytes_referenced += u64::from(value_size);
             } else {
-                // TODO: use Slice::with_size
-                let direct = MaybeInlineValue::Inline(value);
-                let serialized_direct = direct.encode_into_vec();
-                segment_writer.write(InternalValue::new(item.key, serialized_direct))?;
+                segment_writer.write(InternalValue::new(item.key, value))?;
             }
         }
 
@@ -673,56 +643,23 @@ impl AbstractTree for BlobTree {
         value: V,
         seqno: SeqNo,
     ) -> (u64, u64) {
-        use value::MaybeInlineValue;
-
-        // TODO: let's store a struct in memtables instead
-        // TODO: that stores slice + is_user_value
-        // TODO: then we can avoid alloc + memcpy here
-        // TODO: benchmark for very large values
-
-        // NOTE: Initially, we always write an inline value
-        // On memtable flush, depending on the values' sizes, they will be separated
-        // into inline or indirect values
-        let item = MaybeInlineValue::Inline(value.into());
-
-        let value = item.encode_into_vec();
-
-        self.index.insert(key, value, seqno)
+        self.index.insert(key, value.into(), seqno)
     }
 
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
-        use value::MaybeInlineValue::{Indirect, Inline};
-
         let key = key.as_ref();
 
         // TODO: refactor memtable, sealed memtables, manifest lock to be a single lock (SuperVersion kind of)
         // TODO: then, try to reduce the lock access to 1, because we are accessing it twice (index.get, and then vhandle resolving...)
 
-        let Some(value) = self.get_vhandle(key, seqno)? else {
+        let Some(item) = self.index.get_internal_entry(key, seqno)? else {
             return Ok(None);
         };
 
-        match value {
-            Inline(bytes) => Ok(Some(bytes)),
-            Indirect { vhandle, .. } => {
-                let lock = self.index.manifest.read().expect("lock is poisoned");
-                let vlog = crate::vlog::Accessor::new(&lock.current_version().value_log);
-
-                // Resolve indirection using value log
-                match vlog.get(
-                    &self.blobs_folder,
-                    key,
-                    &vhandle,
-                    &self.index.config.cache,
-                    &self.index.config.descriptor_table,
-                )? {
-                    Some(v) => Ok(Some(v)),
-                    None => {
-                        panic!("value handle ({key:?} => {vhandle:?}) did not match any blob - this is a bug")
-                    }
-                }
-            }
-        }
+        let lock = self.index.manifest.read().expect("lock is poisoned");
+        let version = lock.current_version();
+        let (_, v) = resolve_value_handle(self, &version.value_log, item)?;
+        Ok(Some(v))
     }
 
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
