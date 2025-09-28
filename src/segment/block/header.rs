@@ -55,7 +55,7 @@ pub struct Header {
     pub checksum: Checksum,
 
     /// File offset of previous block - only used for data blocks
-    pub previous_block_offset: BlockOffset, // TODO: remove?
+    pub previous_block_offset: BlockOffset, // TODO: 3.0.0 remove?
 
     /// On-disk size of data segment
     pub data_length: u32,
