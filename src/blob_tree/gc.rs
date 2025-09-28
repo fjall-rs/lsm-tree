@@ -169,7 +169,7 @@ mod tests {
         });
 
         let encoded = map.encode_into_vec();
-        let decoded = FragmentationMap::decode_from(&mut &encoded[..]).unwrap();
+        let decoded = FragmentationMap::decode_from(&mut &encoded[..]).expect("should decode map");
         assert_eq!(map, decoded);
     }
 

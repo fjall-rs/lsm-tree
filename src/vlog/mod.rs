@@ -6,9 +6,6 @@ mod accessor;
 pub mod blob_file;
 mod handle;
 
-#[doc(hidden)]
-pub mod scanner;
-
 pub use {
     accessor::Accessor, blob_file::multi_writer::MultiWriter as BlobFileWriter,
     blob_file::BlobFile, handle::ValueHandle,
