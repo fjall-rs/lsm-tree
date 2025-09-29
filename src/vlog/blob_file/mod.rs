@@ -9,13 +9,13 @@ pub mod reader;
 pub mod scanner;
 pub mod writer;
 
-use crate::vlog::BlobFileId;
+use crate::{blob_tree::FragmentationMap, vlog::BlobFileId};
 pub use meta::Metadata;
 use std::{path::PathBuf, sync::Arc};
 
 /// A blob file is an immutable, sorted, contiguous file that contains large key-value pairs (blobs)
 #[derive(Debug)]
-pub(crate) struct Inner {
+pub struct Inner {
     /// Blob file ID
     pub id: BlobFileId,
 
