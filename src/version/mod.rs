@@ -7,7 +7,7 @@ pub mod run;
 
 pub use run::Run;
 
-use crate::blob_tree::FragmentationMap;
+use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::{
     vlog::{BlobFile, BlobFileId},
@@ -335,6 +335,8 @@ impl Version {
 
         let mut levels = vec![];
 
+        let mut dropped_segments = vec![];
+
         for level in &self.levels {
             let runs = level
                 .runs
@@ -342,7 +344,13 @@ impl Version {
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
                     let mut run: Run<Segment> = run.deref().clone();
-                    run.retain(|x| !ids.contains(&x.metadata.id));
+
+                    let removed_segments = run
+                        .inner_mut()
+                        .extract_if(.., |x| ids.contains(&x.metadata.id));
+
+                    dropped_segments = removed_segments.collect();
+
                     run
                 })
                 .filter(|x| !x.is_empty())
@@ -353,15 +361,36 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        // TODO: adjust GC stats by adjusting GC stats based on dropped table's blob file links
-        // TODO: add unit test
+        let gc_stats = if dropped_segments.is_empty() {
+            self.gc_stats.clone()
+        } else {
+            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+
+            for segment in dropped_segments {
+                let linked_blob_files = segment
+                    .get_linked_blob_files()
+                    .expect("TODO: handle error")
+                    .unwrap_or_default();
+
+                for blob_file in linked_blob_files {
+                    copy.entry(blob_file.blob_file_id)
+                        .and_modify(|counter| {
+                            counter.bytes += blob_file.bytes;
+                            counter.len += blob_file.len;
+                        })
+                        .or_insert_with(|| FragmentationEntry::new(blob_file.len, blob_file.bytes));
+                }
+            }
+
+            Arc::new(copy)
+        };
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
-                gc_stats: self.gc_stats.clone(),
+                gc_stats,
             }),
             seqno_watermark: 0,
         }

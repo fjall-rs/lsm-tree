@@ -35,6 +35,12 @@ impl std::ops::Deref for FragmentationMap {
     }
 }
 
+impl std::ops::DerefMut for FragmentationMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl FragmentationMap {
     #[must_use]
     pub fn stale_bytes(&self) -> u64 {

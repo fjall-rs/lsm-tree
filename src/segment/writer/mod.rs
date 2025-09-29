@@ -15,6 +15,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 pub struct LinkedFile {
     pub(crate) blob_file_id: BlobFileId,
     pub(crate) bytes: u64,
+    pub(crate) len: usize,
 }
 
 /// Serializes and compresses values into blocks and writes them to disk as segment
@@ -115,10 +116,11 @@ impl Writer {
         })
     }
 
-    pub fn link_blob_file(&mut self, blob_file_id: BlobFileId, bytes: u64) {
+    pub fn link_blob_file(&mut self, blob_file_id: BlobFileId, bytes: u64, len: usize) {
         self.linked_blob_files.push(LinkedFile {
             blob_file_id,
             bytes,
+            len,
         });
     }
 
@@ -368,6 +370,7 @@ impl Writer {
             for file in self.linked_blob_files {
                 self.block_writer.write_u64::<LE>(file.blob_file_id)?;
                 self.block_writer.write_u64::<LE>(file.bytes)?;
+                self.block_writer.write_u64::<LE>(file.len as u64)?;
             }
         }
 

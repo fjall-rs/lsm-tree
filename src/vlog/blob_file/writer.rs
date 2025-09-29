@@ -23,6 +23,7 @@ pub struct Writer {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
+    #[allow(clippy::struct_field_names)]
     writer: sfa::Writer,
 
     offset: u64,
@@ -173,7 +174,7 @@ impl Writer {
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<()> {
-        self.writer.start("meta");
+        self.writer.start("meta")?;
 
         // Write metadata
         let metadata = Metadata {

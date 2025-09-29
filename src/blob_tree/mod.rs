@@ -130,7 +130,7 @@ impl BlobTree {
             return Ok(None);
         };
 
-        let Some((segment, blob_file, frag_map)) =
+        let Some((segment, blob_file)) =
             self.flush_memtable(segment_id, &yanked_memtable, eviction_seqno)?
         else {
             return Ok(None);
@@ -138,7 +138,7 @@ impl BlobTree {
         self.register_segments(
             std::slice::from_ref(&segment),
             blob_file.as_ref().map(std::slice::from_ref),
-            frag_map,
+            None,
             eviction_seqno,
         )?;
 
@@ -371,9 +371,8 @@ impl AbstractTree for BlobTree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>, Option<FragmentationMap>)>> {
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
         use crate::{file::SEGMENTS_FOLDER, segment::Writer as SegmentWriter};
-        // use value::MaybeInlineValue;
 
         let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
@@ -407,6 +406,7 @@ impl AbstractTree for BlobTree {
         let compaction_filter = CompactionStream::new(iter, eviction_seqno);
 
         let mut blob_bytes_referenced = 0;
+        let mut blobs_referenced_count = 0;
 
         for item in compaction_filter {
             let item = item?;
@@ -446,6 +446,7 @@ impl AbstractTree for BlobTree {
                 })?;
 
                 blob_bytes_referenced += u64::from(value_size);
+                blobs_referenced_count += 1;
             } else {
                 segment_writer.write(InternalValue::new(item.key, value))?;
             }
@@ -460,13 +461,17 @@ impl AbstractTree for BlobTree {
 
         if blob_bytes_referenced > 0 {
             if let Some(blob_file) = &blob_file {
-                segment_writer.link_blob_file(blob_file.id(), blob_bytes_referenced);
+                segment_writer.link_blob_file(
+                    blob_file.id(),
+                    blob_bytes_referenced,
+                    blobs_referenced_count,
+                );
             }
         }
 
         let segment = self.index.consume_writer(segment_writer)?;
 
-        Ok(segment.map(|segment| (segment, blob_file, None)))
+        Ok(segment.map(|segment| (segment, blob_file)))
     }
 
     fn register_segments(

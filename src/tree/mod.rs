@@ -281,7 +281,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>, Option<FragmentationMap>)>> {
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
         use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
         use std::time::Instant;
 
@@ -335,7 +335,7 @@ impl AbstractTree for Tree {
 
         log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
 
-        Ok(result.map(|segment| (segment, None, None)))
+        Ok(result.map(|segment| (segment, None)))
     }
 
     fn register_segments(
@@ -684,7 +684,7 @@ impl Tree {
             return Ok(None);
         };
 
-        let Some((segment, _, _)) =
+        let Some((segment, _)) =
             self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
         else {
             return Ok(None);

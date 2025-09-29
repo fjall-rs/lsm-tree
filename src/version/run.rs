@@ -65,6 +65,10 @@ impl<T: Ranged> Run<T> {
         Self(items)
     }
 
+    pub fn inner_mut(&mut self) -> &mut Vec<T> {
+        &mut self.0
+    }
+
     pub fn push(&mut self, item: T) {
         self.0.push(item);
 
