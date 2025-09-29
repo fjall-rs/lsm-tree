@@ -9,7 +9,9 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).with_kv_separation(Some(Default::default())).open()?;
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -25,7 +27,9 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).with_kv_separation(Some(Default::default())).open()?;
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -43,7 +47,9 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).with_kv_separation(Some(Default::default())).open()?;
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -69,7 +75,9 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder).with_kv_separation(Some(Default::default())).open()?;
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -102,7 +110,9 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).with_kv_separation(Some(Default::default())).open()?;
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(

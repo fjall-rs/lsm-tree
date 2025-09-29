@@ -65,7 +65,9 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).with_kv_separation(Some(Default::default())).open()?;
+    let tree = Config::new(folder)
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
