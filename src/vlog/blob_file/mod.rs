@@ -7,11 +7,9 @@ pub mod meta;
 pub mod multi_writer;
 pub mod reader;
 pub mod scanner;
-// pub mod trailer;
 pub mod writer;
 
 use crate::vlog::BlobFileId;
-// pub use gc_stats::GcStats;
 pub use meta::Metadata;
 use std::{path::PathBuf, sync::Arc};
 

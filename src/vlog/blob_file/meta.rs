@@ -31,6 +31,9 @@ impl Encode for Metadata {
         // Write header
         writer.write_all(METADATA_HEADER_MAGIC)?;
 
+        // Checksum type (always 0x0 = XXH3)
+        writer.write_u8(0x0)?;
+
         writer.write_u64::<BigEndian>(self.item_count)?;
         writer.write_u64::<BigEndian>(self.compressed_bytes)?;
         writer.write_u64::<BigEndian>(self.total_uncompressed_bytes)?;
@@ -49,6 +52,11 @@ impl Decode for Metadata {
 
         if magic != METADATA_HEADER_MAGIC {
             return Err(DecodeError::InvalidHeader("BlobFileMeta"));
+        }
+
+        let checksum_type = reader.read_u8()?;
+        if checksum_type != 0x0 {
+            return Err(DecodeError::InvalidTag(("BlobFileChecksum", checksum_type)));
         }
 
         let item_count = reader.read_u64::<BigEndian>()?;
