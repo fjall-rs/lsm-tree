@@ -49,6 +49,17 @@ pub struct ParsedMeta {
     pub index_block_compression: CompressionType,
 }
 
+macro_rules! read_u64 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u64::<LittleEndian>()?
+    }};
+}
+
 impl ParsedMeta {
     #[allow(clippy::expect_used, clippy::too_many_lines)]
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
@@ -108,14 +119,12 @@ impl ParsedMeta {
             );
         }
 
-        let id = {
-            let bytes = block
-                .point_read(b"#id", SeqNo::MAX)
-                .expect("Segment ID should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
+        let id = read_u64!(block, b"#id");
+        let item_count = read_u64!(block, b"#item_count");
+        let tombstone_count = read_u64!(block, b"#tombstone_count");
+        let data_block_count = read_u64!(block, b"#data_block_count");
+        let index_block_count = read_u64!(block, b"#index_block_count");
+        let file_size = read_u64!(block, b"#size"); // TODO: rename file_size
 
         let created_at = {
             let bytes = block
@@ -124,42 +133,6 @@ impl ParsedMeta {
 
             let mut bytes = &bytes.value[..];
             bytes.read_u128::<LittleEndian>()?.into()
-        };
-
-        let item_count = {
-            let bytes = block
-                .point_read(b"#item_count", SeqNo::MAX)
-                .expect("Segment ID should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let tombstone_count = {
-            let bytes = block
-                .point_read(b"#tombstone_count", SeqNo::MAX)
-                .expect("Segment ID should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let data_block_count = {
-            let bytes = block
-                .point_read(b"#data_block_count", SeqNo::MAX)
-                .expect("data_block_count should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let index_block_count = {
-            let bytes = block
-                .point_read(b"#index_block_count", SeqNo::MAX)
-                .expect("index_block_count should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
         };
 
         let key_range = KeyRange::new((
@@ -193,14 +166,6 @@ impl ParsedMeta {
             };
 
             (min, max)
-        };
-
-        let file_size = {
-            let bytes = block
-                .point_read(b"#size", SeqNo::MAX)
-                .expect("size should exist");
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
         };
 
         let data_block_compression = {
