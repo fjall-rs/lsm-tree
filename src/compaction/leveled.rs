@@ -239,6 +239,10 @@ impl CompactionStrategy for Strategy {
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
         {
+            // TODO(weak-tombstone-rewrite): incorporate `Segment::weak_tombstone_count` and
+            // `Segment::weak_tombstone_reclaimable` when computing level scores so rewrite
+            // decisions can prioritize segments that would free the most reclaimable values.
+
             // Score first level
 
             // NOTE: We always have at least one level

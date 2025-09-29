@@ -505,6 +505,20 @@ impl Segment {
         self.metadata.tombstone_count
     }
 
+    /// Returns the number of weak (single delete) tombstones in the `Segment`.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn weak_tombstone_count(&self) -> u64 {
+        self.metadata.weak_tombstone_count
+    }
+
+    /// Returns the number of value entries reclaimable once weak tombstones can be GC'd.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn weak_tombstone_reclaimable(&self) -> u64 {
+        self.metadata.weak_tombstone_reclaimable
+    }
+
     /// Returns the ratio of tombstone markers in the `Segment`.
     #[must_use]
     #[doc(hidden)]

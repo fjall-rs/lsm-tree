@@ -120,6 +120,30 @@ impl AbstractTree for Tree {
             .sum()
     }
 
+    /// Returns the number of weak tombstones (single deletes) in the tree.
+    #[must_use]
+    fn weak_tombstone_count(&self) -> u64 {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::weak_tombstone_count)
+            .sum()
+    }
+
+    /// Returns the number of value entries that become reclaimable once weak tombstones can be GC'd.
+    #[must_use]
+    fn weak_tombstone_reclaimable_count(&self) -> u64 {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::weak_tombstone_reclaimable)
+            .sum()
+    }
+
     fn ingest(
         &self,
         iter: impl Iterator<Item = (UserKey, UserValue)>,
