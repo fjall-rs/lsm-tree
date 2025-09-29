@@ -33,38 +33,6 @@ impl RangeBounds<Slice> for OwnedBounds {
     }
 }
 
-struct ContainedSegments<'a> {
-    segments: &'a [Segment],
-    bounds: &'a OwnedBounds,
-    pos: usize,
-}
-
-impl<'a> ContainedSegments<'a> {
-    fn new(segments: &'a [Segment], bounds: &'a OwnedBounds) -> Self {
-        Self {
-            segments,
-            bounds,
-            pos: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for ContainedSegments<'a> {
-    type Item = &'a Segment;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(segment) = self.segments.get(self.pos) {
-            self.pos += 1;
-
-            if self.bounds.contains(segment.key_range()) {
-                return Some(segment);
-            }
-        }
-
-        None
-    }
-}
-
 impl OwnedBounds {
     #[must_use]
     pub fn contains(&self, range: &KeyRange) -> bool {
@@ -93,10 +61,6 @@ pub struct Strategy {
 
 impl Strategy {
     /// Configures a new `DropRange` compaction strategy.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if `target_size` is below 1024 bytes.
     #[must_use]
     #[allow(dead_code)]
     pub fn new(bounds: OwnedBounds) -> Self {
@@ -115,12 +79,11 @@ impl CompactionStrategy for Strategy {
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| {
-                let slice = run
-                    .range_overlap_indexes(&self.bounds)
+                run.range_overlap_indexes(&self.bounds)
                     .and_then(|(lo, hi)| run.get(lo..=hi))
-                    .unwrap_or(&[]);
-
-                ContainedSegments::new(slice, &self.bounds)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|x| self.bounds.contains(x.key_range()))
             })
             .map(Segment::id)
             .collect();
