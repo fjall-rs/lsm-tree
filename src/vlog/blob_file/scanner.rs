@@ -41,8 +41,8 @@ impl Scanner {
         }
     }
 
-    pub(crate) fn use_compression(mut self, compressoion: CompressionType) -> Self {
-        self.compression = compressoion;
+    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
         self
     }
 

@@ -124,7 +124,7 @@ impl ParsedMeta {
         let tombstone_count = read_u64!(block, b"#tombstone_count");
         let data_block_count = read_u64!(block, b"#data_block_count");
         let index_block_count = read_u64!(block, b"#index_block_count");
-        let file_size = read_u64!(block, b"#size"); // TODO: rename file_size
+        let file_size = read_u64!(block, b"#size"); // TODO: 3.0.0 rename file_size
 
         let created_at = {
             let bytes = block
