@@ -432,8 +432,8 @@ impl AbstractTree for BlobTree {
         self.index.tombstone_count()
     }
 
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
-        self.index.drop_range(key_range)
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
+        self.index.drop_range(range)
     }
 
     fn ingest(
