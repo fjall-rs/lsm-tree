@@ -8,7 +8,7 @@ pub mod inner;
 use crate::{
     blob_tree::FragmentationMap,
     coding::{Decode, Encode},
-    compaction::CompactionStrategy,
+    compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
     format_version::FormatVersion,
@@ -17,6 +17,7 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
+    slice::Slice,
     value::InternalValue,
     vlog::BlobFile,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter, UserKey,
@@ -25,7 +26,7 @@ use crate::{
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
-    ops::RangeBounds,
+    ops::{Bound, RangeBounds},
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
@@ -146,6 +147,7 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
+        #[allow(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
@@ -169,9 +171,14 @@ impl AbstractTree for Tree {
         Ok(())
     }
 
-    // TODO: change API to RangeBounds<K>
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
-        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
+        let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range)?;
+
+        if is_empty {
+            return Ok(());
+        }
+
+        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
         let _lock = self
@@ -553,6 +560,46 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    /// Normalizes a user-provided range into owned `Bound<Slice>` values.
+    ///
+    /// Returns a tuple containing:
+    /// - the `OwnedBounds` that mirror the original bounds semantics (including
+    ///   inclusive/exclusive markers and unbounded endpoints), and
+    /// - a `bool` flag indicating whether the normalized range is logically
+    ///   empty (e.g., when the lower bound is greater than the upper bound).
+    ///
+    /// Callers can use the flag to detect empty ranges and skip further work
+    /// while still having access to the normalized bounds for non-empty cases.
+    fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        range: &R,
+    ) -> crate::Result<(OwnedBounds, bool)> {
+        use Bound::{Excluded, Included, Unbounded};
+
+        let start = match range.start_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        let end = match range.end_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        let is_empty = if let (Included(lo), Included(hi))
+        | (Included(lo), Excluded(hi))
+        | (Excluded(lo), Included(hi))
+        | (Excluded(lo), Excluded(hi)) = (&start, &end)
+        {
+            lo.as_ref() > hi.as_ref()
+        } else {
+            false
+        };
+
+        Ok((OwnedBounds { start, end }, is_empty))
+    }
+
     /// Opens an LSM-tree in the given directory.
     ///
     /// Will recover previous state if the folder was previously
@@ -599,32 +646,6 @@ impl Tree {
         };
 
         log::debug!("Finalized segment write at {}", segment_file_path.display());
-
-        /* let block_index =
-            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
-        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
-
-        let created_segment: Segment = SegmentInner {
-            path: segment_file_path.clone(),
-
-            tree_id: self.id,
-
-            metadata: trailer.metadata,
-            offsets: trailer.offsets,
-
-            descriptor_table: self.config.descriptor_table.clone(),
-            block_index,
-            cache: self.config.cache.clone(),
-
-            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
-
-            is_deleted: AtomicBool::default(),
-        }
-        .into(); */
-
-        /* self.config
-        .descriptor_table
-        .insert(segment_file_path, created_segment.global_id()); */
 
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
