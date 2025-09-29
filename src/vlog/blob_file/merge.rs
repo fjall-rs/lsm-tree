@@ -138,7 +138,7 @@ mod tests {
                     writer.write(key, &key.repeat(100))?;
                 }
 
-                writer.flush()?;
+                writer.finish()?;
             }
         }
 
@@ -152,7 +152,7 @@ mod tests {
                     writer.write(key, &key.repeat(100))?;
                 }
 
-                writer.flush()?;
+                writer.finish()?;
             }
         }
 

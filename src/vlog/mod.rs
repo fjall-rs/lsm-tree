@@ -11,7 +11,10 @@ pub use {
     blob_file::BlobFile, handle::ValueHandle,
 };
 
-use crate::vlog::blob_file::{trailer::Trailer, Inner as BlobFileInner};
+use crate::{
+    coding::Decode,
+    vlog::blob_file::{Inner as BlobFileInner, Metadata},
+};
 use std::{path::Path, sync::Arc};
 
 pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Vec<BlobFile>> {
@@ -34,13 +37,16 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
         log::trace!("Recovering blob file #{id:?}");
 
         let path = folder.join(id.to_string());
-        let trailer = Trailer::from_file(&path)?;
 
-        blob_files.push(BlobFile(Arc::new(BlobFileInner {
-            id,
-            path,
-            meta: trailer.metadata,
-        })));
+        let meta = {
+            let reader = sfa::Reader::new(&path)?;
+            let toc = reader.toc();
+            let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+            let mut reader = metadata_section.buf_reader(&path)?;
+            Metadata::decode_from(&mut reader)?
+        };
+
+        blob_files.push(BlobFile(Arc::new(BlobFileInner { id, path, meta })));
 
         if idx % progress_mod == 0 {
             log::debug!("Recovered {idx}/{cnt} blob files");

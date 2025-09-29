@@ -2,12 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{meta::Metadata, trailer::Trailer};
+use super::meta::Metadata;
 use crate::{coding::Encode, vlog::BlobFileId, CompressionType, KeyRange, UserKey};
 use byteorder::{BigEndian, WriteBytesExt};
 use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -24,8 +23,7 @@ pub struct Writer {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
-    #[allow(clippy::struct_field_names)]
-    active_writer: BufWriter<File>,
+    writer: sfa::Writer,
 
     offset: u64,
 
@@ -46,16 +44,16 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> std::io::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
         let path = path.as_ref();
-
-        let file = File::create(path)?;
+        let mut writer = sfa::Writer::new_at_path(path)?;
+        writer.start("data")?;
 
         Ok(Self {
             path: path.into(),
             blob_file_id,
 
-            active_writer: BufWriter::new(file),
+            writer,
 
             offset: 0,
             item_count: 0,
@@ -123,7 +121,7 @@ impl Writer {
         // [...val; ?]
 
         // Write header
-        self.active_writer.write_all(BLOB_HEADER_MAGIC)?;
+        self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
         let mut hasher = xxhash_rust::xxh3::Xxh3::new();
         hasher.update(key);
@@ -131,17 +129,15 @@ impl Writer {
         let checksum = hasher.digest128();
 
         // Write checksum
-        self.active_writer.write_u128::<BigEndian>(checksum)?;
+        self.writer.write_u128::<BigEndian>(checksum)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u16::<BigEndian>(key.len() as u16)?;
+        self.writer.write_u16::<BigEndian>(key.len() as u16)?;
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u32::<BigEndian>(value.len() as u32)?;
+        self.writer.write_u32::<BigEndian>(value.len() as u32)?;
 
         // TODO: finish compression
         #[warn(clippy::match_single_binding)]
@@ -151,11 +147,10 @@ impl Writer {
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u32::<BigEndian>(value.len() as u32)?;
+        self.writer.write_u32::<BigEndian>(value.len() as u32)?;
 
-        self.active_writer.write_all(key)?;
-        self.active_writer.write_all(value)?;
+        self.writer.write_all(key)?;
+        self.writer.write_all(value)?;
 
         // Update offset
         self.offset += BLOB_HEADER_MAGIC.len() as u64;
@@ -177,8 +172,8 @@ impl Writer {
         Ok(value.len() as u32)
     }
 
-    pub(crate) fn flush(&mut self) -> crate::Result<()> {
-        let metadata_ptr = self.active_writer.stream_position()?;
+    pub(crate) fn finish(mut self) -> crate::Result<()> {
+        self.writer.start("meta");
 
         // Write metadata
         let metadata = Metadata {
@@ -194,16 +189,9 @@ impl Writer {
                     .expect("should have written at least 1 item"),
             )),
         };
-        metadata.encode_into(&mut self.active_writer)?;
+        metadata.encode_into(&mut self.writer)?;
 
-        Trailer {
-            metadata,
-            metadata_ptr,
-        }
-        .encode_into(&mut self.active_writer)?;
-
-        self.active_writer.flush()?;
-        self.active_writer.get_mut().sync_all()?;
+        self.writer.finish()?;
 
         Ok(())
     }

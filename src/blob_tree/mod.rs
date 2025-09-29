@@ -124,74 +124,6 @@ impl BlobTree {
         })
     }
 
-    /// Consumes a [`BlobFileWriter`], returning a `BlobFile` handle.
-    ///
-    /// # Note
-    ///
-    /// The blob file is **not** added to the value log immediately.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    fn consume_blob_file_writer(writer: BlobFileWriter) -> crate::Result<Vec<BlobFile>> {
-        use crate::vlog::blob_file::{Inner as BlobFileInner, Metadata};
-
-        let writers = writer.finish()?;
-
-        let mut blob_files = Vec::with_capacity(writers.len());
-
-        for writer in writers {
-            if writer.item_count == 0 {
-                log::debug!(
-                    "Blob file writer at {} has written no data, deleting empty blob file",
-                    writer.path.display(),
-                );
-                if let Err(e) = std::fs::remove_file(&writer.path) {
-                    log::warn!(
-                        "Could not delete empty blob file at {}: {e:?}",
-                        writer.path.display(),
-                    );
-                }
-                continue;
-            }
-
-            let blob_file_id = writer.blob_file_id;
-
-            blob_files.push(BlobFile(Arc::new(BlobFileInner {
-                id: blob_file_id,
-                path: writer.path,
-                meta: Metadata {
-                    item_count: writer.item_count,
-                    compressed_bytes: writer.written_blob_bytes,
-                    total_uncompressed_bytes: writer.uncompressed_bytes,
-
-                    // NOTE: We are checking for 0 items above
-                    // so first and last key need to exist
-                    #[allow(clippy::expect_used)]
-                    key_range: crate::KeyRange::new((
-                        writer
-                            .first_key
-                            .clone()
-                            .expect("should have written at least 1 item"),
-                        writer
-                            .last_key
-                            .clone()
-                            .expect("should have written at least 1 item"),
-                    )),
-                },
-                // gc_stats: GcStats::default(),
-            })));
-
-            log::debug!(
-                "Created blob file #{blob_file_id:?} ({} items, {} userdata bytes)",
-                writer.item_count,
-                writer.uncompressed_bytes,
-            );
-        }
-
-        Ok(blob_files)
-    }
-
     #[doc(hidden)]
     pub fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
@@ -520,7 +452,7 @@ impl AbstractTree for BlobTree {
         }
 
         log::trace!("Creating blob file");
-        let blob_files = Self::consume_blob_file_writer(blob_writer)?;
+        let blob_files = blob_writer.finish()?;
         assert!(blob_files.len() <= 1);
         let blob_file = blob_files.into_iter().next();
 
