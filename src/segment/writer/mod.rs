@@ -12,10 +12,11 @@ use crate::{
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct LinkedFile {
-    pub(crate) blob_file_id: BlobFileId,
-    pub(crate) bytes: u64,
-    pub(crate) len: usize,
+    pub blob_file_id: BlobFileId,
+    pub bytes: u64,
+    pub len: usize,
 }
 
 /// Serializes and compresses values into blocks and writes them to disk as segment

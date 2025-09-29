@@ -72,7 +72,6 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -80,7 +79,22 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
+        assert_eq!(
+            None,
+            tree.index
+                .manifest
+                .read()
+                .expect("lock is poisoned")
+                .current_version()
+                .iter_segments()
+                .next()
+                .unwrap()
+                .get_linked_blob_files()?,
+        );
+
         tree.major_compact(64_000_000, 1_000)?;
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.blob_file_count());
 
         let gc_stats = tree
             .index
@@ -99,6 +113,19 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 map
             },
             &*gc_stats,
+        );
+
+        assert_eq!(
+            None,
+            tree.index
+                .manifest
+                .read()
+                .expect("lock is poisoned")
+                .current_version()
+                .iter_segments()
+                .next()
+                .unwrap()
+                .get_linked_blob_files()?,
         );
     }
 

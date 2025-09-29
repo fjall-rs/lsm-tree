@@ -4,7 +4,8 @@
 
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
-    blob_tree::FragmentationMap,
+    blob_tree::{handle::BlobIndirection, FragmentationMap},
+    coding::Decode,
     compaction::{stream::CompactionStream, Choice},
     file::SEGMENTS_FOLDER,
     level_manifest::LevelManifest,
@@ -344,6 +345,19 @@ fn merge_segments(
         // IMPORTANT: We can only drop tombstones when writing into last level
         if is_last_level && item.is_tombstone() {
             continue;
+        }
+
+        if item.key.value_type.is_indirection() {
+            let mut reader = &item.value[..];
+
+            let Ok(indirection) = BlobIndirection::decode_from(&mut reader) else {
+                log::error!("Failed to deserialize blob indirection: {item:?}");
+                return Ok(());
+            };
+
+            // TODO: 3.0.0 -> IF we have a blob writer, use the active_blob_file ID instead (rewriting the vptr)
+
+            segment_writer.register_blob(indirection);
         }
 
         if let Err(e) = segment_writer.write(item) {

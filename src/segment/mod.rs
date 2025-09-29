@@ -15,7 +15,7 @@ pub(crate) mod multi_writer;
 mod regions;
 mod scanner;
 pub mod util;
-mod writer;
+pub mod writer;
 
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
@@ -31,7 +31,6 @@ use crate::{
         block::{BlockType, ParsedItem},
         writer::LinkedFile,
     },
-    vlog::BlobFileId,
     CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
@@ -102,7 +101,7 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
-    pub(crate) fn get_linked_blob_files(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
+    pub fn get_linked_blob_files(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
         use byteorder::{ReadBytesExt, LE};
 
         Ok(if let Some(handle) = &self.regions.linked_blob_files {

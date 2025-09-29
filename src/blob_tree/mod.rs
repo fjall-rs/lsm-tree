@@ -400,7 +400,6 @@ impl AbstractTree for BlobTree {
             u64::MAX, // TODO: actually use target size? but be sure to link to table correctly
             self.index.config.path.join(BLOBS_FOLDER),
         )?;
-        blob_writer.link_table(segment_id);
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, eviction_seqno);
