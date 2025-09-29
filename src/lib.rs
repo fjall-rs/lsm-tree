@@ -249,7 +249,7 @@ pub use {
     cache::Cache,
     coding::{DecodeError, EncodeError},
     compression::CompressionType,
-    config::{Config, TreeType},
+    config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,

@@ -16,7 +16,9 @@ pub use hash_ratio::HashRatioPolicy;
 pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
-use crate::{path::absolute_path, BlobTree, Cache, CompressionType, DescriptorTable, Tree};
+use crate::{
+    path::absolute_path, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, Tree,
+};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -55,6 +57,72 @@ impl TryFrom<u8> for TreeType {
 
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
+/// Options for key-value separation
+#[derive(Clone)]
+pub struct KvSeparationOptions {
+    /// What type of compression is used for blobs
+    pub blob_compression: CompressionType,
+
+    /// Blob file (value log segment) target size in bytes
+    #[doc(hidden)]
+    pub blob_file_target_size: u64,
+
+    /// Key-value separation threshold in bytes
+    #[doc(hidden)]
+    pub blob_file_separation_threshold: u32,
+    // TODO: blob_file_staleness_threshold AND/OR space_amp_threshold
+}
+
+impl Default for KvSeparationOptions {
+    fn default() -> Self {
+        Self {
+            blob_compression: CompressionType::None, // TODO: LZ4
+            blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
+            blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
+        }
+    }
+}
+
+impl KvSeparationOptions {
+    /// Sets the blob compression method.
+    #[must_use]
+    pub fn blob_compression(mut self, compression: CompressionType) -> Self {
+        self.blob_compression = compression;
+        self
+    }
+
+    /// Sets the target size of blob files.
+    ///
+    /// Smaller blob files allow more granular garbage collection
+    /// which allows lower space amp for lower write I/O cost.
+    ///
+    /// Larger blob files decrease the number of files on disk and maintenance
+    /// overhead.
+    ///
+    /// Defaults to 64 MiB.
+    ///
+    /// This option has no effect when not used for opening a blob tree.
+    #[must_use]
+    pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
+        self.blob_file_target_size = bytes;
+        self
+    }
+
+    /// Sets the key-value separation threshold in bytes.
+    ///
+    /// Smaller value will reduce compaction overhead and thus write amplification,
+    /// at the cost of lower read performance.
+    ///
+    /// Defaults to 4KiB.
+    ///
+    /// This option has no effect when not used for opening a blob tree.
+    #[must_use]
+    pub fn blob_file_separation_threshold(mut self, bytes: u32) -> Self {
+        self.blob_file_separation_threshold = bytes;
+        self
+    }
+}
+
 #[derive(Clone)]
 /// Tree configuration builder
 pub struct Config {
@@ -69,10 +137,6 @@ pub struct Config {
     /// Descriptor table to use
     #[doc(hidden)]
     pub descriptor_table: Arc<DescriptorTable>,
-
-    /// Tree type (unused)
-    #[allow(unused)]
-    pub tree_type: TreeType,
 
     /// Number of levels of the LSM tree (depth of tree)
     ///
@@ -113,17 +177,7 @@ pub struct Config {
     /// Filter construction policy
     pub filter_policy: FilterPolicy,
 
-    /// What type of compression is used for blobs
-    pub blob_compression: CompressionType,
-
-    /// Blob file (value log segment) target size in bytes
-    #[doc(hidden)]
-    pub blob_file_target_size: u64,
-
-    /// Key-value separation threshold in bytes
-    #[doc(hidden)]
-    pub blob_file_separation_threshold: u32,
-    // TODO: blob_file_staleness_threshold AND/OR space_amp_threshold
+    pub(crate) kv_separation_opts: Option<KvSeparationOptions>,
 }
 
 impl Default for Config {
@@ -132,13 +186,14 @@ impl Default for Config {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(DescriptorTable::new(256)),
 
-            cache: Arc::new(Cache::with_capacity_bytes(/* 16 MiB */ 16 * 1_024 * 1_024)),
+            cache: Arc::new(Cache::with_capacity_bytes(
+                /* 16 MiB */ 16 * 1_024 * 1_024,
+            )),
 
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
             level_count: 7,
-            tree_type: TreeType::Standard,
 
             data_block_size_policy: BlockSizePolicy::default(),
             index_block_size_policy: BlockSizePolicy::default(),
@@ -147,18 +202,15 @@ impl Default for Config {
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
 
             data_block_compression_policy: CompressionPolicy::default(),
-            index_block_compression_policy:CompressionPolicy::all(CompressionType::None),
+            index_block_compression_policy: CompressionPolicy::all(CompressionType::None),
 
             data_block_hash_ratio_policy: HashRatioPolicy::all(0.0),
 
-            blob_compression: CompressionType::None,
-
             filter_policy: FilterPolicy::default(),
 
-            blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
-            blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
-
             expect_point_read_hits: false,
+
+            kv_separation_opts: None,
         }
     }
 }
@@ -260,13 +312,6 @@ impl Config {
         self
     }
 
-    /// Sets the blob compression method.
-    #[must_use]
-    pub fn blob_compression(mut self, compression: CompressionType) -> Self {
-        self.blob_compression = compression;
-        self
-    }
-
     /// Sets the number of levels of the LSM tree (depth of tree).
     ///
     /// Defaults to 7, like `LevelDB` and `RocksDB`.
@@ -308,34 +353,10 @@ impl Config {
         self
     }
 
-    /// Sets the target size of blob files.
-    ///
-    /// Smaller blob files allow more granular garbage collection
-    /// which allows lower space amp for lower write I/O cost.
-    ///
-    /// Larger blob files decrease the number of files on disk and maintenance
-    /// overhead.
-    ///
-    /// Defaults to 64 MiB.
-    ///
-    /// This option has no effect when not used for opening a blob tree.
+    /// Toggles key-value separation.
     #[must_use]
-    pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
-        self.blob_file_target_size = bytes;
-        self
-    }
-
-    /// Sets the key-value separation threshold in bytes.
-    ///
-    /// Smaller value will reduce compaction overhead and thus write amplification,
-    /// at the cost of lower read performance.
-    ///
-    /// Defaults to 4KiB.
-    ///
-    /// This option has no effect when not used for opening a blob tree.
-    #[must_use]
-    pub fn blob_file_separation_threshold(mut self, bytes: u32) -> Self {
-        self.blob_file_separation_threshold = bytes;
+    pub fn with_kv_separation(mut self, opts: Option<KvSeparationOptions>) -> Self {
+        self.kv_separation_opts = opts;
         self
     }
 
@@ -344,17 +365,11 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn open(self) -> crate::Result<Tree> {
-        Tree::open(self)
-    }
-
-    /// Opens a blob tree using the config.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn open_as_blob_tree(mut self) -> crate::Result<BlobTree> {
-        self.tree_type = TreeType::Blob;
-        BlobTree::open(self)
+    pub fn open(self) -> crate::Result<AnyTree> {
+        Ok(if self.kv_separation_opts.is_some() {
+            AnyTree::Blob(BlobTree::open(self)?)
+        } else {
+            AnyTree::Standard(Tree::open(self)?)
+        })
     }
 }
