@@ -123,7 +123,8 @@ fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open_as_blob_tree()?;
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     let keys = [0, 1, 2]
         .into_iter()

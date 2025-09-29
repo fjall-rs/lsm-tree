@@ -461,12 +461,12 @@ mod tests {
 
         // NOTE: Purposefully change level manifest to have invalid path
         // to force an I/O error
-        tree.manifest.write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
+        tree.manifest().write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
 
         assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .hidden_set

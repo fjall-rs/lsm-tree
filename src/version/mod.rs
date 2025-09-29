@@ -308,7 +308,7 @@ impl Version {
         };
 
         let gc_map = if let Some(diff) = diff {
-            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+            let mut copy = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
             copy.prune(&self.value_log);
             Arc::new(copy)
@@ -364,9 +364,9 @@ impl Version {
         let gc_stats = if dropped_segments.is_empty() {
             self.gc_stats.clone()
         } else {
-            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+            let mut copy = self.gc_stats.deref().clone();
 
-            for segment in dropped_segments {
+            for segment in &dropped_segments {
                 let linked_blob_files = segment
                     .get_linked_blob_files()
                     .expect("TODO: handle error")
@@ -385,11 +385,20 @@ impl Version {
             Arc::new(copy)
         };
 
+        let value_log = if dropped_segments.is_empty() {
+            self.value_log.clone()
+        } else {
+            // TODO: 3.0.0 this should really be a newtype
+            let mut copy = self.value_log.deref().clone();
+            copy.retain(|_, blob_file| !blob_file.is_dead(&gc_stats));
+            Arc::new(copy)
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: self.value_log.clone(),
+                value_log,
                 gc_stats,
             }),
             seqno_watermark: 0,
@@ -429,8 +438,10 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        let gc_map = if let Some(diff) = diff {
-            let mut copy: FragmentationMap = self.gc_stats.deref().clone();
+        let has_diff = diff.is_some();
+
+        let gc_stats = if let Some(diff) = diff {
+            let mut copy = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
             copy.prune(&self.value_log);
             Arc::new(copy)
@@ -438,12 +449,21 @@ impl Version {
             self.gc_stats.clone()
         };
 
+        let value_log = if has_diff {
+            // TODO: 3.0.0 this should really be a newtype
+            let mut copy = self.value_log.deref().clone();
+            copy.retain(|_, blob_file| !blob_file.is_dead(&gc_stats));
+            Arc::new(copy)
+        } else {
+            self.value_log.clone()
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: self.value_log.clone(),
-                gc_stats: gc_map,
+                value_log,
+                gc_stats,
             }),
             seqno_watermark: 0,
         }

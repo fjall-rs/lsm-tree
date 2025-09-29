@@ -68,8 +68,7 @@ pub struct TreeInner {
     pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
 
     /// Current tree version
-    #[doc(hidden)]
-    pub manifest: Arc<RwLock<LevelManifest>>,
+    pub(super) manifest: Arc<RwLock<LevelManifest>>,
 
     /// Tree configuration
     pub config: Config,

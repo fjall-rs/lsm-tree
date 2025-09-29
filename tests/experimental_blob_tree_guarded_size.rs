@@ -6,7 +6,9 @@ use test_log::test;
 fn experimental_blob_tree_guarded_size() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open_as_blob_tree()?;
+    let tree = Config::new(folder)
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("a".as_bytes(), "abc", 0);
     tree.insert("b".as_bytes(), "a".repeat(10_000), 0);

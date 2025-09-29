@@ -20,8 +20,8 @@ use crate::{
     slice::Slice,
     value::InternalValue,
     vlog::BlobFile,
-    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter, UserKey,
-    UserValue, ValueType,
+    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter,
+    TreeType, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
@@ -73,6 +73,57 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn next_table_id(&self) -> SegmentId {
+        self.0
+            .segment_id_counter
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn id(&self) -> TreeId {
+        self.id
+    }
+
+    fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        // TODO: consolidate memtable & sealed behind single RwLock
+
+        let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
+
+        if let Some(entry) = memtable_lock.get(key, seqno) {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        drop(memtable_lock);
+
+        // Now look in sealed memtables
+        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(key, seqno) {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        // Now look in segments... this may involve disk I/O
+        self.get_internal_entry_from_segments(key, seqno)
+    }
+
+    fn manifest(&self) -> &Arc<RwLock<LevelManifest>> {
+        &self.manifest
+    }
+
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
+        log::debug!("Flushing active memtable");
+
+        let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
+            return Ok(None);
+        };
+
+        let Some((segment, _)) =
+            self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
+        else {
+            return Ok(None);
+        };
+        self.register_segments(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
+
+        Ok(Some(segment))
+    }
+
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics> {
         &self.0.metrics
@@ -666,34 +717,6 @@ impl Tree {
         Ok(Some(created_segment))
     }
 
-    /// Synchronously flushes the active memtable to a disk segment.
-    ///
-    /// The function may not return a result, if, during concurrent workloads, the memtable
-    /// ends up being empty before the flush is set up.
-    ///
-    /// The result will contain the [`Segment`].
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    #[doc(hidden)]
-    pub fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
-        log::debug!("Flushing active memtable");
-
-        let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
-            return Ok(None);
-        };
-
-        let Some((segment, _)) =
-            self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
-        else {
-            return Ok(None);
-        };
-        self.register_segments(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
-
-        Ok(Some(segment))
-    }
-
     /// Returns `true` if there are some segments that are being compacted.
     #[doc(hidden)]
     #[must_use]
@@ -781,31 +804,6 @@ impl Tree {
         }
 
         Ok(None)
-    }
-
-    #[doc(hidden)]
-    pub fn get_internal_entry(
-        &self,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> crate::Result<Option<InternalValue>> {
-        // TODO: consolidate memtable & sealed behind single RwLock
-
-        let memtable_lock = self.active_memtable.read().expect("lock is poisoned");
-
-        if let Some(entry) = memtable_lock.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        drop(memtable_lock);
-
-        // Now look in sealed memtables
-        if let Some(entry) = self.get_internal_entry_from_sealed_memtables(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        // Now look in segments... this may involve disk I/O
-        self.get_internal_entry_from_segments(key, seqno)
     }
 
     fn inner_compact(
@@ -937,7 +935,6 @@ impl Tree {
 
         // IMPORTANT: Restore persisted config
         config.level_count = manifest.level_count;
-        config.tree_type = manifest.tree_type;
 
         let tree_id = get_next_tree_id();
 
@@ -993,8 +990,11 @@ impl Tree {
         Manifest {
             version: FormatVersion::V3,
             level_count: config.level_count,
-            tree_type: config.tree_type,
-            // table_type: TableType::Block,
+            tree_type: if config.kv_separation_opts.is_some() {
+                TreeType::Blob
+            } else {
+                TreeType::Standard
+            },
         }
         .encode_into(&mut file)?;
         file.sync_all()?;

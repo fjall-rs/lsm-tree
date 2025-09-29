@@ -37,7 +37,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(2, 3)), 0)?;
 
     assert!(!tree
-        .manifest
+        .manifest()
         .read()
         .expect("asdasd")
         .current_version()
@@ -46,7 +46,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
         .is_empty());
 
     assert!(tree
-        .manifest
+        .manifest()
         .read()
         .expect("asdasd")
         .current_version()
@@ -55,7 +55,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
         .is_empty());
 
     assert!(tree
-        .manifest
+        .manifest()
         .read()
         .expect("asdasd")
         .current_version()
@@ -64,7 +64,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
         .is_empty());
 
     assert!(!tree
-        .manifest
+        .manifest()
         .read()
         .expect("asdasd")
         .current_version()

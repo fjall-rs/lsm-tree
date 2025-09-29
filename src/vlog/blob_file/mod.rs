@@ -58,4 +58,23 @@ impl BlobFile {
     pub fn len(&self) -> u64 {
         self.0.meta.item_count
     }
+
+    /// Returns `true` if the blob file is stale (based on the given staleness threshold).
+    pub(crate) fn is_stale(&self, frag_map: &FragmentationMap, threshold: f32) -> bool {
+        frag_map.get(&self.id()).is_some_and(|x| {
+            let stale_bytes = x.bytes as f32;
+            let all_bytes = self.0.meta.total_uncompressed_bytes as f32;
+            let ratio = stale_bytes / all_bytes;
+            ratio >= threshold
+        })
+    }
+
+    /// Returns `true` if the blob file has no more incoming references, and can be safely removed from a Version.
+    pub(crate) fn is_dead(&self, frag_map: &FragmentationMap) -> bool {
+        frag_map.get(&self.id()).is_some_and(|x| {
+            let stale_bytes = x.bytes;
+            let all_bytes = self.0.meta.total_uncompressed_bytes;
+            stale_bytes == all_bytes
+        })
+    }
 }

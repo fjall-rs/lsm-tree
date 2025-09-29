@@ -4,14 +4,14 @@
 
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, vlog::BlobFile, AnyTree,
-    BlobTree, Config, Guard, KvPair, Memtable, SegmentId, SeqNo, SequenceNumberCounter, Tree,
-    UserKey, UserValue,
+    iter_guard::IterGuardImpl, level_manifest::LevelManifest, segment::Segment,
+    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue,
+    KvPair, Memtable, SegmentId, SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
     ops::RangeBounds,
-    sync::{Arc, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockWriteGuard},
 };
 
 pub type RangeItem = crate::Result<KvPair>;
@@ -20,6 +20,31 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    #[doc(hidden)]
+    fn next_table_id(&self) -> SegmentId;
+
+    #[doc(hidden)]
+    fn id(&self) -> TreeId;
+
+    #[doc(hidden)]
+    fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
+
+    #[doc(hidden)]
+    fn manifest(&self) -> &Arc<RwLock<LevelManifest>>;
+
+    /// Synchronously flushes the active memtable to a disk segment.
+    ///
+    /// The function may not return a result, if, during concurrent workloads, the memtable
+    /// ends up being empty before the flush is set up.
+    ///
+    /// The result will contain the [`Segment`].
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>>;
+
     /// Returns an iterator that scans through the entire tree.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.

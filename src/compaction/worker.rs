@@ -14,7 +14,7 @@ use crate::{
     segment::{multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    Config, InternalValue, SegmentId, SeqNo, TreeType,
+    AbstractTree, Config, InternalValue, SegmentId, SeqNo, TreeType,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
@@ -58,7 +58,7 @@ impl Options {
             tree_id: tree.id,
             segment_id_generator: tree.segment_id_counter.clone(),
             config: tree.config.clone(),
-            levels: tree.manifest.clone(),
+            levels: tree.manifest().clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
@@ -322,7 +322,7 @@ fn merge_segments(
         });
 
     // NOTE: If we are a blob tree, install callback to listen for evicted KVs
-    if opts.config.tree_type == TreeType::Blob {
+    if opts.config.kv_separation_opts.is_some() {
         merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
     }
 
@@ -412,57 +412,6 @@ fn merge_segments(
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),
             )
-
-            /* let segment_id = trailer.metadata.id;
-            let segment_file_path = segments_base_folder.join(segment_id.to_string());
-
-            let block_index = match payload.dest_level {
-                0 | 1 => {
-                    let block_index = FullBlockIndex::from_file(
-                        &segment_file_path,
-                        &trailer.metadata,
-                        &trailer.offsets,
-                    )?;
-                    BlockIndexImpl::Full(block_index)
-                }
-                _ => {
-                    // NOTE: Need to allow because of false positive in Clippy
-                    // because of "bloom" feature
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    let block_index = TwoLevelBlockIndex::from_file(
-                        &segment_file_path,
-                        &trailer.metadata,
-                        trailer.offsets.tli_ptr,
-                        (opts.tree_id, segment_id).into(),
-                        opts.config.descriptor_table.clone(),
-                        opts.config.cache.clone(),
-                    )?;
-                    BlockIndexImpl::TwoLevel(block_index)
-                }
-            };
-            let block_index = Arc::new(block_index);
-
-            let bloom_filter = Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?;
-
-            Ok(SegmentInner {
-                path: segment_file_path,
-
-                tree_id: opts.tree_id,
-
-                descriptor_table: opts.config.descriptor_table.clone(),
-                cache: opts.config.cache.clone(),
-
-                metadata: trailer.metadata,
-                offsets: trailer.offsets,
-
-                #[allow(clippy::needless_borrows_for_generic_args)]
-                block_index,
-
-                bloom_filter,
-
-                is_deleted: AtomicBool::default(),
-            }
-            .into()) */
         })
         .collect::<crate::Result<Vec<_>>>();
 

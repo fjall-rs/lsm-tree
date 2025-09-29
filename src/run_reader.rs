@@ -154,7 +154,7 @@ mod tests {
         }
 
         let segments = tree
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .iter()
@@ -196,7 +196,7 @@ mod tests {
         }
 
         let segments = tree
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .iter()

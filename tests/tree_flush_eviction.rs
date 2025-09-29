@@ -84,7 +84,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
     assert_eq!(
         1,
-        tree.manifest
+        tree.manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -104,7 +104,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
     assert_eq!(
         0,
-        tree.manifest
+        tree.manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()

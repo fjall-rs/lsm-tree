@@ -9,7 +9,9 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -26,10 +28,9 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
             Some(vec![lsm_tree::segment::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
-                len: 1
+                len: 1,
             }]),
-            tree.index
-                .manifest
+            tree.manifest()
                 .read()
                 .expect("lock is poisoned")
                 .current_version()
@@ -49,10 +50,9 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
             Some(vec![lsm_tree::segment::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
-                len: 1
+                len: 1,
             }]),
-            tree.index
-                .manifest
+            tree.manifest()
                 .read()
                 .expect("lock is poisoned")
                 .current_version()

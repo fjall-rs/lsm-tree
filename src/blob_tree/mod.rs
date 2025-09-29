@@ -13,6 +13,7 @@ use crate::{
     compaction::stream::CompactionStream,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
+    level_manifest::LevelManifest,
     r#abstract::{AbstractTree, RangeItem},
     segment::Segment,
     tree::inner::MemtableId,
@@ -21,7 +22,13 @@ use crate::{
     Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
 };
 use handle::BlobIndirection;
-use std::{collections::BTreeMap, io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    io::Cursor,
+    ops::RangeBounds,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 pub struct Guard<'a> {
     blob_tree: &'a BlobTree,
@@ -99,14 +106,14 @@ pub struct BlobTree {
 
 impl BlobTree {
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        let index = config.open()?;
+        let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
         std::fs::create_dir_all(&blobs_folder)?;
         fsync_directory(&blobs_folder)?;
 
         let blob_file_id_to_continue_with = index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -123,9 +130,26 @@ impl BlobTree {
             blob_file_id_generator: SequenceNumberCounter::new(blob_file_id_to_continue_with),
         })
     }
+}
 
-    #[doc(hidden)]
-    pub fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
+impl AbstractTree for BlobTree {
+    fn next_table_id(&self) -> SegmentId {
+        self.index.next_table_id()
+    }
+
+    fn id(&self) -> crate::TreeId {
+        self.index.id()
+    }
+
+    fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        self.index.get_internal_entry(key, seqno)
+    }
+
+    fn manifest(&self) -> &Arc<RwLock<LevelManifest>> {
+        self.index.manifest()
+    }
+
+    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
         let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
@@ -144,9 +168,7 @@ impl BlobTree {
 
         Ok(Some(segment))
     }
-}
 
-impl AbstractTree for BlobTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics> {
         self.index.metrics()
@@ -167,8 +189,7 @@ impl AbstractTree for BlobTree {
         let range = prefix_to_range(prefix.as_ref());
 
         let version = self
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -194,8 +215,7 @@ impl AbstractTree for BlobTree {
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
         let version = self
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -312,8 +332,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn blob_file_count(&self) -> usize {
-        self.index
-            .manifest
+        self.manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -341,8 +360,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn stale_blob_bytes(&self) -> u64 {
-        self.index
-            .manifest
+        self.manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -407,6 +425,14 @@ impl AbstractTree for BlobTree {
         let mut blob_bytes_referenced = 0;
         let mut blobs_referenced_count = 0;
 
+        let separation_threshold = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist")
+            .blob_file_separation_threshold;
+
         for item in compaction_filter {
             let item = item?;
 
@@ -423,7 +449,7 @@ impl AbstractTree for BlobTree {
             #[allow(clippy::cast_possible_truncation)]
             let value_size = value.len() as u32;
 
-            if value_size >= self.index.config.blob_file_separation_threshold {
+            if value_size >= separation_threshold {
                 let offset = blob_writer.offset();
                 let blob_file_id = blob_writer.blob_file_id();
                 let on_disk_size = blob_writer.write(&item.key.user_key, value)?;
@@ -559,7 +585,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn disk_space(&self) -> u64 {
-        let lock = self.index.manifest.read().expect("lock is poisoned");
+        let lock = self.manifest().read().expect("lock is poisoned");
         let version = lock.current_version();
         let vlog = crate::vlog::Accessor::new(&version.value_log);
         self.index.disk_space() + vlog.disk_space()
@@ -592,7 +618,7 @@ impl AbstractTree for BlobTree {
             return Ok(None);
         };
 
-        let lock = self.index.manifest.read().expect("lock is poisoned");
+        let lock = self.manifest().read().expect("lock is poisoned");
         let version = lock.current_version();
         let (_, v) = resolve_value_handle(self, &version.value_log, item)?;
         Ok(Some(v))

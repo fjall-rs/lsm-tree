@@ -1,7 +1,7 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, Tree};
+use lsm_tree::{AbstractTree, AnyTree, Config, SeqNo};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
-fn populate_segments(tree: &Tree) -> lsm_tree::Result<()> {
+fn populate_segments(tree: &AnyTree) -> lsm_tree::Result<()> {
     for key in 'a'..='e' {
         tree.insert([key as u8], "", 0);
         tree.flush_active_memtable(0)?;

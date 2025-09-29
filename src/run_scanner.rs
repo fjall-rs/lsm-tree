@@ -90,7 +90,7 @@ mod tests {
         }
 
         let segments = tree
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()

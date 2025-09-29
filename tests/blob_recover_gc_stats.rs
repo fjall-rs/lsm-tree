@@ -10,7 +10,9 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -31,8 +33,7 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
         tree.major_compact(64_000_000, 1_000)?;
 
         let gc_stats = tree
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -51,11 +52,12 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         let gc_stats = tree
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()

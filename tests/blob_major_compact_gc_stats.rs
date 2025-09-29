@@ -1,6 +1,8 @@
 use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, SeqNo};
 use test_log::test;
 
+// TODO: 3.0.0 check that decompressed value size is used (enable compression)
+
 #[test]
 fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -10,7 +12,9 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -28,11 +32,11 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
+        // Major compaction does not rewrite every blob file
         tree.major_compact(64_000_000, 1_000)?;
 
         let gc_stats = tree
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -53,7 +57,6 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-// TODO: check that decompressed value size is used (enable compression)
 #[test]
 fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
@@ -62,10 +65,13 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
+        tree.insert("another_big", &big_value, 0);
         tree.insert("smol", "small value", 0);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
@@ -78,27 +84,32 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         tree.remove("big", 1);
 
         tree.flush_active_memtable(0)?;
+        assert_eq!(2, tree.segment_count());
+        assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
-            None,
-            tree.index
-                .manifest
+            Some(vec![lsm_tree::segment::writer::LinkedFile {
+                blob_file_id: 0,
+                bytes: 2 * big_value.len() as u64,
+                len: 2,
+            }]),
+            tree.manifest()
                 .read()
                 .expect("lock is poisoned")
                 .current_version()
                 .iter_segments()
-                .next()
+                .nth(1)
                 .unwrap()
                 .get_linked_blob_files()?,
         );
 
+        // Major compaction does not rewrite every blob file
         tree.major_compact(64_000_000, 1_000)?;
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
 
         let gc_stats = tree
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
@@ -116,9 +127,12 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         );
 
         assert_eq!(
-            None,
-            tree.index
-                .manifest
+            Some(vec![lsm_tree::segment::writer::LinkedFile {
+                blob_file_id: 0,
+                bytes: big_value.len() as u64,
+                len: 1,
+            }]),
+            tree.manifest()
                 .read()
                 .expect("lock is poisoned")
                 .current_version()

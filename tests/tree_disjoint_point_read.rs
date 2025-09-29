@@ -38,7 +38,8 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open_as_blob_tree()?;
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -85,7 +86,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10, 8)), 1)?;
     assert_eq!(
         1,
-        tree.manifest
+        tree.manifest()
             .read()
             .expect("asdasd")
             .current_version()
@@ -123,7 +124,8 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open_as_blob_tree()?;
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("z", "z", 0);
     tree.flush_active_memtable(0)?;
@@ -140,8 +142,7 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10, 8)), 1)?;
     assert_eq!(
         1,
-        tree.index
-            .manifest
+        tree.manifest()
             .read()
             .expect("asdasd")
             .current_version()

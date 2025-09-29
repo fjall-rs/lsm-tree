@@ -9,7 +9,9 @@ fn blob_tree_drop_range_gc_stats() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+        let tree = lsm_tree::Config::new(path)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -23,12 +25,13 @@ fn blob_tree_drop_range_gc_stats() -> lsm_tree::Result<()> {
 
         tree.drop_range::<&[u8], _>(..)?;
 
+        // NOTE: Because the blob does not have any incoming references anymore
+        // it is pruned from the Version
+        assert_eq!(0, tree.blob_file_count());
         assert_eq!(0, tree.segment_count());
-        assert_eq!(1, tree.blob_file_count()); // TODO: 3.0.0 automatically prune fully stale blob files from version -> this should be 0
 
         let gc_stats = tree
-            .index
-            .manifest
+            .manifest()
             .read()
             .expect("lock is poisoned")
             .current_version()
