@@ -30,7 +30,7 @@ pub fn load_block(
     #[cfg(feature = "metrics")]
     use std::sync::atomic::Ordering::Relaxed;
 
-    log::trace!("load block {handle:?}");
+    log::trace!("load {block_type:?} block {handle:?}");
 
     if let Some(block) = cache.get_block(segment_id, handle.offset()) {
         #[cfg(feature = "metrics")]

@@ -58,7 +58,7 @@ impl TryFrom<u8> for TreeType {
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
 /// Options for key-value separation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
     pub blob_compression: CompressionType,
@@ -78,7 +78,7 @@ impl Default for KvSeparationOptions {
         Self {
             blob_compression: CompressionType::None, // TODO: LZ4
             blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
-            blob_file_separation_threshold: /* 4 KiB */ 4 * 1_024,
+            blob_file_separation_threshold: /* 1 KiB */ 1_024,
         }
     }
 }
@@ -177,7 +177,8 @@ pub struct Config {
     /// Filter construction policy
     pub filter_policy: FilterPolicy,
 
-    pub(crate) kv_separation_opts: Option<KvSeparationOptions>,
+    #[doc(hidden)]
+    pub kv_separation_opts: Option<KvSeparationOptions>,
 }
 
 impl Default for Config {

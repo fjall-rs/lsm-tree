@@ -4,7 +4,7 @@
 
 use crate::{
     vlog::{blob_file::reader::Reader, BlobFileId, ValueHandle},
-    BlobFile, Cache, DescriptorTable, GlobalSegmentId, UserValue,
+    BlobFile, Cache, DescriptorTable, GlobalSegmentId, TreeId, UserValue,
 };
 use std::{collections::BTreeMap, fs::File, path::Path, sync::Arc};
 
@@ -26,13 +26,14 @@ impl<'a> Accessor<'a> {
 
     pub fn get(
         &self,
+        tree_id: TreeId,
         base_path: &Path,
         key: &[u8],
         vhandle: &ValueHandle,
         cache: &Cache,
         descriptor_table: &DescriptorTable,
     ) -> crate::Result<Option<UserValue>> {
-        if let Some(value) = cache.get_blob(0 /* TODO: 3.0.0 tree ID... */, vhandle) {
+        if let Some(value) = cache.get_blob(tree_id, vhandle) {
             return Ok(Some(value));
         }
 
@@ -40,7 +41,7 @@ impl<'a> Accessor<'a> {
             return Ok(None);
         };
 
-        let bf_id = GlobalSegmentId::from((0 /* TODO: 3.0.0 tree ID */, blob_file.id()));
+        let bf_id = GlobalSegmentId::from((tree_id, blob_file.id()));
 
         let file = if let Some(fd) = descriptor_table.access_for_blob_file(&bf_id) {
             fd
@@ -53,7 +54,7 @@ impl<'a> Accessor<'a> {
         };
 
         let value = Reader::new(blob_file, &file).get(key, vhandle)?;
-        cache.insert_blob(0 /* TODO: 3.0.0 tree_id */, vhandle, value.clone());
+        cache.insert_blob(tree_id, vhandle, value.clone());
 
         Ok(Some(value))
     }

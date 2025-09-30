@@ -1,6 +1,6 @@
 mod wal;
 
-use lsm_tree::{AbstractTree, Config, InternalValue, SeqNo, SequenceNumberCounter, Tree};
+use lsm_tree::{AbstractTree, AnyTree, Config, InternalValue, SeqNo, SequenceNumberCounter};
 use nanoid::nanoid;
 use std::{
     path::Path,
@@ -12,7 +12,7 @@ use wal::Wal;
 /// Single-writer-only JSON-based KV-store.
 #[derive(Clone)]
 pub struct KvStore {
-    tree: Tree,
+    tree: AnyTree,
     wal: Wal,
     seqno: SequenceNumberCounter,
 }

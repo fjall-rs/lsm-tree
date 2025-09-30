@@ -62,6 +62,7 @@ fn resolve_value_handle(
 
         // Resolve indirection using value log
         match Accessor::new(vlog).get(
+            tree.id(),
             &tree.blobs_folder,
             &item.key.user_key,
             &vptr.vhandle,
