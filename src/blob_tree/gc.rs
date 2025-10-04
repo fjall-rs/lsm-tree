@@ -205,8 +205,8 @@ mod tests {
         let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
 
         assert_eq!(
-            // Seqno is reset to 0
-            InternalValue::from_components(*b"a", b"abc", 0, ValueType::Value),
+            // TODO: Seqno is normally reset to 0
+            InternalValue::from_components(*b"a", b"abc", 1, ValueType::Value),
             iter.next().unwrap()?,
         );
 

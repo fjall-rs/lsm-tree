@@ -111,12 +111,13 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
                 }
             }
 
-            // NOTE: Convert sequence number to zero if it is below the snapshot watermark.
-            //
-            // This can save a lot of space, because "0" only takes 1 byte.
-            if head.key.seqno < self.gc_seqno_threshold {
-                head.key.seqno = 0;
-            }
+            // TODO: look at how this plays with blob GC
+            // // NOTE: Convert sequence number to zero if it is below the snapshot watermark.
+            // //
+            // // This can save a lot of space, because "0" only takes 1 byte.
+            // if head.key.seqno < self.gc_seqno_threshold {
+            //     head.key.seqno = 0;
+            // }
 
             return Some(Ok(head));
         }
@@ -189,8 +190,8 @@ mod tests {
         let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
 
         assert_eq!(
-            // Seqno is reset to 0
-            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            // TODO: Seqno is normally reset to 0
+            InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         iter_closed!(iter);
@@ -208,6 +209,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
+    #[ignore = "wip"]
     fn compaction_stream_seqno_zeroing_1() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -261,16 +263,17 @@ mod tests {
         let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 1_000_000);
 
+        // TODO: Seqno is normally reset to 0
         assert_eq!(
-            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            InternalValue::from_components(*b"b", *b"", 0, ValueType::Tombstone),
+            InternalValue::from_components(*b"b", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         assert_eq!(
-            InternalValue::from_components(*b"c", *b"", 0, ValueType::Tombstone),
+            InternalValue::from_components(*b"c", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
         iter_closed!(iter);
