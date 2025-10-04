@@ -443,25 +443,27 @@ impl Version {
 
         let has_diff = diff.is_some();
 
-        let gc_stats = if has_diff || !blob_files_to_drop.is_empty() {
-            let mut copy = self.gc_stats.deref().clone();
+        let gc_stats =
+            if has_diff || !blob_files_to_drop.is_empty() || !blob_files_to_drop.is_empty() {
+                let mut copy = self.gc_stats.deref().clone();
 
-            if let Some(diff) = diff {
-                diff.merge_into(&mut copy);
-            }
+                if let Some(diff) = diff {
+                    diff.merge_into(&mut copy);
+                }
 
-            for id in &blob_files_to_drop {
-                copy.remove(id);
-            }
+                for id in &blob_files_to_drop {
+                    copy.remove(id);
+                }
 
-            copy.prune(&self.value_log);
+                copy.prune(&self.value_log);
 
-            Arc::new(copy)
-        } else {
-            self.gc_stats.clone()
-        };
+                Arc::new(copy)
+            } else {
+                self.gc_stats.clone()
+            };
 
-        let value_log = if has_diff || !new_blob_files.is_empty() {
+        let value_log = if has_diff || !new_blob_files.is_empty() || !blob_files_to_drop.is_empty()
+        {
             let mut copy = self.value_log.deref().clone();
 
             for blob_file in new_blob_files {
