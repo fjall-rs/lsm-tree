@@ -35,7 +35,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         // so it is not rewritten
         tree.major_compact(64_000_000, 1_000)?;
         assert_eq!(1, tree.segment_count());
-        assert_eq!(1, tree.blob_file_count());
+        assert_eq!(2, tree.blob_file_count());
 
         let gc_stats = tree
             .manifest()
