@@ -209,7 +209,7 @@ impl CompactionFlavour for RelocatingCompaction {
         opts: &Options,
         payload: &CompactionPayload,
         dst_lvl: usize,
-        blob_frag_map: FragmentationMap,
+        blob_frag_map_diff: FragmentationMap,
     ) -> crate::Result<()> {
         log::debug!(
             "Relocating compaction done in {:?}",
@@ -231,10 +231,10 @@ impl CompactionFlavour for RelocatingCompaction {
                     &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
                     payload.dest_level as usize,
-                    if blob_frag_map.is_empty() {
+                    if blob_frag_map_diff.is_empty() {
                         None
                     } else {
-                        Some(blob_frag_map)
+                        Some(blob_frag_map_diff)
                     },
                     created_blob_files,
                     blob_file_ids_to_drop,
