@@ -42,10 +42,9 @@ fn main() -> lsm_tree::Result<()> {
     let seqno = lsm_tree::SequenceNumberCounter::default();
 
     for i in 0..args.ops.unwrap_or(usize::MAX) {
-        let op = match (0..2).choose(&mut rng).unwrap() {
-            0 => Operation::Insert(Key::from(seqno.get().to_be_bytes()), Value::from("hello")),
-            1 => Operation::Remove(Key::from("b")),
-            _ => unreachable!(),
+        let op = match (0usize..100).choose(&mut rng).unwrap() {
+            0..50 => Operation::Insert(Key::from(seqno.get().to_be_bytes()), Value::from("hello")),
+            50.. => Operation::Remove(Key::from("b")),
         };
 
         if args.verbose || i % 100 == 0 {
@@ -65,14 +64,14 @@ fn main() -> lsm_tree::Result<()> {
             }
         }
 
-        for (expected, guard) in model.iter().zip(db.iter(seqno.get(), None)) {
-            let (k, v) = expected;
-            let (real_k, real_v) = &guard.into_inner()?;
-            assert_eq!(k, real_k, "key does not match");
-            assert_eq!(v, real_v, "value for key {k:?} does not match");
+        // Don't do so often because it's expensive
+        if i % 100 == 0 {
+            for (expected, guard) in model.iter().zip(db.iter(seqno.get(), None)) {
+                let (k, v) = expected;
+                let (real_k, real_v) = &guard.into_inner()?;
+                assert_eq!(k, real_k, "key does not match");
+                assert_eq!(v, real_v, "value for key {k:?} does not match");
 
-            // Don't do so often because it's expensive
-            if i % 100 == 0 {
                 // Additionally, do a point read as well (because it's a different read path)
                 let v = db.get(k, seqno.get())?.unwrap();
                 assert_eq!(
@@ -80,8 +79,6 @@ fn main() -> lsm_tree::Result<()> {
                     "value (of point read) for key {k:?} does not match",
                 );
             }
-
-            // TODO: also, we need to do range reads/prefix reads, can't possibly test every permutation though...
         }
 
         if i % args.compaction_every == 0 {
@@ -94,9 +91,14 @@ fn main() -> lsm_tree::Result<()> {
         if op_log.len() > 10_000_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
             eprintln!("-- Clearing state --");
             std::thread::sleep(std::time::Duration::from_millis(100));
+
             db.drop_range::<&[u8], _>(..)?;
             model.clear();
             op_log.clear();
+
+            assert!(db.is_empty(seqno.get(), None)?);
+            assert!(model.is_empty());
+
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
