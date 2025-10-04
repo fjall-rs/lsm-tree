@@ -4,7 +4,7 @@
 
 use crate::{
     config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
-    SegmentId,
+    SegmentId, SequenceNumberCounter,
 };
 use std::sync::{atomic::AtomicU64, Arc, RwLock};
 
@@ -57,9 +57,13 @@ pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
 
-    /// Hands out a unique (monotonically increasing) segment ID
+    /// Hands out a unique (monotonically increasing) table ID
     #[doc(hidden)]
     pub segment_id_counter: Arc<AtomicU64>,
+
+    // This is not really used in the normal tree, but we need it in the blob tree
+    /// Hands out a unique (monotonically increasing) blob file ID
+    pub(crate) blob_file_id_generator: SequenceNumberCounter,
 
     /// Active memtable that is being written to
     pub(crate) active_memtable: Arc<RwLock<Arc<Memtable>>>,
@@ -91,6 +95,7 @@ impl TreeInner {
         Ok(Self {
             id: get_next_tree_id(),
             segment_id_counter: Arc::new(AtomicU64::default()),
+            blob_file_id_generator: SequenceNumberCounter::default(),
             config,
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),

@@ -223,6 +223,8 @@ impl CompactionFlavour for RelocatingCompaction {
 
         let blob_file_ids_to_drop = self.rewriting_blob_file_ids;
 
+        // TODO: fwiw also add all dead blob files
+
         levels.atomic_swap(
             |current| {
                 current.with_merge(

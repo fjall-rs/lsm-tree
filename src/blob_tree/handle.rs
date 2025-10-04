@@ -6,10 +6,16 @@ use crate::{
 use std::io::{Read, Write};
 use varint_rs::{VarintReader, VarintWriter};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Eq)]
 pub struct BlobIndirection {
     pub(crate) vhandle: ValueHandle,
     pub(crate) size: u32,
+}
+
+impl PartialEq for BlobIndirection {
+    fn eq(&self, other: &Self) -> bool {
+        self.vhandle == other.vhandle && self.size == other.size
+    }
 }
 
 impl Encode for BlobIndirection {

@@ -101,8 +101,6 @@ pub struct BlobTree {
     pub index: crate::Tree,
 
     blobs_folder: PathBuf,
-
-    blob_file_id_generator: SequenceNumberCounter,
 }
 
 impl BlobTree {
@@ -125,10 +123,14 @@ impl BlobTree {
             .map(|x| x + 1)
             .unwrap_or_default();
 
+        index
+            .0
+            .blob_file_id_generator
+            .set(blob_file_id_to_continue_with);
+
         Ok(Self {
             index,
             blobs_folder,
-            blob_file_id_generator: SequenceNumberCounter::new(blob_file_id_to_continue_with),
         })
     }
 }
@@ -413,12 +415,19 @@ impl AbstractTree for BlobTree {
                     }
                 });
 
-        // TODO: 3.0.0 select compression
         let mut blob_writer = BlobFileWriter::new(
-            self.blob_file_id_generator.clone(),
+            self.index.0.blob_file_id_generator.clone(),
             u64::MAX, // TODO: actually use target size? but be sure to link to table correctly
             self.index.config.path.join(BLOBS_FOLDER),
-        )?;
+        )?
+        .use_compression(
+            self.index
+                .config
+                .kv_separation_opts
+                .as_ref()
+                .expect("blob options should exist")
+                .blob_compression,
+        );
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, eviction_seqno);
@@ -453,7 +462,7 @@ impl AbstractTree for BlobTree {
             if value_size >= separation_threshold {
                 let offset = blob_writer.offset();
                 let blob_file_id = blob_writer.blob_file_id();
-                let on_disk_size = blob_writer.write(&item.key.user_key, value)?;
+                let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
 
                 let indirection = BlobIndirection {
                     vhandle: ValueHandle {

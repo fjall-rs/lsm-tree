@@ -955,6 +955,7 @@ impl Tree {
         let inner = TreeInner {
             id: tree_id,
             segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
+            blob_file_id_generator: SequenceNumberCounter::default(),
             active_memtable: Arc::default(),
             sealed_memtables: Arc::default(),
             manifest: Arc::new(RwLock::new(levels)),
