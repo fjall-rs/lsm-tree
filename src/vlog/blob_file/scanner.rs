@@ -28,7 +28,7 @@ impl Scanner {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
-        let file_reader = BufReader::new(File::open(path)?);
+        let file_reader = BufReader::with_capacity(32_000, File::open(path)?);
         Ok(Self::with_reader(blob_file_id, file_reader))
     }
 
