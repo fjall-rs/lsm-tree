@@ -287,7 +287,7 @@ fn merge_segments(
 
                 // TODO: 3.0.0 remove
                 log::debug!(
-                    "maybe rewrite blob files: {:#?}",
+                    "Maybe rewrite blob files: {:#?}",
                     linked_blob_files
                         .iter()
                         .map(|bf| bf.id())
@@ -323,7 +323,7 @@ fn merge_segments(
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
                 log::debug!(
-                    "relocate blob files: {:#?}",
+                    "Relocate blob files: {:#?}",
                     blob_files_to_rewrite
                         .iter()
                         .map(BlobFile::id)
@@ -368,39 +368,47 @@ fn merge_segments(
     // does not block possible other compactions and reads
     drop(levels);
 
-    // TODO: guard hidden segments (somehow)
-
     for (idx, item) in merge_iter.enumerate() {
-        let item = item?;
+        let item = item.inspect_err(|_| {
+            // IMPORTANT: We need to show tables again on error
+            let mut levels = opts.levels.write().expect("lock is poisoned");
+            levels.show_segments(payload.segment_ids.iter().copied());
+        })?;
 
         // IMPORTANT: We can only drop tombstones when writing into last level
         if is_last_level && item.is_tombstone() {
             continue;
         }
 
-        compactor.write(item)?;
+        compactor.write(item).inspect_err(|_| {
+            // IMPORTANT: We need to show tables again on error
+            let mut levels = opts.levels.write().expect("lock is poisoned");
+            levels.show_segments(payload.segment_ids.iter().copied());
+        })?;
 
         if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
-            log::debug!("compactor: stopping amidst compaction because of stop signal");
+            log::debug!("Stopping amidst compaction because of stop signal");
             return Ok(());
         }
     }
 
     // NOTE: Mind lock order L -> M -> S
-    log::trace!("compactor: acquiring levels manifest write lock");
+    log::trace!("Acquiring levels manifest write lock");
     let mut levels = opts.levels.write().expect("lock is poisoned");
-    log::trace!("compactor: acquired levels manifest write lock");
+    log::trace!("Acquired levels manifest write lock");
 
-    log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
-
-    compactor.finish(&mut levels, opts, payload, dst_lvl, blob_frag_map)?;
+    compactor
+        .finish(&mut levels, opts, payload, dst_lvl, blob_frag_map)
+        .inspect_err(|_| {
+            // IMPORTANT: We need to show tables again on error
+            levels.show_segments(payload.segment_ids.iter().copied());
+        })?;
 
     levels.show_segments(payload.segment_ids.iter().copied());
 
-    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+    levels.maintenance(opts.eviction_seqno).inspect_err(|e| {
         log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
-    }
+    })?;
 
     drop(levels);
 
