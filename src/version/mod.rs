@@ -144,6 +144,7 @@ pub struct VersionInner {
     /// The individual LSM-tree levels which consist of runs of tables
     pub(crate) levels: Vec<Level>,
 
+    // TODO: 3.0.0 this should really be a newtype
     // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
     //
     // Changing the value log tends to happen way less often than other modifications to the
@@ -411,6 +412,8 @@ impl Version {
         new_segments: &[Segment],
         dest_level: usize,
         diff: Option<FragmentationMap>,
+        new_blob_files: Vec<BlobFile>,
+        blob_files_to_drop: HashSet<BlobFileId>,
     ) -> Self {
         let id = self.id + 1;
 
@@ -440,19 +443,35 @@ impl Version {
 
         let has_diff = diff.is_some();
 
-        let gc_stats = if let Some(diff) = diff {
+        let gc_stats = if has_diff || !blob_files_to_drop.is_empty() {
             let mut copy = self.gc_stats.deref().clone();
-            diff.merge_into(&mut copy);
+
+            if let Some(diff) = diff {
+                diff.merge_into(&mut copy);
+            }
+
+            for id in &blob_files_to_drop {
+                copy.remove(id);
+            }
+
             copy.prune(&self.value_log);
+
             Arc::new(copy)
         } else {
             self.gc_stats.clone()
         };
 
-        let value_log = if has_diff {
-            // TODO: 3.0.0 this should really be a newtype
+        let value_log = if has_diff || !new_blob_files.is_empty() {
             let mut copy = self.value_log.deref().clone();
-            copy.retain(|_, blob_file| !blob_file.is_dead(&gc_stats));
+
+            for blob_file in new_blob_files {
+                copy.insert(blob_file.id(), blob_file);
+            }
+
+            for id in blob_files_to_drop {
+                copy.remove(&id);
+            }
+
             Arc::new(copy)
         } else {
             self.value_log.clone()
