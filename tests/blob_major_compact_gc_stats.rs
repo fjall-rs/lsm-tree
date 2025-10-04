@@ -24,7 +24,6 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
 
@@ -32,8 +31,11 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        // Major compaction does not rewrite every blob file
+        // Blob file has no fragmentation before compaction (in stats)
+        // so it is not rewritten
         tree.major_compact(64_000_000, 1_000)?;
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.blob_file_count());
 
         let gc_stats = tree
             .manifest()
@@ -103,7 +105,8 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 .get_linked_blob_files()?,
         );
 
-        // Major compaction does not rewrite every blob file
+        // Blob file has no fragmentation before compaction (in stats)
+        // so it is not rewritten
         tree.major_compact(64_000_000, 1_000)?;
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
