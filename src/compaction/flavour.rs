@@ -221,9 +221,14 @@ impl CompactionFlavour for RelocatingCompaction {
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
         let created_blob_files = self.blob_writer.finish()?;
 
-        let blob_file_ids_to_drop = self.rewriting_blob_file_ids;
+        let mut blob_file_ids_to_drop = self.rewriting_blob_file_ids;
 
-        // TODO: fwiw also add all dead blob files
+        for blob_file in levels.current_version().value_log.values() {
+            if blob_file.is_dead(levels.current_version().gc_stats()) {
+                blob_file_ids_to_drop.insert(blob_file.id());
+                self.rewriting_blob_files.push(blob_file.clone());
+            }
+        }
 
         levels.atomic_swap(
             |current| {
@@ -349,6 +354,14 @@ impl CompactionFlavour for StandardCompaction {
 
         let created_segments = self.consume_writer(opts, dst_lvl)?;
 
+        let mut blob_files_to_drop = Vec::default();
+
+        for blob_file in levels.current_version().value_log.values() {
+            if blob_file.is_dead(levels.current_version().gc_stats()) {
+                blob_files_to_drop.push(blob_file.clone());
+            }
+        }
+
         levels.atomic_swap(
             |current| {
                 current.with_merge(
@@ -361,7 +374,10 @@ impl CompactionFlavour for StandardCompaction {
                         Some(blob_frag_map)
                     },
                     Vec::default(),
-                    HashSet::default(),
+                    blob_files_to_drop
+                        .iter()
+                        .map(BlobFile::id)
+                        .collect::<HashSet<_>>(),
                 )
             },
             opts.eviction_seqno,
@@ -372,6 +388,10 @@ impl CompactionFlavour for StandardCompaction {
         // cleaned up upon recovery
         for table in table_ids_to_delete {
             table.mark_as_deleted();
+        }
+
+        for blob_file in blob_files_to_drop {
+            blob_file.mark_as_deleted();
         }
 
         Ok(())
