@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::scanner::Scanner as BlobFileScanner;
-use crate::{vlog::BlobFileId, Checksum, UserKey, UserValue};
+use crate::vlog::{blob_file::scanner::ScanEntry, BlobFileId};
 use interval_heap::IntervalHeap;
 use std::cmp::Reverse;
 
@@ -12,15 +12,13 @@ type IteratorIndex = usize;
 #[derive(Debug)]
 struct IteratorValue {
     index: IteratorIndex,
-    key: UserKey,
-    value: UserValue,
+    scan_entry: ScanEntry,
     blob_file_id: BlobFileId,
-    checksum: Checksum,
 }
 
 impl PartialEq for IteratorValue {
     fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
+        self.scan_entry.key == other.scan_entry.key
     }
 }
 impl Eq for IteratorValue {}
@@ -33,7 +31,8 @@ impl PartialOrd for IteratorValue {
 
 impl Ord for IteratorValue {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.key, Reverse(&self.blob_file_id)).cmp(&(&other.key, Reverse(&other.blob_file_id)))
+        (&self.scan_entry.key, Reverse(&self.scan_entry.seqno))
+            .cmp(&(&other.scan_entry.key, Reverse(&other.scan_entry.seqno)))
     }
 }
 
@@ -57,15 +56,13 @@ impl MergeScanner {
         let reader = &mut self.readers[idx];
 
         if let Some(value) = reader.next() {
-            let (k, v, checksum) = value?;
+            let scan_entry = value?;
             let blob_file_id = reader.blob_file_id;
 
             self.heap.push(IteratorValue {
                 index: idx,
-                key: k,
-                value: v,
                 blob_file_id,
-                checksum,
+                scan_entry,
             });
         }
 
@@ -82,7 +79,7 @@ impl MergeScanner {
 }
 
 impl Iterator for MergeScanner {
-    type Item = crate::Result<(UserKey, UserValue, BlobFileId, Checksum)>;
+    type Item = crate::Result<(ScanEntry, BlobFileId)>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.heap.is_empty() {
@@ -91,20 +88,7 @@ impl Iterator for MergeScanner {
 
         if let Some(head) = self.heap.pop_min() {
             fail_iter!(self.advance_reader(head.index));
-
-            // Discard old items
-            while let Some(next) = self.heap.pop_min() {
-                if next.key == head.key {
-                    fail_iter!(self.advance_reader(next.index));
-                } else {
-                    // Reached next user key now
-                    // Push back non-conflicting item and exit
-                    self.heap.push(next);
-                    break;
-                }
-            }
-
-            return Some(Ok((head.key, head.value, head.blob_file_id, head.checksum)));
+            return Some(Ok((head.scan_entry, head.blob_file_id)));
         }
 
         None
@@ -121,11 +105,50 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn blob_file_merger_seqno() -> crate::Result<()> {
+        let dir = tempdir()?;
+
+        let blob_file_path = dir.path().join("0");
+        {
+            {
+                let mut writer = BlobFileWriter::new(&blob_file_path, 0)?;
+
+                writer.write(b"a", 1, &b"1".repeat(100))?;
+                writer.write(b"a", 0, &b"0".repeat(100))?;
+
+                writer.finish()?;
+            }
+        }
+
+        {
+            let mut merger = MergeScanner::new(vec![Scanner::new(&blob_file_path, 0)?]);
+
+            assert_eq!(
+                (Slice::from(b"a"), Slice::from(b"1".repeat(100))),
+                merger
+                    .next()
+                    .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
+                    .unwrap()?,
+            );
+            assert_eq!(
+                (Slice::from(b"a"), Slice::from(b"0".repeat(100))),
+                merger
+                    .next()
+                    .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
+                    .unwrap()?,
+            );
+
+            assert!(merger.next().is_none());
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn blob_file_merger() -> crate::Result<()> {
         let dir = tempdir()?;
 
         let blob_file_0_path = dir.path().join("0");
-
         let blob_file_1_path = dir.path().join("1");
 
         {
@@ -135,7 +158,7 @@ mod tests {
                 let mut writer = BlobFileWriter::new(&blob_file_0_path, 0)?;
 
                 for key in keys {
-                    writer.write(key, &key.repeat(100))?;
+                    writer.write(key, 0, &key.repeat(100))?;
                 }
 
                 writer.finish()?;
@@ -149,7 +172,7 @@ mod tests {
                 let mut writer = BlobFileWriter::new(&blob_file_1_path, 1)?;
 
                 for key in keys {
-                    writer.write(key, &key.repeat(100))?;
+                    writer.write(key, 1, &key.repeat(100))?;
                 }
 
                 writer.finish()?;
@@ -169,7 +192,7 @@ mod tests {
                     (Slice::from(key), Slice::from(key.repeat(100))),
                     merger
                         .next()
-                        .map(|result| result.map(|(k, v, _, _)| { (k, v) }))
+                        .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
                         .unwrap()?,
                 );
             }

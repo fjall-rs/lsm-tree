@@ -8,11 +8,11 @@ use crate::{
         blob_file::{Inner as BlobFileInner, Metadata},
         BlobFileId,
     },
-    BlobFile, CompressionType, SequenceNumberCounter,
+    BlobFile, CompressionType, SeqNo, SequenceNumberCounter,
 };
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{atomic::AtomicBool, Arc},
 };
 
 /// Blob file writer, may write multiple blob files
@@ -113,6 +113,7 @@ impl MultiWriter {
             );
 
             let blob_file = BlobFile(Arc::new(BlobFileInner {
+                is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
                 path: writer.path.clone(),
                 meta: Metadata {
@@ -133,6 +134,7 @@ impl MultiWriter {
                             .clone()
                             .expect("should have written at least 1 item"),
                     )),
+                    compression: writer.compression,
                 },
             }));
 
@@ -161,19 +163,12 @@ impl MultiWriter {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn write<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &mut self,
-        key: K,
-        value: V,
-    ) -> crate::Result<u32> {
-        let key = key.as_ref();
-        let value = value.as_ref();
-
+    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
         let target_size = self.target_size;
 
         // Write actual value into blob file
         let writer = &mut self.active_writer;
-        let bytes_written = writer.write(key, value)?;
+        let bytes_written = writer.write(key, seqno, value)?;
 
         // Check for blob file size target, maybe rotate to next writer
         if writer.offset() >= target_size {

@@ -7,15 +7,19 @@ pub mod blob_file;
 mod handle;
 
 pub use {
-    accessor::Accessor, blob_file::multi_writer::MultiWriter as BlobFileWriter,
-    blob_file::BlobFile, handle::ValueHandle,
+    accessor::Accessor, blob_file::merge::MergeScanner as BlobFileMergeScanner,
+    blob_file::multi_writer::MultiWriter as BlobFileWriter,
+    blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
 use crate::{
     coding::Decode,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
 };
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Vec<BlobFile>> {
     let cnt = ids.len();
@@ -46,7 +50,12 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
             Metadata::decode_from(&mut reader)?
         };
 
-        blob_files.push(BlobFile(Arc::new(BlobFileInner { id, path, meta })));
+        blob_files.push(BlobFile(Arc::new(BlobFileInner {
+            id,
+            path,
+            meta,
+            is_deleted: AtomicBool::new(false),
+        })));
 
         if idx % progress_mod == 0 {
             log::debug!("Recovered {idx}/{cnt} blob files");

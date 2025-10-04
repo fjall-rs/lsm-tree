@@ -3,11 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{coding::DecodeError, vlog::BlobFileId, Checksum, CompressionType, UserKey, UserValue};
-use byteorder::{BigEndian, ReadBytesExt};
+use crate::{
+    coding::DecodeError, vlog::BlobFileId, Checksum, CompressionType, SeqNo, UserKey, UserValue,
+};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Seek},
     path::Path,
 };
 
@@ -45,23 +47,25 @@ impl Scanner {
         self.compression = compression;
         self
     }
+}
 
-    // pub(crate) fn get_offset(&mut self) -> std::io::Result<u64> {
-    //     self.inner.stream_position()
-    // }
-
-    // pub(crate) fn into_inner(self) -> BufReader<File> {
-    //     self.inner
-    // }
+#[derive(Debug)]
+pub struct ScanEntry {
+    pub key: UserKey,
+    pub seqno: SeqNo,
+    pub value: UserValue,
+    pub offset: u64,
 }
 
 impl Iterator for Scanner {
-    type Item = crate::Result<(UserKey, UserValue, Checksum)>;
+    type Item = crate::Result<ScanEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_terminated {
             return None;
         }
+
+        let offset = fail_iter!(self.inner.stream_position());
 
         {
             let mut buf = [0; BLOB_HEADER_MAGIC.len()];
@@ -79,35 +83,58 @@ impl Iterator for Scanner {
             }
         }
 
-        let checksum = fail_iter!(self.inner.read_u128::<BigEndian>());
+        let expected_checksum = fail_iter!(self.inner.read_u128::<LittleEndian>());
+        let seqno = fail_iter!(self.inner.read_u64::<LittleEndian>());
 
-        let key_len = fail_iter!(self.inner.read_u16::<BigEndian>());
-        let real_val_len = fail_iter!(self.inner.read_u32::<BigEndian>());
-        let on_disk_val_len = fail_iter!(self.inner.read_u32::<BigEndian>());
+        let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
+        let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
+        let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
 
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
 
-        // TODO: finish compression
+        let raw_data = fail_iter!(UserValue::from_reader(
+            &mut self.inner,
+            on_disk_val_len as usize
+        ));
+
         #[warn(clippy::match_single_binding)]
-        let val = match &self.compression {
-            _ => {
-                fail_iter!(UserValue::from_reader(
-                    &mut self.inner,
-                    on_disk_val_len as usize
-                ))
+        let value = match &self.compression {
+            CompressionType::None => raw_data,
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+
+                fail_iter!(lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(self.compression)));
+
+                builder.freeze().into()
             }
         };
-        // Some(compressor) => {
-        //     // TODO: https://github.com/PSeitz/lz4_flex/issues/166
-        //     let mut val = vec![0; val_len as usize];
-        //     fail_iter!(self.inner.read_exact(&mut val));
-        //     UserValue::from(fail_iter!(compressor.decompress(&val)))
-        // }
-        // None => {
 
-        // }
+        {
+            let checksum = {
+                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+                hasher.update(&key);
+                hasher.update(&value);
+                hasher.digest128()
+            };
 
-        Some(Ok((key, val, Checksum::from_raw(checksum))))
+            if expected_checksum != checksum {
+                return Some(Err(crate::Error::ChecksumMismatch {
+                    got: Checksum::from_raw(checksum),
+                    expected: Checksum::from_raw(expected_checksum),
+                }));
+            }
+        }
+
+        Some(Ok(ScanEntry {
+            key,
+            seqno,
+            value,
+            offset,
+        }))
     }
 }
 
@@ -120,7 +147,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn blob_file_scanner() -> crate::Result<()> {
+    fn blob_scanner() -> crate::Result<()> {
         let dir = tempdir()?;
         let blob_file_path = dir.path().join("0");
 
@@ -130,7 +157,7 @@ mod tests {
             let mut writer = BlobFileWriter::new(&blob_file_path, 0)?;
 
             for key in keys {
-                writer.write(key, &key.repeat(100))?;
+                writer.write(key, 0, &key.repeat(100))?;
             }
 
             writer.finish()?;
@@ -144,7 +171,46 @@ mod tests {
                     (Slice::from(key), Slice::from(key.repeat(100))),
                     scanner
                         .next()
-                        .map(|result| result.map(|(k, v, _)| { (k, v) }))
+                        .map(|result| result.map(|entry| { (entry.key, entry.value) }))
+                        .unwrap()?,
+                );
+            }
+
+            assert!(scanner.next().is_none());
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_scanner_lz4() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let blob_file_path = dir.path().join("0");
+
+        let keys = [b"a", b"b", b"c", b"d", b"e"];
+
+        {
+            let mut writer =
+                BlobFileWriter::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
+
+            for key in keys {
+                writer.write(key, 0, &key.repeat(100))?;
+            }
+
+            writer.finish()?;
+        }
+
+        {
+            let mut scanner =
+                Scanner::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
+
+            for key in keys {
+                assert_eq!(
+                    (Slice::from(key), Slice::from(key.repeat(100))),
+                    scanner
+                        .next()
+                        .map(|result| result.map(|entry| { (entry.key, entry.value) }))
                         .unwrap()?,
                 );
             }

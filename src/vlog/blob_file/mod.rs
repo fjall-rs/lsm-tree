@@ -11,7 +11,10 @@ pub mod writer;
 
 use crate::{blob_tree::FragmentationMap, vlog::BlobFileId};
 pub use meta::Metadata;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 /// A blob file is an immutable, sorted, contiguous file that contains large key-value pairs (blobs)
 #[derive(Debug)]
@@ -24,7 +27,29 @@ pub struct Inner {
 
     /// Statistics
     pub meta: Metadata,
-    // TODO: is_deleted, on Drop, like SST segments
+
+    /// Whether this blob file is deleted (logically)
+    pub is_deleted: AtomicBool,
+}
+
+impl Drop for Inner {
+    fn drop(&mut self) {
+        if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
+            log::trace!(
+                "Cleanup deleted blob file {:?} at {}",
+                self.id,
+                self.path.display(),
+            );
+
+            if let Err(e) = std::fs::remove_file(&*self.path) {
+                log::warn!(
+                    "Failed to cleanup deleted blob file {:?} at {}: {e:?}",
+                    self.id,
+                    self.path.display(),
+                );
+            }
+        }
+    }
 }
 
 /// A blob file stores large values and is part of the value log
@@ -46,6 +71,12 @@ impl std::hash::Hash for BlobFile {
 }
 
 impl BlobFile {
+    pub(crate) fn mark_as_deleted(&self) {
+        self.0
+            .is_deleted
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
     /// Returns the blob file ID.
     #[must_use]
     pub fn id(&self) -> BlobFileId {
