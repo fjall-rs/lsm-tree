@@ -176,7 +176,7 @@ impl Config {
     /// You can create a global [`Cache`] and share it between multiple
     /// trees to cap global cache memory usage.
     ///
-    /// Defaults to a cache with 8 MiB of capacity *per tree*.
+    /// Defaults to a cache with 16 MiB of capacity *per tree*.
     #[must_use]
     pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
         self.cache = cache;
