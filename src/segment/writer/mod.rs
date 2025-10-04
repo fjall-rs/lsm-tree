@@ -12,7 +12,7 @@ use crate::{
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
 pub struct LinkedFile {
     pub blob_file_id: BlobFileId,
     pub bytes: u64,

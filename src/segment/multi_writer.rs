@@ -17,7 +17,7 @@ use std::{
 /// This results in a sorted "run" of segments
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
-    base_path: PathBuf,
+    pub(crate) base_path: PathBuf,
 
     data_block_hash_ratio: f32,
 
