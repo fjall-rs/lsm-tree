@@ -2,7 +2,7 @@ use lsm_tree::{AbstractTree, SeqNo};
 use test_log::test;
 
 #[test]
-fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
+fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
