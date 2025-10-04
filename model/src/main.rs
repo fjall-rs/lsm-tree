@@ -1,7 +1,13 @@
 use clap::Parser;
-use lsm_tree::{AbstractTree, Guard, UserKey as Key, UserValue as Value, config::BlockSizePolicy};
-use rand::seq::IteratorRandom;
+use lsm_tree::{
+    AbstractTree, Guard, UserKey as Key, UserValue as Value,
+    config::{BlockSizePolicy, CompressionPolicy},
+};
+use rand::{Rng, seq::IteratorRandom};
 use std::{collections::BTreeMap as ModelTree, sync::Arc};
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Clone, Debug)]
 enum Operation {
@@ -35,6 +41,8 @@ fn main() -> lsm_tree::Result<()> {
 
     let mut model = ModelTree::new();
     let db = lsm_tree::Config::new(folder.path())
+        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::Lz4))
+        .index_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::Lz4))
         .data_block_size_policy(BlockSizePolicy::all(100))
         .index_block_size_policy(BlockSizePolicy::all(100))
         .open()?;
@@ -44,7 +52,7 @@ fn main() -> lsm_tree::Result<()> {
     for i in 0..args.ops.unwrap_or(usize::MAX) {
         let op = match (0usize..100).choose(&mut rng).unwrap() {
             0..50 => Operation::Insert(Key::from(seqno.get().to_be_bytes()), Value::from("hello")),
-            50.. => Operation::Remove(Key::from("b")),
+            50.. => Operation::Remove(Key::from(rng.random::<u64>().to_be_bytes())),
         };
 
         if args.verbose || i % 100 == 0 {
@@ -56,16 +64,36 @@ fn main() -> lsm_tree::Result<()> {
         match op {
             Operation::Insert(key, value) => {
                 db.insert(key.clone(), value.clone(), seqno.next());
-                model.insert(key, value);
+                model.insert(key.clone(), value.clone());
+
+                let v = model.get(&key).unwrap();
+                assert_eq!(v, &value);
+
+                let v = db.get(&key, seqno.get())?.unwrap();
+                assert_eq!(
+                    v, &value,
+                    "value (of point read) for key {key:?} does not match",
+                );
             }
             Operation::Remove(key) => {
                 db.remove(key.clone(), seqno.next());
                 model.remove(&key);
+
+                assert!(
+                    !model.contains_key(&key),
+                    "model should not contain deleted key {key:?}",
+                );
+                assert!(
+                    !db.contains_key(&key, seqno.get())?,
+                    "db should not contain deleted key {key:?}",
+                );
             }
         }
 
         // Don't do so often because it's expensive
-        if i % 100 == 0 {
+        if i % 10_000 == 0 {
+            eprintln!("  Full check");
+
             for (expected, guard) in model.iter().zip(db.iter(seqno.get(), None)) {
                 let (k, v) = expected;
                 let (real_k, real_v) = &guard.into_inner()?;
@@ -88,9 +116,14 @@ fn main() -> lsm_tree::Result<()> {
             db.compact(compaction.clone(), watermark)?;
         }
 
-        if op_log.len() > 10_000_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
+        if op_log.len() > 500_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
             eprintln!("-- Clearing state --");
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            eprintln!(
+                "DB size: {}, # tables: {}",
+                db.disk_space(),
+                db.segment_count(),
+            );
+            std::thread::sleep(std::time::Duration::from_millis(500));
 
             db.drop_range::<&[u8], _>(..)?;
             model.clear();
@@ -99,7 +132,7 @@ fn main() -> lsm_tree::Result<()> {
             assert!(db.is_empty(seqno.get(), None)?);
             assert!(model.is_empty());
 
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
 
