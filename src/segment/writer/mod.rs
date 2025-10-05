@@ -418,8 +418,8 @@ impl Writer {
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
-                meta("#prefix_truncation#data", &[1]),
-                meta("#prefix_truncation#index", &[0]),
+                meta("#prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("#prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta(
                     "#restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),

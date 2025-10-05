@@ -49,6 +49,17 @@ pub struct ParsedMeta {
     pub index_block_compression: CompressionType,
 }
 
+macro_rules! read_u8 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u8()?
+    }};
+}
+
 macro_rules! read_u64 {
     ($block:expr, $name:expr) => {{
         let bytes = $block
@@ -118,6 +129,12 @@ impl ParsedMeta {
                 std::str::from_utf8(&hash_type),
             );
         }
+
+        assert_eq!(
+            read_u8!(block, b"#restart_interval#index"),
+            1,
+            "index block restart intervals >1 are not supported for this version",
+        );
 
         let id = read_u64!(block, b"#id");
         let item_count = read_u64!(block, b"#item_count");
