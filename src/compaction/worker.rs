@@ -253,6 +253,8 @@ fn merge_segments(
     let table_writer =
         super::flavour::prepare_table_writer(levels.current_version(), opts, payload)?;
 
+    let start = Instant::now();
+
     let mut compactor = match &opts.config.kv_separation_opts {
         Some(blob_opts) => {
             merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
@@ -278,21 +280,16 @@ fn merge_segments(
                     .filter(|blob_file| {
                         blob_file.is_stale(version.gc_stats(), 0.25 /* TODO: option */)
                     })
+                    .filter(|blob_file| {
+                        // NOTE: Dead blob files are dropped anyway during Version change commit
+                        !blob_file.is_dead(version.gc_stats())
+                    })
                     .collect::<HashSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>();
 
                 linked_blob_files.sort_by_key(|a| a.id());
                 // TODO: 3.0.0 ^- age cutoff
-
-                // TODO: 3.0.0 remove
-                log::debug!(
-                    "Maybe rewrite blob files: {:#?}",
-                    linked_blob_files
-                        .iter()
-                        .map(|bf| bf.id())
-                        .collect::<Vec<_>>(),
-                );
 
                 // NOTE: If there is any table not part of our compaction input
                 // that also points to the blob file, we cannot rewrite the blob file
@@ -362,10 +359,12 @@ fn merge_segments(
         None => Box::new(StandardCompaction::new(table_writer, segments)),
     };
 
+    log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
+
     levels.hide_segments(payload.segment_ids.iter().copied());
 
     // IMPORTANT: Free lock so the compaction (which may go on for a while)
-    // does not block possible other compactions and reads
+    // does not block possible other compactions and writes/reads
     drop(levels);
 
     for (idx, item) in merge_iter.enumerate() {
