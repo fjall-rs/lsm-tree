@@ -280,6 +280,7 @@ impl Config {
         self
     }
 
+    // TODO: not supported yet in index blocks
     // /// Sets the restart interval inside index blocks.
     // ///
     // /// A higher restart interval saves space while increasing lookup times
