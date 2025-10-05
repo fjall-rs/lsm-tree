@@ -100,6 +100,49 @@ pub struct RelocatingCompaction {
     rewriting_blob_files: Vec<BlobFile>,
 }
 
+impl RelocatingCompaction {
+    pub fn new(
+        inner: StandardCompaction,
+        blob_scanner: Peekable<BlobFileMergeScanner>,
+        blob_writer: BlobFileWriter,
+        rewriting_blob_file_ids: HashSet<BlobFileId>,
+        rewriting_blob_files: Vec<BlobFile>,
+    ) -> Self {
+        Self {
+            inner,
+            blob_scanner,
+            blob_writer,
+            rewriting_blob_file_ids,
+            rewriting_blob_files,
+        }
+    }
+
+    /// Drains all blobs that come "before" the given vptr.
+    fn drain_blobs(&mut self, key: &[u8], vptr: &BlobIndirection) -> crate::Result<()> {
+        loop {
+            let Some(blob) = self.blob_scanner.next_if(|x| match x {
+                Ok((entry, blob_file_id)) => {
+                    entry.key != key
+                        || (*blob_file_id != vptr.vhandle.blob_file_id)
+                        || (entry.offset < vptr.vhandle.offset)
+                }
+                Err(_) => true,
+            }) else {
+                break;
+            };
+
+            match blob {
+                Ok((entry, _)) => {
+                    assert!((entry.key <= key), "vptr was not matched with blob");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl CompactionFlavour for RelocatingCompaction {
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.key.value_type.is_indirection() {
@@ -110,7 +153,7 @@ impl CompactionFlavour for RelocatingCompaction {
                 return Ok(());
             };
 
-            log::debug!(
+            log::trace!(
                 "{:?}:{} => encountered indirection: {indirection:?}",
                 item.key.user_key,
                 item.key.seqno,
@@ -120,66 +163,32 @@ impl CompactionFlavour for RelocatingCompaction {
                 .rewriting_blob_file_ids
                 .contains(&indirection.vhandle.blob_file_id)
             {
-                loop {
-                    // TODO: uglyyyy
-                    let blob = self
-                        .blob_scanner
-                        .peek()
-                        .expect("should have enough blob entries");
+                self.drain_blobs(&item.key.user_key, &indirection)?;
 
-                    if let Ok((entry, blob_file_id)) = blob {
-                        if self.rewriting_blob_file_ids.contains(blob_file_id) {
-                            // This blob is part of the rewritten blob files
-                            if entry.key < item.key.user_key {
-                                self.blob_scanner.next().expect("should exist")?;
-                                continue;
-                            }
+                let (blob_entry, blob_file_id) = self
+                    .blob_scanner
+                    .next()
+                    .expect("vptr was not matched with blob (scanner is unexpectedly exhausted)")?;
 
-                            if entry.key == item.key.user_key {
-                                if *blob_file_id < indirection.vhandle.blob_file_id {
-                                    self.blob_scanner.next().expect("should exist")?;
-                                    continue;
-                                }
-                                if entry.offset < indirection.vhandle.offset {
-                                    self.blob_scanner.next().expect("should exist")?;
-                                    continue;
-                                }
-                                if entry.offset == indirection.vhandle.offset {
-                                    // This is the blob we need
-                                    break;
-                                }
-                            }
-                            assert!(
-                                (entry.key > item.key.user_key),
-                                "we passed vptr without getting blob",
-                            );
-                            break;
-                        }
+                debug_assert_eq!(blob_file_id, indirection.vhandle.blob_file_id);
+                debug_assert_eq!(blob_entry.key, item.key.user_key);
+                debug_assert_eq!(blob_entry.offset, indirection.vhandle.offset);
 
-                        break;
-                    }
-
-                    let e = self.blob_scanner.next().expect("should exist");
-                    return Err(e.expect_err("should be error"));
-                }
-
-                let blob = self.blob_scanner.next().expect("should have blob")?;
-
-                log::info!(
+                log::trace!(
                     "=> use blob: {:?}:{} offset: {} from BF {}",
-                    blob.0.key,
-                    blob.0.seqno,
-                    blob.0.offset,
-                    blob.1,
+                    blob_entry.key,
+                    blob_entry.seqno,
+                    blob_entry.offset,
+                    blob_file_id,
                 );
 
                 indirection.vhandle.blob_file_id = self.blob_writer.blob_file_id();
                 indirection.vhandle.offset = self.blob_writer.offset();
 
-                log::debug!("RELOCATE to {indirection:?}");
+                log::trace!("RELOCATE to {indirection:?}");
 
                 self.blob_writer
-                    .write(&item.key.user_key, item.key.seqno, &blob.0.value)?;
+                    .write(&item.key.user_key, item.key.seqno, &blob_entry.value)?;
 
                 self.inner
                     .table_writer
@@ -232,7 +241,7 @@ impl CompactionFlavour for RelocatingCompaction {
 
         levels.atomic_swap(
             |current| {
-                current.with_merge(
+                Ok(current.with_merge(
                     &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
                     payload.dest_level as usize,
@@ -243,7 +252,7 @@ impl CompactionFlavour for RelocatingCompaction {
                     },
                     created_blob_files,
                     blob_file_ids_to_drop,
-                )
+                ))
             },
             opts.eviction_seqno,
         )?;
@@ -260,24 +269,6 @@ impl CompactionFlavour for RelocatingCompaction {
         }
 
         Ok(())
-    }
-}
-
-impl RelocatingCompaction {
-    pub fn new(
-        inner: StandardCompaction,
-        blob_scanner: Peekable<BlobFileMergeScanner>,
-        blob_writer: BlobFileWriter,
-        rewriting_blob_file_ids: HashSet<BlobFileId>,
-        rewriting_blob_files: Vec<BlobFile>,
-    ) -> Self {
-        Self {
-            inner,
-            blob_scanner,
-            blob_writer,
-            rewriting_blob_file_ids,
-            rewriting_blob_files,
-        }
     }
 }
 
@@ -364,7 +355,7 @@ impl CompactionFlavour for StandardCompaction {
 
         levels.atomic_swap(
             |current| {
-                current.with_merge(
+                Ok(current.with_merge(
                     &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
                     &created_segments,
                     payload.dest_level as usize,
@@ -378,7 +369,7 @@ impl CompactionFlavour for StandardCompaction {
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
-                )
+                ))
             },
             opts.eviction_seqno,
         )?;
