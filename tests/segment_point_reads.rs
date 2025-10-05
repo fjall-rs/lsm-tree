@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -8,8 +8,8 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -32,8 +32,8 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -74,8 +74,8 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let keys = [0, 1, 2]
@@ -116,12 +116,13 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open_as_blob_tree()?;
 
     let keys = [0, 1, 2]

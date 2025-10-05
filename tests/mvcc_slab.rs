@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -8,8 +8,8 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let seqno = SequenceNumberCounter::default();
@@ -45,8 +45,8 @@ fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open_as_blob_tree()?;
 
     let seqno = SequenceNumberCounter::default();

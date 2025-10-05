@@ -21,7 +21,7 @@ impl GcStats {
             .store(x, std::sync::atomic::Ordering::Release);
     }
 
-    /// Returns the amount of dead items in the blob file.
+    /// Returns the number of dead items in the blob file.
     pub fn stale_items(&self) -> u64 {
         self.stale_items.load(std::sync::atomic::Ordering::Acquire)
     }

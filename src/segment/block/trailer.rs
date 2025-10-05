@@ -33,7 +33,7 @@ impl<'a> Trailer<'a> {
         self.block.data.len() - TRAILER_SIZE
     }
 
-    /// Returns the amount of items in the block
+    /// Returns the number of items in the block
     #[must_use]
     pub fn item_count(&self) -> usize {
         let mut reader = self.as_slice();
@@ -62,8 +62,6 @@ impl<'a> Trailer<'a> {
     pub fn write<S: Default, T: Encodable<S>>(mut encoder: Encoder<'_, S, T>) -> crate::Result<()> {
         // IMPORTANT: Terminator marker
         encoder.writer.write_u8(TRAILER_START_MARKER)?;
-
-        // TODO: version u8? -> add to segment metadata instead
 
         // NOTE: We know that data blocks will never even approach 4 GB in size
         #[allow(clippy::cast_possible_truncation)]

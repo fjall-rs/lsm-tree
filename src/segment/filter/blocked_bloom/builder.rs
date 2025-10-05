@@ -18,14 +18,16 @@ pub struct Builder {
     inner: BitArrayBuilder,
 
     /// Number of hash functions
-    k: usize,
+    pub(crate) k: usize,
 
     /// Number of blocks in the blocked bloom filter
-    num_blocks: usize,
+    pub(crate) num_blocks: usize,
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
+    // NOTE: We write into a Vec<u8>, so no I/O error can happen
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn build(&self) -> Vec<u8> {
         let mut v = vec![];
@@ -129,6 +131,8 @@ impl Builder {
         for i in 1..(self.k as u64) {
             let idx = h1 % (CACHE_LINE_BYTES as u64 * 8);
 
+            // NOTE: Even for a large segment, filters tend to be pretty small, definitely less than 4 GiB
+            #[allow(clippy::cast_possible_truncation)]
             self.inner
                 .enable_bit(Self::get_bit_idx(block_idx as usize, idx as usize));
 

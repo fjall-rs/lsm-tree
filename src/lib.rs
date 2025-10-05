@@ -71,7 +71,7 @@
 //! tree.flush_active_memtable(0)?;
 //!
 //! // When some disk segments have amassed, use compaction
-//! // to reduce the amount of disk segments
+//! // to reduce the number of disk segments
 //!
 //! // Choose compaction strategy based on workload
 //! use lsm_tree::compaction::Leveled;
@@ -137,7 +137,10 @@ pub mod coding;
 
 pub mod compaction;
 mod compression;
-mod config;
+
+/// Configuration
+pub mod config;
+
 mod double_ended_peekable;
 
 mod error;
@@ -209,6 +212,7 @@ pub use key_range::KeyRange;
 pub use {
     merge::BoxedIterator,
     segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},
+    tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,
 };
@@ -227,7 +231,11 @@ pub use {
     seqno::SequenceNumberCounter,
     tree::Tree,
     value::{SeqNo, ValueType},
+    vlog::BlobFile,
 };
+
+#[cfg(feature = "metrics")]
+pub use metrics::Metrics;
 
 pub use any_tree::AnyTree;
 

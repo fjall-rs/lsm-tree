@@ -2,9 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     compaction::{stream::CompactionStream, Choice},
@@ -21,6 +18,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
     time::Instant,
 };
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
@@ -179,6 +179,11 @@ fn move_segments(
         opts.eviction_seqno,
     )?;
 
+    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+        log::error!("Manifest maintenance failed: {e:?}");
+        return Err(e);
+    }
+
     Ok(())
 }
 
@@ -205,7 +210,7 @@ fn merge_segments(
     let Some(segments) = payload
         .segment_ids
         .iter()
-        .map(|&id| levels.get_segment(id).cloned())
+        .map(|&id| levels.current_version().get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -217,11 +222,27 @@ fn merge_segments(
 
     let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
+    let dst_lvl = payload.canonical_level.into();
+
+    let data_block_size = opts.config.data_block_size_policy.get(dst_lvl);
+    let index_block_size = opts.config.index_block_size_policy.get(dst_lvl);
+
+    let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(dst_lvl);
+    let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(dst_lvl);
+
+    let data_block_compression = opts.config.data_block_compression_policy.get(dst_lvl);
+    let index_block_compression = opts.config.index_block_compression_policy.get(dst_lvl);
+
+    let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
+    let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
+
+    let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
+
     log::debug!(
-        "Compacting segments {:?} into L{}, compression={}, mvcc_gc_watermark={}",
+        "Compacting segments {:?} into L{} (canonical L{}), data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
         payload.segment_ids,
         payload.dest_level,
-        opts.config.compression,
+        payload.canonical_level,
         opts.eviction_seqno,
     );
 
@@ -271,29 +292,28 @@ fn merge_segments(
     };
 
     let mut segment_writer = segment_writer
-        .use_data_block_restart_interval(16)
-        .use_data_block_compression(opts.config.compression)
-        .use_data_block_size(opts.config.data_block_size)
-        .use_data_block_hash_ratio(opts.config.data_block_hash_ratio)
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_index_block_size(index_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
+        .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
             use crate::segment::filter::BloomConstructionPolicy;
 
-            if opts.config.bloom_bits_per_key >= 0 {
-                // TODO:
-                // NOTE: Apply some MONKEY to have very high FPR on small levels
-                // because it's cheap
-                //
-                // See https://nivdayan.github.io/monkeykeyvaluestore.pdf
-                /* match payload.dest_level {
-                    0 => BloomConstructionPolicy::FpRate(0.00001),
-                    1 => BloomConstructionPolicy::FpRate(0.0005),
-                    _ => BloomConstructionPolicy::BitsPerKey(
-                        opts.config.bloom_bits_per_key.unsigned_abs(),
-                    ),
-                } */
-                BloomConstructionPolicy::BitsPerKey(opts.config.bloom_bits_per_key.unsigned_abs())
+            if is_last_level && opts.config.expect_point_read_hits {
+                BloomConstructionPolicy::BitsPerKey(0.0)
             } else {
-                BloomConstructionPolicy::BitsPerKey(0)
+                match opts
+                    .config
+                    .filter_policy
+                    .get(usize::from(payload.dest_level))
+                {
+                    Bloom(policy) => policy,
+                    None => BloomConstructionPolicy::BitsPerKey(0.0),
+                }
             }
         });
 
@@ -365,8 +385,8 @@ fn merge_segments(
                 opts.tree_id,
                 opts.config.cache.clone(),
                 opts.config.descriptor_table.clone(),
-                payload.dest_level <= 1, // TODO: look at configuration
-                payload.dest_level <= 2, // TODO: look at configuration
+                pin_filter,
+                pin_index,
                 #[cfg(feature = "metrics")]
                 opts.metrics.clone(),
             )
@@ -498,7 +518,7 @@ fn drop_segments(
 
     let Some(segments) = ids_to_drop
         .iter()
-        .map(|&id| levels.get_segment(id).cloned())
+        .map(|&id| levels.current_version().get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -541,7 +561,6 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[ignore]
     fn compaction_drop_segments() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
@@ -549,9 +568,9 @@ mod tests {
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
-        tree.insert("a", "a", 1);
+        tree.insert("b", "a", 1);
         tree.flush_active_memtable(0)?;
-        tree.insert("a", "a", 2);
+        tree.insert("c", "a", 2);
         tree.flush_active_memtable(0)?;
 
         assert_eq!(3, tree.approximate_len());

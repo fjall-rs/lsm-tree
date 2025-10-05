@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
 use test_log::test;
 
 #[test]
@@ -6,8 +6,8 @@ fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("a", "a", 0);

@@ -103,13 +103,12 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                {
-                    lz4_flex::decompress_into(&raw_data, &mut builder)
-                        .map_err(|_| crate::Error::Decompress(compression))?;
-                }
+                lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
 
                 builder.freeze().into()
             }
@@ -134,12 +133,16 @@ impl Block {
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&data));
         if checksum != header.checksum {
-            log::warn!(
+            log::error!(
                 "Checksum mismatch for <bufreader>, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
         }
 
         Ok(Self { header, data })
@@ -188,8 +191,8 @@ impl Block {
                 unimplemented!();
             }
         }
+        let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
-        let buf = builder.freeze();
         let header = Header::decode_from(&mut &buf[..])?;
 
         let buf = match compression {
@@ -206,10 +209,8 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                {
-                    lz4_flex::decompress_into(raw_data, &mut builder)
-                        .map_err(|_| crate::Error::Decompress(compression))?;
-                }
+                lz4_flex::decompress_into(raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(compression))?;
 
                 builder.freeze().into()
             }
@@ -234,18 +235,66 @@ impl Block {
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
         if checksum != header.checksum {
-            log::warn!(
+            log::error!(
                 "Checksum mismatch for block {handle:?}, got={}, expected={}",
                 *checksum,
                 *header.checksum,
             );
 
-            return Err(crate::Error::InvalidChecksum((checksum, header.checksum)));
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
         }
 
-        Ok(Self {
-            header,
-            data: Slice::from(buf),
-        })
+        Ok(Self { header, data: buf })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    // TODO: Block::from_file roundtrips
+
+    #[test]
+    fn block_roundtrip_uncompressed() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::None,
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::None)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
+    }
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_roundtrip_lz4() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::Lz4,
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Lz4)?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
     }
 }

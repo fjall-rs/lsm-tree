@@ -42,6 +42,9 @@ pub struct Input {
     /// Level to put the created segments into
     pub dest_level: u8,
 
+    /// The logical level the segments are part of
+    pub canonical_level: u8,
+
     /// Segment target size
     ///
     /// If a segment compaction reaches the level, a new segment is started.

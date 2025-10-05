@@ -277,8 +277,11 @@ mod tests {
         Ok(())
     }
 
+    // TODO: seek and seek_upper need separate binary search routines...?
+    // TODO: because seeking in [a,b,c] to e should return None for seek,
+    // TODO: but not for seek_upper
     #[test]
-    #[ignore]
+    #[ignore = "should not seek"]
     fn v3_index_block_iter_too_far() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),

@@ -17,7 +17,7 @@ use std::io::{Cursor, Read};
 /// A standard bloom filter
 ///
 /// Allows buffering the key hashes before actual filter construction
-/// which is needed to properly calculate the filter size, as the amount of items
+/// which is needed to properly calculate the filter size, as the number of items
 /// are unknown during segment construction.
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
@@ -122,13 +122,12 @@ impl<'a> StandardBloomFilterReader<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use test_log::test;
 
     #[test]
-    fn bloom_serde_round_trip() {
+    fn filter_bloom_standard_serde_round_trip() -> crate::Result<()> {
         let mut filter = Builder::with_fp_rate(10, 0.0001);
 
         let keys = &[
@@ -141,17 +140,19 @@ mod tests {
         }
 
         let filter_bytes = filter.build();
-        let filter_copy = StandardBloomFilterReader::new(&filter_bytes).unwrap();
+        let filter_copy = StandardBloomFilterReader::new(&filter_bytes)?;
 
         assert_eq!(filter.k, filter_copy.k);
         assert_eq!(filter.m, filter_copy.m);
         assert!(!filter_copy.contains(b"asdasads"));
         assert!(!filter_copy.contains(b"item10"));
         assert!(!filter_copy.contains(b"cxycxycxy"));
+
+        Ok(())
     }
 
     #[test]
-    fn bloom_basic() {
+    fn filter_bloom_standard_basic() -> crate::Result<()> {
         let mut filter = Builder::with_fp_rate(10, 0.0001);
 
         let keys = [
@@ -172,19 +173,21 @@ mod tests {
         }
 
         let filter_bytes = filter.build();
-        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
+        let filter = StandardBloomFilterReader::new(&filter_bytes)?;
 
         for key in &keys {
             assert!(filter.contains(key));
         }
 
         assert!(!filter.contains(b"asdasdasdasdasdasdasd"));
+
+        Ok(())
     }
 
     #[test]
-    fn bloom_bpk() {
+    fn filter_bloom_standard_bpk() -> crate::Result<()> {
         let item_count = 1_000;
-        let bpk = 5;
+        let bpk = 5.0;
 
         let mut filter = Builder::with_bpk(item_count, bpk);
 
@@ -195,7 +198,7 @@ mod tests {
         }
 
         let filter_bytes = filter.build();
-        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
+        let filter = StandardBloomFilterReader::new(&filter_bytes)?;
 
         let mut false_positives = 0;
 
@@ -210,10 +213,12 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         let fpr = false_positives as f32 / item_count as f32;
         assert!(fpr < 0.13);
+
+        Ok(())
     }
 
     #[test]
-    fn bloom_fpr() {
+    fn filter_bloom_standard_fpr() -> crate::Result<()> {
         let item_count = 100_000;
         let wanted_fpr = 0.1;
 
@@ -226,7 +231,7 @@ mod tests {
         }
 
         let filter_bytes = filter.build();
-        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
+        let filter = StandardBloomFilterReader::new(&filter_bytes)?;
 
         let mut false_positives = 0;
 
@@ -242,10 +247,12 @@ mod tests {
         let fpr = false_positives as f32 / item_count as f32;
         assert!(fpr > 0.05);
         assert!(fpr < 0.13);
+
+        Ok(())
     }
 
     #[test]
-    fn bloom_fpr_2() {
+    fn filter_bloom_standard_fpr_2() -> crate::Result<()> {
         let item_count = 100_000;
         let wanted_fpr = 0.5;
 
@@ -258,7 +265,7 @@ mod tests {
         }
 
         let filter_bytes = filter.build();
-        let filter = StandardBloomFilterReader::new(&filter_bytes).unwrap();
+        let filter = StandardBloomFilterReader::new(&filter_bytes)?;
 
         let mut false_positives = 0;
 
@@ -274,5 +281,7 @@ mod tests {
         let fpr = false_positives as f32 / item_count as f32;
         assert!(fpr > 0.45);
         assert!(fpr < 0.55);
+
+        Ok(())
     }
 }

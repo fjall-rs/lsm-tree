@@ -14,7 +14,6 @@ mod meta;
 pub(crate) mod multi_writer;
 mod regions;
 mod scanner;
-mod trailer;
 pub mod util;
 mod writer;
 
@@ -24,9 +23,6 @@ pub use id::{GlobalSegmentId, SegmentId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
-
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
 
 use crate::{
     cache::Cache,
@@ -43,6 +39,9 @@ use std::{
     sync::Arc,
 };
 use util::load_block;
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 // TODO: segment iter:
 // TODO:    we only need to truncate items from blocks that are not the first and last block
@@ -104,7 +103,12 @@ impl Segment {
     }
 
     #[must_use]
-    pub fn pinned_bloom_filter_size(&self) -> usize {
+    pub fn filter_size(&self) -> usize {
+        unimplemented!()
+    }
+
+    #[must_use]
+    pub fn pinned_filter_size(&self) -> usize {
         self.pinned_filter_block
             .as_ref()
             .map(Block::size)
@@ -179,11 +183,11 @@ impl Segment {
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
             #[cfg(feature = "metrics")]
-            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+            self.metrics.filter_queries.fetch_add(1, Relaxed);
 
             if !filter.contains_hash(key_hash) {
                 #[cfg(feature = "metrics")]
-                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
 
                 return Ok(None);
             }
@@ -191,16 +195,16 @@ impl Segment {
             let block = self.load_block(
                 filter_block_handle,
                 BlockType::Filter,
-                CompressionType::None,
+                CompressionType::None, // NOTE: We never write a filter block with compression
             )?;
             let filter = StandardBloomFilterReader::new(&block.data)?;
 
             #[cfg(feature = "metrics")]
-            self.metrics.bloom_filter_queries.fetch_add(1, Relaxed);
+            self.metrics.filter_queries.fetch_add(1, Relaxed);
 
             if !filter.contains_hash(key_hash) {
                 #[cfg(feature = "metrics")]
-                self.metrics.bloom_filter_hits.fetch_add(1, Relaxed);
+                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
 
                 return Ok(None);
             }
@@ -217,13 +221,11 @@ impl Segment {
         // TODO: enum_dispatch BlockIndex::iter
         let index_block = match &*self.block_index {
             BlockIndexImpl::Full(index) => index.inner(),
-            BlockIndexImpl::VolatileFull => {
-                &IndexBlock::new(self.load_block(
-                    &self.regions.tli,
-                    BlockType::Index,
-                    CompressionType::None, // TODO: allow index block compression
-                )?)
-            }
+            BlockIndexImpl::VolatileFull => &IndexBlock::new(self.load_block(
+                &self.regions.tli,
+                BlockType::Index,
+                self.metadata.index_block_compression,
+            )?),
         };
 
         let iter = {
@@ -320,11 +322,11 @@ impl Segment {
             BlockIndexImpl::Full(idx) => idx.inner(),
             BlockIndexImpl::VolatileFull => {
                 &IndexBlock::new(
-                    // TODO: handle error
+                    // TODO: load on initial access to block index
                     self.load_block(
                         &self.regions.tli,
                         BlockType::Index,
-                        CompressionType::None, // TODO: allow separate index block compression
+                        self.metadata.index_block_compression,
                     )
                     .expect("should load block"),
                 )
@@ -375,19 +377,12 @@ impl Segment {
         use meta::ParsedMeta;
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
-        use trailer::Trailer;
 
         log::debug!("Recovering segment from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
-        let trailer = Trailer::from_file(&mut file)?;
-        log::trace!("Got trailer: {trailer:#?}");
-
-        log::debug!(
-            "Reading regions block, with region_ptr={:?}",
-            trailer.regions_block_handle(),
-        );
-        let regions = ParsedRegions::load_with_handle(&file, trailer.regions_block_handle())?;
+        let trailer = sfa::Reader::from_reader(&mut file)?;
+        let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
@@ -405,11 +400,7 @@ impl Segment {
             let tli_block = {
                 log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
 
-                let block = Block::from_file(
-                    &file,
-                    regions.tli,
-                    CompressionType::None, // TODO: allow setting index block compression
-                )?;
+                let block = Block::from_file(&file, regions.tli, metadata.index_block_compression)?;
 
                 if block.header.block_type != BlockType::Index {
                     return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
@@ -431,7 +422,7 @@ impl Segment {
             BlockIndexImpl::VolatileFull
         };
 
-        // TODO: load FilterBlock, check block type
+        // TODO: FilterBlock newtype
         let pinned_filter_block = if pin_filter {
             regions
                 .filter
@@ -445,20 +436,21 @@ impl Segment {
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
                     )
+                    .and_then(|block| {
+                        if block.header.block_type == BlockType::Filter {
+                            Ok(block)
+                        } else {
+                            Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                                "BlockType",
+                                block.header.block_type.into(),
+                            ))))
+                        }
+                    })
                 })
                 .transpose()?
         } else {
             None
         };
-
-        // TODO: Maybe only in L0/L1
-        // For larger levels, this will
-        // cache possibly many FDs
-        // causing kick-out of other
-        // FDs in the cache
-        //
-        // NOTE: We already have a file descriptor open, so let's just cache it immediately
-        // descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         let segment = Self(Arc::new(Inner {
             path: Arc::new(file_path),
@@ -506,7 +498,7 @@ impl Segment {
         self.metadata.seqnos.1
     }
 
-    /// Returns the amount of tombstone markers in the `Segment`.
+    /// Returns the number of tombstone markers in the `Segment`.
     #[must_use]
     #[doc(hidden)]
     pub fn tombstone_count(&self) -> u64 {

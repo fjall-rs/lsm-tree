@@ -53,6 +53,7 @@ impl CompactionStrategy for Strategy {
             Choice::Merge(CompactionInput {
                 segment_ids,
                 dest_level: levels.last_level_index(),
+                canonical_level: levels.last_level_index(),
                 target_size: self.target_size,
             })
         }

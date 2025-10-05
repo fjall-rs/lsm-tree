@@ -5,29 +5,33 @@
 pub mod ingest;
 pub mod inner;
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use crate::{
     coding::{Decode, Encode},
-    compaction::CompactionStrategy,
+    compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
+    file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
+    slice::Slice,
     value::InternalValue,
-    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, UserKey, UserValue, ValueType,
+    vlog::BlobFile,
+    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter, UserKey,
+    UserValue, ValueType,
 };
 use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
 use std::{
     io::Cursor,
-    ops::RangeBounds,
+    ops::{Bound, RangeBounds},
     path::Path,
     sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
@@ -68,6 +72,19 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    #[cfg(feature = "metrics")]
+    fn metrics(&self) -> &Arc<crate::Metrics> {
+        &self.0.metrics
+    }
+
+    fn version_free_list_len(&self) -> usize {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .version_free_list
+            .len()
+    }
+
     fn prefix<K: AsRef<[u8]>>(
         &self,
         prefix: K,
@@ -103,23 +120,33 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()> {
+    fn ingest(
+        &self,
+        iter: impl Iterator<Item = (UserKey, UserValue)>,
+        seqno_generator: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()> {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
         // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
-        let lock = self.lock_active_memtable();
+        let memtable_lock = self.lock_active_memtable();
+
+        let seqno = seqno_generator.next();
+
+        // TODO: allow ingestion always, by flushing memtable
         assert!(
-            lock.is_empty(),
-            "can only perform bulk_ingest on empty trees",
+            memtable_lock.is_empty(),
+            "can only perform bulk ingestion with empty memtable",
         );
 
-        let mut writer = Ingestion::new(self)?;
+        let mut writer = Ingestion::new(self)?.with_seqno(seqno);
 
         let start = Instant::now();
         let mut count = 0;
         let mut last_key = None;
 
+        #[allow(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
@@ -136,14 +163,21 @@ impl AbstractTree for Tree {
 
         writer.finish()?;
 
+        visible_seqno.fetch_max(seqno + 1);
+
         log::info!("Ingested {count} items in {:?}", start.elapsed());
 
         Ok(())
     }
 
-    // TODO: change API to RangeBounds<K>
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()> {
-        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(key_range));
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
+        let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range)?;
+
+        if is_empty {
+            return Ok(());
+        }
+
+        let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
         let _lock = self
@@ -187,13 +221,23 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn pinned_bloom_filter_size(&self) -> usize {
+    fn filter_size(&self) -> usize {
         self.manifest
             .read()
             .expect("lock is poisoned")
             .current_version()
             .iter_segments()
-            .map(Segment::pinned_bloom_filter_size)
+            .map(Segment::filter_size)
+            .sum()
+    }
+
+    fn pinned_filter_size(&self) -> usize {
+        self.manifest
+            .read()
+            .expect("lock is poisoned")
+            .current_version()
+            .iter_segments()
+            .map(Segment::pinned_filter_size)
             .sum()
     }
 
@@ -236,7 +280,7 @@ impl AbstractTree for Tree {
         segment_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Segment>> {
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
         use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
         use std::time::Instant;
 
@@ -244,23 +288,38 @@ impl AbstractTree for Tree {
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
         let segment_file_path = folder.join(segment_id.to_string());
-        log::debug!("writing segment to {}", segment_file_path.display());
+
+        let data_block_size = self.config.data_block_size_policy.get(0);
+        let index_block_size = self.config.index_block_size_policy.get(0);
+
+        let data_block_restart_interval = self.config.data_block_restart_interval_policy.get(0);
+        let index_block_restart_interval = self.config.index_block_restart_interval_policy.get(0);
+
+        let data_block_compression = self.config.data_block_compression_policy.get(0);
+        let index_block_compression = self.config.index_block_compression_policy.get(0);
+
+        let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
+
+        log::debug!(
+            "Flushing segment to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            segment_file_path.display(),
+        );
 
         let mut segment_writer = Writer::new(segment_file_path, segment_id)?
-            .use_data_block_compression(self.config.compression)
-            .use_data_block_size(self.config.data_block_size)
-            .use_data_block_hash_ratio(self.config.data_block_hash_ratio)
+            .use_data_block_restart_interval(data_block_restart_interval)
+            .use_index_block_restart_interval(index_block_restart_interval)
+            .use_data_block_compression(data_block_compression)
+            .use_index_block_compression(index_block_compression)
+            .use_data_block_size(data_block_size)
+            .use_index_block_size(index_block_size)
+            .use_data_block_hash_ratio(data_block_hash_ratio)
             .use_bloom_policy({
+                use crate::config::FilterPolicyEntry::{Bloom, None};
                 use crate::segment::filter::BloomConstructionPolicy;
 
-                if self.config.bloom_bits_per_key >= 0 {
-                    // TODO: enable monkey later on
-                    // BloomConstructionPolicy::FpRate(0.00001)
-                    BloomConstructionPolicy::BitsPerKey(
-                        self.config.bloom_bits_per_key.unsigned_abs(),
-                    )
-                } else {
-                    BloomConstructionPolicy::BitsPerKey(0)
+                match self.config.filter_policy.get(0) {
+                    Bloom(policy) => policy,
+                    None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             });
 
@@ -275,11 +334,20 @@ impl AbstractTree for Tree {
 
         log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
 
-        Ok(result)
+        Ok(result.map(|segment| (segment, None)))
     }
 
-    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()> {
-        log::trace!("Registering {} segments", segments.len());
+    fn register_segments(
+        &self,
+        segments: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()> {
+        log::trace!(
+            "Registering {} segments, {} blob files",
+            segments.len(),
+            blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
+        );
 
         // NOTE: Mind lock order L -> M -> S
         log::trace!("register: Acquiring levels manifest write lock");
@@ -291,9 +359,10 @@ impl AbstractTree for Tree {
         let mut sealed_memtables = self.sealed_memtables.write().expect("lock is poisoned");
         log::trace!("register: Acquired sealed memtables write lock");
 
-        manifest.atomic_swap(|version| version.with_new_l0_run(segments), seqno_threshold)?;
-
-        // eprintln!("{manifest}");
+        manifest.atomic_swap(
+            |version| version.with_new_l0_run(segments, blob_files),
+            seqno_threshold,
+        )?;
 
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
@@ -426,7 +495,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .current_version()
             .iter_levels()
-            .map(|x| x.size())
+            .map(super::version::Level::size)
             .sum()
     }
 
@@ -487,6 +556,46 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    /// Normalizes a user-provided range into owned `Bound<Slice>` values.
+    ///
+    /// Returns a tuple containing:
+    /// - the `OwnedBounds` that mirror the original bounds semantics (including
+    ///   inclusive/exclusive markers and unbounded endpoints), and
+    /// - a `bool` flag indicating whether the normalized range is logically
+    ///   empty (e.g., when the lower bound is greater than the upper bound).
+    ///
+    /// Callers can use the flag to detect empty ranges and skip further work
+    /// while still having access to the normalized bounds for non-empty cases.
+    fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
+        range: &R,
+    ) -> crate::Result<(OwnedBounds, bool)> {
+        use Bound::{Excluded, Included, Unbounded};
+
+        let start = match range.start_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        let end = match range.end_bound() {
+            Included(key) => Included(Slice::from(key.as_ref())),
+            Excluded(key) => Excluded(Slice::from(key.as_ref())),
+            Unbounded => Unbounded,
+        };
+
+        let is_empty = if let (Included(lo), Included(hi))
+        | (Included(lo), Excluded(hi))
+        | (Excluded(lo), Included(hi))
+        | (Excluded(lo), Excluded(hi)) = (&start, &end)
+        {
+            lo.as_ref() > hi.as_ref()
+        } else {
+            false
+        };
+
+        Ok((OwnedBounds { start, end }, is_empty))
+    }
+
     /// Opens an LSM-tree in the given directory.
     ///
     /// Will recover previous state if the folder was previously
@@ -526,7 +635,7 @@ impl Tree {
         &self,
         writer: crate::segment::Writer,
     ) -> crate::Result<Option<Segment>> {
-        let segment_file_path = writer.path.to_path_buf();
+        let segment_file_path = writer.path.clone();
 
         let Some(_) = writer.finish()? else {
             return Ok(None);
@@ -534,39 +643,16 @@ impl Tree {
 
         log::debug!("Finalized segment write at {}", segment_file_path.display());
 
-        /* let block_index =
-            FullBlockIndex::from_file(&segment_file_path, &trailer.metadata, &trailer.offsets)?;
-        let block_index = Arc::new(BlockIndexImpl::Full(block_index));
-
-        let created_segment: Segment = SegmentInner {
-            path: segment_file_path.clone(),
-
-            tree_id: self.id,
-
-            metadata: trailer.metadata,
-            offsets: trailer.offsets,
-
-            descriptor_table: self.config.descriptor_table.clone(),
-            block_index,
-            cache: self.config.cache.clone(),
-
-            bloom_filter: Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?,
-
-            is_deleted: AtomicBool::default(),
-        }
-        .into(); */
-
-        /* self.config
-        .descriptor_table
-        .insert(segment_file_path, created_segment.global_id()); */
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.filter_block_pinning_policy.get(0);
 
         let created_segment = Segment::recover(
             segment_file_path,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
-            true, // TODO: look at configuration
-            true, // TODO: look at configuration
+            pin_filter,
+            pin_index,
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
         )?;
@@ -594,11 +680,12 @@ impl Tree {
             return Ok(None);
         };
 
-        let Some(segment) = self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
+        let Some((segment, _)) =
+            self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment), seqno_threshold)?;
+        self.register_segments(std::slice::from_ref(&segment), None, seqno_threshold)?;
 
         Ok(Some(segment))
     }
@@ -846,7 +933,6 @@ impl Tree {
 
         // IMPORTANT: Restore persisted config
         config.level_count = manifest.level_count;
-        // config.table_type = manifest.table_type;
         config.tree_type = manifest.tree_type;
 
         let tree_id = get_next_tree_id();
@@ -929,9 +1015,30 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        log::info!("Recovering manifest at {}", tree_path.display());
+        let recovery = LevelManifest::recover_ids(tree_path)?;
 
-        let segment_id_map = LevelManifest::recover_ids(tree_path)?;
+        let segment_id_map = {
+            let mut result: crate::HashMap<SegmentId, u8 /* Level index */> =
+                crate::HashMap::default();
+
+            for (level_idx, segment_ids) in recovery.segment_ids.iter().enumerate() {
+                for run in segment_ids {
+                    for segment_id in run {
+                        // NOTE: We know there are always less than 256 levels
+                        #[allow(clippy::expect_used)]
+                        result.insert(
+                            *segment_id,
+                            level_idx
+                                .try_into()
+                                .expect("there are less than 256 levels"),
+                        );
+                    }
+                }
+            }
+
+            result
+        };
+
         let cnt = segment_id_map.len();
 
         log::debug!(
@@ -989,7 +1096,7 @@ impl Tree {
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
-                    level_idx <= 2, // TODO: look at configuration
+                    level_idx <= 1, // TODO: look at configuration
                     level_idx <= 2, // TODO: look at configuration
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
@@ -1021,6 +1128,11 @@ impl Tree {
 
         log::debug!("Successfully recovered {} segments", segments.len());
 
-        LevelManifest::recover(tree_path, &segments)
+        let blob_files = crate::vlog::recover_blob_files(
+            &tree_path.join(BLOBS_FOLDER),
+            &recovery.blob_file_ids,
+        )?;
+
+        LevelManifest::recover(tree_path, &recovery, &segments, &blob_files)
     }
 }

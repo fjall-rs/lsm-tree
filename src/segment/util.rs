@@ -2,12 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 use super::{Block, BlockHandle, GlobalSegmentId};
 use crate::{segment::block::BlockType, Cache, CompressionType, DescriptorTable};
 use std::{path::Path, sync::Arc};
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 /// [start, end] slice indexes
 #[derive(Debug)]
@@ -16,6 +16,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Loads a block from disk or block cache, if cached.
 ///
 /// Also handles file descriptor opening and caching.
+#[warn(clippy::too_many_arguments)]
 pub fn load_block(
     segment_id: GlobalSegmentId,
     path: &Path,
@@ -33,7 +34,18 @@ pub fn load_block(
 
     if let Some(block) = cache.get_block(segment_id, handle.offset()) {
         #[cfg(feature = "metrics")]
-        metrics.block_load_cached.fetch_add(1, Relaxed);
+        match block_type {
+            BlockType::Filter => {
+                metrics.filter_block_load_cached.fetch_add(1, Relaxed);
+            }
+            BlockType::Index => {
+                metrics.index_block_load_cached.fetch_add(1, Relaxed);
+            }
+            BlockType::Data => {
+                metrics.data_block_load_cached.fetch_add(1, Relaxed);
+            }
+            _ => {}
+        }
 
         return Ok(block);
     }
@@ -57,7 +69,18 @@ pub fn load_block(
     }
 
     #[cfg(feature = "metrics")]
-    metrics.block_load_io.fetch_add(1, Relaxed);
+    match block_type {
+        BlockType::Filter => {
+            metrics.filter_block_load_io.fetch_add(1, Relaxed);
+        }
+        BlockType::Index => {
+            metrics.index_block_load_io.fetch_add(1, Relaxed);
+        }
+        BlockType::Data => {
+            metrics.data_block_load_io.fetch_add(1, Relaxed);
+        }
+        _ => {}
+    }
 
     // Cache FD
     if fd_cache_miss {

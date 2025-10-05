@@ -100,7 +100,7 @@ impl Memtable {
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Counts the amount of items in the memtable.
+    /// Counts the number of items in the memtable.
     pub fn len(&self) -> usize {
         self.items.len()
     }

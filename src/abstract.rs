@@ -4,8 +4,8 @@
 
 use crate::{
     compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
-    tree::inner::MemtableId, AnyTree, BlobTree, Config, Guard, KvPair, Memtable, SegmentId, SeqNo,
-    Tree, UserKey, UserValue,
+    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, KvPair, Memtable,
+    SegmentId, SeqNo, SequenceNumberCounter, Tree, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{
@@ -64,7 +64,12 @@ pub trait AbstractTree {
     ///
     /// Will panic if the input iterator is not sorted in ascending order.
     #[doc(hidden)]
-    fn ingest(&self, iter: impl Iterator<Item = (UserKey, UserValue)>) -> crate::Result<()>;
+    fn ingest(
+        &self,
+        iter: impl Iterator<Item = (UserKey, UserValue)>,
+        seqno_generator: &SequenceNumberCounter,
+        visible_seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()>;
 
     /// Returns the approximate number of tombstones in the tree.
     fn tombstone_count(&self) -> u64;
@@ -73,10 +78,14 @@ pub trait AbstractTree {
 
     /// Drops segments that are fully contained in a given range.
     ///
+    /// Accepts any `RangeBounds`, including unbounded or exclusive endpoints.
+    /// If the normalized lower bound is greater than the upper bound, the
+    /// method returns without performing any work.
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if an IO error occurs.
-    fn drop_range(&self, key_range: crate::KeyRange) -> crate::Result<()>;
+    /// Will return `Err` only if an IO error occurs during compaction.
+    fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()>;
 
     /// Performs major compaction, blocking the caller until it's done.
     ///
@@ -85,11 +94,23 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
-    /// Gets the memory usage of all pinned bloom filters in the tree.
-    fn pinned_bloom_filter_size(&self) -> usize;
+    /// Gets the space usage of all filters in the tree.
+    ///
+    /// May not correspond to the actual memory size because filter blocks may be paged out.
+    fn filter_size(&self) -> usize;
+
+    /// Gets the memory usage of all pinned filters in the tree.
+    fn pinned_filter_size(&self) -> usize;
 
     /// Gets the memory usage of all pinned index blocks in the tree.
     fn pinned_block_index_size(&self) -> usize;
+
+    /// Gets the length of the version free list.
+    fn version_free_list_len(&self) -> usize;
+
+    /// Returns the metrics structure.
+    #[cfg(feature = "metrics")]
+    fn metrics(&self) -> &Arc<crate::Metrics>;
 
     // TODO:?
     /* #[doc(hidden)]
@@ -108,14 +129,19 @@ pub trait AbstractTree {
         segment_id: SegmentId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<Segment>>;
+    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
 
     /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(&self, segments: &[Segment], seqno_threshold: SeqNo) -> crate::Result<()>;
+    fn register_segments(
+        &self,
+        segments: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<()>;
 
     /// Write-locks the active memtable for exclusive access
     fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
@@ -129,7 +155,7 @@ pub trait AbstractTree {
     /// after tree recovery.
     fn set_active_memtable(&self, memtable: Memtable);
 
-    /// Returns the amount of sealed memtables.
+    /// Returns the number of sealed memtables.
     fn sealed_memtable_count(&self) -> usize;
 
     /// Adds a sealed memtables.
@@ -175,7 +201,7 @@ pub trait AbstractTree {
     /// Returns the number of disk segments currently in the tree.
     fn segment_count(&self) -> usize;
 
-    /// Returns the number of segments in levels[idx].
+    /// Returns the number of segments in `levels[idx]`.
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize>;

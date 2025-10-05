@@ -27,6 +27,8 @@ pub struct Builder {
 
 #[allow(clippy::len_without_is_empty)]
 impl Builder {
+    // NOTE: We write into a Vec<u8>, so no I/O error can happen
+    #[allow(clippy::expect_used)]
     #[must_use]
     pub fn build(&self) -> Vec<u8> {
         let mut v = vec![];
@@ -77,16 +79,14 @@ impl Builder {
     ///
     /// 10 bits per key is a sensible default.
     #[must_use]
-    pub fn with_bpk(n: usize, bpk: u8) -> Self {
+    pub fn with_bpk(n: usize, bpk: f32) -> Self {
         use std::f32::consts::LN_2;
 
-        assert!(bpk > 0);
+        assert!(bpk > 0.0);
         assert!(n > 0);
 
-        let bpk = bpk as usize;
-
-        let m = n * bpk;
-        let k = (((bpk as f32) * LN_2) as usize).max(1);
+        let m = n * (bpk as usize);
+        let k = ((bpk * LN_2) as usize).max(1);
 
         // NOTE: Round up so we don't get too little bits
         let bytes = (m as f32 / 8.0).ceil() as usize;
@@ -118,6 +118,8 @@ impl Builder {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
+            // NOTE: Even for a large segment, filters tend to be pretty small, definitely less than 4 GiB
+            #[allow(clippy::cast_possible_truncation)]
             self.inner.enable_bit(idx as usize);
 
             h1 = h1.wrapping_add(h2);

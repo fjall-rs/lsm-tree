@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
 use std::sync::Arc;
 use test_log::test;
 
@@ -7,8 +7,8 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("a", "a", 0);
@@ -36,8 +36,8 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open_as_blob_tree()?;
 
     tree.insert("a", "a", 0);
@@ -66,8 +66,8 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("z", "z", 0);
@@ -121,8 +121,8 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open_as_blob_tree()?;
 
     tree.insert("z", "z", 0);

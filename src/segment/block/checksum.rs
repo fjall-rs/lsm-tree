@@ -14,6 +14,12 @@ impl std::ops::Deref for Checksum {
     }
 }
 
+impl From<sfa::Checksum> for Checksum {
+    fn from(value: sfa::Checksum) -> Self {
+        Self(value.into_u128())
+    }
+}
+
 impl Checksum {
     #[must_use]
     pub fn from_raw(value: u128) -> Self {

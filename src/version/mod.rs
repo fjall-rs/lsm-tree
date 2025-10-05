@@ -7,10 +7,14 @@ pub mod run;
 
 pub use run::Run;
 
-use crate::{HashSet, KeyRange, Segment, SegmentId, SeqNo};
+use crate::{
+    coding::Encode,
+    vlog::{BlobFile, BlobFileId},
+    HashSet, KeyRange, Segment, SegmentId, SeqNo,
+};
 use optimize::optimize_runs;
 use run::Ranged;
-use std::{ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, io::Write, ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
@@ -133,17 +137,31 @@ impl Level {
 }
 
 pub struct VersionInner {
+    /// The version's ID
     id: VersionId,
 
+    /// The individual LSM-tree levels which consist of runs of tables
     pub(crate) levels: Vec<Level>,
+
+    // We purposefully use Arc<_> to avoid deep cloning the blob files again and again
+    //
+    // Changing the value log tends to happen way less often than other modifications to the
+    // LSM-tree
+    /// Blob files for large values (value log)
+    pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
 }
 
-/// A version is a point-in-time view of a tree's structure
+/// A version is an immutable, point-in-time view of a tree's structure
 ///
 /// Any time a segment is created or deleted, a new version is created.
 #[derive(Clone)]
 pub struct Version {
     inner: Arc<VersionInner>,
+
+    /// The sequence number at the time the version was installed
+    ///
+    /// We keep all versions that have `seqno_watermark` > `mvcc_watermark` to prevent
+    /// snapshots losing data
     pub(crate) seqno_watermark: SeqNo,
 }
 
@@ -167,15 +185,27 @@ impl Version {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log: Arc::default(),
+            }),
             seqno_watermark: 0,
         }
     }
 
     /// Creates a new pre-populated version.
-    pub fn from_levels(id: VersionId, levels: Vec<Level>) -> Self {
+    pub fn from_levels(
+        id: VersionId,
+        levels: Vec<Level>,
+        blob_files: BTreeMap<BlobFileId, BlobFile>,
+    ) -> Self {
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log: Arc::new(blob_files),
+            }),
             seqno_watermark: 0,
         }
     }
@@ -195,6 +225,10 @@ impl Version {
         self.iter_levels().map(|x| x.segment_count()).sum()
     }
 
+    pub fn blob_file_count(&self) -> usize {
+        self.value_log.len()
+    }
+
     /// Returns an iterator over all segments.
     pub fn iter_segments(&self) -> impl Iterator<Item = &Segment> {
         self.levels
@@ -203,13 +237,17 @@ impl Version {
             .flat_map(|x| x.iter())
     }
 
+    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
+        self.iter_segments().find(|x| x.metadata.id == id)
+    }
+
     /// Gets the n-th level.
     pub fn level(&self, n: usize) -> Option<&Level> {
         self.levels.get(n)
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
-    pub fn with_new_l0_run(&self, run: &[Segment]) -> Self {
+    pub fn with_new_l0_run(&self, run: &[Segment], blob_files: Option<&[BlobFile]>) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -243,8 +281,21 @@ impl Version {
         // L1+
         levels.extend(self.levels.iter().skip(1).cloned());
 
+        // Value log
+        let value_log = if let Some(blob_files) = blob_files {
+            let mut copy = self.value_log.deref().clone();
+            copy.extend(blob_files.iter().cloned().map(|bf| (bf.id(), bf)));
+            copy.into()
+        } else {
+            self.value_log.clone()
+        };
+
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log,
+            }),
             seqno_watermark: 0,
         }
     }
@@ -276,7 +327,11 @@ impl Version {
         }
 
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log: self.value_log.clone(),
+            }),
             seqno_watermark: 0,
         }
     }
@@ -314,7 +369,11 @@ impl Version {
         }
 
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log: self.value_log.clone(),
+            }),
             seqno_watermark: 0,
         }
     }
@@ -355,8 +414,106 @@ impl Version {
         }
 
         Self {
-            inner: Arc::new(VersionInner { id, levels }),
+            inner: Arc::new(VersionInner {
+                id,
+                levels,
+                value_log: self.value_log.clone(),
+            }),
             seqno_watermark: 0,
         }
     }
 }
+
+impl Version {
+    pub(crate) fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::EncodeError> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+
+        writer.start("tables")?;
+
+        // Level count
+        // NOTE: We know there are always less than 256 levels
+        #[allow(clippy::cast_possible_truncation)]
+        writer.write_u8(self.level_count() as u8)?;
+
+        for level in self.iter_levels() {
+            // Run count
+            // NOTE: We know there are always less than 256 runs
+            #[allow(clippy::cast_possible_truncation)]
+            writer.write_u8(level.len() as u8)?;
+
+            for run in level.iter() {
+                // Segment count
+                // NOTE: We know there are always less than 4 billion segments in a run
+                #[allow(clippy::cast_possible_truncation)]
+                writer.write_u32::<LittleEndian>(run.len() as u32)?;
+
+                // Segment IDs
+                for id in run.iter().map(Segment::id) {
+                    writer.write_u64::<LittleEndian>(id)?;
+                }
+            }
+        }
+
+        writer.start("blob_files")?;
+
+        // Blob file count
+        // NOTE: We know there are always less than 4 billion blob files
+        #[allow(clippy::cast_possible_truncation)]
+        writer.write_u32::<LittleEndian>(self.value_log.len() as u32)?;
+
+        for file in self.value_log.values() {
+            writer.write_u64::<LittleEndian>(file.id())?;
+        }
+
+        writer.start("blob_gc_stats")?;
+
+        // TODO: 3.0.0
+
+        writer.write_all(b":)")?;
+
+        Ok(())
+    }
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use test_log::test;
+
+//     #[test]
+//     fn version_encode_empty() {
+//         let bytes = Version::new(0).encode_into_vec();
+
+//         #[rustfmt::skip]
+//         let raw = &[
+//             // Magic
+//             b'L', b'S', b'M', 3,
+
+//             // Level count
+//             7,
+
+//             // L0 runs
+//             0,
+//             // L1 runs
+//             0,
+//             // L2 runs
+//             0,
+//             // L3 runs
+//             0,
+//             // L4 runs
+//             0,
+//             // L5 runs
+//             0,
+//             // L6 runs
+//             0,
+
+//             // Blob file count
+//             0,
+//             0,
+//             0,
+//             0,
+//         ];
+
+//         assert_eq!(bytes, raw);
+//     }
+// }

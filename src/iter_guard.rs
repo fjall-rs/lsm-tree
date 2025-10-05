@@ -3,10 +3,10 @@ use crate::{
 };
 use enum_dispatch::enum_dispatch;
 
-/// An iterator item
+/// Guard to access key-value pairs
 #[enum_dispatch]
 pub trait IterGuard {
-    /// Accesses the key-value tuple.
+    /// Accesses the key-value pair.
     ///
     /// # Errors
     ///

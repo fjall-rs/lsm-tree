@@ -30,8 +30,14 @@ pub enum Error {
     /// Some required segments could not be recovered from disk
     Unrecoverable,
 
-    /// Invalid checksum value (got, expected)
-    InvalidChecksum((Checksum, Checksum)),
+    /// Checksum mismatch
+    ChecksumMismatch {
+        /// Checksum of loaded block
+        got: Checksum,
+
+        /// Checksum that was saved in block header
+        expected: Checksum,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -49,7 +55,34 @@ impl std::error::Error for Error {
             Self::Decompress(_)
             | Self::InvalidVersion(_)
             | Self::Unrecoverable
-            | Self::InvalidChecksum(_) => None,
+            | Self::ChecksumMismatch { .. } => None,
+        }
+    }
+}
+
+impl From<sfa::Error> for Error {
+    fn from(value: sfa::Error) -> Self {
+        match value {
+            sfa::Error::Io(e) => Self::from(e),
+            sfa::Error::ChecksumMismatch { got, expected } => {
+                log::error!("Archive ToC checksum mismatch");
+                Self::ChecksumMismatch {
+                    got: got.into(),
+                    expected: expected.into(),
+                }
+            }
+            sfa::Error::InvalidHeader => {
+                log::error!("Invalid archive header");
+                Self::Unrecoverable
+            }
+            sfa::Error::InvalidVersion => {
+                log::error!("Invalid archive version");
+                Self::Unrecoverable
+            }
+            sfa::Error::UnsupportedChecksumType => {
+                log::error!("Invalid archive checksum type");
+                Self::Unrecoverable
+            }
         }
     }
 }

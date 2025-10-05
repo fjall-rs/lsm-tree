@@ -119,6 +119,7 @@ impl DoubleEndedIterator for Iter<'_> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use crate::{
         segment::{
@@ -1020,7 +1021,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn v3_data_block_iter_consume_last_back() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
@@ -1052,11 +1052,26 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:earth:fact",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:fact",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:mass",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:name",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:radius",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
                 assert!(iter.next_back().is_none());
                 assert!(iter.next().is_none());
             }
@@ -1066,13 +1081,25 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"pla:earth:fact", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:fact", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:mass", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"pla:jupiter:name", &*iter.next().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:earth:fact",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:fact",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:mass",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
+                assert_eq!(
+                    b"pla:jupiter:name",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
                 assert_eq!(
                     b"pla:jupiter:radius",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
                 assert!(iter.next().is_none());
                 assert!(iter.next_back().is_none());
@@ -1083,7 +1110,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn v3_data_block_iter_consume_last_forwards() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
@@ -1116,20 +1142,26 @@ mod tests {
                     .rev()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:earth:fact",
+                    &*iter.next_back().expect("should exist").key.user_key,
+                );
                 assert_eq!(
                     b"pla:jupiter:fact",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
                 assert_eq!(
                     b"pla:jupiter:mass",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
                 assert_eq!(
                     b"pla:jupiter:name",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
-                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:jupiter:radius",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
                 assert!(iter.next().is_none());
                 assert!(iter.next_back().is_none());
             }
@@ -1140,20 +1172,26 @@ mod tests {
                     .rev()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"pla:earth:fact", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:earth:fact",
+                    &*iter.next_back().expect("should exist").key.user_key,
+                );
                 assert_eq!(
                     b"pla:jupiter:fact",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
                 assert_eq!(
                     b"pla:jupiter:mass",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
                 assert_eq!(
                     b"pla:jupiter:name",
-                    &*iter.next_back().unwrap().key.user_key
+                    &*iter.next_back().expect("should exist").key.user_key,
                 );
-                assert_eq!(b"pla:jupiter:radius", &*iter.next().unwrap().key.user_key);
+                assert_eq!(
+                    b"pla:jupiter:radius",
+                    &*iter.next().expect("should exist").key.user_key,
+                );
                 assert!(iter.next_back().is_none());
                 assert!(iter.next().is_none());
             }
@@ -1163,7 +1201,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn v3_data_block_iter_ping_pong_exhaust() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("a", "a", 0, Value),
@@ -1195,11 +1232,11 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"a", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"b", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"c", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"d", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"e", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"a", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"b", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"c", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"d", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"e", &*iter.next().expect("should exist").key.user_key);
                 assert!(iter.next().is_none());
                 assert!(iter.next().is_none());
             }
@@ -1209,11 +1246,11 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"e", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"d", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"c", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"b", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"a", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"e", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"d", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"c", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"b", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"a", &*iter.next_back().expect("should exist").key.user_key);
                 assert!(iter.next_back().is_none());
                 assert!(iter.next_back().is_none());
             }
@@ -1223,11 +1260,11 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"a", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"b", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"c", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"d", &*iter.next().unwrap().key.user_key);
-                assert_eq!(b"e", &*iter.next().unwrap().key.user_key);
+                assert_eq!(b"a", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"b", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"c", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"d", &*iter.next().expect("should exist").key.user_key);
+                assert_eq!(b"e", &*iter.next().expect("should exist").key.user_key);
                 assert!(iter.next_back().is_none());
                 assert!(iter.next_back().is_none());
                 assert!(iter.next().is_none());
@@ -1239,11 +1276,11 @@ mod tests {
                     .iter()
                     .map(|item| item.materialize(&data_block.inner.data));
 
-                assert_eq!(b"e", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"d", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"c", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"b", &*iter.next_back().unwrap().key.user_key);
-                assert_eq!(b"a", &*iter.next_back().unwrap().key.user_key);
+                assert_eq!(b"e", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"d", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"c", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"b", &*iter.next_back().expect("should exist").key.user_key);
+                assert_eq!(b"a", &*iter.next_back().expect("should exist").key.user_key);
                 assert!(iter.next().is_none());
                 assert!(iter.next().is_none());
                 assert!(iter.next_back().is_none());

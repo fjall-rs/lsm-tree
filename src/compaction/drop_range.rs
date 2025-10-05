@@ -3,24 +3,68 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{config::Config, level_manifest::LevelManifest, KeyRange};
+use crate::{
+    config::Config, level_manifest::LevelManifest, slice::Slice, version::run::Ranged, KeyRange,
+};
 use crate::{HashSet, Segment};
+use std::ops::{Bound, RangeBounds};
+
+#[derive(Clone, Debug)]
+pub struct OwnedBounds {
+    pub start: Bound<Slice>,
+    pub end: Bound<Slice>,
+}
+
+impl RangeBounds<Slice> for OwnedBounds {
+    fn start_bound(&self) -> Bound<&Slice> {
+        match &self.start {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(key) => Bound::Included(key),
+            Bound::Excluded(key) => Bound::Excluded(key),
+        }
+    }
+
+    fn end_bound(&self) -> Bound<&Slice> {
+        match &self.end {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(key) => Bound::Included(key),
+            Bound::Excluded(key) => Bound::Excluded(key),
+        }
+    }
+}
+
+impl OwnedBounds {
+    #[must_use]
+    pub fn contains(&self, range: &KeyRange) -> bool {
+        let lower_ok = match &self.start {
+            Bound::Unbounded => true,
+            Bound::Included(key) => key.as_ref() <= range.min().as_ref(),
+            Bound::Excluded(key) => key.as_ref() < range.min().as_ref(),
+        };
+
+        if !lower_ok {
+            return false;
+        }
+
+        match &self.end {
+            Bound::Unbounded => true,
+            Bound::Included(key) => key.as_ref() >= range.max().as_ref(),
+            Bound::Excluded(key) => key.as_ref() > range.max().as_ref(),
+        }
+    }
+}
 
 /// Drops all segments that are **contained** in a key range
 pub struct Strategy {
-    key_range: KeyRange,
+    bounds: OwnedBounds,
 }
 
 impl Strategy {
     /// Configures a new `DropRange` compaction strategy.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if `target_size` is below 1024 bytes.
     #[must_use]
     #[allow(dead_code)]
-    pub fn new(key_range: KeyRange) -> Self {
-        Self { key_range }
+    pub fn new(bounds: OwnedBounds) -> Self {
+        Self { bounds }
     }
 }
 
@@ -34,7 +78,13 @@ impl CompactionStrategy for Strategy {
             .current_version()
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
-            .flat_map(|run| run.get_contained(&self.key_range))
+            .flat_map(|run| {
+                run.range_overlap_indexes(&self.bounds)
+                    .and_then(|(lo, hi)| run.get(lo..=hi))
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|x| self.bounds.contains(x.key_range()))
+            })
             .map(Segment::id)
             .collect();
 

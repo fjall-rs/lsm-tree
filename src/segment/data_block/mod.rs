@@ -178,11 +178,19 @@ impl Encodable<()> for InternalValue {
         writer.write_u64_varint(self.key.seqno)?; // 2
 
         // TODO: maybe we can skip this varint altogether if prefix truncation = false
+
+        // NOTE: We know keys have u16 length max
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u16_varint(shared_len as u16)?; // 3
 
         let rest_len = self.key().len() - shared_len;
+
+        // NOTE: We know keys have u16 length max
+        #[allow(clippy::cast_possible_truncation)]
         writer.write_u16_varint(rest_len as u16)?; // 4
 
+        // NOTE: We trust the caller
+        #[allow(clippy::expect_used)]
         let truncated_user_key = self
             .key
             .user_key
@@ -293,10 +301,12 @@ impl DataBlock {
     }
 
     pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
+        use std::mem::size_of;
+
         let trailer = Trailer::new(&self.inner);
 
         // NOTE: Skip item count (u32) and restart interval (u8)
-        let offset = std::mem::size_of::<u32>() + std::mem::size_of::<u8>();
+        let offset = size_of::<u32>() + size_of::<u8>();
 
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
@@ -307,6 +317,7 @@ impl DataBlock {
             "invalid binary index step size",
         );
 
+        // TODO: 3.0.0 flip len and offset
         let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
@@ -320,18 +331,21 @@ impl DataBlock {
 
     #[must_use]
     pub fn get_hash_index_reader(&self) -> Option<HashIndexReader<'_>> {
+        use std::mem::size_of;
+
         let trailer = Trailer::new(&self.inner);
 
         // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8)
         // and binary stuff (2x u32)
-        let offset = std::mem::size_of::<u32>()
-            + std::mem::size_of::<u8>()
-            + std::mem::size_of::<u8>()
-            + std::mem::size_of::<u32>()
-            + std::mem::size_of::<u32>();
+        let offset = size_of::<u32>()
+            + size_of::<u8>()
+            + size_of::<u8>()
+            + size_of::<u32>()
+            + size_of::<u32>();
 
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
+        // TODO: 3.0.0 flip offset and len, so we can terminate after len if == 0
         let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
@@ -431,19 +445,19 @@ impl DataBlock {
     /// The number of pointers is equal to the number of restart intervals.
     #[must_use]
     pub fn binary_index_len(&self) -> u32 {
+        use std::mem::size_of;
+
         let trailer = Trailer::new(&self.inner);
 
         // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8),
         // and binary index offset (u32)
-        let offset = std::mem::size_of::<u32>()
-            + (2 * std::mem::size_of::<u8>())
-            + std::mem::size_of::<u32>();
+        let offset = size_of::<u32>() + (2 * size_of::<u8>()) + size_of::<u32>();
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
         unwrap!(reader.read_u32::<LittleEndian>())
     }
 
-    /// Returns the amount of items in the block.
+    /// Returns the number of items in the block.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
@@ -462,12 +476,19 @@ impl DataBlock {
         Ok(buf)
     }
 
+    /// Builds an data block.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given item array if empty.
     pub fn encode_into(
         writer: &mut Vec<u8>,
         items: &[InternalValue],
         restart_interval: u8,
         hash_index_ratio: f32,
     ) -> crate::Result<()> {
+        // NOTE: We expect a non-empty chunk of items
+        #[allow(clippy::expect_used)]
         let first_key = &items
             .first()
             .expect("chunk should not be empty")
@@ -491,6 +512,7 @@ impl DataBlock {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use crate::{
         segment::{
@@ -503,7 +525,6 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
     fn v3_data_block_ping_pong_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(
@@ -541,9 +562,9 @@ mod tests {
 
             for &x in &ping_pong_code {
                 if x == 0 {
-                    v.push(iter.next().cloned().unwrap());
+                    v.push(iter.next().cloned().expect("should have item"));
                 } else {
-                    v.push(iter.next_back().cloned().unwrap());
+                    v.push(iter.next_back().cloned().expect("should have item"));
                 }
             }
 
@@ -559,9 +580,9 @@ mod tests {
 
             for &x in &ping_pong_code {
                 if x == 0 {
-                    v.push(iter.next().unwrap());
+                    v.push(iter.next().expect("should have item"));
                 } else {
-                    v.push(iter.next_back().unwrap());
+                    v.push(iter.next_back().expect("should have item"));
                 }
             }
 

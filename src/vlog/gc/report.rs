@@ -23,10 +23,10 @@ pub struct GcReport {
     /// Amount of bytes that could be freed
     pub stale_bytes: u64,
 
-    /// Amount of stored blobs
+    /// Number of stored blobs
     pub total_blobs: u64,
 
-    /// Amount of blobs that could be freed
+    /// Number of blobs that could be freed
     pub stale_blobs: u64,
 }
 

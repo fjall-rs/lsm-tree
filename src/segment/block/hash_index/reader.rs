@@ -28,14 +28,14 @@ impl<'a> Reader<'a> {
 
     // NOTE: Only used in metrics, so no need to be hyper-optimized
     #[allow(clippy::naive_bytecount)]
-    /// Returns the amount of empty slots in the hash index.
+    /// Returns the number of empty slots in the hash index.
     #[must_use]
     pub fn free_count(&self) -> usize {
         self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
     }
 
     // NOTE: Only used in metrics, so no need to be hyper-optimized
-    /// Returns the amount of conflict markers in the hash index.
+    /// Returns the number of conflict markers in the hash index.
     #[must_use]
     #[allow(clippy::naive_bytecount)]
     pub fn conflict_count(&self) -> usize {

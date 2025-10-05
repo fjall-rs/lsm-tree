@@ -5,7 +5,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.89.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.82.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
@@ -26,8 +26,9 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
   - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
 - Block caching to keep hot data in memory
+- File descriptor caching with upper bound to reduce fopen calls
 - *AMQ* filters (currently Bloom filters) to improve point lookup performance
-- Snapshots (*MVCC*)
+- Multi-versioning of KVs, enabling snapshot reads
 - Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
 - Size-tiered, (concurrent) Leveled and FIFO compaction 
 - Multi-threaded flushing (immutable/sealed memtables)

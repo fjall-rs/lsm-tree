@@ -17,8 +17,12 @@ pub struct MultiWriter {
     base_path: PathBuf,
 
     data_block_hash_ratio: f32,
+
     data_block_size: u32,
+    index_block_size: u32,
+
     data_block_restart_interval: u8,
+    index_block_restart_interval: u8,
 
     /// Target size of segments in bytes
     ///
@@ -34,6 +38,7 @@ pub struct MultiWriter {
     pub writer: Writer,
 
     pub data_block_compression: CompressionType,
+    pub index_block_compression: CompressionType,
 
     bloom_policy: BloomConstructionPolicy,
 
@@ -57,8 +62,12 @@ impl MultiWriter {
             base_path,
 
             data_block_hash_ratio: 0.0,
+
             data_block_size: 4_096,
+            index_block_size: 4_096,
+
             data_block_restart_interval: 16,
+            index_block_restart_interval: 1,
 
             target_size,
             results: Vec::with_capacity(10),
@@ -67,6 +76,7 @@ impl MultiWriter {
             writer,
 
             data_block_compression: CompressionType::None,
+            index_block_compression: CompressionType::None,
 
             bloom_policy: BloomConstructionPolicy::default(),
 
@@ -78,6 +88,13 @@ impl MultiWriter {
     pub fn use_data_block_restart_interval(mut self, interval: u8) -> Self {
         self.data_block_restart_interval = interval;
         self.writer = self.writer.use_data_block_restart_interval(interval);
+        self
+    }
+
+    #[must_use]
+    pub fn use_index_block_restart_interval(mut self, interval: u8) -> Self {
+        self.index_block_restart_interval = interval;
+        self.writer = self.writer.use_index_block_restart_interval(interval);
         self
     }
 
@@ -100,9 +117,27 @@ impl MultiWriter {
     }
 
     #[must_use]
+    pub(crate) fn use_index_block_size(mut self, size: u32) -> Self {
+        assert!(
+            size <= 4 * 1_024 * 1_024,
+            "index block size must be <= 4 MiB",
+        );
+        self.index_block_size = size;
+        self.writer = self.writer.use_index_block_size(size);
+        self
+    }
+
+    #[must_use]
     pub fn use_data_block_compression(mut self, compression: CompressionType) -> Self {
         self.data_block_compression = compression;
         self.writer = self.writer.use_data_block_compression(compression);
+        self
+    }
+
+    #[must_use]
+    pub fn use_index_block_compression(mut self, compression: CompressionType) -> Self {
+        self.index_block_compression = compression;
+        self.writer = self.writer.use_index_block_compression(compression);
         self
     }
 
@@ -130,7 +165,11 @@ impl MultiWriter {
 
         let new_writer = Writer::new(path, new_segment_id)?
             .use_data_block_compression(self.data_block_compression)
+            .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)
+            .use_index_block_size(self.index_block_size)
+            .use_data_block_restart_interval(self.data_block_restart_interval)
+            .use_index_block_restart_interval(self.index_block_restart_interval)
             .use_bloom_policy(self.bloom_policy)
             .use_data_block_hash_ratio(self.data_block_hash_ratio);
 
@@ -174,17 +213,23 @@ impl MultiWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AbstractTree, Config, SeqNo};
+    use crate::{config::CompressionPolicy, AbstractTree, Config, SeqNo};
     use test_log::test;
 
     // NOTE: Tests that versions of the same key stay
     // in the same segment even if it needs to be rotated
+    //
     // This avoids segments' key ranges overlapping
+    //
+    // http://github.com/fjall-rs/lsm-tree/commit/f46b6fe26a1e90113dc2dbb0342db160a295e616
     #[test]
     fn segment_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder)
+            .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+            .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+            .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a2".repeat(4_000), 1);
@@ -202,11 +247,17 @@ mod tests {
         Ok(())
     }
 
+    // NOTE: Follow-up fix for non-disjoint output
+    //
+    // https://github.com/fjall-rs/lsm-tree/commit/1609a57c2314420b858d826790ecd1442aa76720
     #[test]
     fn segment_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder)
+            .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+            .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+            .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a1".repeat(4_000), 1);

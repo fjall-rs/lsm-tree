@@ -46,6 +46,18 @@ pub struct ParsedMeta {
     pub tombstone_count: u64,
 
     pub data_block_compression: CompressionType,
+    pub index_block_compression: CompressionType,
+}
+
+macro_rules! read_u64 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u64::<LittleEndian>()?
+    }};
 }
 
 impl ParsedMeta {
@@ -62,32 +74,57 @@ impl ParsedMeta {
 
         let block = DataBlock::new(block);
 
-        assert_eq!(
-            b"xxh3",
-            &*block
-                .point_read(b"#hash_type", SeqNo::MAX)
+        #[allow(clippy::indexing_slicing)]
+        {
+            let table_version = block
+                .point_read(b"v#table_version", SeqNo::MAX)
                 .expect("Segment ID should exist")
-                .value,
-            "invalid hash type",
-        );
+                .value;
 
-        assert_eq!(
-            b"xxh3",
-            &*block
+            assert_eq!(1, table_version.len(), "invalid table version byte array");
+
+            assert_eq!(
+                [3u8],
+                &*table_version,
+                "unspported table version {}",
+                table_version[0],
+            );
+        }
+
+        {
+            let hash_type = block
+                .point_read(b"#filter_hash_type", SeqNo::MAX)
+                .expect("Segment ID should exist")
+                .value;
+
+            assert_eq!(
+                b"xxh3",
+                &*hash_type,
+                "invalid hash type: {:?}",
+                std::str::from_utf8(&hash_type),
+            );
+        }
+
+        {
+            let hash_type = block
                 .point_read(b"#checksum_type", SeqNo::MAX)
                 .expect("Segment ID should exist")
-                .value,
-            "invalid checksum type",
-        );
+                .value;
 
-        let id = {
-            let bytes = block
-                .point_read(b"#id", SeqNo::MAX)
-                .expect("Segment ID should exist");
+            assert_eq!(
+                b"xxh3",
+                &*hash_type,
+                "invalid checksum type: {:?}",
+                std::str::from_utf8(&hash_type),
+            );
+        }
 
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
+        let id = read_u64!(block, b"#id");
+        let item_count = read_u64!(block, b"#item_count");
+        let tombstone_count = read_u64!(block, b"#tombstone_count");
+        let data_block_count = read_u64!(block, b"#data_block_count");
+        let index_block_count = read_u64!(block, b"#index_block_count");
+        let file_size = read_u64!(block, b"#size"); // TODO: rename file_size
 
         let created_at = {
             let bytes = block
@@ -96,42 +133,6 @@ impl ParsedMeta {
 
             let mut bytes = &bytes.value[..];
             bytes.read_u128::<LittleEndian>()?.into()
-        };
-
-        let item_count = {
-            let bytes = block
-                .point_read(b"#item_count", SeqNo::MAX)
-                .expect("Segment ID should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let tombstone_count = {
-            let bytes = block
-                .point_read(b"#tombstone_count", SeqNo::MAX)
-                .expect("Segment ID should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let data_block_count = {
-            let bytes = block
-                .point_read(b"#data_block_count", SeqNo::MAX)
-                .expect("data_block_count should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
-        let index_block_count = {
-            let bytes = block
-                .point_read(b"#index_block_count", SeqNo::MAX)
-                .expect("index_block_count should exist");
-
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
         };
 
         let key_range = KeyRange::new((
@@ -167,17 +168,18 @@ impl ParsedMeta {
             (min, max)
         };
 
-        let file_size = {
-            let bytes = block
-                .point_read(b"#size", SeqNo::MAX)
-                .expect("size should exist");
-            let mut bytes = &bytes.value[..];
-            bytes.read_u64::<LittleEndian>()?
-        };
-
         let data_block_compression = {
             let bytes = block
                 .point_read(b"#compression#data", SeqNo::MAX)
+                .expect("size should exist");
+
+            let mut bytes = &bytes.value[..];
+            CompressionType::decode_from(&mut bytes)?
+        };
+
+        let index_block_compression = {
+            let bytes = block
+                .point_read(b"#compression#index", SeqNo::MAX)
                 .expect("size should exist");
 
             let mut bytes = &bytes.value[..];
@@ -195,6 +197,7 @@ impl ParsedMeta {
             item_count,
             tombstone_count,
             data_block_compression,
+            index_block_compression,
         })
     }
 }

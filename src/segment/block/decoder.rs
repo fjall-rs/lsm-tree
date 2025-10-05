@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{binary_index::Reader as BinaryIndexReader, hash_index::Reader as HashIndexReader};
+use super::binary_index::Reader as BinaryIndexReader;
 use crate::{
     segment::{block::Trailer, Block},
     unwrap, Slice,
@@ -100,6 +100,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             "invalid binary index step size",
         );
 
+        // TODO: flip len, offset
         let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
@@ -138,7 +139,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         &self.block.data
     }
 
-    /// Returns the amount of items in the block.
+    /// Returns the number of items in the block.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {

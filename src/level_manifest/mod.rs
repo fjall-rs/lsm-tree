@@ -5,20 +5,26 @@
 pub(crate) mod hidden_set;
 
 use crate::{
-    coding::DecodeError,
-    file::{fsync_directory, rewrite_atomic, MAGIC_BYTES},
+    file::{fsync_directory, rewrite_atomic},
     segment::Segment,
     version::{Level, Run, Version, VersionId, DEFAULT_LEVEL_COUNT},
-    SegmentId, SeqNo,
+    vlog::BlobFileId,
+    BlobFile, SegmentId, SeqNo,
 };
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use hidden_set::HiddenSet;
 use std::{
     collections::VecDeque,
-    io::{BufWriter, Cursor, Read, Write},
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+pub struct Recovery {
+    pub curr_version_id: VersionId,
+    pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
+    pub blob_file_ids: Vec<BlobFileId>,
+}
 
 /// Represents the levels of a log-structured merge tree
 pub struct LevelManifest {
@@ -35,7 +41,7 @@ pub struct LevelManifest {
     hidden_set: HiddenSet,
 
     /// Holds onto versions until they are safe to drop.
-    version_free_list: VecDeque<Version>,
+    pub(crate) version_free_list: VecDeque<Version>,
 }
 
 impl std::fmt::Display for LevelManifest {
@@ -142,102 +148,87 @@ impl LevelManifest {
         Ok(manifest)
     }
 
-    pub(crate) fn load_version(path: &Path) -> crate::Result<Vec<Vec<Vec<SegmentId>>>> {
-        let mut level_manifest = Cursor::new(std::fs::read(path)?);
+    pub(crate) fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
+        let curr_version_id = Self::get_current_version(folder)?;
+        let version_file_path = folder.join(format!("v{curr_version_id}"));
 
-        // Check header
-        let mut magic = [0u8; MAGIC_BYTES.len()];
-        level_manifest.read_exact(&mut magic)?;
+        log::info!(
+            "Recovering current manifest at {}",
+            version_file_path.display(),
+        );
 
-        if magic != MAGIC_BYTES {
-            return Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                "LevelManifest",
-            )));
-        }
+        let reader = sfa::Reader::new(&version_file_path)?;
+        let toc = reader.toc();
 
+        // // TODO: vvv move into Version::decode vvv
         let mut levels = vec![];
 
-        let level_count = level_manifest.read_u8()?;
+        {
+            let mut reader = toc
+                .section(b"tables")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
 
-        for _ in 0..level_count {
-            let mut level = vec![];
-            let run_count = level_manifest.read_u8()?;
+            let level_count = reader.read_u8()?;
 
-            for _ in 0..run_count {
-                let mut run = vec![];
-                let segment_count = level_manifest.read_u32::<LittleEndian>()?;
+            for _ in 0..level_count {
+                let mut level = vec![];
+                let run_count = reader.read_u8()?;
 
-                for _ in 0..segment_count {
-                    let id = level_manifest.read_u64::<LittleEndian>()?;
-                    run.push(id);
+                for _ in 0..run_count {
+                    let mut run = vec![];
+                    let segment_count = reader.read_u32::<LittleEndian>()?;
+
+                    for _ in 0..segment_count {
+                        let id = reader.read_u64::<LittleEndian>()?;
+                        run.push(id);
+                    }
+
+                    level.push(run);
                 }
 
-                level.push(run);
-            }
-
-            levels.push(level);
-        }
-
-        Ok(levels)
-    }
-
-    pub(crate) fn recover_ids(
-        folder: &Path,
-    ) -> crate::Result<crate::HashMap<SegmentId, u8 /* Level index */>> {
-        let curr_version = Self::get_current_version(folder)?;
-        let version_file_path = folder.join(format!("v{curr_version}"));
-
-        let manifest = Self::load_version(&version_file_path)?;
-        let mut result = crate::HashMap::default();
-
-        for (level_idx, segment_ids) in manifest.into_iter().enumerate() {
-            for run in segment_ids {
-                for segment_id in run {
-                    // NOTE: We know there are always less than 256 levels
-                    #[allow(clippy::expect_used)]
-                    result.insert(
-                        segment_id,
-                        level_idx
-                            .try_into()
-                            .expect("there are less than 256 levels"),
-                    );
-                }
+                levels.push(level);
             }
         }
 
-        Ok(result)
+        let blob_file_ids = {
+            let mut reader = toc
+                .section(b"blob_files")
+                .expect("tables should exist")
+                .buf_reader(&version_file_path)?;
+
+            let blob_file_count = reader.read_u32::<LittleEndian>()?;
+            let mut blob_file_ids = Vec::with_capacity(blob_file_count as usize);
+
+            for _ in 0..blob_file_count {
+                let id = reader.read_u64::<LittleEndian>()?;
+                blob_file_ids.push(id);
+            }
+
+            blob_file_ids
+        };
+
+        Ok(Recovery {
+            curr_version_id,
+            segment_ids: levels,
+            blob_file_ids,
+        })
     }
 
     pub fn get_current_version(folder: &Path) -> crate::Result<VersionId> {
-        let mut buf = [0; 8];
-
-        {
-            let mut file = std::fs::File::open(folder.join("current"))?;
-            file.read_exact(&mut buf)?;
-        }
-
-        Ok(u64::from_le_bytes(buf))
+        std::fs::File::open(folder.join("current"))
+            .and_then(|mut f| f.read_u64::<LittleEndian>())
+            .map_err(Into::into)
     }
 
     pub(crate) fn recover<P: Into<PathBuf>>(
         folder: P,
+        recovery: &Recovery,
         segments: &[Segment],
+        blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
-        let folder = folder.into();
-
-        let curr_version = Self::get_current_version(&folder)?;
-        let version_file_path = folder.join(format!("v{curr_version}"));
-
-        let version_file = std::path::Path::new(&version_file_path);
-
-        if !version_file.try_exists()? {
-            log::error!("Cannot find version file {}", version_file_path.display());
-            return Err(crate::Error::Unrecoverable);
-        }
-
-        let raw_version = Self::load_version(&version_file_path)?;
-
-        let version_levels = raw_version
+        let version_levels = recovery
+            .segment_ids
             .iter()
             .map(|level| {
                 let level_runs = level
@@ -263,10 +254,12 @@ impl LevelManifest {
             .collect::<crate::Result<Vec<_>>>()?;
 
         Ok(Self {
-            current: Version::from_levels(curr_version, version_levels),
-            folder,
+            current: Version::from_levels(recovery.curr_version_id, version_levels, {
+                blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()
+            }),
+            folder: folder.into(),
             hidden_set: HiddenSet::default(),
-            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT
+            version_free_list: VecDeque::default(), // TODO: 3. create free list from versions that are N < CURRENT, or delete old versions eagerly...
         })
     }
 
@@ -277,40 +270,20 @@ impl LevelManifest {
             folder.display(),
         );
 
-        let file = std::fs::File::create_new(folder.join(format!("v{}", version.id())))?;
-        let mut writer = BufWriter::new(file);
+        let path = folder.join(format!("v{}", version.id()));
+        let file = std::fs::File::create_new(path)?;
+        let writer = BufWriter::new(file);
+        let mut writer = sfa::Writer::into_writer(writer);
 
-        // Magic
-        writer.write_all(&MAGIC_BYTES)?;
+        version.encode_into(&mut writer)?;
 
-        // Level count
-        // NOTE: We know there are always less than 256 levels
-        #[allow(clippy::cast_possible_truncation)]
-        writer.write_u8(version.level_count() as u8)?;
+        writer.finish().map_err(|e| match e {
+            sfa::Error::Io(e) => crate::Error::from(e),
+            _ => unreachable!(),
+        })?;
 
-        for level in version.iter_levels() {
-            // Run count
-            // NOTE: We know there are always less than 256 runs
-            #[allow(clippy::cast_possible_truncation)]
-            writer.write_u8(level.len() as u8)?;
-
-            for run in level.iter() {
-                // Segment count
-                // NOTE: We know there are always less than 4 billion segments in a run
-                #[allow(clippy::cast_possible_truncation)]
-                writer.write_u32::<LittleEndian>(run.len() as u32)?;
-
-                // Segment IDs
-                for id in run.iter().map(Segment::id) {
-                    writer.write_u64::<LittleEndian>(id)?;
-                }
-            }
-        }
-
-        writer.flush()?;
-        writer.get_mut().sync_all()?;
+        // IMPORTANT: fsync folder on Unix
         fsync_directory(folder)?;
-        // IMPORTANT: ^ wait for fsync and directory sync to fully finish
 
         rewrite_atomic(&folder.join("current"), &version.id().to_le_bytes())?;
 
@@ -347,6 +320,8 @@ impl LevelManifest {
     }
 
     pub(crate) fn maintenance(&mut self, gc_watermark: SeqNo) -> crate::Result<()> {
+        log::debug!("Running manifest GC");
+
         loop {
             let Some(head) = self.version_free_list.front() else {
                 break;
@@ -361,6 +336,8 @@ impl LevelManifest {
             }
         }
 
+        log::debug!("Manifest GC done");
+
         Ok(())
     }
 
@@ -370,7 +347,7 @@ impl LevelManifest {
         self.len() == 0
     }
 
-    /// Returns the amount of levels in the tree
+    /// Returns the number of levels in the tree
     #[must_use]
     pub fn level_count(&self) -> u8 {
         // NOTE: Level count is u8
@@ -380,13 +357,13 @@ impl LevelManifest {
         }
     }
 
-    /// Returns the amount of levels in the tree.
+    /// Returns the number of levels in the tree.
     #[must_use]
     pub fn last_level_index(&self) -> u8 {
         DEFAULT_LEVEL_COUNT - 1
     }
 
-    /// Returns the amount of segments, summed over all levels
+    /// Returns the number of segments, summed over all levels
     #[must_use]
     pub fn len(&self) -> usize {
         self.current.segment_count()
@@ -406,10 +383,6 @@ impl LevelManifest {
                 .flat_map(|run| run.iter())
                 .any(|segment| self.hidden_set.is_hidden(segment.id()))
         })
-    }
-
-    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
-        self.current.iter_segments().find(|x| x.metadata.id == id)
     }
 
     #[must_use]
@@ -444,16 +417,10 @@ impl LevelManifest {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use crate::{
-        coding::Encode,
-        level_manifest::{hidden_set::HiddenSet, LevelManifest},
-        AbstractTree,
-    };
+    use crate::AbstractTree;
     use test_log::test;
 
-    // TODO: restore
-    /* #[test]
-    #[ignore]
+    #[test]
     fn level_manifest_atomicity() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
@@ -479,12 +446,12 @@ mod tests {
 
         // NOTE: Purposefully change level manifest to have invalid path
         // to force an I/O error
-        tree.levels.write().expect("lock is poisoned").path = "/invaliiid/asd".into();
+        tree.manifest.write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
 
         assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
-            .levels
+            .manifest
             .read()
             .expect("lock is poisoned")
             .hidden_set
@@ -493,30 +460,5 @@ mod tests {
         assert_eq!(segment_count_before_major_compact, tree.segment_count());
 
         Ok(())
-    } */
-
-    /*    #[test]
-    fn level_manifest_raw_empty() -> crate::Result<()> {
-        let manifest = LevelManifest {
-            hidden_set: HiddenSet::default(),
-            levels: Vec::default(),
-            path: "a".into(),
-            is_disjoint: false,
-        };
-
-        let bytes = Runs(&manifest.deep_clone()).encode_into_vec();
-
-        #[rustfmt::skip]
-        let raw = &[
-            // Magic
-            b'L', b'S', b'M', 3,
-
-            // Count
-            0,
-        ];
-
-        assert_eq!(bytes, raw);
-
-        Ok(())
-    } */
+    }
 }

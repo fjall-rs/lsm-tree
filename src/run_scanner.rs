@@ -70,9 +70,8 @@ mod tests {
     use crate::{AbstractTree, Slice};
     use test_log::test;
 
-    // TODO: restore
-    /* #[test]
-    fn level_scanner_basic() -> crate::Result<()> {
+    #[test]
+    fn run_scanner_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -91,21 +90,19 @@ mod tests {
         }
 
         let segments = tree
-            .version
+            .manifest
             .read()
             .expect("lock is poisoned")
+            .current_version()
             .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Level {
-            segments,
-            is_disjoint: true,
-        });
+        let level = Arc::new(Run::new(segments));
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = RunScanner::from_indexes(level.clone(), (None, None))?;
+            let multi_reader = RunScanner::culled(level.clone(), (None, None))?;
 
             let mut iter = multi_reader.flatten();
 
@@ -125,7 +122,7 @@ mod tests {
 
         #[allow(clippy::unwrap_used)]
         {
-            let multi_reader = RunScanner::from_indexes(level.clone(), (Some(1), None))?;
+            let multi_reader = RunScanner::culled(level, (Some(1), None))?;
 
             let mut iter = multi_reader.flatten();
 
@@ -141,5 +138,5 @@ mod tests {
         }
 
         Ok(())
-    } */
+    }
 }

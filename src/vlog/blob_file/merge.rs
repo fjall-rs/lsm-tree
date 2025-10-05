@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{BlobFileId, BlobFileReader, Compressor},
+    vlog::{BlobFileId, BlobFileReader},
     UserKey, UserValue,
 };
 use interval_heap::IntervalHeap;
@@ -50,14 +50,14 @@ impl Ord for IteratorValue {
 
 /// Interleaves multiple blob file readers into a single, sorted stream
 #[allow(clippy::module_name_repetitions)]
-pub struct MergeReader<C: Compressor + Clone> {
-    readers: Vec<BlobFileReader<C>>,
+pub struct MergeReader {
+    readers: Vec<BlobFileReader>,
     heap: IntervalHeap<IteratorValue>,
 }
 
-impl<C: Compressor + Clone> MergeReader<C> {
+impl MergeReader {
     /// Initializes a new merging reader
-    pub fn new(readers: Vec<BlobFileReader<C>>) -> Self {
+    pub fn new(readers: Vec<BlobFileReader>) -> Self {
         let heap = IntervalHeap::with_capacity(readers.len());
         Self { readers, heap }
     }
@@ -90,7 +90,7 @@ impl<C: Compressor + Clone> MergeReader<C> {
     }
 }
 
-impl<C: Compressor + Clone> Iterator for MergeReader<C> {
+impl Iterator for MergeReader {
     type Item = crate::Result<(UserKey, UserValue, BlobFileId, u64)>;
 
     fn next(&mut self) -> Option<Self::Item> {

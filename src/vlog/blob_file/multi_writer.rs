@@ -3,22 +3,25 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::writer::Writer;
-use crate::vlog::{compression::Compressor, value_log::IdGenerator, BlobFileId, ValueHandle};
+use crate::{
+    vlog::{BlobFileId, ValueHandle},
+    CompressionType, SequenceNumberCounter,
+};
 use std::path::{Path, PathBuf};
 
 /// Blob file writer, may write multiple blob files
-pub struct MultiWriter<C: Compressor + Clone> {
+pub struct MultiWriter {
     folder: PathBuf,
     target_size: u64,
 
-    writers: Vec<Writer<C>>,
+    writers: Vec<Writer>,
 
-    id_generator: IdGenerator,
+    id_generator: SequenceNumberCounter,
 
-    compression: Option<C>,
+    compression: CompressionType,
 }
 
-impl<C: Compressor + Clone> MultiWriter<C> {
+impl MultiWriter {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
@@ -26,7 +29,7 @@ impl<C: Compressor + Clone> MultiWriter<C> {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     pub fn new<P: AsRef<Path>>(
-        id_generator: IdGenerator,
+        id_generator: SequenceNumberCounter,
         target_size: u64,
         folder: P,
     ) -> std::io::Result<Self> {
@@ -42,52 +45,47 @@ impl<C: Compressor + Clone> MultiWriter<C> {
 
             writers: vec![Writer::new(blob_file_path, blob_file_id)?],
 
-            compression: None,
+            compression: CompressionType::None,
         })
     }
 
-    /// Sets the compression method
+    /// Sets the blob file target size.
+    #[must_use]
+    pub fn use_target_size(mut self, bytes: u64) -> Self {
+        self.target_size = bytes;
+        self
+    }
+
+    /// Sets the compression method.
     #[must_use]
     #[doc(hidden)]
-    pub fn use_compression(mut self, compressor: Option<C>) -> Self {
-        self.compression.clone_from(&compressor);
-        self.get_active_writer_mut().compression = compressor;
+    pub fn use_compression(mut self, compression: CompressionType) -> Self {
+        self.compression.clone_from(&compression);
+        self.get_active_writer_mut().compression = compression;
         self
     }
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_active_writer(&self) -> &Writer<C> {
+    pub fn get_active_writer(&self) -> &Writer {
         // NOTE: initialized in constructor
         #[allow(clippy::expect_used)]
         self.writers.last().expect("should exist")
     }
 
-    fn get_active_writer_mut(&mut self) -> &mut Writer<C> {
+    fn get_active_writer_mut(&mut self) -> &mut Writer {
         // NOTE: initialized in constructor
         #[allow(clippy::expect_used)]
         self.writers.last_mut().expect("should exist")
     }
 
-    /// Returns the [`ValueHandle`] for the next written blob.
-    ///
-    /// This can be used to index an item into an external `Index`.
-    #[must_use]
-    pub fn get_next_value_handle(&self) -> ValueHandle {
-        ValueHandle {
-            offset: self.offset(),
-            blob_file_id: self.blob_file_id(),
-        }
-    }
-
-    #[doc(hidden)]
     #[must_use]
     pub fn offset(&self) -> u64 {
         self.get_active_writer().offset()
     }
 
     #[must_use]
-    fn blob_file_id(&self) -> BlobFileId {
+    pub fn blob_file_id(&self) -> BlobFileId {
         self.get_active_writer().blob_file_id()
     }
 
@@ -98,8 +96,8 @@ impl<C: Compressor + Clone> MultiWriter<C> {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new(blob_file_path, new_blob_file_id)?
-            .use_compression(self.compression.clone());
+        let new_writer =
+            Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
 
         self.writers.push(new_writer);
 
@@ -134,7 +132,7 @@ impl<C: Compressor + Clone> MultiWriter<C> {
         Ok(bytes_written)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<Vec<Writer<C>>> {
+    pub(crate) fn finish(mut self) -> crate::Result<Vec<Writer>> {
         let writer = self.get_active_writer_mut();
 
         if writer.item_count > 0 {

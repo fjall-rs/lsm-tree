@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
@@ -8,8 +8,7 @@ fn segment_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for key in ('h'..='o').map(|c| c.to_string()) {
@@ -32,8 +31,7 @@ fn segment_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+        .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {

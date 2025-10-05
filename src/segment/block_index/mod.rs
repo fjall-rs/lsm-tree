@@ -2,11 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub(crate) mod iter;
+pub mod iter;
 
 use super::{CachePolicy, IndexBlock, KeyedBlockHandle};
-use crate::{segment::block::ParsedItem, Cache};
-use std::sync::Arc;
+use crate::segment::block::ParsedItem;
 
 #[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {
