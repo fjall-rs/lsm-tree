@@ -331,7 +331,7 @@ impl Version {
     /// Returns a new version with a list of segments removed.
     ///
     /// The segment files are not immediately deleted, this is handled by the version system's free list.
-    pub fn with_dropped(&self, ids: &[SegmentId]) -> Self {
+    pub fn with_dropped(&self, ids: &[SegmentId]) -> crate::Result<Self> {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -368,10 +368,7 @@ impl Version {
             let mut copy = self.gc_stats.deref().clone();
 
             for segment in &dropped_segments {
-                let linked_blob_files = segment
-                    .get_linked_blob_files()
-                    .expect("TODO: handle error")
-                    .unwrap_or_default();
+                let linked_blob_files = segment.get_linked_blob_files()?.unwrap_or_default();
 
                 for blob_file in linked_blob_files {
                     copy.entry(blob_file.blob_file_id)
@@ -395,7 +392,7 @@ impl Version {
             Arc::new(copy)
         };
 
-        Self {
+        Ok(Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
@@ -403,7 +400,7 @@ impl Version {
                 gc_stats,
             }),
             seqno_watermark: 0,
-        }
+        })
     }
 
     pub fn with_merge(

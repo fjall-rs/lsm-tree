@@ -311,7 +311,7 @@ impl LevelManifest {
     /// and returns a new version.
     ///
     /// The function takes care of persisting the version changes on disk.
-    pub(crate) fn atomic_swap<F: FnOnce(&Version) -> Version>(
+    pub(crate) fn atomic_swap<F: FnOnce(&Version) -> crate::Result<Version>>(
         &mut self,
         f: F,
         gc_watermark: SeqNo,
@@ -322,7 +322,7 @@ impl LevelManifest {
         // without mutating the current level manifest
         // If persisting to disk fails, this way the level manifest
         // is unchanged
-        let next_version = f(&self.current);
+        let next_version = f(&self.current)?;
 
         Self::persist_version(&self.folder, &next_version)?;
 

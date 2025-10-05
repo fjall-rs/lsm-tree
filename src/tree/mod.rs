@@ -414,7 +414,11 @@ impl AbstractTree for Tree {
 
         manifest.atomic_swap(
             |version| {
-                version.with_new_l0_run(segments, blob_files, frag_map.filter(|x| !x.is_empty()))
+                Ok(version.with_new_l0_run(
+                    segments,
+                    blob_files,
+                    frag_map.filter(|x| !x.is_empty()),
+                ))
             },
             seqno_threshold,
         )?;

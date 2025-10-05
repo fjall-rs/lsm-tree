@@ -184,7 +184,7 @@ fn move_segments(
     let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
 
     levels.atomic_swap(
-        |current| current.with_moved(&segment_ids, payload.dest_level as usize),
+        |current| Ok(current.with_moved(&segment_ids, payload.dest_level as usize)),
         opts.eviction_seqno,
     )?;
 
