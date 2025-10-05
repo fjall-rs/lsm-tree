@@ -127,14 +127,14 @@ mod tests {
                 (Slice::from(b"a"), Slice::from(b"1".repeat(100))),
                 merger
                     .next()
-                    .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
+                    .map(|result| result.map(|(entry, _)| (entry.key, entry.value)))
                     .unwrap()?,
             );
             assert_eq!(
                 (Slice::from(b"a"), Slice::from(b"0".repeat(100))),
                 merger
                     .next()
-                    .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
+                    .map(|result| result.map(|(entry, _)| (entry.key, entry.value)))
                     .unwrap()?,
             );
 
@@ -192,7 +192,7 @@ mod tests {
                     (Slice::from(key), Slice::from(key.repeat(100))),
                     merger
                         .next()
-                        .map(|result| result.map(|(entry, _)| { (entry.key, entry.value) }))
+                        .map(|result| result.map(|(entry, _)| (entry.key, entry.value)))
                         .unwrap()?,
                 );
             }
