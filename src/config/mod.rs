@@ -61,24 +61,35 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 #[derive(Clone, Debug)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
-    pub blob_compression: CompressionType,
+    pub compression: CompressionType,
 
     /// Blob file (value log segment) target size in bytes
     #[doc(hidden)]
-    pub blob_file_target_size: u64,
+    pub file_target_size: u64,
 
     /// Key-value separation threshold in bytes
     #[doc(hidden)]
-    pub blob_file_separation_threshold: u32,
-    // TODO: blob_file_staleness_threshold AND/OR space_amp_threshold
+    pub separation_threshold: u32,
+
+    pub(crate) staleness_threshold: f32,
+
+    pub(crate) age_cutoff: f32, // TODO: 3.0.0
 }
 
 impl Default for KvSeparationOptions {
     fn default() -> Self {
         Self {
-            blob_compression: CompressionType::None, // TODO: LZ4
-            blob_file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
-            blob_file_separation_threshold: /* 1 KiB */ 1_024,
+            #[cfg(feature="lz4")]
+            compression:   CompressionType::Lz4,
+
+            #[cfg(not(feature="lz4"))]
+            compression: CompressionType::None,
+
+            file_target_size: /* 256 MiB */ 256 * 1_024 * 1_024,
+            separation_threshold: /* 1 KiB */ 1_024,
+
+            staleness_threshold: 0.25,
+            age_cutoff: 0.25,
         }
     }
 }
@@ -86,8 +97,8 @@ impl Default for KvSeparationOptions {
 impl KvSeparationOptions {
     /// Sets the blob compression method.
     #[must_use]
-    pub fn blob_compression(mut self, compression: CompressionType) -> Self {
-        self.blob_compression = compression;
+    pub fn compression(mut self, compression: CompressionType) -> Self {
+        self.compression = compression;
         self
     }
 
@@ -100,11 +111,9 @@ impl KvSeparationOptions {
     /// overhead.
     ///
     /// Defaults to 64 MiB.
-    ///
-    /// This option has no effect when not used for opening a blob tree.
     #[must_use]
-    pub fn blob_file_target_size(mut self, bytes: u64) -> Self {
-        self.blob_file_target_size = bytes;
+    pub fn file_target_size(mut self, bytes: u64) -> Self {
+        self.file_target_size = bytes;
         self
     }
 
@@ -114,11 +123,21 @@ impl KvSeparationOptions {
     /// at the cost of lower read performance.
     ///
     /// Defaults to 4KiB.
-    ///
-    /// This option has no effect when not used for opening a blob tree.
     #[must_use]
-    pub fn blob_file_separation_threshold(mut self, bytes: u32) -> Self {
-        self.blob_file_separation_threshold = bytes;
+    pub fn separation_threshold(mut self, bytes: u32) -> Self {
+        self.separation_threshold = bytes;
+        self
+    }
+
+    /// Sets the staleness threshold percentage.
+    ///
+    /// The staleness percentage determines how much a blob file needs to be fragmented to be
+    /// picked up by the garbage collection.
+    ///
+    /// Defaults to 25%.
+    #[must_use]
+    pub fn staleness_threshold(mut self, ratio: f32) -> Self {
+        self.staleness_threshold = ratio;
         self
     }
 }

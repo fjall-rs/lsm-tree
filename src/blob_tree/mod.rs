@@ -426,7 +426,7 @@ impl AbstractTree for BlobTree {
                 .kv_separation_opts
                 .as_ref()
                 .expect("blob options should exist")
-                .blob_compression,
+                .compression,
         );
 
         let iter = memtable.iter().map(Ok);
@@ -441,7 +441,7 @@ impl AbstractTree for BlobTree {
             .kv_separation_opts
             .as_ref()
             .expect("kv separation options should exist")
-            .blob_file_separation_threshold;
+            .separation_threshold;
 
         for item in compaction_filter {
             let item = item?;
