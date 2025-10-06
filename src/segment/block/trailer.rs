@@ -11,7 +11,12 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub const TRAILER_START_MARKER: u8 = 255;
 
-const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>() + (2 * std::mem::size_of::<u8>());
+const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>()
+    + (2 * std::mem::size_of::<u8>())
+    // Fixed key size (unused)
+    + std::mem::size_of::<u16>()
+    // Fixed value size (unused)
+    + std::mem::size_of::<u32>();
 
 /// Block trailer
 ///
@@ -107,10 +112,6 @@ impl<'a> Trailer<'a> {
 
         encoder.writer.write_u8(binary_index_step_size)?;
 
-        encoder
-            .writer
-            .write_u32::<LittleEndian>(binary_index_offset)?;
-
         // NOTE: Even with a dense index, there can't be more index pointers than items
         #[allow(clippy::cast_possible_truncation)]
         encoder
@@ -119,7 +120,7 @@ impl<'a> Trailer<'a> {
 
         encoder
             .writer
-            .write_u32::<LittleEndian>(hash_index_offset)?;
+            .write_u32::<LittleEndian>(binary_index_offset)?;
 
         encoder
             .writer
@@ -128,6 +129,17 @@ impl<'a> Trailer<'a> {
             } else {
                 0
             })?;
+
+        encoder
+            .writer
+            .write_u32::<LittleEndian>(hash_index_offset)?;
+
+        // Fixed key size (unused)
+        encoder.writer.write_u16::<LittleEndian>(0)?;
+
+        // TODO: 3.0.0 what if value is actually 0...? we need another byte prob
+        // Fixed value size (unused)
+        encoder.writer.write_u32::<LittleEndian>(0)?;
 
         #[cfg(debug_assertions)]
         assert_eq!(
