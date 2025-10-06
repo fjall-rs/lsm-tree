@@ -9,7 +9,7 @@ fn blob_tree_separation_threshold() -> lsm_tree::Result<()> {
 
     let tree = lsm_tree::Config::new(path)
         .with_kv_separation(Some(
-            KvSeparationOptions::default().blob_file_separation_threshold(1_024),
+            KvSeparationOptions::default().separation_threshold(1_024),
         ))
         .open()?;
 

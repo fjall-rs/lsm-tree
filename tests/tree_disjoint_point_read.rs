@@ -8,7 +8,7 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("a", "a", 0);
@@ -37,7 +37,7 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
@@ -68,7 +68,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("z", "z", 0);
@@ -123,7 +123,7 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

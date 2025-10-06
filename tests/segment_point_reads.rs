@@ -9,7 +9,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -33,7 +33,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -75,7 +75,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let keys = [0, 1, 2]
@@ -122,7 +122,7 @@ fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
