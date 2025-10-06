@@ -52,11 +52,15 @@ impl<'a> Reader<'a> {
         let expected_checksum = reader.read_u128::<LittleEndian>()?;
 
         let _seqno = reader.read_u64::<LittleEndian>()?;
-        let key_len = reader.read_u16::<LittleEndian>()? as usize;
+        let key_len = reader.read_u16::<LittleEndian>()?;
+
+        // NOTE: Used in feature flagged branch
+        #[allow(unused)]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
+
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
-        reader.seek(std::io::SeekFrom::Current(key_len as i64))?;
+        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
         let raw_data = value.slice((add_size as usize)..);
 

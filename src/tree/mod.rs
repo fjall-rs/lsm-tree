@@ -28,7 +28,7 @@ use std::{
     io::Cursor,
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
 };
 
 #[cfg(feature = "metrics")]
@@ -223,7 +223,7 @@ impl AbstractTree for Tree {
     }
 
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
-        let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range)?;
+        let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range);
 
         if is_empty {
             return Ok(());
@@ -627,7 +627,7 @@ impl Tree {
     /// while still having access to the normalized bounds for non-empty cases.
     fn range_bounds_to_owned_bounds<K: AsRef<[u8]>, R: RangeBounds<K>>(
         range: &R,
-    ) -> crate::Result<(OwnedBounds, bool)> {
+    ) -> (OwnedBounds, bool) {
         use Bound::{Excluded, Included, Unbounded};
 
         let start = match range.start_bound() {
@@ -642,17 +642,14 @@ impl Tree {
             Unbounded => Unbounded,
         };
 
-        let is_empty = if let (Included(lo), Included(hi))
-        | (Included(lo), Excluded(hi))
-        | (Excluded(lo), Included(hi))
-        | (Excluded(lo), Excluded(hi)) = (&start, &end)
-        {
-            lo.as_ref() > hi.as_ref()
-        } else {
-            false
-        };
+        let is_empty =
+            if let (Included(lo) | Excluded(lo), Included(hi) | Excluded(hi)) = (&start, &end) {
+                lo.as_ref() > hi.as_ref()
+            } else {
+                false
+            };
 
-        Ok((OwnedBounds { start, end }, is_empty))
+        (OwnedBounds { start, end }, is_empty)
     }
 
     /// Opens an LSM-tree in the given directory.
@@ -684,10 +681,6 @@ impl Tree {
         }?;
 
         Ok(tree)
-    }
-
-    pub(crate) fn read_lock_active_memtable(&self) -> RwLockReadGuard<'_, Arc<Memtable>> {
-        self.active_memtable.read().expect("lock is poisoned")
     }
 
     pub(crate) fn consume_writer(
@@ -1088,7 +1081,7 @@ impl Tree {
             }
 
             let segment_file_name = file_name.to_str().ok_or_else(|| {
-                log::error!("invalid segment file name {file_name:?}");
+                log::error!("invalid segment file name {}", file_name.display());
                 crate::Error::Unrecoverable
             })?;
 
