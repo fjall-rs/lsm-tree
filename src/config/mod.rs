@@ -333,22 +333,23 @@ impl Config {
         self
     }
 
-    /// Sets the number of levels of the LSM tree (depth of tree).
-    ///
-    /// Defaults to 7, like `LevelDB` and `RocksDB`.
-    ///
-    /// Cannot be changed once set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `n` is 0.
-    #[must_use]
-    pub fn level_count(mut self, n: u8) -> Self {
-        assert!(n > 0);
+    // TODO: level count is fixed to 7 right now
+    // /// Sets the number of levels of the LSM tree (depth of tree).
+    // ///
+    // /// Defaults to 7, like `LevelDB` and `RocksDB`.
+    // ///
+    // /// Cannot be changed once set.
+    // ///
+    // /// # Panics
+    // ///
+    // /// Panics if `n` is 0.
+    // #[must_use]
+    // pub fn level_count(mut self, n: u8) -> Self {
+    //     assert!(n > 0);
 
-        self.level_count = n;
-        self
-    }
+    //     self.level_count = n;
+    //     self
+    // }
 
     /// Sets the data block size policy.
     #[must_use]
@@ -357,12 +358,13 @@ impl Config {
         self
     }
 
-    /// Sets the index block size policy.
-    #[must_use]
-    pub fn index_block_size_policy(mut self, policy: BlockSizePolicy) -> Self {
-        self.index_block_size_policy = policy;
-        self
-    }
+    // TODO: 3.0.0 does nothing until we have partitioned indexes
+    // /// Sets the index block size policy.
+    // #[must_use]
+    // pub fn index_block_size_policy(mut self, policy: BlockSizePolicy) -> Self {
+    //     self.index_block_size_policy = policy;
+    //     self
+    // }
 
     /// Sets the hash ratio policy for data blocks.
     ///
