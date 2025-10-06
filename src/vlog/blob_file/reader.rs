@@ -85,6 +85,10 @@ impl<'a> Reader<'a> {
             };
 
             if expected_checksum != checksum {
+                log::error!(
+                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
+                );
+
                 return Err(crate::Error::ChecksumMismatch {
                     got: Checksum::from_raw(checksum),
                     expected: Checksum::from_raw(expected_checksum),

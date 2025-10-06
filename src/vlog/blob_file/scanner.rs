@@ -122,6 +122,11 @@ impl Iterator for Scanner {
             };
 
             if expected_checksum != checksum {
+                log::error!(
+                    "Checksum mismatch for blob>{}@{offset}, got={checksum}, expected={expected_checksum}",
+                    self.blob_file_id,
+                );
+
                 return Some(Err(crate::Error::ChecksumMismatch {
                     got: Checksum::from_raw(checksum),
                     expected: Checksum::from_raw(expected_checksum),
