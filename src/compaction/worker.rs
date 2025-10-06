@@ -278,7 +278,7 @@ fn merge_segments(
                             .expect("blob file should exist")
                     })
                     .filter(|blob_file| {
-                        blob_file.is_stale(version.gc_stats(), 0.25 /* TODO: option */)
+                        blob_file.is_stale(version.gc_stats(), blob_opts.staleness_threshold)
                     })
                     .filter(|blob_file| {
                         // NOTE: Dead blob files are dropped anyway during Version change commit
@@ -337,13 +337,12 @@ fn merge_segments(
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
-                // TODO: we need to relocate blob files without decompressing
-                // TODO: BUT the meta needs to store the compression type
                 let writer = BlobFileWriter::new(
                     opts.blob_file_id_generator.clone(),
-                    blob_opts.blob_file_target_size,
+                    blob_opts.file_target_size,
                     opts.config.path.join(BLOBS_FOLDER),
-                )?;
+                )?
+                .use_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, segments);
 
