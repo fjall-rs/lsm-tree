@@ -37,7 +37,7 @@ impl CompactionStrategy for Strategy {
         "MajorCompaction"
     }
 
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
+    fn choose(&self, levels: &LevelManifest, cfg: &Config) -> Choice {
         let segment_ids: HashSet<_> = levels.iter().map(Segment::id).collect();
 
         // NOTE: This should generally not occur because of the
@@ -50,10 +50,12 @@ impl CompactionStrategy for Strategy {
         if some_hidden {
             Choice::DoNothing
         } else {
+            let last_level_idx = cfg.level_count - 1;
+
             Choice::Merge(CompactionInput {
                 segment_ids,
-                dest_level: levels.last_level_index(),
-                canonical_level: levels.last_level_index(),
+                dest_level: last_level_idx,
+                canonical_level: last_level_idx,
                 target_size: self.target_size,
             })
         }
