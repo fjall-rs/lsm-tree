@@ -201,7 +201,7 @@ impl CompactionStrategy for Strategy {
             .skip(1)
             .find(|(_, lvl)| !lvl.is_empty())
             .map(|(idx, _)| idx)
-            .unwrap_or_else(|| usize::from(levels.last_level_index()));
+            .unwrap_or_else(|| usize::from(levels.level_count() - 1));
 
         // Number of levels we have to shift to get from the actual level idx to the canonical
         let mut level_shift = canonical_l1_idx - 1;
