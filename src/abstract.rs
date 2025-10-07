@@ -143,10 +143,6 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    // TODO:?
-    /* #[doc(hidden)]
-    fn verify(&self) -> crate::Result<usize>; */
-
     /// Synchronously flushes a memtable to a disk segment.
     ///
     /// This method will not make the segment immediately available,
