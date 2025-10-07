@@ -73,7 +73,7 @@ pub struct KvSeparationOptions {
 
     pub(crate) staleness_threshold: f32,
 
-    pub(crate) age_cutoff: f32, // TODO: 3.0.0
+    pub(crate) age_cutoff: f32,
 }
 
 impl Default for KvSeparationOptions {
@@ -85,11 +85,11 @@ impl Default for KvSeparationOptions {
             #[cfg(not(feature="lz4"))]
             compression: CompressionType::None,
 
-            file_target_size: /* 256 MiB */ 256 * 1_024 * 1_024,
+            file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             separation_threshold: /* 1 KiB */ 1_024,
 
-            staleness_threshold: 0.25,
-            age_cutoff: 0.25,
+            staleness_threshold: 0.33,
+            age_cutoff: 0.20,
         }
     }
 }
@@ -134,10 +134,19 @@ impl KvSeparationOptions {
     /// The staleness percentage determines how much a blob file needs to be fragmented to be
     /// picked up by the garbage collection.
     ///
-    /// Defaults to 25%.
+    /// Defaults to 33%.
     #[must_use]
     pub fn staleness_threshold(mut self, ratio: f32) -> Self {
         self.staleness_threshold = ratio;
+        self
+    }
+
+    /// Sets the age cutoff threshold.
+    ///
+    /// Defaults to 20%.
+    #[must_use]
+    pub fn age_cutoff(mut self, ratio: f32) -> Self {
+        self.age_cutoff = ratio;
         self
     }
 }
