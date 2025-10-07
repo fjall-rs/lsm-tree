@@ -4,6 +4,7 @@
 
 pub mod ingest;
 pub mod inner;
+mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
@@ -23,12 +24,12 @@ use crate::{
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter,
     TreeType, UserKey, UserValue, ValueType,
 };
-use inner::{MemtableId, SealedMemtables, TreeId, TreeInner};
+use inner::{MemtableId, TreeId, TreeInner};
 use std::{
     io::Cursor,
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
+    sync::{atomic::AtomicU64, Arc, RwLock},
 };
 
 #[cfg(feature = "metrics")]
