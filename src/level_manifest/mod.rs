@@ -453,16 +453,27 @@ mod tests {
 
         let segment_count_before_major_compact = tree.segment_count();
 
-        // NOTE: Purposefully change level manifest to have invalid path
-        // to force an I/O error
-        tree.manifest().write().expect("lock is poisoned").folder = "/invaliiid/asd".into();
+        let crate::AnyTree::Standard(tree) = tree else {
+            unreachable!();
+        };
+
+        {
+            // NOTE: Purposefully change level manifest to have invalid path
+            // to force an I/O error
+            tree.super_version
+                .write()
+                .expect("lock is poisoned")
+                .manifest
+                .folder = "/invaliiid/asd".into();
+        }
 
         assert!(tree.major_compact(u64::MAX, 4).is_err());
 
         assert!(tree
-            .manifest()
+            .super_version
             .read()
             .expect("lock is poisoned")
+            .manifest
             .hidden_set
             .is_empty());
 
