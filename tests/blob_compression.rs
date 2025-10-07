@@ -12,7 +12,8 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
             KvSeparationOptions::default()
                 .compression(lsm_tree::CompressionType::Lz4)
                 .separation_threshold(1)
-                .staleness_threshold(0.0000001),
+                .staleness_threshold(0.0000001)
+                .age_cutoff(1.0),
         ))
         .open()?;
 
