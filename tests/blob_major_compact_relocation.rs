@@ -53,13 +53,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             // "big":0 is expired
             assert_eq!(
@@ -77,13 +71,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
         assert_eq!(2, tree.blob_file_count());
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }
@@ -167,13 +155,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(
                 &{
@@ -190,13 +172,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.blob_file_count());
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }
@@ -282,13 +258,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
         let value = tree.get("e", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, b"smol");
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(
                 &{
@@ -305,13 +275,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.blob_file_count());
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }

@@ -37,36 +37,24 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     tree.compact(Arc::new(lsm_tree::compaction::PullDown(2, 3)), 0)?;
 
     assert!(!tree
-        .manifest()
-        .read()
-        .expect("asdasd")
         .current_version()
         .level(0)
         .expect("level should exist")
         .is_empty());
 
     assert!(tree
-        .manifest()
-        .read()
-        .expect("asdasd")
         .current_version()
         .level(1)
         .expect("level should exist")
         .is_empty());
 
     assert!(tree
-        .manifest()
-        .read()
-        .expect("asdasd")
         .current_version()
         .level(2)
         .expect("level should exist")
         .is_empty());
 
     assert!(!tree
-        .manifest()
-        .read()
-        .expect("asdasd")
         .current_version()
         .level(3)
         .expect("level should exist")

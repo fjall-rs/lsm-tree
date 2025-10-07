@@ -30,10 +30,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 bytes: big_value.len() as u64,
                 len: 1,
             }]),
-            tree.manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
+            tree.current_version()
                 .iter_segments()
                 .next()
                 .unwrap()
@@ -52,10 +49,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 bytes: big_value.len() as u64,
                 len: 1,
             }]),
-            tree.manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
+            tree.current_version()
                 .iter_segments()
                 .next()
                 .unwrap()

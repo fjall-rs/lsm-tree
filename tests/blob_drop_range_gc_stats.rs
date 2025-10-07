@@ -30,13 +30,7 @@ fn blob_tree_drop_range_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(0, tree.blob_file_count());
         assert_eq!(0, tree.segment_count());
 
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 was dropped
         assert_eq!(

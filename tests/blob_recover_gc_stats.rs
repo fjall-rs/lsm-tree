@@ -32,13 +32,7 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
 
         tree.major_compact(64_000_000, 1_000)?;
 
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 is expired
         assert_eq!(
@@ -56,13 +50,7 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
             .with_kv_separation(Some(Default::default()))
             .open()?;
 
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 is still expired
         assert_eq!(
