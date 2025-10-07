@@ -1,9 +1,9 @@
-use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
-use test_log::test;
-
 #[test]
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {
+    use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
+    use test_log::test;
+
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
@@ -49,13 +49,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.blob_file_count());
 
     {
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         assert_eq!(
             &{
@@ -82,13 +76,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     assert_eq!(1, tree.blob_file_count());
 
     {
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
     }
