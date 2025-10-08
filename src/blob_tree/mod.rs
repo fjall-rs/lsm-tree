@@ -36,8 +36,16 @@ impl IterGuard for Guard<'_> {
     }
 
     fn size(self) -> crate::Result<u32> {
-        let mut cursor = Cursor::new(self.kv?.value);
-        Ok(BlobIndirection::decode_from(&mut cursor)?.size)
+        let kv = self.kv?;
+
+        if kv.key.value_type.is_indirection() {
+            let mut cursor = Cursor::new(kv.value);
+            Ok(BlobIndirection::decode_from(&mut cursor)?.size)
+        } else {
+            // NOTE: We know that values are u32 max length
+            #[allow(clippy::cast_possible_truncation)]
+            Ok(kv.value.len() as u32)
+        }
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
