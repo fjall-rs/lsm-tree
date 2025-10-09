@@ -58,7 +58,7 @@ impl TryFrom<u8> for TreeType {
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
 /// Options for key-value separation
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
     pub compression: CompressionType,
