@@ -17,7 +17,8 @@ pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
 use crate::{
-    path::absolute_path, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, Tree,
+    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
+    DescriptorTable, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -222,7 +223,7 @@ impl Default for Config {
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
-            level_count: 7,
+            level_count: DEFAULT_LEVEL_COUNT,
 
             data_block_size_policy: BlockSizePolicy::default(),
             index_block_size_policy: BlockSizePolicy::default(),
