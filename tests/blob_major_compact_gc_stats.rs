@@ -37,13 +37,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.segment_count());
         assert_eq!(2, tree.blob_file_count());
 
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 is expired
         assert_eq!(
@@ -95,10 +89,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 bytes: 2 * big_value.len() as u64,
                 len: 2,
             }]),
-            tree.manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
+            tree.current_version()
                 .iter_segments()
                 .nth(1)
                 .unwrap()
@@ -111,13 +102,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.segment_count());
         assert_eq!(1, tree.blob_file_count());
 
-        let gc_stats = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .clone();
+        let gc_stats = tree.current_version().gc_stats().clone();
 
         // "big":0 is expired
         assert_eq!(
@@ -135,10 +120,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 bytes: big_value.len() as u64,
                 len: 1,
             }]),
-            tree.manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
+            tree.current_version()
                 .iter_segments()
                 .next()
                 .unwrap()

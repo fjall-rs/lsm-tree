@@ -141,12 +141,7 @@ impl<'a> Ingestion<'a> {
         self.tree
             .register_segments(&created_segments, None, None, 0)?;
 
-        let last_level_idx = self
-            .tree
-            .manifest
-            .read()
-            .expect("lock is poisoned")
-            .last_level_index();
+        let last_level_idx = self.tree.config.level_count - 1;
 
         self.tree
             .compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;

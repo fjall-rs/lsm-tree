@@ -1,4 +1,7 @@
-use lsm_tree::{config::CompressionPolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    config::CompressionPolicy, AbstractTree, Config, KvSeparationOptions, SeqNo,
+    SequenceNumberCounter,
+};
 use test_log::test;
 
 // NOTE: This was a logic/MVCC error in v2 that could drop
@@ -6,13 +9,17 @@ use test_log::test;
 //
 // https://github.com/fjall-rs/lsm-tree/commit/79c6ead4b955051cbb4835913e21d08b8aeafba1
 #[test]
-#[ignore]
 fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(&folder)
         .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
-        .open_as_blob_tree()?;
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .staleness_threshold(0.01)
+                .age_cutoff(1.0),
+        ))
+        .open()?;
     let seqno = SequenceNumberCounter::default();
 
     tree.insert("a", "neptune".repeat(10_000), seqno.next());
@@ -58,18 +65,18 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
         b"neptune3".repeat(10_000),
     );
 
-    let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
-    assert_eq!(2, report.stale_blobs);
-
-    let strategy = lsm_tree::gc::SpaceAmpStrategy::new(1.0);
-    tree.apply_gc_strategy(&strategy, 0)?;
+    tree.major_compact(u64::MAX, 0)?;
+    tree.major_compact(u64::MAX, 0)?;
 
     // IMPORTANT: We cannot drop any blobs yet
     // because the watermark is too low
     //
     // This would previously fail
-    let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
-    assert_eq!(2, report.stale_blobs);
+
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
+    }
 
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
@@ -79,6 +86,20 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
         b"neptune3".repeat(10_000),
     );
+
+    tree.major_compact(u64::MAX, 1_000)?;
+
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert!(!gc_stats.is_empty());
+    }
+
+    tree.major_compact(u64::MAX, 1_000)?;
+
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
+    }
 
     Ok(())
 }

@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::SegmentId;
 
 /// The hidden set keeps track of which segments are currently being compacted
@@ -32,5 +36,12 @@ impl HiddenSet {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.set.is_empty()
+    }
+
+    pub(crate) fn should_decline_compaction<T: IntoIterator<Item = SegmentId>>(
+        &self,
+        ids: T,
+    ) -> bool {
+        self.is_blocked(ids)
     }
 }

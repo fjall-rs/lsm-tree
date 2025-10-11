@@ -45,13 +45,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         assert_eq!(&*value, new_big_value);
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }
@@ -64,13 +58,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         assert_eq!(&*value, new_big_value);
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(
                 &{
@@ -90,13 +78,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.blob_file_count());
 
         {
-            let gc_stats = tree
-                .manifest()
-                .read()
-                .expect("lock is poisoned")
-                .current_version()
-                .gc_stats()
-                .clone();
+            let gc_stats = tree.current_version().gc_stats().clone();
 
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }

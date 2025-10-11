@@ -84,16 +84,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10, 8)), 1)?;
-    assert_eq!(
-        1,
-        tree.manifest()
-            .read()
-            .expect("asdasd")
-            .current_version()
-            .level(1)
-            .unwrap()
-            .len()
-    );
+    assert_eq!(1, tree.current_version().level(1).unwrap().len());
 
     tree.insert("e", "e", 0);
     tree.flush_active_memtable(0)?;
@@ -140,16 +131,7 @@ fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     tree.compact(Arc::new(lsm_tree::compaction::SizeTiered::new(10, 8)), 1)?;
-    assert_eq!(
-        1,
-        tree.manifest()
-            .read()
-            .expect("asdasd")
-            .current_version()
-            .level(1)
-            .unwrap()
-            .len()
-    );
+    assert_eq!(1, tree.current_version().level(1).unwrap().len());
 
     tree.insert("e", "e", 0);
     tree.flush_active_memtable(0)?;
