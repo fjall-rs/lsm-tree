@@ -213,6 +213,23 @@ fn move_segments(
     Ok(())
 }
 
+fn hidden_guard(
+    payload: &CompactionPayload,
+    opts: &Options,
+    f: impl FnOnce() -> crate::Result<()>,
+) -> crate::Result<()> {
+    f().inspect_err(|e| {
+        log::error!("Compaction failed: {e:?}");
+
+        // IMPORTANT: We need to show tables again on error
+        let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+
+        compaction_state
+            .hidden_set_mut()
+            .show(payload.segment_ids.iter().copied());
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
     mut compaction_state: MutexGuard<'_, CompactionState>,
@@ -397,35 +414,25 @@ fn merge_segments(
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
     drop(compaction_state);
 
-    for (idx, item) in merge_iter.enumerate() {
-        let item = item.inspect_err(|_| {
-            // IMPORTANT: We need to show tables again on error
-            let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+    hidden_guard(payload, opts, || {
+        for (idx, item) in merge_iter.enumerate() {
+            let item = item?;
 
-            compaction_state
-                .hidden_set_mut()
-                .show(payload.segment_ids.iter().copied());
-        })?;
+            // IMPORTANT: We can only drop tombstones when writing into last level
+            if is_last_level && item.is_tombstone() {
+                continue;
+            }
 
-        // IMPORTANT: We can only drop tombstones when writing into last level
-        if is_last_level && item.is_tombstone() {
-            continue;
+            compactor.write(item)?;
+
+            if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
+                log::debug!("Stopping amidst compaction because of stop signal");
+                return Ok(());
+            }
         }
 
-        compactor.write(item).inspect_err(|_| {
-            // IMPORTANT: We need to show tables again on error
-            let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
-
-            compaction_state
-                .hidden_set_mut()
-                .show(payload.segment_ids.iter().copied());
-        })?;
-
-        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
-            log::debug!("Stopping amidst compaction because of stop signal");
-            return Ok(());
-        }
-    }
+        Ok(())
+    })?;
 
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
@@ -442,7 +449,11 @@ fn merge_segments(
             dst_lvl,
             blob_frag_map,
         )
-        .inspect_err(|_| {
+        .inspect_err(|e| {
+            // NOTE: We cannot use hidden_guard here because we already locked the compaction state
+
+            log::error!("Compaction failed: {e:?}");
+
             compaction_state
                 .hidden_set_mut()
                 .show(payload.segment_ids.iter().copied());
