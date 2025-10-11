@@ -3,8 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
-    tree::sealed::SealedMemtables, SegmentId, SequenceNumberCounter,
+    compaction::state::{persist_version, CompactionState},
+    config::Config,
+    memtable::Memtable,
+    stop_signal::StopSignal,
+    tree::sealed::SealedMemtables,
+    version::Version,
+    SegmentId, SequenceNumberCounter,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 
@@ -35,7 +40,7 @@ pub struct SuperVersion {
     pub(crate) sealed_memtables: Arc<SealedMemtables>,
 
     /// Current tree version
-    pub(crate) manifest: LevelManifest,
+    pub(crate) version: Version,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -53,6 +58,8 @@ pub struct TreeInner {
 
     pub(crate) super_version: Arc<RwLock<SuperVersion>>,
 
+    pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
+
     /// Tree configuration
     pub config: Config,
 
@@ -66,10 +73,6 @@ pub struct TreeInner {
     /// can be concurrent next to each other.
     pub(crate) major_compaction_lock: RwLock<()>,
 
-    // TODO: 3.0.0 compaction state
-    // Serializes compactions when they look at the tree levels and prepare compactions
-    pub(crate) compaction_lock: Arc<Mutex<()>>,
-
     #[doc(hidden)]
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,
@@ -77,7 +80,10 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let manifest = LevelManifest::create_new(&config.path)?;
+        let version = Version::new(0);
+        persist_version(&config.path, &version)?;
+
+        let path = config.path.clone();
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -87,11 +93,11 @@ impl TreeInner {
             super_version: Arc::new(RwLock::new(SuperVersion {
                 active_memtable: Arc::default(),
                 sealed_memtables: Arc::default(),
-                manifest,
+                version,
             })),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
-            compaction_lock: Arc::default(),
+            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
 
             #[cfg(feature = "metrics")]
             metrics: Metrics::default().into(),

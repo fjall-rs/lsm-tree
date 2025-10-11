@@ -4,7 +4,6 @@
 
 use crate::{
     key::InternalKey,
-    level_manifest::LevelManifest,
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
@@ -144,7 +143,7 @@ impl TreeIter {
         guard: IterState,
         range: R,
         seqno: SeqNo,
-        level_manifest: &LevelManifest,
+        version: &Version,
     ) -> Self {
         Self::new(guard, |lock| {
             let lo = match range.start_bound() {
@@ -209,11 +208,7 @@ impl TreeIter {
             // };
 
             #[allow(clippy::needless_continue)]
-            for run in level_manifest
-                .current_version()
-                .iter_levels()
-                .flat_map(|lvl| lvl.iter())
-            {
+            for run in version.iter_levels().flat_map(|lvl| lvl.iter()) {
                 match run.len() {
                     0 => continue,
                     1 => {

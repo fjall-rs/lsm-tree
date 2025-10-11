@@ -9,19 +9,18 @@ mod sealed;
 use crate::{
     blob_tree::FragmentationMap,
     coding::{Decode, Encode},
-    compaction::{drop_range::OwnedBounds, CompactionStrategy},
+    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
-    level_manifest::LevelManifest,
     manifest::Manifest,
     memtable::Memtable,
     segment::Segment,
     slice::Slice,
     tree::inner::SuperVersion,
     value::InternalValue,
-    version::Version,
+    version::{recovery::recover_ids, Version},
     vlog::BlobFile,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter,
     TreeType, UserKey, UserValue, ValueType,
@@ -31,7 +30,7 @@ use std::{
     io::Cursor,
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{atomic::AtomicU64, Arc, RwLock},
+    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
 };
 
 #[cfg(feature = "metrics")]
@@ -106,12 +105,7 @@ impl AbstractTree for Tree {
     }
 
     fn current_version(&self) -> Version {
-        self.super_version
-            .read()
-            .expect("poisoned")
-            .manifest
-            .current_version()
-            .clone()
+        self.super_version.read().expect("poisoned").version.clone()
     }
 
     fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
@@ -137,12 +131,10 @@ impl AbstractTree for Tree {
     }
 
     fn version_free_list_len(&self) -> usize {
-        self.super_version
-            .read()
+        self.compaction_state
+            .lock()
             .expect("lock is poisoned")
-            .manifest
-            .version_free_list
-            .len()
+            .version_free_list_len()
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -400,9 +392,11 @@ impl AbstractTree for Tree {
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
 
-        let mut version_lock = self.super_version.write().expect("lock is poisoned");
+        let mut compaction_state = self.compaction_state.lock().expect("lock is poisoned");
+        let mut super_version = self.super_version.write().expect("lock is poisoned");
 
-        version_lock.manifest.atomic_swap(
+        compaction_state.upgrade_version(
+            &mut super_version,
             |version| {
                 Ok(version.with_new_l0_run(
                     segments,
@@ -416,8 +410,8 @@ impl AbstractTree for Tree {
         for segment in segments {
             log::trace!("releasing sealed memtable {}", segment.id());
 
-            version_lock.sealed_memtables =
-                Arc::new(version_lock.sealed_memtables.remove(segment.id()));
+            super_version.sealed_memtables =
+                Arc::new(super_version.sealed_memtables.remove(segment.id()));
         }
 
         Ok(())
@@ -693,11 +687,12 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn is_compacting(&self) -> bool {
-        self.super_version
-            .read()
+        !self
+            .compaction_state
+            .lock()
             .expect("lock is poisoned")
-            .manifest
-            .is_compacting()
+            .hidden_set()
+            .is_empty()
     }
 
     fn get_internal_entry_from_sealed_memtables(
@@ -725,7 +720,7 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::segment::filter::standard_bloom::Builder::get_hash(key);
 
-        for level in super_version.manifest.current_version().iter_levels() {
+        for level in super_version.version.iter_levels() {
             for run in level.iter() {
                 // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
                 if run.len() >= 4 {
@@ -803,21 +798,21 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let version_lock = self.super_version.write().expect("lock is poisoned");
+        let super_version = self.super_version.write().expect("lock is poisoned");
 
         let iter_state = {
-            let active = &version_lock.active_memtable;
-            let sealed = &version_lock.sealed_memtables;
+            let active = &super_version.active_memtable;
+            let sealed = &super_version.sealed_memtables;
 
             IterState {
                 active: active.clone(),
                 sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
                 ephemeral,
-                version: version_lock.manifest.current_version().clone(),
+                version: super_version.version.clone(),
             }
         };
 
-        TreeIter::create_range(iter_state, bounds, seqno, &version_lock.manifest)
+        TreeIter::create_range(iter_state, bounds, seqno, &super_version.version)
     }
 
     #[doc(hidden)]
@@ -887,7 +882,7 @@ impl Tree {
         #[cfg(feature = "metrics")]
         let metrics = Arc::new(Metrics::default());
 
-        let levels = Self::recover_levels(
+        let version = Self::recover_levels(
             &config.path,
             tree_id,
             &config.cache,
@@ -896,7 +891,13 @@ impl Tree {
             &metrics,
         )?;
 
-        let highest_segment_id = levels.iter().map(Segment::id).max().unwrap_or_default();
+        let highest_segment_id = version
+            .iter_segments()
+            .map(Segment::id)
+            .max()
+            .unwrap_or_default();
+
+        let path = config.path.clone();
 
         let inner = TreeInner {
             id: tree_id,
@@ -905,12 +906,12 @@ impl Tree {
             super_version: Arc::new(RwLock::new(SuperVersion {
                 active_memtable: Arc::default(),
                 sealed_memtables: Arc::default(),
-                manifest: levels,
+                version,
             })),
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
-            compaction_lock: Arc::default(),
+            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
 
             #[cfg(feature = "metrics")]
             metrics,
@@ -965,12 +966,12 @@ impl Tree {
         cache: &Arc<Cache>,
         descriptor_table: &Arc<DescriptorTable>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
-    ) -> crate::Result<LevelManifest> {
+    ) -> crate::Result<Version> {
         use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, SegmentId};
 
         let tree_path = tree_path.as_ref();
 
-        let recovery = LevelManifest::recover_ids(tree_path)?;
+        let recovery = recover_ids(tree_path)?;
 
         let segment_id_map = {
             let mut result: crate::HashMap<SegmentId, u8 /* Level index */> =
@@ -1091,6 +1092,6 @@ impl Tree {
             &recovery.blob_file_ids,
         )?;
 
-        LevelManifest::recover(tree_path, recovery, &segments, &blob_files)
+        Version::from_recovery(recovery, &segments, &blob_files)
     }
 }
