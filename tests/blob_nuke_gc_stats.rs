@@ -2,7 +2,7 @@ use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, SeqNo};
 use test_log::test;
 
 #[test]
-fn blob_tree_drop_range_gc_stats() -> lsm_tree::Result<()> {
+fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 

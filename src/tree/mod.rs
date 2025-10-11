@@ -20,7 +20,7 @@ use crate::{
     slice::Slice,
     tree::inner::SuperVersion,
     value::InternalValue,
-    version::{recovery::recover_ids, Version},
+    version::{recovery::recover_ids, Version, VersionId},
     vlog::BlobFile,
     AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter,
     TreeType, UserKey, UserValue, ValueType,
@@ -959,7 +959,7 @@ impl Tree {
         Ok(Self(Arc::new(inner)))
     }
 
-    /// Recovers the level manifest, loading all segments from disk.
+    /// Recovers the level manifest, loading all tables from disk.
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
@@ -973,17 +973,17 @@ impl Tree {
 
         let recovery = recover_ids(tree_path)?;
 
-        let segment_id_map = {
+        let table_id_map = {
             let mut result: crate::HashMap<SegmentId, u8 /* Level index */> =
                 crate::HashMap::default();
 
-            for (level_idx, segment_ids) in recovery.segment_ids.iter().enumerate() {
-                for run in segment_ids {
-                    for segment_id in run {
+            for (level_idx, table_ids) in recovery.segment_ids.iter().enumerate() {
+                for run in table_ids {
+                    for table_id in run {
                         // NOTE: We know there are always less than 256 levels
                         #[allow(clippy::expect_used)]
                         result.insert(
-                            *segment_id,
+                            *table_id,
                             level_idx
                                 .try_into()
                                 .expect("there are less than 256 levels"),
@@ -995,12 +995,9 @@ impl Tree {
             result
         };
 
-        let cnt = segment_id_map.len();
+        let cnt = table_id_map.len();
 
-        log::debug!(
-            "Recovering {cnt} disk segments from {}",
-            tree_path.display(),
-        );
+        log::debug!("Recovering {cnt} tables from {}", tree_path.display());
 
         let progress_mod = match cnt {
             _ if cnt <= 20 => 1,
@@ -1008,19 +1005,18 @@ impl Tree {
             _ => 100,
         };
 
-        let mut segments = vec![];
+        let mut tables = vec![];
 
-        let segment_base_folder = tree_path.join(SEGMENTS_FOLDER);
+        let table_base_folder = tree_path.join(SEGMENTS_FOLDER);
 
-        if !segment_base_folder.try_exists()? {
-            std::fs::create_dir_all(&segment_base_folder)?;
-            fsync_directory(&segment_base_folder)?;
+        if !table_base_folder.try_exists()? {
+            std::fs::create_dir_all(&table_base_folder)?;
+            fsync_directory(&table_base_folder)?;
         }
 
-        // TODO: 3.0.0 only remove unreferenced segments once we have successfully recovered the most recent version
-        // TODO: same for blob files
+        let mut orphaned_tables = vec![];
 
-        for (idx, dirent) in std::fs::read_dir(&segment_base_folder)?.enumerate() {
+        for (idx, dirent) in std::fs::read_dir(&table_base_folder)?.enumerate() {
             let dirent = dirent?;
             let file_name = dirent.file_name();
 
@@ -1034,24 +1030,24 @@ impl Tree {
                 continue;
             }
 
-            let segment_file_name = file_name.to_str().ok_or_else(|| {
-                log::error!("invalid segment file name {}", file_name.display());
+            let table_file_name = file_name.to_str().ok_or_else(|| {
+                log::error!("invalid table file name {}", file_name.display());
                 crate::Error::Unrecoverable
             })?;
 
-            let segment_file_path = dirent.path();
-            assert!(!segment_file_path.is_dir());
+            let table_file_path = dirent.path();
+            assert!(!table_file_path.is_dir());
 
-            log::debug!("Recovering segment from {}", segment_file_path.display());
+            log::debug!("Recovering table from {}", table_file_path.display());
 
-            let segment_id = segment_file_name.parse::<SegmentId>().map_err(|e| {
-                log::error!("invalid segment file name {segment_file_name:?}: {e:?}");
+            let table_id = table_file_name.parse::<SegmentId>().map_err(|e| {
+                log::error!("invalid table file name {table_file_name:?}: {e:?}");
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&level_idx) = segment_id_map.get(&segment_id) {
-                let segment = Segment::recover(
-                    segment_file_path,
+            if let Some(&level_idx) = table_id_map.get(&table_id) {
+                let table = Segment::recover(
+                    table_file_path,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
@@ -1061,37 +1057,67 @@ impl Tree {
                     metrics.clone(),
                 )?;
 
-                log::debug!("Recovered segment from {:?}", segment.path);
+                log::debug!("Recovered table from {:?}", table.path);
 
-                segments.push(segment);
+                tables.push(table);
 
                 if idx % progress_mod == 0 {
-                    log::debug!("Recovered {idx}/{cnt} disk segments");
+                    log::debug!("Recovered {idx}/{cnt} tables");
                 }
             } else {
-                log::debug!(
-                    "Deleting unfinished segment: {}",
-                    segment_file_path.display(),
-                );
-                std::fs::remove_file(&segment_file_path)?;
+                orphaned_tables.push(table_file_path);
             }
         }
 
-        if segments.len() < cnt {
+        if tables.len() < cnt {
             log::error!(
-                "Recovered less segments than expected: {:?}",
-                segment_id_map.keys(),
+                "Recovered less tables than expected: {:?}",
+                table_id_map.keys(),
             );
             return Err(crate::Error::Unrecoverable);
         }
 
-        log::debug!("Successfully recovered {} segments", segments.len());
+        log::debug!("Successfully recovered {} tables", tables.len());
 
         let blob_files = crate::vlog::recover_blob_files(
             &tree_path.join(BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
 
-        Version::from_recovery(recovery, &segments, &blob_files)
+        let version = Version::from_recovery(recovery, &tables, &blob_files)?;
+
+        // NOTE: Cleanup old versions
+        // But only after we definitely recovered the latest version
+        Self::cleanup_orphaned_version(tree_path, version.id())?;
+
+        for table_path in orphaned_tables {
+            log::debug!("Deleting orphaned table {}", table_path.display());
+            std::fs::remove_file(&table_path)?;
+        }
+
+        // TODO: remove orphaned blob files as well -> unit test
+
+        Ok(version)
+    }
+
+    fn cleanup_orphaned_version(path: &Path, latest_version_id: VersionId) -> crate::Result<()> {
+        let version_str = format!("v{latest_version_id}");
+
+        for file in std::fs::read_dir(path)? {
+            let dirent = file?;
+
+            if dirent.file_type()?.is_dir() {
+                continue;
+            }
+
+            let name = dirent.file_name();
+
+            if name.to_string_lossy().starts_with('v') && *name != *version_str {
+                log::trace!("Cleanup orphaned version {}", name.display());
+                std::fs::remove_file(dirent.path())?;
+            }
+        }
+
+        Ok(())
     }
 }

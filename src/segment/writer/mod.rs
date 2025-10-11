@@ -452,8 +452,6 @@ impl Writer {
                 assert!(is_sorted, "meta items not sorted correctly");
             }
 
-            log::trace!("Encoding metadata block: {meta_items:#?}");
-
             self.block_buffer.clear();
 
             // TODO: no binary index

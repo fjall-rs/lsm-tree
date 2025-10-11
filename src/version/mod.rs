@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 mod optimize;
-pub(crate) mod recovery;
+pub mod recovery;
 pub mod run;
 
 pub use run::Run;
@@ -18,7 +18,6 @@ use crate::{
 };
 use optimize::optimize_runs;
 use run::Ranged;
-use std::path::PathBuf;
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;

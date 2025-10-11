@@ -30,10 +30,7 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
         _ => 100,
     };
 
-    log::debug!("Recovering {cnt} blob files from {:?}", folder.display(),);
-
-    // TODO:
-    // Self::remove_unfinished_blob_files(&folder, &ids)?;
+    log::debug!("Recovering {cnt} blob files from {:?}", folder.display());
 
     let mut blob_files = Vec::with_capacity(ids.len());
 
