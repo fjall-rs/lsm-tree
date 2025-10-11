@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, level_manifest::LevelManifest, segment::Segment, HashSet};
+use crate::{
+    compaction::state::CompactionState, config::Config, segment::Segment, version::Version, HashSet,
+};
 
 /// Compacts all segments into the last level
 pub struct Strategy {
@@ -37,15 +39,15 @@ impl CompactionStrategy for Strategy {
         "MajorCompaction"
     }
 
-    fn choose(&self, levels: &LevelManifest, cfg: &Config) -> Choice {
-        let segment_ids: HashSet<_> = levels.iter().map(Segment::id).collect();
+    fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
+        let segment_ids: HashSet<_> = version.iter_segments().map(Segment::id).collect();
 
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock
         // But just as a fail-safe...
         let some_hidden = segment_ids
             .iter()
-            .any(|&id| levels.hidden_set().is_hidden(id));
+            .any(|&id| state.hidden_set().is_hidden(id));
 
         if some_hidden {
             Choice::DoNothing

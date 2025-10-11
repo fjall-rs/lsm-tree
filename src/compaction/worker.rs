@@ -7,15 +7,16 @@ use crate::{
     blob_tree::FragmentationMap,
     compaction::{
         flavour::{RelocatingCompaction, StandardCompaction},
+        state::CompactionState,
         stream::CompactionStream,
         Choice,
     },
     file::BLOBS_FOLDER,
-    level_manifest::LevelManifest,
     merge::Merger,
     run_scanner::RunScanner,
     stop_signal::StopSignal,
     tree::inner::{SuperVersion, TreeId},
+    version::Version,
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
     BlobFile, Config, HashSet, InternalValue, SegmentId, SeqNo, SequenceNumberCounter,
 };
@@ -52,10 +53,7 @@ pub struct Options {
     /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
 
-    /// Compaction to lock out other compactions
-    ///
-    /// This is not the same lock as the major compaction lock in the `Tree`.
-    pub compaction_lock: Arc<Mutex<()>>,
+    pub compaction_state: Arc<Mutex<CompactionState>>,
 
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,
@@ -72,7 +70,8 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
-            compaction_lock: tree.compaction_lock.clone(),
+
+            compaction_state: tree.compaction_state.clone(),
 
             #[cfg(feature = "metrics")]
             metrics: tree.metrics.clone(),
@@ -84,25 +83,27 @@ impl Options {
 ///
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
-    let lock = opts.compaction_lock.lock().expect("lock is poisoned");
+    let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-    let version = opts.super_version.read().expect("lock is poisoned");
+    let super_version = opts.super_version.read().expect("lock is poisoned");
 
     let start = Instant::now();
     log::trace!(
         "Consulting compaction strategy {:?}",
         opts.strategy.get_name(),
     );
-    let choice = opts.strategy.choose(&version.manifest, &opts.config);
+    let choice = opts
+        .strategy
+        .choose(&super_version.version, &opts.config, &compaction_state);
 
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => merge_segments(lock, version, opts, &payload),
-        Choice::Move(payload) => move_segments(lock, version, opts, &payload),
+        Choice::Merge(payload) => merge_segments(compaction_state, super_version, opts, &payload),
+        Choice::Move(payload) => move_segments(compaction_state, super_version, opts, &payload),
         Choice::Drop(payload) => drop_segments(
-            lock,
-            version,
+            compaction_state,
+            super_version,
             opts,
             &payload.into_iter().collect::<Vec<_>>(),
         ),
@@ -114,14 +115,14 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 }
 
 fn create_compaction_stream<'a>(
-    levels: &LevelManifest,
+    version: &Version,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
-    for level in levels.current_version().iter_levels() {
+    for level in version.iter_levels() {
         if level.is_empty() {
             continue;
         }
@@ -175,7 +176,7 @@ fn create_compaction_stream<'a>(
 }
 
 fn move_segments(
-    _compaction_lock: MutexGuard<'_, ()>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     payload: &CompactionPayload,
@@ -185,8 +186,8 @@ fn move_segments(
     let mut super_version = opts.super_version.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
-    if super_version
-        .manifest
+    if compaction_state
+        .hidden_set()
         .should_decline_compaction(payload.segment_ids.iter().copied())
     {
         log::warn!(
@@ -198,12 +199,13 @@ fn move_segments(
 
     let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
 
-    super_version.manifest.atomic_swap(
+    compaction_state.upgrade_version(
+        &mut super_version,
         |current| Ok(current.with_moved(&segment_ids, payload.dest_level as usize)),
         opts.eviction_seqno,
     )?;
 
-    if let Err(e) = super_version.manifest.maintenance(opts.eviction_seqno) {
+    if let Err(e) = compaction_state.maintenance(opts.eviction_seqno) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -213,7 +215,7 @@ fn move_segments(
 
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
-    compaction_lock: MutexGuard<'_, ()>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     payload: &CompactionPayload,
@@ -224,8 +226,8 @@ fn merge_segments(
     }
 
     // Fail-safe for buggy compaction strategies
-    if super_version
-        .manifest
+    if compaction_state
+        .hidden_set()
         .should_decline_compaction(payload.segment_ids.iter().copied())
     {
         log::warn!(
@@ -238,13 +240,7 @@ fn merge_segments(
     let Some(segments) = payload
         .segment_ids
         .iter()
-        .map(|&id| {
-            super_version
-                .manifest
-                .current_version()
-                .get_segment(id)
-                .cloned()
-        })
+        .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -257,7 +253,7 @@ fn merge_segments(
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
-        &super_version.manifest,
+        &super_version.version,
         &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
     )?
@@ -275,7 +271,7 @@ fn merge_segments(
     // That way we don't resurrect data beneath the tombstone
     let is_last_level = payload.dest_level == last_level;
 
-    let current_version = super_version.manifest.current_version();
+    let current_version = &super_version.version;
 
     let table_writer = super::flavour::prepare_table_writer(current_version, opts, payload)?;
 
@@ -393,24 +389,22 @@ fn merge_segments(
     drop(super_version);
 
     {
-        opts.super_version
-            .write()
-            .expect("lock is poisoned")
-            .manifest
-            .hide_segments(payload.segment_ids.iter().copied());
+        compaction_state
+            .hidden_set_mut()
+            .hide(payload.segment_ids.iter().copied());
     }
 
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
-    drop(compaction_lock);
+    drop(compaction_state);
 
     for (idx, item) in merge_iter.enumerate() {
         let item = item.inspect_err(|_| {
             // IMPORTANT: We need to show tables again on error
-            let mut version_lock = opts.super_version.write().expect("lock is poisoned");
+            let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-            version_lock
-                .manifest
-                .show_segments(payload.segment_ids.iter().copied());
+            compaction_state
+                .hidden_set_mut()
+                .show(payload.segment_ids.iter().copied());
         })?;
 
         // IMPORTANT: We can only drop tombstones when writing into last level
@@ -420,11 +414,11 @@ fn merge_segments(
 
         compactor.write(item).inspect_err(|_| {
             // IMPORTANT: We need to show tables again on error
-            let mut version_lock = opts.super_version.write().expect("lock is poisoned");
+            let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-            version_lock
-                .manifest
-                .show_segments(payload.segment_ids.iter().copied());
+            compaction_state
+                .hidden_set_mut()
+                .show(payload.segment_ids.iter().copied());
         })?;
 
         if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
@@ -433,7 +427,7 @@ fn merge_segments(
         }
     }
 
-    let compaction_lock = opts.compaction_lock.lock().expect("lock is poisoned");
+    let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
     log::trace!("Acquiring super version write lock");
     let mut super_version = opts.super_version.write().expect("lock is poisoned");
@@ -441,31 +435,31 @@ fn merge_segments(
 
     compactor
         .finish(
-            &mut super_version.manifest,
+            &mut super_version,
+            &mut compaction_state,
             opts,
             payload,
             dst_lvl,
             blob_frag_map,
         )
         .inspect_err(|_| {
-            super_version
-                .manifest
-                .show_segments(payload.segment_ids.iter().copied());
+            compaction_state
+                .hidden_set_mut()
+                .show(payload.segment_ids.iter().copied());
         })?;
 
-    super_version
-        .manifest
-        .show_segments(payload.segment_ids.iter().copied());
+    compaction_state
+        .hidden_set_mut()
+        .show(payload.segment_ids.iter().copied());
 
-    super_version
-        .manifest
+    compaction_state
         .maintenance(opts.eviction_seqno)
         .inspect_err(|e| {
             log::error!("Manifest maintenance failed: {e:?}");
         })?;
 
     drop(super_version);
-    drop(compaction_lock);
+    drop(compaction_state);
 
     log::trace!("Compaction successful");
 
@@ -473,7 +467,7 @@ fn merge_segments(
 }
 
 fn drop_segments(
-    compaction_lock: MutexGuard<'_, ()>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     ids_to_drop: &[SegmentId],
@@ -483,8 +477,8 @@ fn drop_segments(
     let mut super_version = opts.super_version.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
-    if super_version
-        .manifest
+    if compaction_state
+        .hidden_set()
         .should_decline_compaction(ids_to_drop.iter().copied())
     {
         log::warn!(
@@ -496,13 +490,7 @@ fn drop_segments(
 
     let Some(segments) = ids_to_drop
         .iter()
-        .map(|&id| {
-            super_version
-                .manifest
-                .current_version()
-                .get_segment(id)
-                .cloned()
-        })
+        .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -514,7 +502,8 @@ fn drop_segments(
 
     // IMPORTANT: Write the manifest with the removed segments first
     // Otherwise the segment files are deleted, but are still referenced!
-    super_version.manifest.atomic_swap(
+    compaction_state.upgrade_version(
+        &mut super_version,
         |current| current.with_dropped(ids_to_drop),
         opts.eviction_seqno, // TODO: make naming in code base eviction_seqno vs watermark vs threshold consistent
     )?;
@@ -529,13 +518,13 @@ fn drop_segments(
     // TODO: fwiw also add all dead blob files
     // TODO: look if any blob files can be trivially deleted as well
 
-    if let Err(e) = super_version.manifest.maintenance(opts.eviction_seqno) {
+    if let Err(e) = compaction_state.maintenance(opts.eviction_seqno) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
 
     drop(super_version);
-    drop(compaction_lock);
+    drop(compaction_state);
 
     log::trace!("Dropped {} segments", ids_to_drop.len());
 
