@@ -122,7 +122,10 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
 
     pub fn write(&mut self, item: &'a Item) -> crate::Result<()> {
         // NOTE: Check if we are a restart marker
-        if self.item_count % usize::from(self.restart_interval) == 0 {
+        if self
+            .item_count
+            .is_multiple_of(usize::from(self.restart_interval))
+        {
             self.restart_count += 1;
 
             if self.restart_interval > 0 {

@@ -10,6 +10,12 @@ use std::sync::atomic::Ordering::Relaxed;
 /// Are not stored durably, so metrics will reset after a restart/crash.
 #[derive(Debug, Default)]
 pub struct Metrics {
+    /// Number of times a table file was opened using `fopen()`
+    pub(crate) table_file_opened: AtomicUsize,
+
+    /// Number of times a table file was retrieved from descriptor cache
+    pub(crate) table_file_opened_cached: AtomicUsize,
+
     /// Number of index blocks that were actually read from disk
     pub(crate) index_block_load_io: AtomicUsize,
 

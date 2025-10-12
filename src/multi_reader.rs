@@ -76,9 +76,6 @@ mod tests {
         }
 
         let segments = tree
-            .manifest
-            .read()
-            .expect("lock is poisoned")
             .current_version()
             .iter_segments()
             .cloned()

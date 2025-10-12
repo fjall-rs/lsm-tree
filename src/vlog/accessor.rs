@@ -3,15 +3,17 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{blob_file::writer::BLOB_HEADER_LEN, BlobFileId, ValueHandle},
-    BlobFile, Cache, DescriptorTable, GlobalSegmentId, Slice, UserValue,
+    vlog::{blob_file::reader::Reader, BlobFileId, ValueHandle},
+    BlobFile, Cache, DescriptorTable, GlobalSegmentId, TreeId, UserValue,
 };
 use std::{collections::BTreeMap, fs::File, path::Path, sync::Arc};
 
-pub struct Accessor<'a>(&'a BTreeMap<BlobFileId, BlobFile>);
+type Inner = BTreeMap<BlobFileId, BlobFile>;
+
+pub struct Accessor<'a>(&'a Inner);
 
 impl<'a> Accessor<'a> {
-    pub fn new(blob_files: &'a BTreeMap<BlobFileId, BlobFile>) -> Self {
+    pub fn new(blob_files: &'a Inner) -> Self {
         Self(blob_files)
     }
 
@@ -24,13 +26,14 @@ impl<'a> Accessor<'a> {
 
     pub fn get(
         &self,
+        tree_id: TreeId,
         base_path: &Path,
         key: &[u8],
         vhandle: &ValueHandle,
         cache: &Cache,
         descriptor_table: &DescriptorTable,
     ) -> crate::Result<Option<UserValue>> {
-        if let Some(value) = cache.get_blob(0 /* TODO: tree ID... */, vhandle) {
+        if let Some(value) = cache.get_blob(tree_id, vhandle) {
             return Ok(Some(value));
         }
 
@@ -38,61 +41,26 @@ impl<'a> Accessor<'a> {
             return Ok(None);
         };
 
-        let bf_id = GlobalSegmentId::from((0 /* TODO: tree ID */, vhandle.blob_file_id));
+        let bf_id = GlobalSegmentId::from((tree_id, blob_file.id()));
 
-        let file = if let Some(fd) = descriptor_table.access_for_blob_file(&bf_id) {
+        let cached_fd = descriptor_table.access_for_blob_file(&bf_id);
+        let fd_cache_miss = cached_fd.is_none();
+
+        let file = if let Some(fd) = cached_fd {
             fd
         } else {
-            let file = Arc::new(File::open(
+            Arc::new(File::open(
                 base_path.join(vhandle.blob_file_id.to_string()),
-            )?);
-            descriptor_table.insert_for_blob_file(bf_id, file.clone());
-            file
+            )?)
         };
 
-        let offset = vhandle.offset + (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        let value = Reader::new(blob_file, &file).get(key, vhandle)?;
+        cache.insert_blob(tree_id, vhandle, value.clone());
 
-        #[warn(unsafe_code)]
-        let mut builder = unsafe { Slice::builder_unzeroed(vhandle.on_disk_size as usize) };
-
-        {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::FileExt;
-
-                let bytes_read = file.read_at(&mut builder, offset)?;
-
-                assert_eq!(
-                    bytes_read,
-                    vhandle.on_disk_size as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(windows)]
-            {
-                use std::os::windows::fs::FileExt;
-
-                let bytes_read = file.seek_read(&mut builder, offset)?;
-
-                assert_eq!(
-                    bytes_read,
-                    vhandle.on_disk_size as usize,
-                    "not enough bytes read: file has length {}",
-                    file.metadata()?.len(),
-                );
-            }
-
-            #[cfg(not(any(unix, windows)))]
-            {
-                compile_error!("unsupported OS");
-                unimplemented!();
-            }
+        if fd_cache_miss {
+            descriptor_table.insert_for_blob_file(bf_id, file);
         }
 
-        // TODO: decompress? save compression type into blobfile.meta
-
-        Ok(Some(builder.freeze().into()))
+        Ok(Some(value))
     }
 }

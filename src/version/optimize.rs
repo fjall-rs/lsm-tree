@@ -91,7 +91,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fix!!!"]
     fn optimize_runs_two_overlap_2() {
         let runs = vec![
             Run::new(vec![s(0, "a", "z")]),

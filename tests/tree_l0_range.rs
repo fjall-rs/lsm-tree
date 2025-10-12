@@ -6,7 +6,9 @@ fn tree_l0_range_blob() -> lsm_tree::Result<()> {
     let folder: tempfile::TempDir = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open_as_blob_tree()?;
+    let tree = lsm_tree::Config::new(path)
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);

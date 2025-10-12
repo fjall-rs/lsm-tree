@@ -4,11 +4,11 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
+    compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
-    level_manifest::{hidden_set::HiddenSet, LevelManifest},
     segment::Segment,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
-    version::{run::Ranged, Run},
+    version::{run::Ranged, Run, Version},
     HashSet, KeyRange, SegmentId,
 };
 
@@ -189,27 +189,25 @@ impl CompactionStrategy for Strategy {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        assert!(levels.as_slice().len() == 7, "should have exactly 7 levels");
+    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+        assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Find the level that corresponds to L1
         #[allow(clippy::map_unwrap_or)]
-        let mut canonical_l1_idx = levels
-            .as_slice()
-            .iter()
+        let mut canonical_l1_idx = version
+            .iter_levels()
             .enumerate()
             .skip(1)
             .find(|(_, lvl)| !lvl.is_empty())
             .map(|(idx, _)| idx)
-            .unwrap_or_else(|| usize::from(levels.last_level_index()));
+            .unwrap_or_else(|| version.level_count() - 1);
 
         // Number of levels we have to shift to get from the actual level idx to the canonical
         let mut level_shift = canonical_l1_idx - 1;
 
-        if canonical_l1_idx > 1 && levels.as_slice().iter().skip(1).any(|lvl| !lvl.is_empty()) {
-            let need_new_l1 = levels
-                .as_slice()
-                .iter()
+        if canonical_l1_idx > 1 && version.iter_levels().skip(1).any(|lvl| !lvl.is_empty()) {
+            let need_new_l1 = version
+                .iter_levels()
                 .enumerate()
                 .skip(1)
                 .filter(|(_, lvl)| !lvl.is_empty())
@@ -219,7 +217,7 @@ impl CompactionStrategy for Strategy {
                         .flat_map(|x| x.iter())
                         // NOTE: Take bytes that are already being compacted into account,
                         // otherwise we may be overcompensating
-                        .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                        .filter(|x| !state.hidden_set().is_hidden(x.id()))
                         .map(Segment::file_size)
                         .sum::<u64>();
 
@@ -243,7 +241,7 @@ impl CompactionStrategy for Strategy {
 
             // NOTE: We always have at least one level
             #[allow(clippy::expect_used)]
-            let first_level = levels.as_slice().first().expect("first level should exist");
+            let first_level = version.l0();
 
             // TODO: use run_count instead? but be careful because of version free list GC thingy
             if first_level.segment_count() >= usize::from(self.l0_threshold) {
@@ -252,7 +250,7 @@ impl CompactionStrategy for Strategy {
             }
 
             // Score L1+
-            for (idx, level) in levels.as_slice().iter().enumerate().skip(1) {
+            for (idx, level) in version.iter_levels().enumerate().skip(1) {
                 if level.is_empty() {
                     continue;
                 }
@@ -262,7 +260,7 @@ impl CompactionStrategy for Strategy {
                     .flat_map(|x| x.iter())
                     // NOTE: Take bytes that are already being compacted into account,
                     // otherwise we may be overcompensating
-                    .filter(|x| !levels.hidden_set().is_hidden(x.id()))
+                    .filter(|x| !state.hidden_set().is_hidden(x.id()))
                     .map(Segment::file_size)
                     .sum::<u64>();
 
@@ -277,9 +275,8 @@ impl CompactionStrategy for Strategy {
                     );
 
                     // NOTE: Force a trivial move
-                    if levels
-                        .as_slice()
-                        .get(idx + 1)
+                    if version
+                        .level(idx + 1)
                         .is_some_and(|next_level| next_level.is_empty())
                     {
                         scores[idx] = (99.99, 999);
@@ -313,15 +310,17 @@ impl CompactionStrategy for Strategy {
 
         // We choose L0->L1 compaction
         if level_idx_with_highest_score == 0 {
-            let Some(first_level) = levels.current_version().level(0) else {
+            let Some(first_level) = version.level(0) else {
                 return Choice::DoNothing;
             };
 
-            if levels.level_is_busy(0) || levels.level_is_busy(canonical_l1_idx) {
+            if version.level_is_busy(0, state.hidden_set())
+                || version.level_is_busy(canonical_l1_idx, state.hidden_set())
+            {
                 return Choice::DoNothing;
             }
 
-            let Some(target_level) = &levels.current_version().level(canonical_l1_idx) else {
+            let Some(target_level) = &version.level(canonical_l1_idx) else {
                 return Choice::DoNothing;
             };
 
@@ -365,11 +364,11 @@ impl CompactionStrategy for Strategy {
 
         let next_level_index = curr_level_index + 1;
 
-        let Some(level) = levels.current_version().level(level_idx_with_highest_score) else {
+        let Some(level) = version.level(level_idx_with_highest_score) else {
             return Choice::DoNothing;
         };
 
-        let Some(next_level) = levels.current_version().level(next_level_index as usize) else {
+        let Some(next_level) = version.level(next_level_index as usize) else {
             return Choice::DoNothing;
         };
 
@@ -379,7 +378,7 @@ impl CompactionStrategy for Strategy {
         let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
             level.first_run().expect("should have exactly one run"),
             next_level.first_run().map(std::ops::Deref::deref),
-            levels.hidden_set(),
+            state.hidden_set(),
             overshoot_bytes,
             u64::from(self.target_size),
         ) else {

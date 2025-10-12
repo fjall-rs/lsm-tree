@@ -100,7 +100,11 @@
 // #![cfg_attr(feature = "bytes", deny(unsafe_code))]
 // #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
 
-pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
+// TODO: 3.0.0 use checksum type impl from sfa as well
+
+#[doc(hidden)]
+pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
+
 pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 
 #[allow(unused)]
@@ -118,6 +122,23 @@ macro_rules! fail_iter {
         }
     };
 }
+
+// TODO: investigate perf
+macro_rules! unwrap {
+    ($x:expr) => {{
+        #[cfg(not(feature = "use_unsafe"))]
+        {
+            $x.expect("should read")
+        }
+
+        #[cfg(feature = "use_unsafe")]
+        {
+            unsafe { $x.unwrap_unchecked() }
+        }
+    }};
+}
+
+pub(crate) use unwrap;
 
 mod any_tree;
 
@@ -157,9 +178,6 @@ mod iter_guard;
 mod key;
 mod key_range;
 
-#[doc(hidden)]
-pub mod level_manifest;
-
 mod run_reader;
 mod run_scanner;
 
@@ -185,6 +203,9 @@ mod path;
 #[doc(hidden)]
 pub mod range;
 
+#[doc(hidden)]
+pub mod segment;
+
 mod seqno;
 mod slice;
 mod slice_windows;
@@ -196,20 +217,22 @@ mod format_version;
 mod time;
 mod tree;
 mod value;
+mod value_type;
 mod version;
 mod vlog;
 
-#[doc(hidden)]
-pub mod segment;
+/// User defined key
+pub type UserKey = Slice;
+
+/// User defined data (byte array)
+pub type UserValue = Slice;
 
 /// KV-tuple, typically returned by an iterator
 pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
-pub use key_range::KeyRange;
-
-#[doc(hidden)]
 pub use {
+    key_range::KeyRange,
     merge::BoxedIterator,
     segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},
     tree::ingest::Ingestion,
@@ -218,10 +241,12 @@ pub use {
 };
 
 pub use {
+    any_tree::AnyTree,
+    blob_tree::BlobTree,
     cache::Cache,
     coding::{DecodeError, EncodeError},
     compression::CompressionType,
-    config::{Config, TreeType},
+    config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
@@ -229,46 +254,12 @@ pub use {
     memtable::Memtable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
+    slice::Slice,
     tree::Tree,
-    value::{SeqNo, ValueType},
+    value::SeqNo,
+    value_type::ValueType,
     vlog::BlobFile,
 };
 
 #[cfg(feature = "metrics")]
 pub use metrics::Metrics;
-
-pub use any_tree::AnyTree;
-
-pub use blob_tree::BlobTree;
-
-pub use slice::Slice;
-
-/// User defined key
-pub type UserKey = Slice;
-
-/// User defined data (byte array)
-pub type UserValue = Slice;
-
-/// Blob garbage collection utilities
-pub mod gc {
-    pub use super::vlog::{
-        GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
-    };
-}
-
-// TODO: investigate perf
-macro_rules! unwrap {
-    ($x:expr) => {{
-        #[cfg(not(feature = "use_unsafe"))]
-        {
-            $x.expect("should read")
-        }
-
-        #[cfg(feature = "use_unsafe")]
-        {
-            unsafe { $x.unwrap_unchecked() }
-        }
-    }};
-}
-
-pub(crate) use unwrap;

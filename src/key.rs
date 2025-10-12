@@ -43,6 +43,7 @@ impl std::fmt::Debug for InternalKey {
                 ValueType::Value => "V",
                 ValueType::Tombstone => "T",
                 ValueType::WeakTombstone => "W",
+                ValueType::Indirection => "Vb",
             },
         )
     }
@@ -65,7 +66,7 @@ impl InternalKey {
     }
 
     pub fn is_tombstone(&self) -> bool {
-        self.value_type == ValueType::Tombstone || self.value_type == ValueType::WeakTombstone
+        self.value_type.is_tombstone()
     }
 }
 

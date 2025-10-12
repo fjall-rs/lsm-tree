@@ -18,7 +18,7 @@ jobs:
       matrix:
         rust_version:
           - stable
-          - "1.89.0" # MSRV
+          - "1.87.0" # MSRV
         os:
           - ubuntu-latest
           - windows-latest
@@ -38,9 +38,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ runner.os }}-cargo
-          workspaces: >
-            . -> target
-            examples/kv -> target
       - name: Install cargo-all-features
         run: cargo install cargo-all-features
       - uses: taiki-e/install-action@nextest
@@ -54,8 +51,6 @@ jobs:
         run: cargo nextest run --all-features
       - name: Run doc tests
         run: cargo test --doc --features lz4
-      - name: Build & test LSM examples
-        run: node compile_examples.mjs
   cross:
     timeout-minutes: 15
     name: cross

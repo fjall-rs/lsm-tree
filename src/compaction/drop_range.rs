@@ -3,9 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{
-    config::Config, level_manifest::LevelManifest, slice::Slice, version::run::Ranged, KeyRange,
-};
+use crate::compaction::state::CompactionState;
+use crate::version::Version;
+use crate::{config::Config, slice::Slice, version::run::Ranged, KeyRange};
 use crate::{HashSet, Segment};
 use std::ops::{Bound, RangeBounds};
 
@@ -73,9 +73,8 @@ impl CompactionStrategy for Strategy {
         "DropRangeCompaction"
     }
 
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let segment_ids: HashSet<_> = levels
-            .current_version()
+    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+        let segment_ids: HashSet<_> = version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| {
@@ -93,7 +92,7 @@ impl CompactionStrategy for Strategy {
         // But just as a fail-safe...
         let some_hidden = segment_ids
             .iter()
-            .any(|&id| levels.hidden_set().is_hidden(id));
+            .any(|&id| state.hidden_set().is_hidden(id));
 
         if some_hidden {
             Choice::DoNothing

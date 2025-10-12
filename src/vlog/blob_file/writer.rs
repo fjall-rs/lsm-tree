@@ -2,22 +2,22 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{meta::Metadata, trailer::Trailer};
-use crate::{coding::Encode, vlog::BlobFileId, CompressionType, KeyRange, UserKey};
-use byteorder::{BigEndian, WriteBytesExt};
+use super::meta::Metadata;
+use crate::{coding::Encode, vlog::BlobFileId, CompressionType, KeyRange, SeqNo, UserKey};
+use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
-    + std::mem::size_of::<u128>()
-    + std::mem::size_of::<u16>()
-    + std::mem::size_of::<u32>()
-    + std::mem::size_of::<u32>();
+    + std::mem::size_of::<u128>() // Checksum
+    + std::mem::size_of::<u64>() // SeqNo
+    + std::mem::size_of::<u16>() // Key length
+    + std::mem::size_of::<u32>() // Real value length
+    + std::mem::size_of::<u32>(); // On-disk value length
 
 /// Blob file writer
 pub struct Writer {
@@ -25,7 +25,7 @@ pub struct Writer {
     pub(crate) blob_file_id: BlobFileId,
 
     #[allow(clippy::struct_field_names)]
-    active_writer: BufWriter<File>,
+    writer: sfa::Writer,
 
     offset: u64,
 
@@ -46,16 +46,16 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> std::io::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
         let path = path.as_ref();
-
-        let file = File::create(path)?;
+        let mut writer = sfa::Writer::new_at_path(path)?;
+        writer.start("data")?;
 
         Ok(Self {
             path: path.into(),
             blob_file_id,
 
-            active_writer: BufWriter::new(file),
+            writer,
 
             offset: 0,
             item_count: 0,
@@ -88,18 +88,13 @@ impl Writer {
         self.blob_file_id
     }
 
-    /// Writes an item into the file.
-    ///
-    /// Items need to be written in key order.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
-    pub fn write(&mut self, key: &[u8], value: &[u8]) -> crate::Result<u32> {
+    pub(crate) fn write_raw(
+        &mut self,
+        key: &[u8],
+        seqno: SeqNo,
+        value: &[u8],
+        uncompressed_len: u32,
+    ) -> crate::Result<u32> {
         assert!(!key.is_empty());
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
@@ -109,13 +104,14 @@ impl Writer {
         }
         self.last_key = Some(key.into());
 
-        self.uncompressed_bytes += value.len() as u64;
+        self.uncompressed_bytes += u64::from(uncompressed_len);
 
         // NOTE:
         // BLOB HEADER LAYOUT
         //
         // [MAGIC_BYTES; 4B]
         // [Checksum; 16B]
+        // [Seqno; 8B]
         // [key len; 2B]
         // [real val len; 4B]
         // [on-disk val len; 4B]
@@ -123,43 +119,51 @@ impl Writer {
         // [...val; ?]
 
         // Write header
-        self.active_writer.write_all(BLOB_HEADER_MAGIC)?;
+        self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
-        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
-        hasher.update(key);
-        hasher.update(value);
-        let checksum = hasher.digest128();
-
-        // Write checksum
-        self.active_writer.write_u128::<BigEndian>(checksum)?;
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u16::<BigEndian>(key.len() as u16)?;
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u32::<BigEndian>(value.len() as u32)?;
-
-        // TODO: finish compression
-        #[warn(clippy::match_single_binding)]
         let value = match &self.compression {
-            _ => value,
+            CompressionType::None => std::borrow::Cow::Borrowed(value),
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
         };
 
+        let checksum = {
+            let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+            hasher.update(key);
+            hasher.update(&value);
+            hasher.digest128()
+        };
+
+        // Write checksum
+        self.writer.write_u128::<LittleEndian>(checksum)?;
+
+        // Write seqno
+        self.writer.write_u64::<LittleEndian>(seqno)?;
+
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.active_writer
-            .write_u32::<BigEndian>(value.len() as u32)?;
+        self.writer.write_u16::<LittleEndian>(key.len() as u16)?;
 
-        self.active_writer.write_all(key)?;
-        self.active_writer.write_all(value)?;
+        // Write uncompressed value length
+
+        // NOTE: Truncation is okay and actually needed
+        #[allow(clippy::cast_possible_truncation)]
+        self.writer.write_u32::<LittleEndian>(uncompressed_len)?;
+
+        // Write compressed (on-disk) value length
+
+        // NOTE: Truncation is okay and actually needed
+        #[allow(clippy::cast_possible_truncation)]
+        self.writer.write_u32::<LittleEndian>(value.len() as u32)?;
+
+        self.writer.write_all(key)?;
+        self.writer.write_all(&value)?;
 
         // Update offset
         self.offset += BLOB_HEADER_MAGIC.len() as u64;
         self.offset += std::mem::size_of::<u128>() as u64;
+        self.offset += std::mem::size_of::<u64>() as u64;
 
         self.offset += std::mem::size_of::<u16>() as u64;
         self.offset += std::mem::size_of::<u32>() as u64;
@@ -172,13 +176,31 @@ impl Writer {
         self.written_blob_bytes += value.len() as u64;
         self.item_count += 1;
 
+        // TODO: 3.0.0 if we store the offset before writing, we can return a vhandle here
+        // TODO: instead of needing to call offset() and blob_file_id() before write()
+
         // NOTE: Truncation is okay
         #[allow(clippy::cast_possible_truncation)]
         Ok(value.len() as u32)
     }
 
-    pub(crate) fn flush(&mut self) -> crate::Result<()> {
-        let metadata_ptr = self.active_writer.stream_position()?;
+    /// Writes an item into the file.
+    ///
+    /// Items need to be written in key order.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
+        self.write_raw(key, seqno, value, value.len() as u32)
+    }
+
+    pub(crate) fn finish(mut self) -> crate::Result<()> {
+        self.writer.start("meta")?;
 
         // Write metadata
         let metadata = Metadata {
@@ -193,17 +215,11 @@ impl Writer {
                     .clone()
                     .expect("should have written at least 1 item"),
             )),
+            compression: self.compression,
         };
-        metadata.encode_into(&mut self.active_writer)?;
+        metadata.encode_into(&mut self.writer)?;
 
-        Trailer {
-            metadata,
-            metadata_ptr,
-        }
-        .encode_into(&mut self.active_writer)?;
-
-        self.active_writer.flush()?;
-        self.active_writer.get_mut().sync_all()?;
+        self.writer.finish()?;
 
         Ok(())
     }

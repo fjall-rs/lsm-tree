@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, segment::Segment, Config, HashSet};
+use super::{Choice, CompactionStrategy};
+use crate::{compaction::state::CompactionState, version::Version, Config};
 
 /// Pulls down and merges a level into the destination level.
 ///
@@ -16,7 +16,7 @@ impl CompactionStrategy for Strategy {
     }
 
     #[allow(clippy::expect_used)]
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
+    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         todo!()
     }
 }
