@@ -43,10 +43,10 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
 
     fn parse_full(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<DataBlockParsedItem> {
         let value_type = unwrap!(reader.read_u8());
-
         if value_type == TRAILER_START_MARKER {
             return None;
         }
+        let value_type = ValueType::try_from(value_type).expect("should be valid value type");
 
         let seqno = unwrap!(reader.read_u64_varint());
 
@@ -54,7 +54,9 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         let key_start = offset + reader.position() as usize;
         unwrap!(reader.seek_relative(key_len as i64));
 
-        let val_len: usize = if value_type == u8::from(ValueType::Value) {
+        let is_value = !value_type.is_tombstone();
+
+        let val_len: usize = if is_value {
             unwrap!(reader.read_u32_varint()) as usize
         } else {
             0
@@ -62,7 +64,7 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         let val_offset = offset + reader.position() as usize;
         unwrap!(reader.seek_relative(val_len as i64));
 
-        Some(if value_type == u8::from(ValueType::Value) {
+        Some(if is_value {
             DataBlockParsedItem {
                 value_type,
                 seqno,
@@ -87,10 +89,10 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         base_key_offset: usize,
     ) -> Option<DataBlockParsedItem> {
         let value_type = unwrap!(reader.read_u8());
-
         if value_type == TRAILER_START_MARKER {
             return None;
         }
+        let value_type = unwrap!(ValueType::try_from(value_type));
 
         let seqno = unwrap!(reader.read_u64_varint());
 
@@ -101,7 +103,9 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
 
         unwrap!(reader.seek_relative(rest_key_len as i64));
 
-        let val_len: usize = if value_type == u8::from(ValueType::Value) {
+        let is_value = !value_type.is_tombstone();
+
+        let val_len: usize = if is_value {
             unwrap!(reader.read_u32_varint()) as usize
         } else {
             0
@@ -109,7 +113,7 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         let val_offset = offset + reader.position() as usize;
         unwrap!(reader.seek_relative(val_len as i64));
 
-        Some(if value_type == u8::from(ValueType::Value) {
+        Some(if is_value {
             DataBlockParsedItem {
                 value_type,
                 seqno,
@@ -217,7 +221,7 @@ impl Encodable<()> for InternalValue {
 
 #[derive(Debug)]
 pub struct DataBlockParsedItem {
-    pub value_type: u8,
+    pub value_type: ValueType,
     pub seqno: SeqNo,
     pub prefix: Option<SliceIndexes>,
     pub key: SliceIndexes,
@@ -251,13 +255,7 @@ impl ParsedItem<InternalValue> for DataBlockParsedItem {
             bytes.slice(self.key.0..self.key.1)
         };
 
-        let key = InternalKey::new(
-            key,
-            self.seqno,
-            // NOTE: Value type is (or should be) checked when reading it
-            #[allow(clippy::expect_used)]
-            self.value_type.try_into().expect("should work"),
-        );
+        let key = InternalKey::new(key, self.seqno, self.value_type);
 
         let value = self
             .value
@@ -552,7 +550,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -614,7 +611,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -656,7 +652,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -672,6 +667,39 @@ mod tests {
         }
 
         assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_data_block_vhandle() -> crate::Result<()> {
+        let items = [InternalValue::from_components(
+            "abc",
+            "world",
+            1,
+            crate::ValueType::Indirection,
+        )];
+
+        for restart_interval in 1..=16 {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
+            let serialized_len = bytes.len();
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            assert_eq!(data_block.len(), items.len());
+            assert_eq!(data_block.inner.size(), serialized_len);
+
+            assert_eq!(Some(items[0].clone()), data_block.point_read(b"abc", 777));
+            assert!(data_block.point_read(b"abc", 1).is_none());
+        }
 
         Ok(())
     }
@@ -696,7 +724,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -725,7 +752,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -767,7 +793,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -804,7 +829,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -840,7 +864,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -887,7 +910,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -933,7 +955,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -983,7 +1004,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -1033,7 +1053,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -1070,7 +1089,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -1108,7 +1126,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -1152,7 +1169,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 

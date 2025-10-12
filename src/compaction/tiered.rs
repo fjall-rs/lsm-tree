@@ -2,12 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{level_manifest::LevelManifest, segment::Segment, Config, HashSet};
+use super::{Choice, CompactionStrategy};
+use crate::{compaction::state::CompactionState, version::Version, Config};
 
-fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
-    (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
-}
+// fn desired_level_size_in_bytes(level_idx: u8, ratio: u8, base_size: u32) -> usize {
+//     (ratio as usize).pow(u32::from(level_idx + 1)) * (base_size as usize)
+// }
 
 /// Size-tiered compaction strategy (STCS)
 ///
@@ -54,8 +54,8 @@ impl CompactionStrategy for Strategy {
         "TieredStrategy"
     }
 
-    fn choose(&self, levels: &LevelManifest, config: &Config) -> Choice {
-        todo!()
+    fn choose(&self, version: &Version, _config: &Config, state: &CompactionState) -> Choice {
+        unimplemented!()
     }
 }
 /*

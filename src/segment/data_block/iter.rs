@@ -187,7 +187,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -262,7 +261,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -337,7 +335,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -390,7 +387,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -426,7 +422,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -466,7 +461,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -507,7 +501,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -589,7 +582,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -631,7 +623,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -672,7 +663,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -776,7 +766,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -848,7 +837,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -886,7 +874,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -927,7 +914,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -968,7 +954,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -1006,7 +991,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -1040,7 +1024,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -1129,7 +1112,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -1220,7 +1202,6 @@ mod tests {
                     checksum: Checksum::from_raw(0),
                     data_length: 0,
                     uncompressed_length: 0,
-                    previous_block_offset: BlockOffset(0),
                 },
             });
 
@@ -1320,7 +1301,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 
@@ -1377,7 +1357,6 @@ mod tests {
                 checksum: Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
-                previous_block_offset: BlockOffset(0),
             },
         });
 

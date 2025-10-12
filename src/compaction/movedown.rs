@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, segment::Segment, Config};
+use crate::{compaction::state::CompactionState, segment::Segment, version::Version, Config};
 
 /// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
@@ -14,12 +14,12 @@ impl CompactionStrategy for Strategy {
     }
 
     #[allow(clippy::expect_used)]
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        if levels.level_is_busy(usize::from(self.0)) {
+    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+        if version.level_is_busy(usize::from(self.0), state.hidden_set()) {
             return Choice::DoNothing;
         }
 
-        let Some(level) = levels.as_slice().get(self.0 as usize) else {
+        let Some(level) = version.level(self.0.into()) else {
             return Choice::DoNothing;
         };
 

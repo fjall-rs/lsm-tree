@@ -8,9 +8,11 @@ pub(crate) mod fifo;
 pub(crate) mod leveled;
 // pub(crate) mod maintenance;
 pub(crate) mod drop_range;
+mod flavour;
 pub(crate) mod major;
 pub(crate) mod movedown;
 pub(crate) mod pulldown;
+pub(crate) mod state;
 pub(crate) mod stream;
 pub(crate) mod tiered;
 pub(crate) mod worker;
@@ -19,7 +21,9 @@ pub use fifo::Strategy as Fifo;
 pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
-use crate::{config::Config, level_manifest::LevelManifest, HashSet, SegmentId};
+use crate::{
+    compaction::state::CompactionState, config::Config, version::Version, HashSet, SegmentId,
+};
 
 /// Alias for `Leveled`
 pub type Levelled = Leveled;
@@ -82,5 +86,5 @@ pub trait CompactionStrategy {
     fn get_name(&self) -> &'static str;
 
     /// Decides on what to do based on the current state of the LSM-tree's levels
-    fn choose(&self, _: &LevelManifest, config: &Config) -> Choice;
+    fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice;
 }

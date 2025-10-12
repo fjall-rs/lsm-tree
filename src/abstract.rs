@@ -3,15 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::CompactionStrategy, config::TreeType, iter_guard::IterGuardImpl, segment::Segment,
-    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, KvPair, Memtable,
-    SegmentId, SeqNo, SequenceNumberCounter, Tree, UserKey, UserValue,
+    blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
+    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SegmentId,
+    SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
-use std::{
-    ops::RangeBounds,
-    sync::{Arc, RwLockWriteGuard},
-};
+use std::{ops::RangeBounds, sync::Arc};
 
 pub type RangeItem = crate::Result<KvPair>;
 
@@ -19,6 +17,31 @@ pub type RangeItem = crate::Result<KvPair>;
 #[allow(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
+    #[doc(hidden)]
+    fn next_table_id(&self) -> SegmentId;
+
+    #[doc(hidden)]
+    fn id(&self) -> TreeId;
+
+    #[doc(hidden)]
+    fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
+
+    #[doc(hidden)]
+    fn current_version(&self) -> Version;
+
+    /// Synchronously flushes the active memtable to a disk segment.
+    ///
+    /// The function may not return a result, if, during concurrent workloads, the memtable
+    /// ends up being empty before the flush is set up.
+    ///
+    /// The result will contain the [`Segment`].
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>>;
+
     /// Returns an iterator that scans through the entire tree.
     ///
     /// Avoid using this function, or limit it as otherwise it may scan a lot of items.
@@ -100,6 +123,11 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()>;
 
+    /// Returns the disk space used by stale blobs.
+    fn stale_blob_bytes(&self) -> u64 {
+        0
+    }
+
     /// Gets the space usage of all filters in the tree.
     ///
     /// May not correspond to the actual memory size because filter blocks may be paged out.
@@ -118,10 +146,6 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    // TODO:?
-    /* #[doc(hidden)]
-    fn verify(&self) -> crate::Result<usize>; */
-
     /// Synchronously flushes a memtable to a disk segment.
     ///
     /// This method will not make the segment immediately available,
@@ -130,6 +154,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[warn(clippy::type_complexity)]
     fn flush_memtable(
         &self,
         segment_id: SegmentId, // TODO: remove?
@@ -146,11 +171,9 @@ pub trait AbstractTree {
         &self,
         segments: &[Segment],
         blob_files: Option<&[BlobFile]>,
+        frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
-
-    /// Write-locks the active memtable for exclusive access
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
 
     /// Clears the active memtable atomically.
     fn clear_active_memtable(&self);

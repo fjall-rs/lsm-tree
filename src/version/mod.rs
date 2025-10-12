@@ -3,18 +3,22 @@
 // (found in the LICENSE-* files in the repository)
 
 mod optimize;
+pub mod recovery;
 pub mod run;
 
 pub use run::Run;
 
+use crate::blob_tree::{FragmentationEntry, FragmentationMap};
+use crate::coding::Encode;
+use crate::compaction::state::hidden_set::HiddenSet;
+use crate::version::recovery::Recovery;
 use crate::{
-    coding::Encode,
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Segment, SegmentId, SeqNo,
 };
 use optimize::optimize_runs;
 use run::Ranged;
-use std::{collections::BTreeMap, io::Write, ops::Deref, sync::Arc};
+use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
@@ -141,14 +145,19 @@ pub struct VersionInner {
     id: VersionId,
 
     /// The individual LSM-tree levels which consist of runs of tables
-    pub(crate) levels: Vec<Level>,
+    levels: Vec<Level>,
 
-    // We purposefully use Arc<_> to avoid deep cloning the blob files again and again
+    // TODO: 3.0.0 this should really be a newtype
+    // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
     //
     // Changing the value log tends to happen way less often than other modifications to the
     // LSM-tree
+    //
     /// Blob files for large values (value log)
     pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
+
+    /// Blob file fragmentation
+    gc_stats: Arc<FragmentationMap>,
 }
 
 /// A version is an immutable, point-in-time view of a tree's structure
@@ -180,6 +189,24 @@ impl Version {
         self.id
     }
 
+    pub fn gc_stats(&self) -> &FragmentationMap {
+        &self.gc_stats
+    }
+
+    pub fn l0(&self) -> &Level {
+        self.levels.first().expect("L0 should exist")
+    }
+
+    #[must_use]
+    pub fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
+        self.level(idx).is_some_and(|level| {
+            level
+                .iter()
+                .flat_map(|run: &Arc<Run<Segment>>| run.iter())
+                .any(|segment| hidden_set.is_hidden(segment.id()))
+        })
+    }
+
     /// Creates a new empty version.
     pub fn new(id: VersionId) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
@@ -189,9 +216,49 @@ impl Version {
                 id,
                 levels,
                 value_log: Arc::default(),
+                gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
         }
+    }
+
+    pub(crate) fn from_recovery(
+        recovery: Recovery,
+        segments: &[Segment],
+        blob_files: &[BlobFile],
+    ) -> crate::Result<Self> {
+        let version_levels = recovery
+            .segment_ids
+            .iter()
+            .map(|level| {
+                let level_runs = level
+                    .iter()
+                    .map(|run| {
+                        let run_segments = run
+                            .iter()
+                            .map(|segment_id| {
+                                segments
+                                    .iter()
+                                    .find(|x| x.id() == *segment_id)
+                                    .cloned()
+                                    .ok_or(crate::Error::Unrecoverable)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?;
+
+                        Ok(Arc::new(Run::new(run_segments)))
+                    })
+                    .collect::<crate::Result<Vec<_>>>()?;
+
+                Ok(Level::from_runs(level_runs))
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Self::from_levels(
+            recovery.curr_version_id,
+            version_levels,
+            blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect(),
+            recovery.gc_stats,
+        ))
     }
 
     /// Creates a new pre-populated version.
@@ -199,12 +266,14 @@ impl Version {
         id: VersionId,
         levels: Vec<Level>,
         blob_files: BTreeMap<BlobFileId, BlobFile>,
+        gc_stats: FragmentationMap,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log: Arc::new(blob_files),
+                gc_stats: Arc::new(gc_stats),
             }),
             seqno_watermark: 0,
         }
@@ -247,7 +316,12 @@ impl Version {
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
-    pub fn with_new_l0_run(&self, run: &[Segment], blob_files: Option<&[BlobFile]>) -> Self {
+    pub fn with_new_l0_run(
+        &self,
+        run: &[Segment],
+        blob_files: Option<&[BlobFile]>,
+        diff: Option<FragmentationMap>,
+    ) -> Self {
         let id = self.id + 1;
 
         let mut levels = vec![];
@@ -290,11 +364,21 @@ impl Version {
             self.value_log.clone()
         };
 
+        let gc_map = if let Some(diff) = diff {
+            let mut copy = self.gc_stats.deref().clone();
+            diff.merge_into(&mut copy);
+            copy.prune(&self.value_log);
+            Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
                 value_log,
+                gc_stats: gc_map,
             }),
             seqno_watermark: 0,
         }
@@ -302,11 +386,13 @@ impl Version {
 
     /// Returns a new version with a list of segments removed.
     ///
-    /// The segment files are not immediately deleted, this is handled in the compaction worker.
-    pub fn with_dropped(&self, ids: &[SegmentId]) -> Self {
+    /// The segment files are not immediately deleted, this is handled by the version system's free list.
+    pub fn with_dropped(&self, ids: &[SegmentId]) -> crate::Result<Self> {
         let id = self.id + 1;
 
         let mut levels = vec![];
+
+        let mut dropped_segments = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -315,7 +401,13 @@ impl Version {
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
                     let mut run: Run<Segment> = run.deref().clone();
-                    run.retain(|x| !ids.contains(&x.metadata.id));
+
+                    let removed_segments = run
+                        .inner_mut()
+                        .extract_if(.., |x| ids.contains(&x.metadata.id));
+
+                    dropped_segments = removed_segments.collect();
+
                     run
                 })
                 .filter(|x| !x.is_empty())
@@ -326,14 +418,45 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        Self {
+        let gc_stats = if dropped_segments.is_empty() {
+            self.gc_stats.clone()
+        } else {
+            let mut copy = self.gc_stats.deref().clone();
+
+            for segment in &dropped_segments {
+                let linked_blob_files = segment.get_linked_blob_files()?.unwrap_or_default();
+
+                for blob_file in linked_blob_files {
+                    copy.entry(blob_file.blob_file_id)
+                        .and_modify(|counter| {
+                            counter.bytes += blob_file.bytes;
+                            counter.len += blob_file.len;
+                        })
+                        .or_insert_with(|| FragmentationEntry::new(blob_file.len, blob_file.bytes));
+                }
+            }
+
+            Arc::new(copy)
+        };
+
+        let value_log = if dropped_segments.is_empty() {
+            self.value_log.clone()
+        } else {
+            // TODO: 3.0.0 this should really be a newtype
+            let mut copy = self.value_log.deref().clone();
+            copy.retain(|_, blob_file| !blob_file.is_dead(&gc_stats));
+            Arc::new(copy)
+        };
+
+        Ok(Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: self.value_log.clone(),
+                value_log,
+                gc_stats,
             }),
             seqno_watermark: 0,
-        }
+        })
     }
 
     pub fn with_merge(
@@ -341,6 +464,9 @@ impl Version {
         old_ids: &[SegmentId],
         new_segments: &[Segment],
         dest_level: usize,
+        diff: Option<FragmentationMap>,
+        new_blob_files: Vec<BlobFile>,
+        blob_files_to_drop: HashSet<BlobFileId>,
     ) -> Self {
         let id = self.id + 1;
 
@@ -368,11 +494,50 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
+        let has_diff = diff.is_some();
+
+        let gc_stats =
+            if has_diff || !blob_files_to_drop.is_empty() || !blob_files_to_drop.is_empty() {
+                let mut copy = self.gc_stats.deref().clone();
+
+                if let Some(diff) = diff {
+                    diff.merge_into(&mut copy);
+                }
+
+                for id in &blob_files_to_drop {
+                    copy.remove(id);
+                }
+
+                copy.prune(&self.value_log);
+
+                Arc::new(copy)
+            } else {
+                self.gc_stats.clone()
+            };
+
+        let value_log = if has_diff || !new_blob_files.is_empty() || !blob_files_to_drop.is_empty()
+        {
+            let mut copy = self.value_log.deref().clone();
+
+            for blob_file in new_blob_files {
+                copy.insert(blob_file.id(), blob_file);
+            }
+
+            for id in blob_files_to_drop {
+                copy.remove(&id);
+            }
+
+            Arc::new(copy)
+        } else {
+            self.value_log.clone()
+        };
+
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: self.value_log.clone(),
+                value_log,
+                gc_stats,
             }),
             seqno_watermark: 0,
         }
@@ -418,6 +583,7 @@ impl Version {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
+                gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
         }
@@ -467,53 +633,84 @@ impl Version {
 
         writer.start("blob_gc_stats")?;
 
-        // TODO: 3.0.0
+        self.gc_stats.encode_into(writer)?;
 
-        writer.write_all(b":)")?;
+        Ok(())
+    }
+
+    pub fn fmt(&self, f: &mut std::fmt::Formatter<'_>, hidden_set: &HiddenSet) -> std::fmt::Result {
+        for (idx, level) in self.iter_levels().enumerate() {
+            writeln!(
+                f,
+                "{idx} [{}], r={}: ",
+                match (level.is_empty(), level.is_disjoint()) {
+                    (true, _) => ".",
+                    (false, true) => "D",
+                    (false, false) => "_",
+                },
+                level.len(),
+            )?;
+
+            for run in level.iter() {
+                write!(f, "  ")?;
+
+                if run.len() >= 30 {
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().take(2) {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+                    write!(f, " . . . ")?;
+
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().rev().take(2).rev() {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+
+                    writeln!(
+                        f,
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                    )?;
+                } else {
+                    for segment in run.iter() {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+
+                    writeln!(
+                        f,
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                    )?;
+                }
+            }
+        }
 
         Ok(())
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use test_log::test;
-
-//     #[test]
-//     fn version_encode_empty() {
-//         let bytes = Version::new(0).encode_into_vec();
-
-//         #[rustfmt::skip]
-//         let raw = &[
-//             // Magic
-//             b'L', b'S', b'M', 3,
-
-//             // Level count
-//             7,
-
-//             // L0 runs
-//             0,
-//             // L1 runs
-//             0,
-//             // L2 runs
-//             0,
-//             // L3 runs
-//             0,
-//             // L4 runs
-//             0,
-//             // L5 runs
-//             0,
-//             // L6 runs
-//             0,
-
-//             // Blob file count
-//             0,
-//             0,
-//             0,
-//             0,
-//         ];
-
-//         assert_eq!(bytes, raw);
-//     }
-// }

@@ -2,11 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{key::InternalKey, Slice};
+use crate::{key::InternalKey, Slice, ValueType};
 
 /// User defined key
 pub type UserKey = Slice;
-
 /// User defined data (blob of bytes)
 #[allow(clippy::module_name_repetitions)]
 pub type UserValue = Slice;
@@ -21,43 +20,6 @@ pub type UserValue = Slice;
 ///
 /// Stale items are lazily garbage-collected during compaction.
 pub type SeqNo = u64;
-
-/// Value type (regular value or tombstone)
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
-pub enum ValueType {
-    /// Existing value
-    Value,
-
-    /// Deleted value
-    Tombstone,
-
-    /// "Weak" deletion (a.k.a. `SingleDelete` in `RocksDB`)
-    WeakTombstone,
-}
-
-impl TryFrom<u8> for ValueType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Value),
-            1 => Ok(Self::Tombstone),
-            2 => Ok(Self::WeakTombstone),
-            _ => Err(()),
-        }
-    }
-}
-
-impl From<ValueType> for u8 {
-    fn from(value: ValueType) -> Self {
-        match value {
-            ValueType::Value => 0,
-            ValueType::Tombstone => 1,
-            ValueType::WeakTombstone => 2,
-        }
-    }
-}
 
 /// Internal representation of KV pairs
 #[allow(clippy::module_name_repetitions)]

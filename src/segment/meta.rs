@@ -51,6 +51,17 @@ pub struct ParsedMeta {
     pub index_block_compression: CompressionType,
 }
 
+macro_rules! read_u8 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u8()?
+    }};
+}
+
 macro_rules! read_u64 {
     ($block:expr, $name:expr) => {{
         let bytes = $block
@@ -121,12 +132,18 @@ impl ParsedMeta {
             );
         }
 
+        assert_eq!(
+            read_u8!(block, b"#restart_interval#index"),
+            1,
+            "index block restart intervals >1 are not supported for this version",
+        );
+
         let id = read_u64!(block, b"#id");
         let item_count = read_u64!(block, b"#item_count");
         let tombstone_count = read_u64!(block, b"#tombstone_count");
         let data_block_count = read_u64!(block, b"#data_block_count");
         let index_block_count = read_u64!(block, b"#index_block_count");
-        let file_size = read_u64!(block, b"#size"); // TODO: rename file_size
+        let file_size = read_u64!(block, b"#size"); // TODO: 3.0.0 rename file_size
         let weak_tombstone_count = read_u64!(block, b"#weak_tombstone_count");
         let weak_tombstone_reclaimable = read_u64!(block, b"#weak_tombstone_reclaimable");
 

@@ -57,11 +57,11 @@ impl Drop for Inner {
         let global_id: GlobalSegmentId = (self.tree_id, self.metadata.id).into();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
-            log::trace!("Cleanup deleted segment {global_id:?} at {:?}", self.path);
+            log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
 
             if let Err(e) = std::fs::remove_file(&*self.path) {
                 log::warn!(
-                    "Failed to cleanup deleted segment {global_id:?} at {:?}: {e:?}",
+                    "Failed to cleanup deleted table {global_id:?} at {:?}: {e:?}",
                     self.path,
                 );
             }

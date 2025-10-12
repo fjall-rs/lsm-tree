@@ -90,7 +90,7 @@ impl Cache {
         let opts = quick_cache::OptionsBuilder::new()
             .weight_capacity(bytes)
             .hot_allocation(0.9)
-            .estimated_items_capacity(1_000_000)
+            .estimated_items_capacity(1_000)
             .build()
             .expect("cache options should be valid");
 

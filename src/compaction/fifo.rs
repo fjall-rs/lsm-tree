@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{config::Config, level_manifest::LevelManifest, HashSet};
+use crate::{compaction::state::CompactionState, config::Config, version::Version, HashSet};
 
 /// FIFO-style compaction
 ///
@@ -45,12 +45,17 @@ impl CompactionStrategy for Strategy {
     }
 
     // TODO: TTL
-    fn choose(&self, levels: &LevelManifest, _config: &Config) -> Choice {
+    fn choose(&self, version: &Version, _config: &Config, state: &CompactionState) -> Choice {
         // NOTE: We always have at least one level
         #[allow(clippy::expect_used)]
-        let first_level = levels.as_slice().first().expect("should have first level");
+        let first_level = version.l0();
 
         assert!(first_level.is_disjoint(), "L0 needs to be disjoint");
+
+        assert!(
+            !version.level_is_busy(0, state.hidden_set()),
+            "FIFO compaction never compacts",
+        );
 
         let l0_size = first_level.size();
 

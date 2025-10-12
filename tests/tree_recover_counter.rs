@@ -8,43 +8,23 @@ fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder).open()?;
 
-        assert_eq!(
-            0,
-            tree.0
-                .segment_id_counter
-                .load(std::sync::atomic::Ordering::Relaxed)
-        );
+        assert_eq!(0, tree.next_table_id());
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(
-            1,
-            tree.0
-                .segment_id_counter
-                .load(std::sync::atomic::Ordering::Relaxed)
-        );
+        assert_eq!(1, tree.next_table_id());
 
         tree.insert("b", "b", 0);
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(
-            2,
-            tree.0
-                .segment_id_counter
-                .load(std::sync::atomic::Ordering::Relaxed)
-        );
+        assert_eq!(2, tree.next_table_id());
     }
 
     {
         let tree = Config::new(&folder).open()?;
 
-        assert_eq!(
-            2,
-            tree.0
-                .segment_id_counter
-                .load(std::sync::atomic::Ordering::Relaxed)
-        );
+        assert_eq!(2, tree.next_table_id());
     }
 
     Ok(())

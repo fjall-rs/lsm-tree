@@ -32,6 +32,7 @@ impl<'a> Ingestion<'a> {
         log::debug!("Ingesting into disk segments in {}", folder.display());
 
         // TODO: 3.0.0 look at tree configuration
+        // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
         let writer = MultiWriter::new(
             folder.clone(),
             tree.segment_id_counter.clone(),
@@ -137,14 +138,10 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree.register_segments(&created_segments, None, 0)?;
+        self.tree
+            .register_segments(&created_segments, None, None, 0)?;
 
-        let last_level_idx = self
-            .tree
-            .manifest
-            .read()
-            .expect("lock is poisoned")
-            .last_level_index();
+        let last_level_idx = self.tree.config.level_count - 1;
 
         self.tree
             .compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;

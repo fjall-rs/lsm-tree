@@ -8,9 +8,17 @@ use super::{
 use crate::{
     coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
     time::unix_timestamp, CompressionType, InternalValue, SegmentId, UserKey, ValueType,
+    vlog::BlobFileId,
 };
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
+pub struct LinkedFile {
+    pub blob_file_id: BlobFileId,
+    pub bytes: u64,
+    pub len: usize,
+}
 
 /// Serializes and compresses values into blocks and writes them to disk as segment
 pub struct Writer {
@@ -64,6 +72,8 @@ pub struct Writer {
 
     /// Tracks the previously written item to detect weak tombstone/value pairs
     previous_item: Option<(UserKey, ValueType)>,
+
+    linked_blob_files: Vec<LinkedFile>,
 }
 
 impl Writer {
@@ -108,7 +118,17 @@ impl Writer {
             bloom_hash_buffer: Vec::new(),
 
             previous_item: None,
+
+            linked_blob_files: Vec::new(),
         })
+    }
+
+    pub fn link_blob_file(&mut self, blob_file_id: BlobFileId, bytes: u64, len: usize) {
+        self.linked_blob_files.push(LinkedFile {
+            blob_file_id,
+            bytes,
+            len,
+        });
     }
 
     #[must_use]
@@ -249,14 +269,6 @@ impl Writer {
             self.data_block_hash_ratio,
         )?;
 
-        // log::warn!("encoding {:?}", self.chunk);
-        // log::warn!(
-        //     "encoded 0x{:#X?} -> {:?}",
-        //     self.meta.file_pos,
-        //     self.block_buffer
-        // );
-
-        // TODO: prev block offset
         let header = Block::write_into(
             &mut self.block_writer,
             &self.block_buffer,
@@ -360,6 +372,23 @@ impl Writer {
             )?;
         }
 
+        if !self.linked_blob_files.is_empty() {
+            use byteorder::{WriteBytesExt, LE};
+
+            self.block_writer.start("linked_blob_files")?;
+
+            // NOTE: We know that there are never 4 billion blob files linked to a single table
+            #[allow(clippy::cast_possible_truncation)]
+            self.block_writer
+                .write_u32::<LE>(self.linked_blob_files.len() as u32)?;
+
+            for file in self.linked_blob_files {
+                self.block_writer.write_u64::<LE>(file.blob_file_id)?;
+                self.block_writer.write_u64::<LE>(file.bytes)?;
+                self.block_writer.write_u64::<LE>(file.len as u64)?;
+            }
+        }
+
         // Write metadata
         self.block_writer.start("meta")?;
 
@@ -403,8 +432,8 @@ impl Writer {
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
-                meta("#prefix_truncation#data", &[1]),
-                meta("#prefix_truncation#index", &[0]),
+                meta("#prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("#prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta(
                     "#restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),
@@ -444,8 +473,6 @@ impl Writer {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
                 assert!(is_sorted, "meta items not sorted correctly");
             }
-
-            log::trace!("Encoding metadata block: {meta_items:#?}");
 
             self.block_buffer.clear();
 

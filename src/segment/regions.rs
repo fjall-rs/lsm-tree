@@ -20,7 +20,9 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
 /// |--------------|
 /// |    filter    | <- may not exist
 /// |--------------|
-/// |  ... TBD ... |
+/// |      ...     |
+/// |--------------|
+/// | linked blobs | <- may not exist
 /// |--------------|
 /// |     meta     |
 /// |--------------|
@@ -33,6 +35,7 @@ pub struct ParsedRegions {
     pub tli: BlockHandle,
     pub index: Option<BlockHandle>,
     pub filter: Option<BlockHandle>,
+    pub linked_blob_files: Option<BlockHandle>,
     pub metadata: BlockHandle,
 }
 
@@ -48,6 +51,7 @@ impl ParsedRegions {
                 })?,
             index: toc.section(b"index").map(toc_entry_to_handle),
             filter: toc.section(b"filter").map(toc_entry_to_handle),
+            linked_blob_files: toc.section(b"linked_blob_files").map(toc_entry_to_handle),
             metadata: toc
                 .section(b"meta")
                 .map(toc_entry_to_handle)

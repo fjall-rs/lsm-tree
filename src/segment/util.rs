@@ -30,7 +30,7 @@ pub fn load_block(
     #[cfg(feature = "metrics")]
     use std::sync::atomic::Ordering::Relaxed;
 
-    log::trace!("load block {handle:?}");
+    log::trace!("load {block_type:?} block {handle:?}");
 
     if let Some(block) = cache.get_block(segment_id, handle.offset()) {
         #[cfg(feature = "metrics")]
@@ -54,9 +54,17 @@ pub fn load_block(
     let fd_cache_miss = cached_fd.is_none();
 
     let fd = if let Some(fd) = cached_fd {
+        #[cfg(feature = "metrics")]
+        metrics.table_file_opened_cached.fetch_add(1, Relaxed);
+
         fd
     } else {
-        Arc::new(std::fs::File::open(path)?)
+        let fd = std::fs::File::open(path)?;
+
+        #[cfg(feature = "metrics")]
+        metrics.table_file_opened.fetch_add(1, Relaxed);
+
+        Arc::new(fd)
     };
 
     let block = Block::from_file(&fd, *handle, compression)?;

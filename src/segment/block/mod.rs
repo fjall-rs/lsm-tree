@@ -50,10 +50,9 @@ impl Block {
     ) -> crate::Result<Header> {
         let mut header = Header {
             block_type,
-            checksum: Checksum::from_raw(crate::hash::hash128(data)),
-            data_length: 0, // <-- NOTE: Is set later on
+            checksum: Checksum::from_raw(0), // <-- NOTE: Is set later on
+            data_length: 0,                  // <-- NOTE: Is set later on
             uncompressed_length: data.len() as u32,
-            previous_block_offset: BlockOffset(0), // <-- TODO:
         };
 
         let data = match compression {
@@ -63,6 +62,7 @@ impl Block {
             CompressionType::Lz4 => &lz4_flex::compress(data),
         };
         header.data_length = data.len() as u32;
+        header.checksum = Checksum::from_raw(crate::hash::hash128(data));
 
         header.encode_into(&mut writer)?;
         writer.write_all(data)?;
@@ -84,6 +84,20 @@ impl Block {
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
         let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&raw_data));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for <bufreader>, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
+        }
 
         let data = match compression {
             CompressionType::None => raw_data,
@@ -108,20 +122,6 @@ impl Block {
             }
         });
 
-        let checksum = Checksum::from_raw(crate::hash::hash128(&data));
-        if checksum != header.checksum {
-            log::error!(
-                "Checksum mismatch for <bufreader>, got={}, expected={}",
-                *checksum,
-                *header.checksum,
-            );
-
-            return Err(crate::Error::ChecksumMismatch {
-                got: checksum,
-                expected: header.checksum,
-            });
-        }
-
         Ok(Self { header, data })
     }
 
@@ -135,8 +135,32 @@ impl Block {
 
         let header = Header::decode_from(&mut &buf[..])?;
 
+        #[allow(clippy::indexing_slicing)]
+        let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
+        if checksum != header.checksum {
+            log::error!(
+                "Checksum mismatch for block {handle:?}, got={}, expected={}",
+                *checksum,
+                *header.checksum,
+            );
+
+            return Err(crate::Error::ChecksumMismatch {
+                got: checksum,
+                expected: header.checksum,
+            });
+        }
+
         let buf = match compression {
-            CompressionType::None => buf.slice(Header::serialized_len()..),
+            CompressionType::None => {
+                let value = buf.slice(Header::serialized_len()..);
+
+                #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+                {
+                    debug_assert_eq!(header.uncompressed_length, value.len() as u32);
+                }
+
+                value
+            }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
@@ -155,25 +179,6 @@ impl Block {
                 builder.freeze().into()
             }
         };
-
-        #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-        {
-            debug_assert_eq!(header.uncompressed_length, buf.len() as u32);
-        }
-
-        let checksum = Checksum::from_raw(crate::hash::hash128(&buf));
-        if checksum != header.checksum {
-            log::error!(
-                "Checksum mismatch for block {handle:?}, got={}, expected={}",
-                *checksum,
-                *header.checksum,
-            );
-
-            return Err(crate::Error::ChecksumMismatch {
-                got: checksum,
-                expected: header.checksum,
-            });
-        }
 
         Ok(Self { header, data: buf })
     }

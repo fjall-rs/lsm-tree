@@ -46,7 +46,7 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
     assert_eq!(tree.get_highest_persisted_seqno(), Some(3));
 
     let (segment, _) = tree.flush_memtable(segment_id, &sealed, 0)?.unwrap();
-    tree.register_segments(&[segment], None, 0)?;
+    tree.register_segments(&[segment], None, None, 0)?;
 
     assert_eq!(tree.get_highest_seqno(), Some(4));
     assert_eq!(tree.get_highest_memtable_seqno(), None);
