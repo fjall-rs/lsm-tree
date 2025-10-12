@@ -161,7 +161,7 @@ impl AbstractTree for Tree {
         )
     }
 
-    // TODO: doctest
+    /// Returns the number of tombstones in the tree.
     fn tombstone_count(&self) -> u64 {
         self.current_version()
             .iter_segments()
@@ -170,24 +170,16 @@ impl AbstractTree for Tree {
     }
 
     /// Returns the number of weak tombstones (single deletes) in the tree.
-    #[must_use]
     fn weak_tombstone_count(&self) -> u64 {
-        self.manifest
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
+        self.current_version()
             .iter_segments()
             .map(Segment::weak_tombstone_count)
             .sum()
     }
 
     /// Returns the number of value entries that become reclaimable once weak tombstones can be GC'd.
-    #[must_use]
     fn weak_tombstone_reclaimable_count(&self) -> u64 {
-        self.manifest
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
+        self.current_version()
             .iter_segments()
             .map(Segment::weak_tombstone_reclaimable)
             .sum()
