@@ -64,6 +64,26 @@ impl<'a> Reader<'a> {
 
         let raw_data = value.slice((add_size as usize)..);
 
+        {
+            let checksum = {
+                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+                hasher.update(key);
+                hasher.update(&raw_data);
+                hasher.digest128()
+            };
+
+            if expected_checksum != checksum {
+                log::error!(
+                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
+                );
+
+                return Err(crate::Error::ChecksumMismatch {
+                    got: Checksum::from_raw(checksum),
+                    expected: Checksum::from_raw(expected_checksum),
+                });
+            }
+        }
+
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
             CompressionType::None => raw_data,
@@ -79,26 +99,6 @@ impl<'a> Reader<'a> {
                 builder.freeze().into()
             }
         };
-
-        {
-            let checksum = {
-                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
-                hasher.update(key);
-                hasher.update(&value);
-                hasher.digest128()
-            };
-
-            if expected_checksum != checksum {
-                log::error!(
-                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
-                );
-
-                return Err(crate::Error::ChecksumMismatch {
-                    got: Checksum::from_raw(checksum),
-                    expected: Checksum::from_raw(expected_checksum),
-                });
-            }
-        }
 
         Ok(value)
     }

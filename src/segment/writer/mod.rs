@@ -247,14 +247,6 @@ impl Writer {
             self.data_block_hash_ratio,
         )?;
 
-        // log::warn!("encoding {:?}", self.chunk);
-        // log::warn!(
-        //     "encoded 0x{:#X?} -> {:?}",
-        //     self.meta.file_pos,
-        //     self.block_buffer
-        // );
-
-        // TODO: prev block offset
         let header = Block::write_into(
             &mut self.block_writer,
             &self.block_buffer,

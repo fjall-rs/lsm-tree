@@ -126,10 +126,19 @@ impl Writer {
         // Write header
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
+        let uncompressed_len = value.len();
+
+        let value = match &self.compression {
+            CompressionType::None => std::borrow::Cow::Borrowed(value),
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+        };
+
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
             hasher.update(key);
-            hasher.update(value);
+            hasher.update(&value);
             hasher.digest128()
         };
 
@@ -147,14 +156,8 @@ impl Writer {
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.writer.write_u32::<LittleEndian>(value.len() as u32)?;
-
-        let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
-        };
+        self.writer
+            .write_u32::<LittleEndian>(uncompressed_len as u32)?;
 
         // Write compressed (on-disk) value length
 

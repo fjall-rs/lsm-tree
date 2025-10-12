@@ -97,27 +97,11 @@ impl Iterator for Scanner {
             on_disk_val_len as usize
         ));
 
-        #[warn(clippy::match_single_binding)]
-        let value = match &self.compression {
-            CompressionType::None => raw_data,
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
-
-                fail_iter!(lz4_flex::decompress_into(&raw_data, &mut builder)
-                    .map_err(|_| crate::Error::Decompress(self.compression)));
-
-                builder.freeze().into()
-            }
-        };
-
         {
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
                 hasher.update(&key);
-                hasher.update(&value);
+                hasher.update(&raw_data);
                 hasher.digest128()
             };
 
@@ -133,6 +117,29 @@ impl Iterator for Scanner {
                 }));
             }
         }
+
+        #[warn(clippy::match_single_binding)]
+        let value = match &self.compression {
+            CompressionType::None => {
+                #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+                {
+                    debug_assert_eq!(real_val_len, raw_data.len() as u32);
+                }
+
+                raw_data
+            }
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+
+                fail_iter!(lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(self.compression)));
+
+                builder.freeze().into()
+            }
+        };
 
         Some(Ok(ScanEntry {
             key,
