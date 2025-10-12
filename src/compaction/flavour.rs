@@ -190,8 +190,12 @@ impl CompactionFlavour for RelocatingCompaction {
 
                 log::trace!("RELOCATE to {indirection:?}");
 
-                self.blob_writer
-                    .write(&item.key.user_key, item.key.seqno, &blob_entry.value)?;
+                self.blob_writer.write_raw(
+                    &item.key.user_key,
+                    item.key.seqno,
+                    &blob_entry.value,
+                    blob_entry.uncompressed_len,
+                )?;
 
                 self.inner
                     .table_writer

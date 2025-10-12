@@ -373,10 +373,7 @@ fn merge_segments(
                 let scanner = BlobFileMergeScanner::new(
                     blob_files_to_rewrite
                         .iter()
-                        .map(|bf| {
-                            Ok(BlobFileScanner::new(&bf.0.path, bf.id())?
-                                .use_compression(bf.0.meta.compression))
-                        })
+                        .map(|bf| BlobFileScanner::new(&bf.0.path, bf.id()))
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
@@ -385,7 +382,7 @@ fn merge_segments(
                     blob_opts.file_target_size,
                     opts.config.path.join(BLOBS_FOLDER),
                 )?
-                .use_compression(blob_opts.compression);
+                .use_passthrough_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, segments);
 

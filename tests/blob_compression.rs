@@ -1,8 +1,7 @@
-#[test]
+#[test_log::test]
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {
     use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
-    use test_log::test;
 
     let folder = tempfile::tempdir()?;
     let path = folder.path();
@@ -17,7 +16,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
         ))
         .open()?;
 
-    let big_value = b"abc".repeat(128_000);
+    let big_value = b"abc".repeat(50);
 
     tree.insert("a", &big_value, 0);
     tree.insert("b", b"smol", 0);

@@ -88,18 +88,13 @@ impl Writer {
         self.blob_file_id
     }
 
-    /// Writes an item into the file.
-    ///
-    /// Items need to be written in key order.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
-    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
+    pub(crate) fn write_raw(
+        &mut self,
+        key: &[u8],
+        seqno: SeqNo,
+        value: &[u8],
+        uncompressed_len: u32,
+    ) -> crate::Result<u32> {
         assert!(!key.is_empty());
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
@@ -109,7 +104,7 @@ impl Writer {
         }
         self.last_key = Some(key.into());
 
-        self.uncompressed_bytes += value.len() as u64;
+        self.uncompressed_bytes += u64::from(uncompressed_len);
 
         // NOTE:
         // BLOB HEADER LAYOUT
@@ -125,8 +120,6 @@ impl Writer {
 
         // Write header
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
-        let uncompressed_len = value.len();
 
         let value = match &self.compression {
             CompressionType::None => std::borrow::Cow::Borrowed(value),
@@ -156,8 +149,7 @@ impl Writer {
 
         // NOTE: Truncation is okay and actually needed
         #[allow(clippy::cast_possible_truncation)]
-        self.writer
-            .write_u32::<LittleEndian>(uncompressed_len as u32)?;
+        self.writer.write_u32::<LittleEndian>(uncompressed_len)?;
 
         // Write compressed (on-disk) value length
 
@@ -190,6 +182,21 @@ impl Writer {
         // NOTE: Truncation is okay
         #[allow(clippy::cast_possible_truncation)]
         Ok(value.len() as u32)
+    }
+
+    /// Writes an item into the file.
+    ///
+    /// Items need to be written in key order.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
+        self.write_raw(key, seqno, value, value.len() as u32)
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<()> {

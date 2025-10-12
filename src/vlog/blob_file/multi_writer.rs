@@ -27,6 +27,7 @@ pub struct MultiWriter {
     id_generator: SequenceNumberCounter,
 
     compression: CompressionType,
+    passthrough_compression: CompressionType,
 }
 
 impl MultiWriter {
@@ -56,6 +57,7 @@ impl MultiWriter {
             results: Vec::new(),
 
             compression: CompressionType::None,
+            passthrough_compression: CompressionType::None,
         })
     }
 
@@ -63,6 +65,16 @@ impl MultiWriter {
     #[must_use]
     pub fn use_target_size(mut self, bytes: u64) -> Self {
         self.target_size = bytes;
+        self
+    }
+
+    /// Sets the compression method in blob file writer metadata, but does not actually compress blobs.
+    ///
+    /// This is used in garbage collection to pass through already-compressed blobs, but correctly
+    /// set the compression type in the metadata.
+    pub(crate) fn use_passthrough_compression(mut self, compression: CompressionType) -> Self {
+        assert_eq!(self.compression, CompressionType::None);
+        self.passthrough_compression = compression;
         self
     }
 
@@ -96,13 +108,16 @@ impl MultiWriter {
             Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
-        let blob_file = Self::consume_writer(old_writer)?;
+        let blob_file = Self::consume_writer(old_writer, self.passthrough_compression)?;
         self.results.extend(blob_file);
 
         Ok(())
     }
 
-    fn consume_writer(writer: Writer) -> crate::Result<Option<BlobFile>> {
+    fn consume_writer(
+        writer: Writer,
+        passthrough_compression: CompressionType,
+    ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
 
@@ -134,7 +149,11 @@ impl MultiWriter {
                             .clone()
                             .expect("should have written at least 1 item"),
                     )),
-                    compression: writer.compression,
+                    compression: if passthrough_compression == CompressionType::None {
+                        writer.compression
+                    } else {
+                        passthrough_compression
+                    },
                 },
             }));
 
@@ -178,9 +197,30 @@ impl MultiWriter {
         Ok(bytes_written)
     }
 
+    pub(crate) fn write_raw(
+        &mut self,
+        key: &[u8],
+        seqno: SeqNo,
+        value: &[u8],
+        uncompressed_len: u32,
+    ) -> crate::Result<u32> {
+        let target_size = self.target_size;
+
+        // Write actual value into blob file
+        let writer = &mut self.active_writer;
+        let bytes_written = writer.write_raw(key, seqno, value, uncompressed_len)?;
+
+        // Check for blob file size target, maybe rotate to next writer
+        if writer.offset() >= target_size {
+            self.rotate()?;
+        }
+
+        Ok(bytes_written)
+    }
+
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
         if self.active_writer.item_count > 0 {
-            let blob_file = Self::consume_writer(self.active_writer)?;
+            let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
             self.results.extend(blob_file);
         }
 

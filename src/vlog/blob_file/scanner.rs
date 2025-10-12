@@ -55,6 +55,7 @@ pub struct ScanEntry {
     pub seqno: SeqNo,
     pub value: UserValue,
     pub offset: u64,
+    pub uncompressed_len: u32,
 }
 
 impl Iterator for Scanner {
@@ -87,7 +88,10 @@ impl Iterator for Scanner {
         let seqno = fail_iter!(self.inner.read_u64::<LittleEndian>());
 
         let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
+
+        #[allow(unused)]
         let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
+
         let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
 
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
@@ -120,14 +124,7 @@ impl Iterator for Scanner {
 
         #[warn(clippy::match_single_binding)]
         let value = match &self.compression {
-            CompressionType::None => {
-                #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
-                {
-                    debug_assert_eq!(real_val_len, raw_data.len() as u32);
-                }
-
-                raw_data
-            }
+            CompressionType::None => raw_data,
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
@@ -146,6 +143,7 @@ impl Iterator for Scanner {
             seqno,
             value,
             offset,
+            uncompressed_len: real_val_len,
         }))
     }
 }

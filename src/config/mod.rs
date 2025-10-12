@@ -123,7 +123,7 @@ impl KvSeparationOptions {
     /// Smaller value will reduce compaction overhead and thus write amplification,
     /// at the cost of lower read performance.
     ///
-    /// Defaults to 4KiB.
+    /// Defaults to 1 KiB.
     #[must_use]
     pub fn separation_threshold(mut self, bytes: u32) -> Self {
         self.separation_threshold = bytes;
