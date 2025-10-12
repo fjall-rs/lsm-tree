@@ -7,8 +7,8 @@ use super::{
 };
 use crate::{
     coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
-    time::unix_timestamp, CompressionType, InternalValue, SegmentId, UserKey, ValueType,
-    vlog::BlobFileId,
+    time::unix_timestamp, vlog::BlobFileId, CompressionType, InternalValue, SegmentId, UserKey,
+    ValueType,
 };
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
