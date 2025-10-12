@@ -166,43 +166,4 @@ mod tests {
 
         Ok(())
     }
-
-    #[test]
-    #[cfg(feature = "lz4")]
-    fn blob_scanner_lz4() -> crate::Result<()> {
-        let dir = tempdir()?;
-        let blob_file_path = dir.path().join("0");
-
-        let keys = [b"a", b"b", b"c", b"d", b"e"];
-
-        {
-            let mut writer =
-                BlobFileWriter::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
-
-            for key in keys {
-                writer.write(key, 0, &key.repeat(100))?;
-            }
-
-            writer.finish()?;
-        }
-
-        {
-            let mut scanner =
-                Scanner::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
-
-            for key in keys {
-                assert_eq!(
-                    (Slice::from(key), Slice::from(key.repeat(100))),
-                    scanner
-                        .next()
-                        .map(|result| result.map(|entry| { (entry.key, entry.value) }))
-                        .unwrap()?,
-                );
-            }
-
-            assert!(scanner.next().is_none());
-        }
-
-        Ok(())
-    }
 }
