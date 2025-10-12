@@ -3,9 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{
-    coding::DecodeError, vlog::BlobFileId, Checksum, CompressionType, SeqNo, UserKey, UserValue,
-};
+use crate::{coding::DecodeError, vlog::BlobFileId, Checksum, SeqNo, UserKey, UserValue};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
@@ -18,7 +16,6 @@ pub struct Scanner {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
     inner: BufReader<File>,
     is_terminated: bool,
-    compression: CompressionType,
 }
 
 impl Scanner {
@@ -39,13 +36,7 @@ impl Scanner {
             blob_file_id,
             inner: file_reader,
             is_terminated: false,
-            compression: CompressionType::None,
         }
-    }
-
-    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
-        self.compression = compression;
-        self
     }
 }
 
@@ -96,7 +87,7 @@ impl Iterator for Scanner {
 
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
 
-        let raw_data = fail_iter!(UserValue::from_reader(
+        let value = fail_iter!(UserValue::from_reader(
             &mut self.inner,
             on_disk_val_len as usize
         ));
@@ -105,7 +96,7 @@ impl Iterator for Scanner {
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
                 hasher.update(&key);
-                hasher.update(&raw_data);
+                hasher.update(&value);
                 hasher.digest128()
             };
 
@@ -121,22 +112,6 @@ impl Iterator for Scanner {
                 }));
             }
         }
-
-        #[warn(clippy::match_single_binding)]
-        let value = match &self.compression {
-            CompressionType::None => raw_data,
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
-
-                fail_iter!(lz4_flex::decompress_into(&raw_data, &mut builder)
-                    .map_err(|_| crate::Error::Decompress(self.compression)));
-
-                builder.freeze().into()
-            }
-        };
 
         Some(Ok(ScanEntry {
             key,
