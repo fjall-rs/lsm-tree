@@ -247,14 +247,6 @@ impl Writer {
             self.data_block_hash_ratio,
         )?;
 
-        // log::warn!("encoding {:?}", self.chunk);
-        // log::warn!(
-        //     "encoded 0x{:#X?} -> {:?}",
-        //     self.meta.file_pos,
-        //     self.block_buffer
-        // );
-
-        // TODO: prev block offset
         let header = Block::write_into(
             &mut self.block_writer,
             &self.block_buffer,
@@ -451,8 +443,6 @@ impl Writer {
                 let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
                 assert!(is_sorted, "meta items not sorted correctly");
             }
-
-            log::trace!("Encoding metadata block: {meta_items:#?}");
 
             self.block_buffer.clear();
 

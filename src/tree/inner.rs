@@ -3,10 +3,15 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    config::Config, level_manifest::LevelManifest, memtable::Memtable, stop_signal::StopSignal,
+    compaction::state::{persist_version, CompactionState},
+    config::Config,
+    memtable::Memtable,
+    stop_signal::StopSignal,
+    tree::sealed::SealedMemtables,
+    version::Version,
     SegmentId, SequenceNumberCounter,
 };
-use std::sync::{atomic::AtomicU64, Arc, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -21,35 +26,21 @@ pub type TreeId = u64;
 /// Memtable IDs map one-to-one to some segment.
 pub type MemtableId = u64;
 
-/// Stores references to all sealed memtables
-///
-/// Memtable IDs are monotonically increasing, so we don't really
-/// need a search tree; also there are only a handful of them at most.
-#[derive(Default)]
-pub struct SealedMemtables(Vec<(MemtableId, Arc<Memtable>)>);
-
-impl SealedMemtables {
-    pub fn add(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
-        self.0.push((id, memtable));
-    }
-
-    pub fn remove(&mut self, id_to_remove: MemtableId) {
-        self.0.retain(|(id, _)| *id != id_to_remove);
-    }
-
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<Memtable>)> {
-        self.0.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
 /// Hands out a unique (monotonically increasing) tree ID.
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+pub struct SuperVersion {
+    /// Active memtable that is being written to
+    pub(crate) active_memtable: Arc<Memtable>,
+
+    /// Frozen memtables that are being flushed
+    pub(crate) sealed_memtables: Arc<SealedMemtables>,
+
+    /// Current tree version
+    pub(crate) version: Version,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -65,14 +56,9 @@ pub struct TreeInner {
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_generator: SequenceNumberCounter,
 
-    /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<RwLock<Arc<Memtable>>>,
+    pub(crate) super_version: Arc<RwLock<SuperVersion>>,
 
-    /// Frozen memtables that are being flushed
-    pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
-
-    /// Current tree version
-    pub(super) manifest: Arc<RwLock<LevelManifest>>,
+    pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
     /// Tree configuration
     pub config: Config,
@@ -81,6 +67,10 @@ pub struct TreeInner {
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
 
+    /// Used by major compaction to be the exclusive compaction going on.
+    ///
+    /// Minor compactions use `major_compaction_lock.read()` instead, so they
+    /// can be concurrent next to each other.
     pub(crate) major_compaction_lock: RwLock<()>,
 
     #[doc(hidden)]
@@ -90,18 +80,25 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let manifest = LevelManifest::create_new(&config.path)?;
+        let version = Version::new(0);
+        persist_version(&config.path, &version)?;
+
+        let path = config.path.clone();
 
         Ok(Self {
             id: get_next_tree_id(),
             segment_id_counter: Arc::new(AtomicU64::default()),
             blob_file_id_generator: SequenceNumberCounter::default(),
             config,
-            active_memtable: Arc::default(),
-            sealed_memtables: Arc::default(),
-            manifest: Arc::new(RwLock::new(manifest)),
+            super_version: Arc::new(RwLock::new(SuperVersion {
+                active_memtable: Arc::default(),
+                sealed_memtables: Arc::default(),
+                version,
+            })),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
+            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
+
             #[cfg(feature = "metrics")]
             metrics: Metrics::default().into(),
         })

@@ -4,11 +4,12 @@ use std::time::Instant;
 use crate::blob_tree::handle::BlobIndirection;
 use crate::blob_tree::FragmentationMap;
 use crate::coding::{Decode, Encode};
+use crate::compaction::state::CompactionState;
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
 use crate::file::SEGMENTS_FOLDER;
-use crate::level_manifest::LevelManifest;
 use crate::segment::multi_writer::MultiWriter;
+use crate::tree::inner::SuperVersion;
 use crate::version::Version;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Segment};
@@ -81,9 +82,11 @@ pub(super) fn prepare_table_writer(
 pub(super) trait CompactionFlavour {
     fn write(&mut self, item: InternalValue) -> crate::Result<()>;
 
+    #[warn(clippy::too_many_arguments)]
     fn finish(
         self: Box<Self>,
-        levels: &mut LevelManifest,
+        super_version: &mut SuperVersion,
+        state: &mut CompactionState,
         opts: &Options,
         payload: &CompactionPayload,
         dst_lvl: usize,
@@ -187,8 +190,12 @@ impl CompactionFlavour for RelocatingCompaction {
 
                 log::trace!("RELOCATE to {indirection:?}");
 
-                self.blob_writer
-                    .write(&item.key.user_key, item.key.seqno, &blob_entry.value)?;
+                self.blob_writer.write_raw(
+                    &item.key.user_key,
+                    item.key.seqno,
+                    &blob_entry.value,
+                    blob_entry.uncompressed_len,
+                )?;
 
                 self.inner
                     .table_writer
@@ -214,7 +221,8 @@ impl CompactionFlavour for RelocatingCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        levels: &mut LevelManifest,
+        super_version: &mut SuperVersion,
+        state: &mut CompactionState,
         opts: &Options,
         payload: &CompactionPayload,
         dst_lvl: usize,
@@ -232,14 +240,15 @@ impl CompactionFlavour for RelocatingCompaction {
 
         let mut blob_file_ids_to_drop = self.rewriting_blob_file_ids;
 
-        for blob_file in levels.current_version().value_log.values() {
-            if blob_file.is_dead(levels.current_version().gc_stats()) {
+        for blob_file in super_version.version.value_log.values() {
+            if blob_file.is_dead(super_version.version.gc_stats()) {
                 blob_file_ids_to_drop.insert(blob_file.id());
                 self.rewriting_blob_files.push(blob_file.clone());
             }
         }
 
-        levels.atomic_swap(
+        state.upgrade_version(
+            super_version,
             |current| {
                 Ok(current.with_merge(
                     &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
@@ -333,7 +342,8 @@ impl CompactionFlavour for StandardCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        levels: &mut LevelManifest,
+        super_version: &mut SuperVersion,
+        state: &mut CompactionState,
         opts: &Options,
         payload: &CompactionPayload,
         dst_lvl: usize,
@@ -347,13 +357,14 @@ impl CompactionFlavour for StandardCompaction {
 
         let mut blob_files_to_drop = Vec::default();
 
-        for blob_file in levels.current_version().value_log.values() {
-            if blob_file.is_dead(levels.current_version().gc_stats()) {
+        for blob_file in super_version.version.value_log.values() {
+            if blob_file.is_dead(super_version.version.gc_stats()) {
                 blob_files_to_drop.push(blob_file.clone());
             }
         }
 
-        levels.atomic_swap(
+        state.upgrade_version(
+            super_version,
             |current| {
                 Ok(current.with_merge(
                     &payload.segment_ids.iter().copied().collect::<Vec<_>>(),

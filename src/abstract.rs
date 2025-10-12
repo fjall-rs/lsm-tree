@@ -4,15 +4,12 @@
 
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, level_manifest::LevelManifest, segment::Segment,
-    tree::inner::MemtableId, vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue,
-    KvPair, Memtable, SegmentId, SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
+    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SegmentId,
+    SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
-use std::{
-    ops::RangeBounds,
-    sync::{Arc, RwLock, RwLockWriteGuard},
-};
+use std::{ops::RangeBounds, sync::Arc};
 
 pub type RangeItem = crate::Result<KvPair>;
 
@@ -30,7 +27,7 @@ pub trait AbstractTree {
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
     #[doc(hidden)]
-    fn manifest(&self) -> &Arc<RwLock<LevelManifest>>;
+    fn current_version(&self) -> Version;
 
     /// Synchronously flushes the active memtable to a disk segment.
     ///
@@ -143,10 +140,6 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    // TODO:?
-    /* #[doc(hidden)]
-    fn verify(&self) -> crate::Result<usize>; */
-
     /// Synchronously flushes a memtable to a disk segment.
     ///
     /// This method will not make the segment immediately available,
@@ -175,9 +168,6 @@ pub trait AbstractTree {
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
-
-    /// Write-locks the active memtable for exclusive access
-    fn lock_active_memtable(&self) -> RwLockWriteGuard<'_, Arc<Memtable>>;
 
     /// Clears the active memtable atomically.
     fn clear_active_memtable(&self);

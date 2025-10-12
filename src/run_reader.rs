@@ -154,10 +154,8 @@ mod tests {
         }
 
         let segments = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .iter()
+            .current_version()
+            .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 
@@ -196,10 +194,8 @@ mod tests {
         }
 
         let segments = tree
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .iter()
+            .current_version()
+            .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 

@@ -178,9 +178,6 @@ mod iter_guard;
 mod key;
 mod key_range;
 
-#[doc(hidden)]
-pub mod level_manifest;
-
 mod run_reader;
 mod run_scanner;
 

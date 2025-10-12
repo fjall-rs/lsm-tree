@@ -3,12 +3,15 @@
 // (found in the LICENSE-* files in the repository)
 
 mod optimize;
+pub mod recovery;
 pub mod run;
 
 pub use run::Run;
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
+use crate::compaction::state::hidden_set::HiddenSet;
+use crate::version::recovery::Recovery;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Segment, SegmentId, SeqNo,
@@ -142,7 +145,7 @@ pub struct VersionInner {
     id: VersionId,
 
     /// The individual LSM-tree levels which consist of runs of tables
-    pub(crate) levels: Vec<Level>,
+    levels: Vec<Level>,
 
     // TODO: 3.0.0 this should really be a newtype
     // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
@@ -190,6 +193,20 @@ impl Version {
         &self.gc_stats
     }
 
+    pub fn l0(&self) -> &Level {
+        self.levels.first().expect("L0 should exist")
+    }
+
+    #[must_use]
+    pub fn level_is_busy(&self, idx: usize, hidden_set: &HiddenSet) -> bool {
+        self.level(idx).is_some_and(|level| {
+            level
+                .iter()
+                .flat_map(|run: &Arc<Run<Segment>>| run.iter())
+                .any(|segment| hidden_set.is_hidden(segment.id()))
+        })
+    }
+
     /// Creates a new empty version.
     pub fn new(id: VersionId) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
@@ -203,6 +220,45 @@ impl Version {
             }),
             seqno_watermark: 0,
         }
+    }
+
+    pub(crate) fn from_recovery(
+        recovery: Recovery,
+        segments: &[Segment],
+        blob_files: &[BlobFile],
+    ) -> crate::Result<Self> {
+        let version_levels = recovery
+            .segment_ids
+            .iter()
+            .map(|level| {
+                let level_runs = level
+                    .iter()
+                    .map(|run| {
+                        let run_segments = run
+                            .iter()
+                            .map(|segment_id| {
+                                segments
+                                    .iter()
+                                    .find(|x| x.id() == *segment_id)
+                                    .cloned()
+                                    .ok_or(crate::Error::Unrecoverable)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?;
+
+                        Ok(Arc::new(Run::new(run_segments)))
+                    })
+                    .collect::<crate::Result<Vec<_>>>()?;
+
+                Ok(Level::from_runs(level_runs))
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Self::from_levels(
+            recovery.curr_version_id,
+            version_levels,
+            blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect(),
+            recovery.gc_stats,
+        ))
     }
 
     /// Creates a new pre-populated version.
@@ -578,6 +634,82 @@ impl Version {
         writer.start("blob_gc_stats")?;
 
         self.gc_stats.encode_into(writer)?;
+
+        Ok(())
+    }
+
+    pub fn fmt(&self, f: &mut std::fmt::Formatter<'_>, hidden_set: &HiddenSet) -> std::fmt::Result {
+        for (idx, level) in self.iter_levels().enumerate() {
+            writeln!(
+                f,
+                "{idx} [{}], r={}: ",
+                match (level.is_empty(), level.is_disjoint()) {
+                    (true, _) => ".",
+                    (false, true) => "D",
+                    (false, false) => "_",
+                },
+                level.len(),
+            )?;
+
+            for run in level.iter() {
+                write!(f, "  ")?;
+
+                if run.len() >= 30 {
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().take(2) {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+                    write!(f, " . . . ")?;
+
+                    #[allow(clippy::indexing_slicing)]
+                    for segment in run.iter().rev().take(2).rev() {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+
+                    writeln!(
+                        f,
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                    )?;
+                } else {
+                    for segment in run.iter() {
+                        let id = segment.id();
+                        let is_hidden = hidden_set.is_hidden(id);
+
+                        write!(
+                            f,
+                            "{}{id}{}",
+                            if is_hidden { "(" } else { "[" },
+                            if is_hidden { ")" } else { "]" },
+                        )?;
+                    }
+
+                    writeln!(
+                        f,
+                        " | # = {}, {} MiB",
+                        run.len(),
+                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                    )?;
+                }
+            }
+        }
 
         Ok(())
     }

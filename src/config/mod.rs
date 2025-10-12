@@ -17,7 +17,8 @@ pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
 use crate::{
-    path::absolute_path, AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, Tree,
+    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
+    DescriptorTable, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -58,7 +59,7 @@ impl TryFrom<u8> for TreeType {
 const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 
 /// Options for key-value separation
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
     pub compression: CompressionType,
@@ -73,7 +74,7 @@ pub struct KvSeparationOptions {
 
     pub(crate) staleness_threshold: f32,
 
-    pub(crate) age_cutoff: f32, // TODO: 3.0.0
+    pub(crate) age_cutoff: f32,
 }
 
 impl Default for KvSeparationOptions {
@@ -85,11 +86,11 @@ impl Default for KvSeparationOptions {
             #[cfg(not(feature="lz4"))]
             compression: CompressionType::None,
 
-            file_target_size: /* 256 MiB */ 256 * 1_024 * 1_024,
+            file_target_size: /* 64 MiB */ 64 * 1_024 * 1_024,
             separation_threshold: /* 1 KiB */ 1_024,
 
-            staleness_threshold: 0.25,
-            age_cutoff: 0.25,
+            staleness_threshold: 0.33,
+            age_cutoff: 0.20,
         }
     }
 }
@@ -122,7 +123,7 @@ impl KvSeparationOptions {
     /// Smaller value will reduce compaction overhead and thus write amplification,
     /// at the cost of lower read performance.
     ///
-    /// Defaults to 4KiB.
+    /// Defaults to 1 KiB.
     #[must_use]
     pub fn separation_threshold(mut self, bytes: u32) -> Self {
         self.separation_threshold = bytes;
@@ -134,10 +135,19 @@ impl KvSeparationOptions {
     /// The staleness percentage determines how much a blob file needs to be fragmented to be
     /// picked up by the garbage collection.
     ///
-    /// Defaults to 25%.
+    /// Defaults to 33%.
     #[must_use]
     pub fn staleness_threshold(mut self, ratio: f32) -> Self {
         self.staleness_threshold = ratio;
+        self
+    }
+
+    /// Sets the age cutoff threshold.
+    ///
+    /// Defaults to 20%.
+    #[must_use]
+    pub fn age_cutoff(mut self, ratio: f32) -> Self {
+        self.age_cutoff = ratio;
         self
     }
 }
@@ -213,7 +223,7 @@ impl Default for Config {
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
-            level_count: 7,
+            level_count: DEFAULT_LEVEL_COUNT,
 
             data_block_size_policy: BlockSizePolicy::default(),
             index_block_size_policy: BlockSizePolicy::default(),
@@ -249,7 +259,7 @@ impl Config {
     /// You can create a global [`Cache`] and share it between multiple
     /// trees to cap global cache memory usage.
     ///
-    /// Defaults to a cache with 8 MiB of capacity *per tree*.
+    /// Defaults to a cache with 16 MiB of capacity *per tree*.
     #[must_use]
     pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
         self.cache = cache;

@@ -2,7 +2,6 @@ use lsm_tree::{AbstractTree, KvSeparationOptions, SeqNo};
 use test_log::test;
 
 #[test]
-#[ignore]
 fn blob_tree_separation_threshold() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();

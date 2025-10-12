@@ -5,6 +5,7 @@
 /// Value type (regular value or tombstone)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
+#[cfg_attr(test, derive(strum::EnumIter))]
 pub enum ValueType {
     /// Existing value
     Value,
@@ -41,7 +42,7 @@ impl TryFrom<u8> for ValueType {
             0 => Ok(Self::Value),
             0x0000_0001 => Ok(Self::Tombstone),
             0x0000_0011 => Ok(Self::WeakTombstone),
-            0b1000_0000 => Ok(Self::Indirection),
+            0b0000_0100 => Ok(Self::Indirection),
             _ => Err(()),
         }
     }
@@ -53,7 +54,7 @@ impl From<ValueType> for u8 {
             ValueType::Value => 0,
             ValueType::Tombstone => 0x0000_0001,
             ValueType::WeakTombstone => 0x0000_0011,
-            ValueType::Indirection => 0b1000_0000,
+            ValueType::Indirection => 0b0000_0100,
         }
     }
 }

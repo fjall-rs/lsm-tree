@@ -3,9 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{
-    coding::DecodeError, vlog::BlobFileId, Checksum, CompressionType, SeqNo, UserKey, UserValue,
-};
+use crate::{coding::DecodeError, vlog::BlobFileId, Checksum, SeqNo, UserKey, UserValue};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
@@ -18,7 +16,6 @@ pub struct Scanner {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
     inner: BufReader<File>,
     is_terminated: bool,
-    compression: CompressionType,
 }
 
 impl Scanner {
@@ -39,13 +36,7 @@ impl Scanner {
             blob_file_id,
             inner: file_reader,
             is_terminated: false,
-            compression: CompressionType::None,
         }
-    }
-
-    pub(crate) fn use_compression(mut self, compression: CompressionType) -> Self {
-        self.compression = compression;
-        self
     }
 }
 
@@ -55,6 +46,7 @@ pub struct ScanEntry {
     pub seqno: SeqNo,
     pub value: UserValue,
     pub offset: u64,
+    pub uncompressed_len: u32,
 }
 
 impl Iterator for Scanner {
@@ -87,31 +79,18 @@ impl Iterator for Scanner {
         let seqno = fail_iter!(self.inner.read_u64::<LittleEndian>());
 
         let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
+
+        #[allow(unused)]
         let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
+
         let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
 
         let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
 
-        let raw_data = fail_iter!(UserValue::from_reader(
+        let value = fail_iter!(UserValue::from_reader(
             &mut self.inner,
             on_disk_val_len as usize
         ));
-
-        #[warn(clippy::match_single_binding)]
-        let value = match &self.compression {
-            CompressionType::None => raw_data,
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
-
-                fail_iter!(lz4_flex::decompress_into(&raw_data, &mut builder)
-                    .map_err(|_| crate::Error::Decompress(self.compression)));
-
-                builder.freeze().into()
-            }
-        };
 
         {
             let checksum = {
@@ -139,6 +118,7 @@ impl Iterator for Scanner {
             seqno,
             value,
             offset,
+            uncompressed_len: real_val_len,
         }))
     }
 }
@@ -170,45 +150,6 @@ mod tests {
 
         {
             let mut scanner = Scanner::new(&blob_file_path, 0)?;
-
-            for key in keys {
-                assert_eq!(
-                    (Slice::from(key), Slice::from(key.repeat(100))),
-                    scanner
-                        .next()
-                        .map(|result| result.map(|entry| { (entry.key, entry.value) }))
-                        .unwrap()?,
-                );
-            }
-
-            assert!(scanner.next().is_none());
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "lz4")]
-    fn blob_scanner_lz4() -> crate::Result<()> {
-        let dir = tempdir()?;
-        let blob_file_path = dir.path().join("0");
-
-        let keys = [b"a", b"b", b"c", b"d", b"e"];
-
-        {
-            let mut writer =
-                BlobFileWriter::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
-
-            for key in keys {
-                writer.write(key, 0, &key.repeat(100))?;
-            }
-
-            writer.finish()?;
-        }
-
-        {
-            let mut scanner =
-                Scanner::new(&blob_file_path, 0)?.use_compression(CompressionType::Lz4);
 
             for key in keys {
                 assert_eq!(

@@ -13,26 +13,20 @@ use crate::{
     compaction::stream::CompactionStream,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
-    level_manifest::LevelManifest,
     r#abstract::{AbstractTree, RangeItem},
     segment::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
-    vlog::{Accessor, BlobFile, BlobFileId, BlobFileWriter, ValueHandle},
+    version::Version,
+    vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
     Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
 };
 use handle::BlobIndirection;
-use std::{
-    collections::BTreeMap,
-    io::Cursor,
-    ops::RangeBounds,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
 
 pub struct Guard<'a> {
     blob_tree: &'a BlobTree,
-    vlog: Arc<BTreeMap<BlobFileId, BlobFile>>,
+    version: Version,
     kv: crate::Result<InternalValue>,
 }
 
@@ -42,26 +36,30 @@ impl IterGuard for Guard<'_> {
     }
 
     fn size(self) -> crate::Result<u32> {
-        let mut cursor = Cursor::new(self.kv?.value);
-        Ok(BlobIndirection::decode_from(&mut cursor)?.size)
+        let kv = self.kv?;
+
+        if kv.key.value_type.is_indirection() {
+            let mut cursor = Cursor::new(kv.value);
+            Ok(BlobIndirection::decode_from(&mut cursor)?.size)
+        } else {
+            // NOTE: We know that values are u32 max length
+            #[allow(clippy::cast_possible_truncation)]
+            Ok(kv.value.len() as u32)
+        }
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
-        resolve_value_handle(self.blob_tree, &self.vlog, self.kv?)
+        resolve_value_handle(self.blob_tree, &self.version, self.kv?)
     }
 }
 
-fn resolve_value_handle(
-    tree: &BlobTree,
-    vlog: &BTreeMap<BlobFileId, BlobFile>,
-    item: InternalValue,
-) -> RangeItem {
+fn resolve_value_handle(tree: &BlobTree, version: &Version, item: InternalValue) -> RangeItem {
     if item.key.value_type.is_indirection() {
         let mut cursor = Cursor::new(item.value);
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
-        match Accessor::new(vlog).get(
+        match Accessor::new(&version.value_log).get(
             tree.id(),
             &tree.blobs_folder,
             &item.key.user_key,
@@ -75,10 +73,10 @@ fn resolve_value_handle(
             }
             Ok(None) => {
                 panic!(
-                    "value handle ({:?} => {:?}) did not match any blob - this is a bug",
-                    String::from_utf8_lossy(&item.key.user_key),
-                    vptr.vhandle,
-                )
+                    "value handle ({:?} => {:?}) did not match any blob - this is a bug; version={}",
+                    item.key.user_key, vptr.vhandle,
+                    version.id(),
+                );
             }
             Err(e) => Err(e),
         }
@@ -112,9 +110,6 @@ impl BlobTree {
         fsync_directory(&blobs_folder)?;
 
         let blob_file_id_to_continue_with = index
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
             .current_version()
             .value_log
             .values()
@@ -148,8 +143,8 @@ impl AbstractTree for BlobTree {
         self.index.get_internal_entry(key, seqno)
     }
 
-    fn manifest(&self) -> &Arc<RwLock<LevelManifest>> {
-        self.index.manifest()
+    fn current_version(&self) -> Version {
+        self.index.current_version()
     }
 
     fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
@@ -191,12 +186,7 @@ impl AbstractTree for BlobTree {
 
         let range = prefix_to_range(prefix.as_ref());
 
-        let version = self
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .clone();
+        let version = self.current_version();
 
         Box::new(
             self.index
@@ -204,7 +194,7 @@ impl AbstractTree for BlobTree {
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         blob_tree: self,
-                        vlog: version.value_log.clone(), // TODO: PERF: ugly Arc clone
+                        version: version.clone(), // TODO: PERF: ugly Arc clone
                         kv,
                     })
                 }),
@@ -217,12 +207,7 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
-        let version = self
-            .manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .clone();
+        let version = self.current_version();
 
         // TODO: PERF: ugly Arc clone
         Box::new(
@@ -231,7 +216,7 @@ impl AbstractTree for BlobTree {
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         blob_tree: self,
-                        vlog: version.value_log.clone(), // TODO: PERF: ugly Arc clone
+                        version: version.clone(), // TODO: PERF: ugly Arc clone
                         kv,
                     })
                 }),
@@ -335,11 +320,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn blob_file_count(&self) -> usize {
-        self.manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .blob_file_count()
+        self.current_version().blob_file_count()
     }
 
     // NOTE: We skip reading from the value log
@@ -363,12 +344,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn stale_blob_bytes(&self) -> u64 {
-        self.manifest()
-            .read()
-            .expect("lock is poisoned")
-            .current_version()
-            .gc_stats()
-            .stale_bytes()
+        self.current_version().gc_stats().stale_bytes()
     }
 
     fn filter_size(&self) -> usize {
@@ -520,10 +496,6 @@ impl AbstractTree for BlobTree {
             .register_segments(segments, blob_files, frag_map, seqno_threshold)
     }
 
-    fn lock_active_memtable(&self) -> std::sync::RwLockWriteGuard<'_, Arc<Memtable>> {
-        self.index.lock_active_memtable()
-    }
-
     fn set_active_memtable(&self, memtable: Memtable) {
         self.index.set_active_memtable(memtable);
     }
@@ -595,8 +567,7 @@ impl AbstractTree for BlobTree {
     }
 
     fn disk_space(&self) -> u64 {
-        let lock = self.manifest().read().expect("lock is poisoned");
-        let version = lock.current_version();
+        let version = self.current_version();
         let vlog = crate::vlog::Accessor::new(&version.value_log);
         self.index.disk_space() + vlog.disk_space()
     }
@@ -628,9 +599,9 @@ impl AbstractTree for BlobTree {
             return Ok(None);
         };
 
-        let lock = self.manifest().read().expect("lock is poisoned");
-        let version = lock.current_version();
-        let (_, v) = resolve_value_handle(self, &version.value_log, item)?;
+        let version = self.current_version();
+        let (_, v) = resolve_value_handle(self, &version, item)?;
+
         Ok(Some(v))
     }
 

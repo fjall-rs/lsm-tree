@@ -52,13 +52,37 @@ impl<'a> Reader<'a> {
         let expected_checksum = reader.read_u128::<LittleEndian>()?;
 
         let _seqno = reader.read_u64::<LittleEndian>()?;
-        let key_len = reader.read_u16::<LittleEndian>()? as usize;
+        let key_len = reader.read_u16::<LittleEndian>()?;
+
+        // NOTE: Used in feature flagged branch
+        #[allow(unused)]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
+
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
-        reader.seek(std::io::SeekFrom::Current(key_len as i64))?;
+        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
         let raw_data = value.slice((add_size as usize)..);
+
+        {
+            let checksum = {
+                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+                hasher.update(key);
+                hasher.update(&raw_data);
+                hasher.digest128()
+            };
+
+            if expected_checksum != checksum {
+                log::error!(
+                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
+                );
+
+                return Err(crate::Error::ChecksumMismatch {
+                    got: Checksum::from_raw(checksum),
+                    expected: Checksum::from_raw(expected_checksum),
+                });
+            }
+        }
 
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
@@ -75,26 +99,6 @@ impl<'a> Reader<'a> {
                 builder.freeze().into()
             }
         };
-
-        {
-            let checksum = {
-                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
-                hasher.update(key);
-                hasher.update(&value);
-                hasher.digest128()
-            };
-
-            if expected_checksum != checksum {
-                log::error!(
-                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
-                );
-
-                return Err(crate::Error::ChecksumMismatch {
-                    got: Checksum::from_raw(checksum),
-                    expected: Checksum::from_raw(expected_checksum),
-                });
-            }
-        }
 
         Ok(value)
     }
