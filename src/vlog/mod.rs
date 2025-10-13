@@ -2,33 +2,24 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub mod blob_file;
-mod gc;
-mod handle;
-mod index;
-// mod manifest;
 mod accessor;
-
-#[doc(hidden)]
-pub mod scanner;
-
-mod value_log;
+pub mod blob_file;
+mod handle;
 
 pub use {
-    accessor::Accessor,
+    accessor::Accessor, blob_file::merge::MergeScanner as BlobFileMergeScanner,
     blob_file::multi_writer::MultiWriter as BlobFileWriter,
-    gc::report::GcReport,
-    gc::{GcStrategy, SpaceAmpStrategy, StaleThresholdStrategy},
-    handle::ValueHandle,
-    index::{Reader as IndexReader, Writer as IndexWriter},
-    value_log::ValueLog,
+    blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
-#[doc(hidden)]
-pub use blob_file::{reader::Reader as BlobFileReader, BlobFile};
-
-use crate::vlog::blob_file::{trailer::Trailer, GcStats, Inner as BlobFileInner};
-use std::{path::Path, sync::Arc};
+use crate::{
+    coding::Decode,
+    vlog::blob_file::{Inner as BlobFileInner, Metadata},
+};
+use std::{
+    path::Path,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Vec<BlobFile>> {
     let cnt = ids.len();
@@ -39,10 +30,7 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
         _ => 100,
     };
 
-    log::debug!("Recovering {cnt} blob files from {:?}", folder.display(),);
-
-    // TODO:
-    // Self::remove_unfinished_blob_files(&folder, &ids)?;
+    log::debug!("Recovering {cnt} blob files from {:?}", folder.display());
 
     let mut blob_files = Vec::with_capacity(ids.len());
 
@@ -50,13 +38,20 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
         log::trace!("Recovering blob file #{id:?}");
 
         let path = folder.join(id.to_string());
-        let trailer = Trailer::from_file(&path)?;
+
+        let meta = {
+            let reader = sfa::Reader::new(&path)?;
+            let toc = reader.toc();
+            let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+            let mut reader = metadata_section.buf_reader(&path)?;
+            Metadata::decode_from(&mut reader)?
+        };
 
         blob_files.push(BlobFile(Arc::new(BlobFileInner {
             id,
             path,
-            meta: trailer.metadata,
-            gc_stats: GcStats::default(),
+            meta,
+            is_deleted: AtomicBool::new(false),
         })));
 
         if idx % progress_mod == 0 {

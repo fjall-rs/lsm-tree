@@ -6,7 +6,7 @@ use crate::{
     coding::{Decode, DecodeError, Encode, EncodeError},
     Slice, UserKey,
 };
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     io::{Read, Write},
     ops::Bound,
@@ -166,12 +166,12 @@ impl Encode for KeyRange {
 
         // NOTE: Max key size = u16
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(min.len() as u16)?;
+        writer.write_u16::<LittleEndian>(min.len() as u16)?;
         writer.write_all(min)?;
 
         // NOTE: Max key size = u16
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u16::<BigEndian>(max.len() as u16)?;
+        writer.write_u16::<LittleEndian>(max.len() as u16)?;
         writer.write_all(max)?;
 
         Ok(())
@@ -180,10 +180,10 @@ impl Encode for KeyRange {
 
 impl Decode for KeyRange {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let key_min_len = reader.read_u16::<BigEndian>()?;
+        let key_min_len = reader.read_u16::<LittleEndian>()?;
         let key_min: UserKey = Slice::from_reader(reader, key_min_len.into())?;
 
-        let key_max_len = reader.read_u16::<BigEndian>()?;
+        let key_max_len = reader.read_u16::<LittleEndian>()?;
         let key_max: UserKey = Slice::from_reader(reader, key_max_len.into())?;
 
         Ok(Self::new((key_min, key_max)))

@@ -9,7 +9,7 @@ fn segment_ranges() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -67,7 +67,7 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
@@ -102,7 +102,7 @@ fn segment_range_last_back_2() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();

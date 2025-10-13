@@ -4,18 +4,24 @@
 
 use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
-    compaction::{stream::CompactionStream, Choice},
-    file::SEGMENTS_FOLDER,
-    level_manifest::LevelManifest,
+    blob_tree::FragmentationMap,
+    compaction::{
+        flavour::{RelocatingCompaction, StandardCompaction},
+        state::CompactionState,
+        stream::CompactionStream,
+        Choice,
+    },
+    file::BLOBS_FOLDER,
     merge::Merger,
     run_scanner::RunScanner,
-    segment::{multi_writer::MultiWriter, Segment},
     stop_signal::StopSignal,
-    tree::inner::TreeId,
-    Config, InternalValue, SegmentId, SeqNo,
+    tree::inner::{SuperVersion, TreeId},
+    version::Version,
+    vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
+    BlobFile, Config, HashSet, InternalValue, SegmentId, SeqNo, SequenceNumberCounter,
 };
 use std::{
-    sync::{atomic::AtomicU64, Arc, RwLock, RwLockWriteGuard},
+    sync::{atomic::AtomicU64, Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
     time::Instant,
 };
 
@@ -28,13 +34,14 @@ pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalVa
 pub struct Options {
     pub tree_id: TreeId,
 
-    pub segment_id_generator: Arc<AtomicU64>,
+    pub segment_id_generator: Arc<AtomicU64>, // TODO: change segment_id_generator to be SequenceNumberCounter
+
+    pub blob_file_id_generator: SequenceNumberCounter,
 
     /// Configuration of tree.
     pub config: Config,
 
-    /// Levels manifest.
-    pub levels: Arc<RwLock<LevelManifest>>,
+    pub super_version: Arc<RwLock<SuperVersion>>,
 
     /// Compaction strategy to use.
     pub strategy: Arc<dyn CompactionStrategy>,
@@ -46,6 +53,8 @@ pub struct Options {
     /// Evicts items that are older than this seqno (MVCC GC).
     pub eviction_seqno: u64,
 
+    pub compaction_state: Arc<Mutex<CompactionState>>,
+
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,
 }
@@ -55,11 +64,15 @@ impl Options {
         Self {
             tree_id: tree.id,
             segment_id_generator: tree.segment_id_counter.clone(),
+            blob_file_id_generator: tree.blob_file_id_generator.clone(),
             config: tree.config.clone(),
-            levels: tree.manifest.clone(),
+            super_version: tree.super_version.clone(),
             stop_signal: tree.stop_signal.clone(),
             strategy,
             eviction_seqno: 0,
+
+            compaction_state: tree.compaction_state.clone(),
+
             #[cfg(feature = "metrics")]
             metrics: tree.metrics.clone(),
         }
@@ -70,23 +83,27 @@ impl Options {
 ///
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
-    log::trace!("Acquiring levels manifest lock");
-    let original_levels = opts.levels.write().expect("lock is poisoned");
+    let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+
+    let super_version = opts.super_version.read().expect("lock is poisoned");
 
     let start = Instant::now();
     log::trace!(
         "Consulting compaction strategy {:?}",
         opts.strategy.get_name(),
     );
-    let choice = opts.strategy.choose(&original_levels, &opts.config);
+    let choice = opts
+        .strategy
+        .choose(&super_version.version, &opts.config, &compaction_state);
 
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => merge_segments(original_levels, opts, &payload),
-        Choice::Move(payload) => move_segments(original_levels, opts, &payload),
+        Choice::Merge(payload) => merge_segments(compaction_state, super_version, opts, &payload),
+        Choice::Move(payload) => move_segments(compaction_state, super_version, opts, &payload),
         Choice::Drop(payload) => drop_segments(
-            original_levels,
+            compaction_state,
+            super_version,
             opts,
             &payload.into_iter().collect::<Vec<_>>(),
         ),
@@ -98,14 +115,14 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 }
 
 fn create_compaction_stream<'a>(
-    levels: &LevelManifest,
+    version: &Version,
     to_compact: &[SegmentId],
     eviction_seqno: SeqNo,
-) -> crate::Result<Option<CompactionStream<Merger<CompactionReader<'a>>>>> {
+) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
-    for level in levels.current_version().iter_levels() {
+    for level in version.iter_levels() {
         if level.is_empty() {
             continue;
         }
@@ -159,12 +176,20 @@ fn create_compaction_stream<'a>(
 }
 
 fn move_segments(
-    mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
+    super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
+    drop(super_version);
+
+    let mut super_version = opts.super_version.write().expect("lock is poisoned");
+
     // Fail-safe for buggy compaction strategies
-    if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
+    if compaction_state
+        .hidden_set()
+        .should_decline_compaction(payload.segment_ids.iter().copied())
+    {
         log::warn!(
         "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
@@ -174,12 +199,13 @@ fn move_segments(
 
     let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
 
-    levels.atomic_swap(
-        |current| current.with_moved(&segment_ids, payload.dest_level as usize),
+    compaction_state.upgrade_version(
+        &mut super_version,
+        |current| Ok(current.with_moved(&segment_ids, payload.dest_level as usize)),
         opts.eviction_seqno,
     )?;
 
-    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+    if let Err(e) = compaction_state.maintenance(opts.eviction_seqno) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -187,9 +213,27 @@ fn move_segments(
     Ok(())
 }
 
+fn hidden_guard(
+    payload: &CompactionPayload,
+    opts: &Options,
+    f: impl FnOnce() -> crate::Result<()>,
+) -> crate::Result<()> {
+    f().inspect_err(|e| {
+        log::error!("Compaction failed: {e:?}");
+
+        // IMPORTANT: We need to show tables again on error
+        let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+
+        compaction_state
+            .hidden_set_mut()
+            .show(payload.segment_ids.iter().copied());
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn merge_segments(
-    mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
+    super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
@@ -199,7 +243,10 @@ fn merge_segments(
     }
 
     // Fail-safe for buggy compaction strategies
-    if levels.should_decline_compaction(payload.segment_ids.iter().copied()) {
+    if compaction_state
+        .hidden_set()
+        .should_decline_compaction(payload.segment_ids.iter().copied())
+    {
         log::warn!(
             "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
@@ -210,7 +257,7 @@ fn merge_segments(
     let Some(segments) = payload
         .segment_ids
         .iter()
-        .map(|&id| levels.current_version().get_segment(id).cloned())
+        .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -220,34 +267,10 @@ fn merge_segments(
         return Ok(());
     };
 
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let mut blob_frag_map = FragmentationMap::default();
 
-    let dst_lvl = payload.canonical_level.into();
-
-    let data_block_size = opts.config.data_block_size_policy.get(dst_lvl);
-    let index_block_size = opts.config.index_block_size_policy.get(dst_lvl);
-
-    let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(dst_lvl);
-    let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(dst_lvl);
-
-    let data_block_compression = opts.config.data_block_compression_policy.get(dst_lvl);
-    let index_block_compression = opts.config.index_block_compression_policy.get(dst_lvl);
-
-    let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
-    let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
-
-    let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
-
-    log::debug!(
-        "Compacting segments {:?} into L{} (canonical L{}), data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
-        payload.segment_ids,
-        payload.dest_level,
-        payload.canonical_level,
-        opts.eviction_seqno,
-    );
-
-    let Some(merge_iter) = create_compaction_stream(
-        &levels,
+    let Some(mut merge_iter) = create_compaction_stream(
+        &super_version.version,
         &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
     )?
@@ -258,244 +281,193 @@ fn merge_segments(
         return Ok(());
     };
 
-    let last_level = levels.last_level_index();
-
-    levels.hide_segments(payload.segment_ids.iter().copied());
-
-    // IMPORTANT: Free lock so the compaction (which may go on for a while)
-    // does not block possible other compactions and reads
-    drop(levels);
+    let dst_lvl = payload.canonical_level.into();
+    let last_level = opts.config.level_count - 1;
 
     // NOTE: Only evict tombstones when reaching the last level,
     // That way we don't resurrect data beneath the tombstone
     let is_last_level = payload.dest_level == last_level;
 
+    let current_version = &super_version.version;
+
+    let table_writer = super::flavour::prepare_table_writer(current_version, opts, payload)?;
+
     let start = Instant::now();
 
-    let segment_writer = match MultiWriter::new(
-        segments_base_folder.clone(),
-        opts.segment_id_generator.clone(),
-        payload.target_size,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("Compaction failed: {e:?}");
+    let mut compactor = match &opts.config.kv_separation_opts {
+        Some(blob_opts) => {
+            merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
 
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
+            let blob_files_to_rewrite = {
+                // TODO: 3.0.0 vvv if blob gc is disabled, skip this part vvv
 
-            return Ok(());
+                // TODO: 3.0.0 unit test and optimize... somehow
+                let mut linked_blob_files = payload
+                    .segment_ids
+                    .iter()
+                    .map(|&id| current_version.get_segment(id).expect("table should exist"))
+                    .filter_map(|x| x.get_linked_blob_files().expect("handle error"))
+                    .flatten()
+                    .map(|blob_file_ref| {
+                        current_version
+                            .value_log
+                            .get(&blob_file_ref.blob_file_id)
+                            .expect("blob file should exist")
+                    })
+                    .filter(|blob_file| {
+                        blob_file
+                            .is_stale(current_version.gc_stats(), blob_opts.staleness_threshold)
+                    })
+                    .filter(|blob_file| {
+                        // NOTE: Dead blob files are dropped anyway during current_version change commit
+                        !blob_file.is_dead(current_version.gc_stats())
+                    })
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
+
+                linked_blob_files.sort_by_key(|a| a.id());
+
+                let cutoff_point = {
+                    let len = linked_blob_files.len() as f32;
+                    (len * blob_opts.age_cutoff) as usize
+                };
+                linked_blob_files.drain(cutoff_point..);
+
+                // NOTE: If there is any table not part of our compaction input
+                // that also points to the blob file, we cannot rewrite the blob file
+                for table in current_version.iter_segments() {
+                    if payload.segment_ids.contains(&table.id()) {
+                        continue;
+                    }
+
+                    let other_ref = table
+                        .get_linked_blob_files()
+                        .expect("should not fail")
+                        .unwrap_or_default();
+
+                    let other_ref = other_ref
+                        .iter()
+                        .find(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id));
+
+                    if let Some(other_ref) = other_ref {
+                        linked_blob_files.retain(|x| x.id() != other_ref.blob_file_id);
+                    }
+                }
+
+                linked_blob_files.into_iter().cloned().collect::<Vec<_>>()
+            };
+
+            if blob_files_to_rewrite.is_empty() {
+                Box::new(StandardCompaction::new(table_writer, segments))
+                    as Box<dyn super::flavour::CompactionFlavour>
+            } else {
+                log::debug!(
+                    "Relocate blob files: {:#?}",
+                    blob_files_to_rewrite
+                        .iter()
+                        .map(BlobFile::id)
+                        .collect::<Vec<_>>(),
+                );
+
+                let scanner = BlobFileMergeScanner::new(
+                    blob_files_to_rewrite
+                        .iter()
+                        .map(|bf| BlobFileScanner::new(&bf.0.path, bf.id()))
+                        .collect::<crate::Result<Vec<_>>>()?,
+                );
+
+                let writer = BlobFileWriter::new(
+                    opts.blob_file_id_generator.clone(),
+                    blob_opts.file_target_size,
+                    opts.config.path.join(BLOBS_FOLDER),
+                )?
+                .use_passthrough_compression(blob_opts.compression);
+
+                let inner = StandardCompaction::new(table_writer, segments);
+
+                Box::new(RelocatingCompaction::new(
+                    inner,
+                    scanner.peekable(),
+                    writer,
+                    blob_files_to_rewrite.iter().map(BlobFile::id).collect(),
+                    blob_files_to_rewrite,
+                ))
+            }
         }
+        None => Box::new(StandardCompaction::new(table_writer, segments)),
     };
 
-    let mut segment_writer = segment_writer
-        .use_data_block_restart_interval(data_block_restart_interval)
-        .use_index_block_restart_interval(index_block_restart_interval)
-        .use_data_block_compression(data_block_compression)
-        .use_data_block_size(data_block_size)
-        .use_index_block_size(index_block_size)
-        .use_data_block_hash_ratio(data_block_hash_ratio)
-        .use_index_block_compression(index_block_compression)
-        .use_bloom_policy({
-            use crate::config::FilterPolicyEntry::{Bloom, None};
-            use crate::segment::filter::BloomConstructionPolicy;
+    log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
 
-            if is_last_level && opts.config.expect_point_read_hits {
-                BloomConstructionPolicy::BitsPerKey(0.0)
-            } else {
-                match opts
-                    .config
-                    .filter_policy
-                    .get(usize::from(payload.dest_level))
-                {
-                    Bloom(policy) => policy,
-                    None => BloomConstructionPolicy::BitsPerKey(0.0),
-                }
+    drop(super_version);
+
+    {
+        compaction_state
+            .hidden_set_mut()
+            .hide(payload.segment_ids.iter().copied());
+    }
+
+    // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
+    drop(compaction_state);
+
+    hidden_guard(payload, opts, || {
+        for (idx, item) in merge_iter.enumerate() {
+            let item = item?;
+
+            // IMPORTANT: We can only drop tombstones when writing into last level
+            if is_last_level && item.is_tombstone() {
+                continue;
             }
-        });
 
-    for (idx, item) in merge_iter.enumerate() {
-        let item = match item {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("Compaction failed: {e:?}");
+            compactor.write(item)?;
 
-                // IMPORTANT: Show the segments again, because compaction failed
-                opts.levels
-                    .write()
-                    .expect("lock is poisoned")
-                    .show_segments(payload.segment_ids.iter().copied());
-
+            if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
+                log::debug!("Stopping amidst compaction because of stop signal");
                 return Ok(());
             }
-        };
-
-        // IMPORTANT: We can only drop tombstones when writing into last level
-        if is_last_level && item.is_tombstone() {
-            continue;
         }
 
-        if let Err(e) = segment_writer.write(item) {
+        Ok(())
+    })?;
+
+    let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
+
+    log::trace!("Acquiring super version write lock");
+    let mut super_version = opts.super_version.write().expect("lock is poisoned");
+    log::trace!("Acquired super version write lock");
+
+    compactor
+        .finish(
+            &mut super_version,
+            &mut compaction_state,
+            opts,
+            payload,
+            dst_lvl,
+            blob_frag_map,
+        )
+        .inspect_err(|e| {
+            // NOTE: We cannot use hidden_guard here because we already locked the compaction state
+
             log::error!("Compaction failed: {e:?}");
 
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
+            compaction_state
+                .hidden_set_mut()
+                .show(payload.segment_ids.iter().copied());
+        })?;
 
-            return Ok(());
-        }
+    compaction_state
+        .hidden_set_mut()
+        .show(payload.segment_ids.iter().copied());
 
-        if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
-            log::debug!("compactor: stopping amidst compaction because of stop signal");
-            return Ok(());
-        }
-    }
+    compaction_state
+        .maintenance(opts.eviction_seqno)
+        .inspect_err(|e| {
+            log::error!("Manifest maintenance failed: {e:?}");
+        })?;
 
-    let writer_results = match segment_writer.finish() {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("Compaction failed: {e:?}");
-
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
-
-            return Ok(());
-        }
-    };
-
-    log::debug!(
-        "Compacted in {:?} ({} segments created)",
-        start.elapsed(),
-        writer_results.len(),
-    );
-
-    let created_segments = writer_results
-        .into_iter()
-        .map(|segment_id| -> crate::Result<Segment> {
-            Segment::recover(
-                segments_base_folder.join(segment_id.to_string()),
-                opts.tree_id,
-                opts.config.cache.clone(),
-                opts.config.descriptor_table.clone(),
-                pin_filter,
-                pin_index,
-                #[cfg(feature = "metrics")]
-                opts.metrics.clone(),
-            )
-
-            /* let segment_id = trailer.metadata.id;
-            let segment_file_path = segments_base_folder.join(segment_id.to_string());
-
-            let block_index = match payload.dest_level {
-                0 | 1 => {
-                    let block_index = FullBlockIndex::from_file(
-                        &segment_file_path,
-                        &trailer.metadata,
-                        &trailer.offsets,
-                    )?;
-                    BlockIndexImpl::Full(block_index)
-                }
-                _ => {
-                    // NOTE: Need to allow because of false positive in Clippy
-                    // because of "bloom" feature
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    let block_index = TwoLevelBlockIndex::from_file(
-                        &segment_file_path,
-                        &trailer.metadata,
-                        trailer.offsets.tli_ptr,
-                        (opts.tree_id, segment_id).into(),
-                        opts.config.descriptor_table.clone(),
-                        opts.config.cache.clone(),
-                    )?;
-                    BlockIndexImpl::TwoLevel(block_index)
-                }
-            };
-            let block_index = Arc::new(block_index);
-
-            let bloom_filter = Segment::load_bloom(&segment_file_path, trailer.offsets.bloom_ptr)?;
-
-            Ok(SegmentInner {
-                path: segment_file_path,
-
-                tree_id: opts.tree_id,
-
-                descriptor_table: opts.config.descriptor_table.clone(),
-                cache: opts.config.cache.clone(),
-
-                metadata: trailer.metadata,
-                offsets: trailer.offsets,
-
-                #[allow(clippy::needless_borrows_for_generic_args)]
-                block_index,
-
-                bloom_filter,
-
-                is_deleted: AtomicBool::default(),
-            }
-            .into()) */
-        })
-        .collect::<crate::Result<Vec<_>>>();
-
-    let created_segments = match created_segments {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("Compaction failed: {e:?}");
-
-            // IMPORTANT: Show the segments again, because compaction failed
-            opts.levels
-                .write()
-                .expect("lock is poisoned")
-                .show_segments(payload.segment_ids.iter().copied());
-
-            return Ok(());
-        }
-    };
-
-    // NOTE: Mind lock order L -> M -> S
-    log::trace!("compactor: acquiring levels manifest write lock");
-    let mut levels = opts.levels.write().expect("lock is poisoned");
-    log::trace!("compactor: acquired levels manifest write lock");
-
-    let swap_result = levels.atomic_swap(
-        |current| {
-            current.with_merge(
-                &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
-                &created_segments,
-                payload.dest_level as usize,
-            )
-        },
-        opts.eviction_seqno,
-    );
-
-    if let Err(e) = swap_result {
-        // IMPORTANT: Show the segments again, because compaction failed
-        levels.show_segments(payload.segment_ids.iter().copied());
-        return Err(e);
-    }
-
-    // NOTE: If the application were to crash >here< it's fine
-    // The segments are not referenced anymore, and will be
-    // cleaned up upon recovery
-    for segment in segments {
-        segment.mark_as_deleted();
-    }
-
-    levels.show_segments(payload.segment_ids.iter().copied());
-
-    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
-        log::error!("Manifest maintenance failed: {e:?}");
-        return Err(e);
-    }
-
-    drop(levels);
+    drop(super_version);
+    drop(compaction_state);
 
     log::trace!("Compaction successful");
 
@@ -503,12 +475,20 @@ fn merge_segments(
 }
 
 fn drop_segments(
-    mut levels: RwLockWriteGuard<'_, LevelManifest>,
+    mut compaction_state: MutexGuard<'_, CompactionState>,
+    super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
     ids_to_drop: &[SegmentId],
 ) -> crate::Result<()> {
+    drop(super_version);
+
+    let mut super_version = opts.super_version.write().expect("lock is poisoned");
+
     // Fail-safe for buggy compaction strategies
-    if levels.should_decline_compaction(ids_to_drop.iter().copied()) {
+    if compaction_state
+        .hidden_set()
+        .should_decline_compaction(ids_to_drop.iter().copied())
+    {
         log::warn!(
             "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
@@ -518,7 +498,7 @@ fn drop_segments(
 
     let Some(segments) = ids_to_drop
         .iter()
-        .map(|&id| levels.current_version().get_segment(id).cloned())
+        .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -530,7 +510,8 @@ fn drop_segments(
 
     // IMPORTANT: Write the manifest with the removed segments first
     // Otherwise the segment files are deleted, but are still referenced!
-    levels.atomic_swap(
+    compaction_state.upgrade_version(
+        &mut super_version,
         |current| current.with_dropped(ids_to_drop),
         opts.eviction_seqno, // TODO: make naming in code base eviction_seqno vs watermark vs threshold consistent
     )?;
@@ -542,12 +523,16 @@ fn drop_segments(
         segment.mark_as_deleted();
     }
 
-    if let Err(e) = levels.maintenance(opts.eviction_seqno) {
+    // TODO: fwiw also add all dead blob files
+    // TODO: look if any blob files can be trivially deleted as well
+
+    if let Err(e) = compaction_state.maintenance(opts.eviction_seqno) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
 
-    drop(levels);
+    drop(super_version);
+    drop(compaction_state);
 
     log::trace!("Dropped {} segments", ids_to_drop.len());
 

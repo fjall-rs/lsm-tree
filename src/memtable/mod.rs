@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
-use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
+use crate::{
+    value::{InternalValue, SeqNo, UserValue},
+    ValueType,
+};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::AtomicU64;
@@ -150,7 +153,7 @@ impl Memtable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::ValueType;
+    use crate::ValueType;
     use test_log::test;
 
     #[test]

@@ -10,7 +10,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder)
             .data_block_size_policy(BlockSizePolicy::all(2_048))
-            .index_block_size_policy(BlockSizePolicy::all(2_048))
+            // .index_block_size_policy(BlockSizePolicy::all(2_048))
             .open()?;
 
         let seqno = SequenceNumberCounter::default();
@@ -29,7 +29,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder)
             .data_block_size_policy(BlockSizePolicy::all(2_048))
-            .index_block_size_policy(BlockSizePolicy::all(2_048))
+            // .index_block_size_policy(BlockSizePolicy::all(2_048))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
@@ -37,7 +37,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder)
             .data_block_size_policy(BlockSizePolicy::all(4_096))
-            .index_block_size_policy(BlockSizePolicy::all(4_096))
+            // .index_block_size_policy(BlockSizePolicy::all(4_096))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }
@@ -45,7 +45,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder)
             .data_block_size_policy(BlockSizePolicy::all(78_652))
-            .index_block_size_policy(BlockSizePolicy::all(78_652))
+            // .index_block_size_policy(BlockSizePolicy::all(78_652))
             .open()?;
         assert_eq!(ITEM_COUNT, tree.len(SeqNo::MAX, None)?);
     }

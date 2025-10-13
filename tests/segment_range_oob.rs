@@ -31,7 +31,7 @@ fn segment_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
-        .index_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {

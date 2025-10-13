@@ -2,120 +2,177 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{coding::DecodeError, vlog::BlobFileId, CompressionType, UserKey, UserValue};
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
+
+use crate::{
+    vlog::{
+        blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
+        ValueHandle,
+    },
+    BlobFile, Checksum, CompressionType, UserValue,
+};
 use std::{
     fs::File,
-    io::{BufReader, Read, Seek},
-    path::Path,
+    io::{Cursor, Read, Seek},
 };
 
-macro_rules! fail_iter {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(e) => return Some(Err(e.into())),
-        }
-    };
+/// Reads a single blob from a blob file
+pub struct Reader<'a> {
+    blob_file: &'a BlobFile,
+    file: &'a File,
 }
 
-// TODO: pread
-
-/// Reads through a blob file in order.
-pub struct Reader {
-    pub(crate) blob_file_id: BlobFileId,
-    inner: BufReader<File>,
-    is_terminated: bool,
-    compression: CompressionType,
-}
-
-impl Reader {
-    /// Initializes a new blob file reader.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
-        let file_reader = BufReader::new(File::open(path)?);
-        Ok(Self::with_reader(blob_file_id, file_reader))
+impl<'a> Reader<'a> {
+    pub fn new(blob_file: &'a BlobFile, file: &'a File) -> Self {
+        Self { blob_file, file }
     }
 
-    pub(crate) fn get_offset(&mut self) -> std::io::Result<u64> {
-        self.inner.stream_position()
-    }
+    pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
+        debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-    /// Initializes a new blob file reader.
-    #[must_use]
-    pub fn with_reader(blob_file_id: BlobFileId, file_reader: BufReader<File>) -> Self {
-        Self {
-            blob_file_id,
-            inner: file_reader,
-            is_terminated: false,
-            compression: CompressionType::None,
+        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+
+        let value = crate::file::read_exact(
+            self.file,
+            vhandle.offset,
+            (u64::from(vhandle.on_disk_size) + add_size) as usize,
+        )?;
+
+        let mut reader = Cursor::new(&value[..]);
+
+        let mut magic = [0u8; 4];
+        reader.read_exact(&mut magic)?;
+
+        if magic != BLOB_HEADER_MAGIC {
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
+                "Blob",
+            )));
         }
-    }
 
-    pub(crate) fn use_compression(mut self, compressoion: CompressionType) -> Self {
-        self.compression = compressoion;
-        self
-    }
+        let expected_checksum = reader.read_u128::<LittleEndian>()?;
 
-    pub(crate) fn into_inner(self) -> BufReader<File> {
-        self.inner
-    }
-}
+        let _seqno = reader.read_u64::<LittleEndian>()?;
+        let key_len = reader.read_u16::<LittleEndian>()?;
 
-impl Iterator for Reader {
-    type Item = crate::Result<(UserKey, UserValue, u64)>;
+        // NOTE: Used in feature flagged branch
+        #[allow(unused)]
+        let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.is_terminated {
-            return None;
-        }
+        let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
+
+        reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
+
+        let raw_data = value.slice((add_size as usize)..);
 
         {
-            let mut buf = [0; BLOB_HEADER_MAGIC.len()];
-            fail_iter!(self.inner.read_exact(&mut buf));
+            let checksum = {
+                let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+                hasher.update(key);
+                hasher.update(&raw_data);
+                hasher.digest128()
+            };
 
-            if buf == METADATA_HEADER_MAGIC {
-                self.is_terminated = true;
-                return None;
-            }
+            if expected_checksum != checksum {
+                log::error!(
+                    "Checksum mismatch for blob {vhandle:?}, got={checksum}, expected={expected_checksum}",
+                );
 
-            if buf != BLOB_HEADER_MAGIC {
-                return Some(Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                    "Blob",
-                ))));
+                return Err(crate::Error::ChecksumMismatch {
+                    got: Checksum::from_raw(checksum),
+                    expected: Checksum::from_raw(expected_checksum),
+                });
             }
         }
 
-        let checksum = fail_iter!(self.inner.read_u64::<BigEndian>());
-
-        let key_len = fail_iter!(self.inner.read_u16::<BigEndian>());
-        let key = fail_iter!(UserKey::from_reader(&mut self.inner, key_len as usize));
-
-        let val_len = fail_iter!(self.inner.read_u32::<BigEndian>());
-
-        // TODO: finish compression
         #[warn(clippy::match_single_binding)]
-        let val = match &self.compression {
-            _ => {
-                // NOTE: When not using compression, we can skip
-                // the intermediary heap allocation and read directly into a Slice
-                fail_iter!(UserValue::from_reader(&mut self.inner, val_len as usize))
+        let value = match &self.blob_file.0.meta.compression {
+            CompressionType::None => raw_data,
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                #[warn(unsafe_code)]
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+
+                lz4_flex::decompress_into(&raw_data, &mut builder)
+                    .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
+
+                builder.freeze().into()
             }
         };
-        // Some(compressor) => {
-        //     // TODO: https://github.com/PSeitz/lz4_flex/issues/166
-        //     let mut val = vec![0; val_len as usize];
-        //     fail_iter!(self.inner.read_exact(&mut val));
-        //     UserValue::from(fail_iter!(compressor.decompress(&val)))
-        // }
-        // None => {
 
-        // }
+        Ok(value)
+    }
+}
 
-        Some(Ok((key, val, checksum)))
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::SequenceNumberCounter;
+    use test_log::test;
+
+    #[test]
+    fn blob_reader_roundtrip() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer =
+            crate::vlog::BlobFileWriter::new(id_generator, u64::MAX, folder.path()).unwrap();
+
+        let offset = writer.offset();
+        let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
+        let handle = ValueHandle {
+            blob_file_id: 0,
+            offset,
+            on_disk_size,
+        };
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_reader_roundtrip_lz4() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, u64::MAX, folder.path())
+            .unwrap()
+            .use_compression(CompressionType::Lz4);
+
+        let offset = writer.offset();
+        let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
+        let handle0 = ValueHandle {
+            blob_file_id: 0,
+            offset,
+            on_disk_size,
+        };
+
+        let offset = writer.offset();
+        let on_disk_size = writer.write(b"b", 0, b"ghi")?;
+        let handle1 = ValueHandle {
+            blob_file_id: 0,
+            offset,
+            on_disk_size,
+        };
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
+        assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
+
+        Ok(())
     }
 }

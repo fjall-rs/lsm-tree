@@ -15,7 +15,7 @@ pub(crate) mod multi_writer;
 mod regions;
 mod scanner;
 pub mod util;
-mod writer;
+pub mod writer;
 
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
@@ -27,13 +27,18 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
-    segment::block::{BlockType, ParsedItem},
+    segment::{
+        block::{BlockType, ParsedItem},
+        writer::LinkedFile,
+    },
     CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use inner::Inner;
 use iter::Iter;
 use std::{
+    fs::File,
+    io::{BufReader, Read, Seek},
     ops::{Bound, RangeBounds},
     path::PathBuf,
     sync::Arc,
@@ -96,6 +101,37 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
+    pub fn get_linked_blob_files(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
+        use byteorder::{ReadBytesExt, LE};
+
+        Ok(if let Some(handle) = &self.regions.linked_blob_files {
+            let reader = File::open(&*self.path)?;
+            let mut reader = BufReader::new(reader);
+            reader.seek(std::io::SeekFrom::Start(*handle.offset()))?;
+            let mut reader = reader.take(u64::from(handle.size()));
+
+            let mut blob_files = vec![];
+
+            let len = reader.read_u32::<LE>()?;
+
+            for _ in 0..len {
+                let blob_file_id = reader.read_u64::<LE>()?;
+                let bytes = reader.read_u64::<LE>()?;
+                let len = reader.read_u64::<LE>()?;
+
+                blob_files.push(LinkedFile {
+                    blob_file_id,
+                    bytes,
+                    len: len as usize,
+                });
+            }
+
+            Some(blob_files)
+        } else {
+            None
+        })
+    }
+
     /// Gets the global segment ID.
     #[must_use]
     pub fn global_id(&self) -> GlobalSegmentId {

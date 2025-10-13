@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
-use crate::{value::InternalValue, CompressionType, SegmentId, UserKey};
+use crate::{
+    blob_tree::handle::BlobIndirection, segment::writer::LinkedFile, value::InternalValue,
+    vlog::BlobFileId, CompressionType, HashMap, SegmentId, UserKey,
+};
 use std::{
     path::PathBuf,
     sync::{atomic::AtomicU64, Arc},
@@ -14,7 +17,7 @@ use std::{
 /// This results in a sorted "run" of segments
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
-    base_path: PathBuf,
+    pub(crate) base_path: PathBuf,
 
     data_block_hash_ratio: f32,
 
@@ -43,6 +46,8 @@ pub struct MultiWriter {
     bloom_policy: BloomConstructionPolicy,
 
     current_key: Option<UserKey>,
+
+    linked_blobs: HashMap<BlobFileId, LinkedFile>,
 }
 
 impl MultiWriter {
@@ -81,7 +86,23 @@ impl MultiWriter {
             bloom_policy: BloomConstructionPolicy::default(),
 
             current_key: None,
+
+            linked_blobs: HashMap::default(), // TODO: consume on finish or rotate
         })
+    }
+
+    pub fn register_blob(&mut self, indirection: BlobIndirection) {
+        self.linked_blobs
+            .entry(indirection.vhandle.blob_file_id)
+            .and_modify(|entry| {
+                entry.bytes += u64::from(indirection.size);
+                entry.len += 1;
+            })
+            .or_insert_with(|| LinkedFile {
+                blob_file_id: indirection.vhandle.blob_file_id,
+                bytes: u64::from(indirection.size),
+                len: 1,
+            });
     }
 
     #[must_use]
@@ -173,7 +194,12 @@ impl MultiWriter {
             .use_bloom_policy(self.bloom_policy)
             .use_data_block_hash_ratio(self.data_block_hash_ratio);
 
-        let old_writer = std::mem::replace(&mut self.writer, new_writer);
+        let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
+
+        for linked in self.linked_blobs.values() {
+            old_writer.link_blob_file(linked.blob_file_id, linked.bytes, linked.len);
+        }
+        self.linked_blobs.clear();
 
         if let Some(segment_id) = old_writer.finish()? {
             self.results.push(segment_id);
@@ -203,6 +229,11 @@ impl MultiWriter {
     ///
     /// Returns the metadata of created segments
     pub fn finish(mut self) -> crate::Result<Vec<SegmentId>> {
+        for linked in self.linked_blobs.values() {
+            self.writer
+                .link_blob_file(linked.blob_file_id, linked.bytes, linked.len);
+        }
+
         if let Some(last_writer_result) = self.writer.finish()? {
             self.results.push(last_writer_result);
         }

@@ -2,7 +2,7 @@ use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
 use test_log::test;
 
 #[test]
-fn experimental_tree_guarded_range() -> lsm_tree::Result<()> {
+fn tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(folder).open()?;
@@ -32,11 +32,12 @@ fn experimental_tree_guarded_range() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore = "restore"]
-fn experimental_blob_tree_guarded_range() -> lsm_tree::Result<()> {
+fn blob_tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open_as_blob_tree()?;
+    let tree = Config::new(folder)
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);

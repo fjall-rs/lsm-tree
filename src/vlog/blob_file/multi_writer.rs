@@ -4,21 +4,30 @@
 
 use super::writer::Writer;
 use crate::{
-    vlog::{BlobFileId, ValueHandle},
-    CompressionType, SequenceNumberCounter,
+    vlog::{
+        blob_file::{Inner as BlobFileInner, Metadata},
+        BlobFileId,
+    },
+    BlobFile, CompressionType, SeqNo, SequenceNumberCounter,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{atomic::AtomicBool, Arc},
+};
 
 /// Blob file writer, may write multiple blob files
 pub struct MultiWriter {
     folder: PathBuf,
     target_size: u64,
 
-    writers: Vec<Writer>,
+    active_writer: Writer,
+
+    results: Vec<BlobFile>,
 
     id_generator: SequenceNumberCounter,
 
     compression: CompressionType,
+    passthrough_compression: CompressionType,
 }
 
 impl MultiWriter {
@@ -32,7 +41,7 @@ impl MultiWriter {
         id_generator: SequenceNumberCounter,
         target_size: u64,
         folder: P,
-    ) -> std::io::Result<Self> {
+    ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
         let blob_file_id = id_generator.next();
@@ -43,9 +52,12 @@ impl MultiWriter {
             folder: folder.into(),
             target_size,
 
-            writers: vec![Writer::new(blob_file_path, blob_file_id)?],
+            active_writer: Writer::new(blob_file_path, blob_file_id)?,
+
+            results: Vec::new(),
 
             compression: CompressionType::None,
+            passthrough_compression: CompressionType::None,
         })
     }
 
@@ -56,37 +68,33 @@ impl MultiWriter {
         self
     }
 
+    /// Sets the compression method in blob file writer metadata, but does not actually compress blobs.
+    ///
+    /// This is used in garbage collection to pass through already-compressed blobs, but correctly
+    /// set the compression type in the metadata.
+    pub(crate) fn use_passthrough_compression(mut self, compression: CompressionType) -> Self {
+        assert_eq!(self.compression, CompressionType::None);
+        self.passthrough_compression = compression;
+        self
+    }
+
     /// Sets the compression method.
     #[must_use]
     #[doc(hidden)]
     pub fn use_compression(mut self, compression: CompressionType) -> Self {
         self.compression.clone_from(&compression);
-        self.get_active_writer_mut().compression = compression;
+        self.active_writer.compression = compression;
         self
-    }
-
-    #[doc(hidden)]
-    #[must_use]
-    pub fn get_active_writer(&self) -> &Writer {
-        // NOTE: initialized in constructor
-        #[allow(clippy::expect_used)]
-        self.writers.last().expect("should exist")
-    }
-
-    fn get_active_writer_mut(&mut self) -> &mut Writer {
-        // NOTE: initialized in constructor
-        #[allow(clippy::expect_used)]
-        self.writers.last_mut().expect("should exist")
     }
 
     #[must_use]
     pub fn offset(&self) -> u64 {
-        self.get_active_writer().offset()
+        self.active_writer.offset()
     }
 
     #[must_use]
     pub fn blob_file_id(&self) -> BlobFileId {
-        self.get_active_writer().blob_file_id()
+        self.active_writer.blob_file_id()
     }
 
     /// Sets up a new writer for the next blob file.
@@ -99,9 +107,74 @@ impl MultiWriter {
         let new_writer =
             Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
 
-        self.writers.push(new_writer);
+        let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
+        let blob_file = Self::consume_writer(old_writer, self.passthrough_compression)?;
+        self.results.extend(blob_file);
 
         Ok(())
+    }
+
+    fn consume_writer(
+        writer: Writer,
+        passthrough_compression: CompressionType,
+    ) -> crate::Result<Option<BlobFile>> {
+        if writer.item_count > 0 {
+            let blob_file_id = writer.blob_file_id;
+
+            log::debug!(
+                "Created blob file #{blob_file_id:?} ({} items, {} userdata bytes)",
+                writer.item_count,
+                writer.uncompressed_bytes,
+            );
+
+            let blob_file = BlobFile(Arc::new(BlobFileInner {
+                is_deleted: AtomicBool::new(false),
+                id: blob_file_id,
+                path: writer.path.clone(),
+                meta: Metadata {
+                    item_count: writer.item_count,
+                    compressed_bytes: writer.written_blob_bytes,
+                    total_uncompressed_bytes: writer.uncompressed_bytes,
+
+                    // NOTE: We are checking for 0 items above
+                    // so first and last key need to exist
+                    #[allow(clippy::expect_used)]
+                    key_range: crate::KeyRange::new((
+                        writer
+                            .first_key
+                            .clone()
+                            .expect("should have written at least 1 item"),
+                        writer
+                            .last_key
+                            .clone()
+                            .expect("should have written at least 1 item"),
+                    )),
+                    compression: if passthrough_compression == CompressionType::None {
+                        writer.compression
+                    } else {
+                        passthrough_compression
+                    },
+                },
+            }));
+
+            writer.finish()?;
+
+            Ok(Some(blob_file))
+        } else {
+            log::debug!(
+                "Blob file writer at {} has written no data, deleting empty blob file",
+                writer.path.display(),
+            );
+
+            if let Err(e) = std::fs::remove_file(&writer.path) {
+                log::warn!(
+                    "Could not delete empty blob file at {}: {e:?}",
+                    writer.path.display(),
+                );
+            }
+
+            Ok(None)
+        }
     }
 
     /// Writes an item.
@@ -109,36 +182,48 @@ impl MultiWriter {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn write<K: AsRef<[u8]>, V: AsRef<[u8]>>(
-        &mut self,
-        key: K,
-        value: V,
-    ) -> crate::Result<u32> {
-        let key = key.as_ref();
-        let value = value.as_ref();
-
+    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
         let target_size = self.target_size;
 
         // Write actual value into blob file
-        let writer = self.get_active_writer_mut();
-        let bytes_written = writer.write(key, value)?;
+        let writer = &mut self.active_writer;
+        let bytes_written = writer.write(key, seqno, value)?;
 
         // Check for blob file size target, maybe rotate to next writer
         if writer.offset() >= target_size {
-            writer.flush()?;
             self.rotate()?;
         }
 
         Ok(bytes_written)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<Vec<Writer>> {
-        let writer = self.get_active_writer_mut();
+    pub(crate) fn write_raw(
+        &mut self,
+        key: &[u8],
+        seqno: SeqNo,
+        value: &[u8],
+        uncompressed_len: u32,
+    ) -> crate::Result<u32> {
+        let target_size = self.target_size;
 
-        if writer.item_count > 0 {
-            writer.flush()?;
+        // Write actual value into blob file
+        let writer = &mut self.active_writer;
+        let bytes_written = writer.write_raw(key, seqno, value, uncompressed_len)?;
+
+        // Check for blob file size target, maybe rotate to next writer
+        if writer.offset() >= target_size {
+            self.rotate()?;
         }
 
-        Ok(self.writers)
+        Ok(bytes_written)
+    }
+
+    pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
+        if self.active_writer.item_count > 0 {
+            let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
+            self.results.extend(blob_file);
+        }
+
+        Ok(self.results)
     }
 }
