@@ -288,6 +288,8 @@ fn merge_segments(
     // That way we don't resurrect data beneath the tombstone
     let is_last_level = payload.dest_level == last_level;
 
+    merge_iter = merge_iter.evict_tombstones(is_last_level);
+
     let current_version = &super_version.version;
 
     let table_writer = super::flavour::prepare_table_writer(current_version, opts, payload)?;
@@ -362,8 +364,8 @@ fn merge_segments(
                 Box::new(StandardCompaction::new(table_writer, segments))
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
-                log::debug!(
-                    "Relocate blob files: {:#?}",
+                log::warn!(
+                    "Relocate blob files: {:?}",
                     blob_files_to_rewrite
                         .iter()
                         .map(BlobFile::id)
@@ -414,11 +416,6 @@ fn merge_segments(
     hidden_guard(payload, opts, || {
         for (idx, item) in merge_iter.enumerate() {
             let item = item?;
-
-            // IMPORTANT: We can only drop tombstones when writing into last level
-            if is_last_level && item.is_tombstone() {
-                continue;
-            }
 
             compactor.write(item)?;
 

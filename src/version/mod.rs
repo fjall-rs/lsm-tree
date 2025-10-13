@@ -638,7 +638,7 @@ impl Version {
         Ok(())
     }
 
-    pub fn fmt(&self, f: &mut std::fmt::Formatter<'_>, hidden_set: &HiddenSet) -> std::fmt::Result {
+    pub fn fmt(&self, mut f: impl std::io::Write, hidden_set: &HiddenSet) -> std::io::Result<()> {
         for (idx, level) in self.iter_levels().enumerate() {
             writeln!(
                 f,

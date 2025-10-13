@@ -420,11 +420,11 @@ impl Segment {
         let trailer = sfa::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
-        log::debug!("Reading meta block, with meta_ptr={:?}", regions.metadata);
+        log::trace!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
         let block_index = if let Some(index_block_handle) = regions.index {
-            log::debug!(
+            log::trace!(
                 "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
                 regions.tli,
             );
@@ -434,7 +434,7 @@ impl Segment {
             // BlockIndexImpl::TwoLevel(tli_block, todo!())
         } else if pin_index {
             let tli_block = {
-                log::debug!("Reading TLI block, with tli_ptr={:?}", regions.tli);
+                log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
 
                 let block = Block::from_file(&file, regions.tli, metadata.index_block_compression)?;
 
@@ -448,13 +448,13 @@ impl Segment {
                 IndexBlock::new(block)
             };
 
-            log::debug!(
+            log::trace!(
                 "Creating pinned block index, with tli_ptr={:?}",
                 regions.tli,
             );
             BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
         } else {
-            log::debug!("Creating volatile block index");
+            log::trace!("Creating volatile block index");
             BlockIndexImpl::VolatileFull
         };
 
