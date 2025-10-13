@@ -28,7 +28,8 @@ fn model_1() -> Result<()> {
     tree.compact(compaction.clone(), 0)?;
 
     {
-        let seqno = 4;
+        log::info!(r#"Getting "b""#);
+        let seqno = 5;
         assert!(!tree.contains_key(b"b", seqno)?);
     }
 
