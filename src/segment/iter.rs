@@ -130,6 +130,8 @@ impl Iterator for Iter {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Always try to keep iterating inside the already-materialized low data block first; this
+        // lets callers consume multiple entries without touching the index or cache again.
         if let Some(block) = &mut self.lo_data_block {
             if let Some(item) = block.next().map(Ok) {
                 return Some(item);
@@ -137,32 +139,54 @@ impl Iterator for Iter {
         }
 
         if !self.index_initialized {
+            // The index iterator is lazy-initialized on the first call so that the constructor does
+            // not eagerly seek.  This is important because range bounds might be configured *after*
+            // `Iter::new`, and we only want to pay the seek cost if iteration actually happens.
+            let mut ok = true;
+
             if let Some(key) = &self.range.0 {
-                self.index_iter.seek_lower(key);
+                // Seek to the first block whose end key is ≥ lower bound.  If this fails we can
+                // immediately conclude the range is empty.
+                ok = self.index_iter.seek_lower(key);
             }
-            if let Some(key) = &self.range.1 {
-                self.index_iter.seek_upper(key);
+
+            if ok {
+                if let Some(key) = &self.range.1 {
+                    // Narrow the iterator further by skipping any blocks strictly above the upper
+                    // bound.  Again, a miss means the range is empty.
+                    ok = self.index_iter.seek_upper(key);
+                }
             }
+
             self.index_initialized = true;
+
+            if !ok {
+                // No block in the index overlaps the requested window, so we clear state and return
+                // EOF without attempting to touch any data blocks.
+                self.lo_data_block = None;
+                self.hi_data_block = None;
+                return None;
+            }
         }
 
         loop {
             let Some(handle) = self.index_iter.next() else {
-                // NOTE: No more block handles from index,
-                // Now check hi buffer if it exists
+                // No more block handles coming from the index.  Flush any pending items buffered on
+                // the high side (used by reverse iteration) before signalling completion.
                 if let Some(block) = &mut self.hi_data_block {
                     if let Some(item) = block.next().map(Ok) {
                         return Some(item);
                     }
                 }
 
-                // NOTE: If there is no more item, we are done
+                // Nothing left to serve; drop both buffers so the iterator can be reused safely.
                 self.lo_data_block = None;
                 self.hi_data_block = None;
                 return None;
             };
 
-            // NOTE: Load next lo block
+            // Load the next data block referenced by the index handle.  We try the shared block
+            // cache first to avoid hitting the filesystem, and fall back to `load_block` on miss.
             #[allow(clippy::single_match_else)]
             let block = match self.cache.get_block(self.segment_id, handle.offset()) {
                 Some(block) => block,
@@ -185,9 +209,12 @@ impl Iterator for Iter {
             let mut reader = create_data_block_reader(block);
 
             if let Some(key) = &self.range.0 {
+                // Each block is self-contained, so we have to apply range bounds again to discard
+                // entries that precede the requested lower key.
                 reader.seek_lower(key, SeqNo::MAX);
             }
             if let Some(key) = &self.range.1 {
+                // Ditto for the upper bound: advance the block-local iterator to the right spot.
                 reader.seek_upper(key, SeqNo::MAX);
             }
 
@@ -197,6 +224,8 @@ impl Iterator for Iter {
             self.lo_data_block = Some(reader);
 
             if let Some(item) = item {
+                // Serving the first item immediately avoids stashing it in a temporary buffer and
+                // keeps block iteration semantics identical to the simple case at the top.
                 return Some(Ok(item));
             }
         }
@@ -205,6 +234,8 @@ impl Iterator for Iter {
 
 impl DoubleEndedIterator for Iter {
     fn next_back(&mut self) -> Option<Self::Item> {
+        // Mirror the forward iterator: prefer consuming buffered items from the high data block to
+        // avoid touching the index once a block has been materialized.
         if let Some(block) = &mut self.hi_data_block {
             if let Some(item) = block.next_back().map(Ok) {
                 return Some(item);
@@ -212,32 +243,48 @@ impl DoubleEndedIterator for Iter {
         }
 
         if !self.index_initialized {
+            // As in `next`, set up the index iterator lazily so that callers can configure range
+            // bounds before we spend time seeking or loading blocks.
+            let mut ok = true;
+
             if let Some(key) = &self.range.0 {
-                self.index_iter.seek_lower(key);
+                ok = self.index_iter.seek_lower(key);
             }
-            if let Some(key) = &self.range.1 {
-                self.index_iter.seek_upper(key);
+
+            if ok {
+                if let Some(key) = &self.range.1 {
+                    ok = self.index_iter.seek_upper(key);
+                }
             }
+
             self.index_initialized = true;
+
+            if !ok {
+                // No index span overlaps the requested window; clear both buffers and finish early.
+                self.lo_data_block = None;
+                self.hi_data_block = None;
+                return None;
+            }
         }
 
         loop {
             let Some(handle) = self.index_iter.next_back() else {
-                // NOTE: No more block handles from index,
-                // Now check lo buffer if it exists
+                // Once we exhaust the index in reverse order, flush any items that were buffered on
+                // the low side (set when iterating forward first) before signalling completion.
                 if let Some(block) = &mut self.lo_data_block {
                     if let Some(item) = block.next_back().map(Ok) {
                         return Some(item);
                     }
                 }
 
-                // NOTE: If there is no more item, we are done
+                // Nothing left to produce; reset both buffers to keep the iterator reusable.
                 self.lo_data_block = None;
                 self.hi_data_block = None;
                 return None;
             };
 
-            // NOTE: Load next hi block
+            // Retrieve the next data block from the cache (or disk on miss) so the high-side reader
+            // can serve entries in reverse order.
             #[allow(clippy::single_match_else)]
             let block = match self.cache.get_block(self.segment_id, handle.offset()) {
                 Some(block) => block,
@@ -259,11 +306,15 @@ impl DoubleEndedIterator for Iter {
 
             let mut reader = create_data_block_reader(block);
 
-            if let Some(key) = &self.range.0 {
-                reader.seek_lower(key, SeqNo::MAX);
-            }
             if let Some(key) = &self.range.1 {
+                // Reverse iteration needs to clamp the upper bound first so that `next_back` only
+                // sees entries ≤ the requested high key.
                 reader.seek_upper(key, SeqNo::MAX);
+            }
+            if let Some(key) = &self.range.0 {
+                // Apply the lower bound as well so that we never step past the low key when
+                // iterating backwards through the block.
+                reader.seek_lower(key, SeqNo::MAX);
             }
 
             let item = reader.next_back();
@@ -272,6 +323,8 @@ impl DoubleEndedIterator for Iter {
             self.hi_data_block = Some(reader);
 
             if let Some(item) = item {
+                // Emit the first materialized entry immediately to match the forward path and avoid
+                // storing it in a temporary buffer.
                 return Some(Ok(item));
             }
         }

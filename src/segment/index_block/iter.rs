@@ -271,11 +271,7 @@ mod tests {
         Ok(())
     }
 
-    // TODO: seek and seek_upper need separate binary search routines...?
-    // TODO: because seeking in [a,b,c] to e should return None for seek,
-    // TODO: but not for seek_upper
     #[test]
-    #[ignore = "should not seek"]
     fn v3_index_block_iter_too_far() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
@@ -305,6 +301,38 @@ mod tests {
             .collect();
 
         assert_eq!(&[] as &[KeyedBlockHandle], &*real_items);
+
+        Ok(())
+    }
+
+    #[test]
+    fn v3_index_block_iter_too_far_next_back() -> crate::Result<()> {
+        let items = [
+            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
+            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
+            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+        ];
+
+        let bytes = IndexBlock::encode_into_vec(&items)?;
+
+        let index_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                block_type: BlockType::Index,
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+            },
+        });
+
+        let mut iter = index_block.iter();
+        assert!(!iter.seek(b"zzz"), "should not seek");
+
+        assert!(iter.next().is_none(), "iterator should be exhausted");
+        assert!(
+            iter.next_back().is_none(),
+            "reverse iterator should also be exhausted"
+        );
 
         Ok(())
     }
