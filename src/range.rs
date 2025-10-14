@@ -24,13 +24,11 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
     item_seqno < seqno
 }
 
-#[must_use]
-#[allow(clippy::module_name_repetitions)]
-pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
-    use std::ops::Bound::{Excluded, Included, Unbounded};
+pub(crate) fn prefix_upper_range(prefix: &[u8]) -> Bound<UserKey> {
+    use std::ops::Bound::{Excluded, Unbounded};
 
     if prefix.is_empty() {
-        return (Unbounded, Unbounded);
+        return Unbounded;
     }
 
     let mut end = prefix.to_vec();
@@ -42,11 +40,24 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
         if *byte < 255 {
             *byte += 1;
             end.truncate(idx + 1);
-            return (Included(prefix.into()), Excluded(end.into()));
+            return Excluded(end.into());
         }
     }
 
-    (Included(prefix.into()), Unbounded)
+    Unbounded
+}
+
+/// Converts a prefix to range bounds.
+#[must_use]
+#[allow(clippy::module_name_repetitions)]
+pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
+    use std::ops::Bound::{Included, Unbounded};
+
+    if prefix.is_empty() {
+        return (Unbounded, Unbounded);
+    }
+
+    (Included(prefix.into()), prefix_upper_range(prefix))
 }
 
 /// The iter state references the memtables used while the range is open
