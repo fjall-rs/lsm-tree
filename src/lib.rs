@@ -216,6 +216,10 @@ pub mod stop_signal;
 mod format_version;
 mod time;
 mod tree;
+
+/// Utility functions
+pub mod util;
+
 mod value;
 mod value_type;
 mod version;
