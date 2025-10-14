@@ -166,9 +166,9 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         Item::parse_restart_key(&mut cursor, pos, bytes).expect("should exist")
     }
 
-    fn partition_point<F>(&self, pred: &mut F) -> Option<(/* offset */ usize, /* idx */ usize)>
+    fn partition_point<F>(&self, pred: F) -> Option<(/* offset */ usize, /* idx */ usize)>
     where
-        F: FnMut(&[u8]) -> bool,
+        F: Fn(&[u8]) -> bool,
     {
         // The first pass over the binary index emulates `Iterator::partition_point` over the
         // restart heads that are in natural key order.  We keep track of both the byte offset and
@@ -223,9 +223,9 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     }
 
     // TODO:
-    fn partition_point_2<F>(&self, pred: &mut F) -> Option<(/* offset */ usize, /* idx */ usize)>
+    fn partition_point_2<F>(&self, pred: F) -> Option<(/* offset */ usize, /* idx */ usize)>
     where
-        F: FnMut(&[u8]) -> bool,
+        F: Fn(&[u8]) -> bool,
     {
         // `partition_point_2` mirrors `partition_point` but keeps the *next* restart entry instead
         // of the previous one.  This variant is used exclusively by reverse scans (`seek_upper`)
@@ -278,12 +278,12 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     /// Seeks using the given predicate.
     ///
     /// Returns `false` if the key does not possible exist.
-    pub fn seek(&mut self, mut pred: impl FnMut(&[u8]) -> bool, second_partition: bool) -> bool {
+    pub fn seek(&mut self, pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         // TODO: make this nicer, maybe predicate that can affect the resulting index...?
         let result = if second_partition {
-            self.partition_point_2(&mut pred)
+            self.partition_point_2(&pred)
         } else {
-            self.partition_point(&mut pred)
+            self.partition_point(&pred)
         };
 
         // Binary index lookup
@@ -319,15 +319,11 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     /// Seeks the upper bound using the given predicate.
     ///
     /// Returns `false` if the key does not possible exist.
-    pub fn seek_upper(
-        &mut self,
-        mut pred: impl FnMut(&[u8]) -> bool,
-        second_partition: bool,
-    ) -> bool {
+    pub fn seek_upper(&mut self, mut pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         let result = if second_partition {
-            self.partition_point_2(&mut pred)
+            self.partition_point_2(&pred)
         } else {
-            self.partition_point(&mut pred)
+            self.partition_point(&pred)
         };
 
         // Binary index lookup
