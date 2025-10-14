@@ -84,7 +84,6 @@ impl IndexBlock {
         ))
     }
 
-    #[cfg(test)]
     pub fn encode_into_vec(items: &[KeyedBlockHandle]) -> crate::Result<Vec<u8>> {
         let mut buf = vec![];
 
