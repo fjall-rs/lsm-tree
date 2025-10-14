@@ -49,7 +49,7 @@ rand = "0.9.0"
 test-log = "0.2.16"
 
 # half 2.5.0 has MSRV 1.81
-half = "=2.4.0"
+half = "=2.7.1"
 
 # rayon has MSRV 1.80
 rayon-core = "=1.12.1"
