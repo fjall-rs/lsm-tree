@@ -509,7 +509,7 @@ mod tests {
     use crate::{
         segment::{
             block::{BlockType, Header, ParsedItem},
-            Block, BlockOffset, DataBlock,
+            Block, DataBlock,
         },
         Checksum, InternalValue, SeqNo, Slice,
         ValueType::{Tombstone, Value},
