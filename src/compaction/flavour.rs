@@ -197,8 +197,6 @@ impl CompactionFlavour for RelocatingCompaction {
                     blob_entry.uncompressed_len,
                 )?;
 
-                self.inner.table_writer.register_blob(indirection);
-
                 self.inner
                     .table_writer
                     .write(InternalValue::from_components(
@@ -207,6 +205,8 @@ impl CompactionFlavour for RelocatingCompaction {
                         item.key.seqno,
                         crate::ValueType::Indirection,
                     ))?;
+
+                self.inner.table_writer.register_blob(indirection);
             } else {
                 // This blob is not part of the rewritten blob files
                 // So just pass it through
@@ -329,13 +329,22 @@ impl StandardCompaction {
 
 impl CompactionFlavour for StandardCompaction {
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
-        if item.key.value_type.is_indirection() {
-            let mut reader = &item.value[..];
-            let indirection = BlobIndirection::decode_from(&mut reader)?;
+        let indirection = if item.key.value_type.is_indirection() {
+            Some({
+                let mut reader = &item.value[..];
+                BlobIndirection::decode_from(&mut reader)?
+            })
+        } else {
+            None
+        };
+
+        self.table_writer.write(item)?;
+
+        if let Some(indirection) = indirection {
             self.table_writer.register_blob(indirection);
         }
 
-        self.table_writer.write(item)
+        Ok(())
     }
 
     fn finish(
