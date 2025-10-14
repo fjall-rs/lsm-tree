@@ -499,17 +499,21 @@ fn drop_segments(
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
-        "Compaction task created by {:?} contained segments not referenced in the level manifest",
-        opts.strategy.get_name(),
-    );
+            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            opts.strategy.get_name(),
+        );
         return Ok(());
     };
+
+    log::debug!("Dropping tables: {ids_to_drop:?}");
+
+    let mut dropped_blob_files = vec![];
 
     // IMPORTANT: Write the manifest with the removed segments first
     // Otherwise the segment files are deleted, but are still referenced!
     compaction_state.upgrade_version(
         &mut super_version,
-        |current| current.with_dropped(ids_to_drop),
+        |current| current.with_dropped(ids_to_drop, &mut dropped_blob_files),
         opts.eviction_seqno, // TODO: make naming in code base eviction_seqno vs watermark vs threshold consistent
     )?;
 
@@ -520,8 +524,9 @@ fn drop_segments(
         segment.mark_as_deleted();
     }
 
-    // TODO: fwiw also add all dead blob files
-    // TODO: look if any blob files can be trivially deleted as well
+    for blob_file in dropped_blob_files {
+        blob_file.mark_as_deleted();
+    }
 
     if let Err(e) = compaction_state.maintenance(opts.eviction_seqno) {
         log::error!("Manifest maintenance failed: {e:?}");

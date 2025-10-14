@@ -154,7 +154,7 @@ pub struct VersionInner {
     // LSM-tree
     //
     /// Blob files for large values (value log)
-    pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
+    pub value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
@@ -194,6 +194,7 @@ impl Version {
     }
 
     pub fn l0(&self) -> &Level {
+        #[allow(clippy::expect_used)]
         self.levels.first().expect("L0 should exist")
     }
 
@@ -384,15 +385,19 @@ impl Version {
         }
     }
 
-    /// Returns a new version with a list of segments removed.
+    /// Returns a new version with a list of tables removed.
     ///
-    /// The segment files are not immediately deleted, this is handled by the version system's free list.
-    pub fn with_dropped(&self, ids: &[SegmentId]) -> crate::Result<Self> {
+    /// The table files are not immediately deleted, this is handled by the version system's free list.
+    pub fn with_dropped(
+        &self,
+        ids: &[SegmentId],
+        dropped_blob_files: &mut Vec<BlobFile>,
+    ) -> crate::Result<Self> {
         let id = self.id + 1;
 
         let mut levels = vec![];
 
-        let mut dropped_segments = vec![];
+        let mut dropped_segments: Vec<Segment> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -406,7 +411,7 @@ impl Version {
                         .inner_mut()
                         .extract_if(.., |x| ids.contains(&x.metadata.id));
 
-                    dropped_segments = removed_segments.collect();
+                    dropped_segments.extend(removed_segments);
 
                     run
                 })
@@ -444,7 +449,20 @@ impl Version {
         } else {
             // TODO: 3.0.0 this should really be a newtype
             let mut copy = self.value_log.deref().clone();
-            copy.retain(|_, blob_file| !blob_file.is_dead(&gc_stats));
+
+            // TODO: 3.0.0 1.91
+            // copy.extract_if(.., |_, blob_file| blob_file.is_dead(&gc_stats));
+
+            copy.retain(|_, blob_file| {
+                if blob_file.is_dead(&gc_stats) {
+                    log::debug!("Dropping blob file: {}", blob_file.id());
+                    dropped_blob_files.push(blob_file.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+
             Arc::new(copy)
         };
 
@@ -709,6 +727,18 @@ impl Version {
                     )?;
                 }
             }
+        }
+
+        if !self.value_log.is_empty() {
+            writeln!(f)?;
+            writeln!(
+                f,
+                "BLOB: {:?}",
+                self.value_log
+                    .values()
+                    .map(BlobFile::id)
+                    .collect::<Vec<_>>(),
+            )?;
         }
 
         Ok(())
