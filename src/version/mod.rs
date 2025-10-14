@@ -601,7 +601,7 @@ impl Version {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
-                gc_stats: Arc::default(),
+                gc_stats: self.gc_stats.clone(),
             }),
             seqno_watermark: 0,
         }
