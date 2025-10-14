@@ -1,9 +1,9 @@
 use clap::Parser;
 use lsm_tree::{
-    AbstractTree, Guard, KvSeparationOptions, SeqNo,
     config::{BlockSizePolicy, CompressionPolicy},
+    AbstractTree, Guard, KvSeparationOptions, SeqNo,
 };
-use rand::{Rng, seq::IteratorRandom};
+use rand::{seq::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap as ModelTree, sync::Arc};
 
@@ -28,7 +28,7 @@ impl std::fmt::Display for Operation {
             }
             Operation::FlushAndCompact(seqno) => {
                 writeln!(f, "tree.flush_active_memtable({seqno})?;")?;
-                writeln!(f, "tree.compact(compaction, {seqno})?;")
+                writeln!(f, "tree.compact(compaction.clone(), {seqno})?;")
             }
         }
     }
@@ -70,11 +70,22 @@ impl OpLog {
 impl Drop for OpLog {
     fn drop(&mut self) {
         if std::thread::panicking() {
+            use std::io::Write;
+
             println!("-- OP LOG --");
+
+            let file = std::fs::File::create("oplog").unwrap();
+            let mut file = std::io::BufWriter::new(file);
 
             for op in &self.0 {
                 print!("{op}");
+                write!(file, "{op}").unwrap();
             }
+
+            file.flush().unwrap();
+            file.get_mut().sync_all().unwrap();
+
+            eprintln!("-- Written oplog file to ./oplog --");
         }
     }
 }
@@ -98,9 +109,9 @@ fn main() -> lsm_tree::Result<()> {
         .index_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::Lz4))
         .data_block_size_policy(BlockSizePolicy::all(100))
         // .index_block_size_policy(BlockSizePolicy::all(100))
-        // .with_kv_separation(Some(
-        //     KvSeparationOptions::default().separation_threshold(10),
-        // ))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().separation_threshold(10),
+        ))
         .open()?;
 
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
@@ -108,15 +119,15 @@ fn main() -> lsm_tree::Result<()> {
 
     for i in 0..args.ops.unwrap_or(usize::MAX) {
         let op = match (0usize..100).choose(&mut rng).unwrap() {
-            0..50 => Operation::Insert(
-                rng.random_range(0u64..10).to_be_bytes().to_vec(),
+            0.. => Operation::Insert(
+                rng.random_range(0u64..100_000).to_be_bytes().to_vec(),
                 b"hellohello".to_vec(),
                 seqno.next(),
             ),
-            50.. => Operation::Remove(
-                rng.random_range(0u64..10).to_be_bytes().to_vec(),
-                seqno.next(),
-            ),
+            // 50.. => Operation::Remove(
+            //     rng.random_range(0u64..100_000).to_be_bytes().to_vec(),
+            //     seqno.next(),
+            // ),
         };
 
         if args.verbose || i % 100 == 0 {
@@ -156,7 +167,7 @@ fn main() -> lsm_tree::Result<()> {
         }
 
         // Don't do so often because it's expensive
-        if i % args.full_check_interval == 0 {
+        if args.full_check_interval > 0 && i % args.full_check_interval == 0 {
             // log::trace!("  Full check");
 
             for (expected, guard) in model.iter().zip(db.iter(seqno.get(), None)) {
@@ -175,14 +186,17 @@ fn main() -> lsm_tree::Result<()> {
         }
 
         if i % args.compaction_interval == 0 {
-            eprintln!("  Running flush + compaction");
+            if args.verbose {
+                eprintln!("  Running flush + compaction");
+            }
+
             let watermark = seqno.get().saturating_sub(100);
             op_log.push(Operation::FlushAndCompact(watermark));
             db.flush_active_memtable(watermark)?;
             db.compact(compaction.clone(), watermark)?;
         }
 
-        if op_log.len() > 500_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
+        if op_log.len() > 1_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
             eprintln!(
                 "DB size: {}, # tables: {}, # blob files: {}",
                 db.disk_space(),
@@ -192,12 +206,10 @@ fn main() -> lsm_tree::Result<()> {
             eprintln!("-- Clearing state --");
             std::thread::sleep(std::time::Duration::from_millis(500));
 
+            op_log.push(Operation::FlushAndCompact(u64::MAX));
+            db.flush_active_memtable(u64::MAX)?;
             db.drop_range::<&[u8], _>(..)?;
             model.clear();
-            op_log.clear();
-
-            assert!(db.is_empty(seqno.get(), None)?);
-            assert!(model.is_empty());
 
             eprintln!(
                 "DB size: {}, # tables: {}, # blob files: {}",
@@ -205,7 +217,16 @@ fn main() -> lsm_tree::Result<()> {
                 db.segment_count(),
                 db.blob_file_count(),
             );
+
+            assert_eq!(0, db.segment_count());
+            assert_eq!(0, db.blob_file_count());
+
+            assert!(db.is_empty(seqno.get(), None)?);
+            assert!(model.is_empty());
+
             eprintln!("-- Cleared state --");
+
+            op_log.clear();
 
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
