@@ -22,7 +22,7 @@ const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>()
 ///
 /// ## Format
 ///
-/// \[item_count\] \[restart_interval\] \[binary_index_offset\] \[binary_index_len\] \[hash_index_offset\] \[hash_index_len\]
+/// \[restart_interval\] \[binary_index_offset\] \[binary_index_len\] \[hash_index_offset\] \[hash_index_len\] \[item_count\]
 #[allow(clippy::doc_markdown)]
 pub struct Trailer<'a> {
     block: &'a Block,
@@ -41,7 +41,13 @@ impl<'a> Trailer<'a> {
     /// Returns the number of items in the block
     #[must_use]
     pub fn item_count(&self) -> usize {
-        let mut reader = self.as_slice();
+        let reader = self.as_slice();
+
+        eprintln!("{reader:?}");
+
+        // NOTE: We now that the item count is the the end and is a u32
+        #[allow(clippy::indexing_slicing)]
+        let reader = &mut &reader[(TRAILER_SIZE - std::mem::size_of::<u32>())..];
 
         // NOTE: We know the trailer offset is valid, and the trailer has a fixed size
         // so the next item must be the item count
@@ -102,12 +108,6 @@ impl<'a> Trailer<'a> {
         #[cfg(debug_assertions)]
         let bytes_before = encoder.writer.len();
 
-        // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
-        #[allow(clippy::cast_possible_truncation)]
-        encoder
-            .writer
-            .write_u32::<LittleEndian>(encoder.item_count as u32)?;
-
         encoder.writer.write_u8(encoder.restart_interval)?;
 
         encoder.writer.write_u8(binary_index_step_size)?;
@@ -140,6 +140,12 @@ impl<'a> Trailer<'a> {
         // TODO: 3.0.0 what if value is actually 0...? we need another byte prob
         // Fixed value size (unused)
         encoder.writer.write_u32::<LittleEndian>(0)?;
+
+        // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
+        #[allow(clippy::cast_possible_truncation)]
+        encoder
+            .writer
+            .write_u32::<LittleEndian>(encoder.item_count as u32)?;
 
         #[cfg(debug_assertions)]
         assert_eq!(
