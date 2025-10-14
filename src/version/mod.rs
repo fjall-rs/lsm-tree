@@ -154,7 +154,7 @@ pub struct VersionInner {
     // LSM-tree
     //
     /// Blob files for large values (value log)
-    pub value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
+    pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
