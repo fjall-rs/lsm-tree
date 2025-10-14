@@ -1,6 +1,5 @@
 use crate::range::prefix_upper_range;
 use crate::UserKey;
-use byteview::ByteView;
 use std::ops::RangeBounds;
 
 pub use crate::range::prefix_to_range;
@@ -25,14 +24,14 @@ pub fn prefixed_range<P: AsRef<[u8]>, K: AsRef<[u8]>, R: RangeBounds<K>>(
     match (range.start_bound(), range.end_bound()) {
         (Unbounded, Unbounded) => prefix_to_range(prefix),
         (lower, Unbounded) => {
-            let lower = lower.map(|k| UserKey::from(ByteView::fused(prefix, k.as_ref())));
+            let lower = lower.map(|k| UserKey::fused(prefix, k.as_ref()));
             let upper = prefix_upper_range(prefix);
             (lower, upper)
         }
         (Unbounded, upper) => {
             let upper = match upper {
-                Included(k) => Included(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
-                Excluded(k) => Excluded(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
+                Included(k) => Included(UserKey::fused(prefix, k.as_ref())),
+                Excluded(k) => Excluded(UserKey::fused(prefix, k.as_ref())),
                 Unbounded => unreachable!(),
             };
 
@@ -40,14 +39,14 @@ pub fn prefixed_range<P: AsRef<[u8]>, K: AsRef<[u8]>, R: RangeBounds<K>>(
         }
         (lower, upper) => {
             let lower = match lower {
-                Included(k) => Included(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
-                Excluded(k) => Excluded(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
+                Included(k) => Included(UserKey::fused(prefix, k.as_ref())),
+                Excluded(k) => Excluded(UserKey::fused(prefix, k.as_ref())),
                 Unbounded => unreachable!(),
             };
 
             let upper = match upper {
-                Included(k) => Included(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
-                Excluded(k) => Excluded(UserKey::from(ByteView::fused(prefix, k.as_ref()))),
+                Included(k) => Included(UserKey::fused(prefix, k.as_ref())),
+                Excluded(k) => Excluded(UserKey::fused(prefix, k.as_ref())),
                 Unbounded => unreachable!(),
             };
 
