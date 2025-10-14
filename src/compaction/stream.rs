@@ -28,6 +28,8 @@ pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
 
     /// Event emitter that receives all expired KVs
     expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
+
+    evict_tombstones: bool,
 }
 
 impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
@@ -40,7 +42,13 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
             inner: iter,
             gc_seqno_threshold,
             expiration_callback: None,
+            evict_tombstones: false,
         }
+    }
+
+    pub fn evict_tombstones(mut self, b: bool) -> Self {
+        self.evict_tombstones = b;
+        self
     }
 
     /// Installs a callback that receives all expired KVs.
@@ -80,7 +88,7 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let mut head = fail_iter!(self.inner.next()?);
+            let head = fail_iter!(self.inner.next()?);
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
@@ -94,8 +102,18 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
                 };
 
                 if peeked.key.user_key > head.key.user_key {
+                    if head.is_tombstone() && self.evict_tombstones {
+                        continue;
+                    }
+
                     // NOTE: Only item of this key and thus latest version, so return it no matter what
+                    // ...
                 } else if peeked.key.seqno < self.gc_seqno_threshold {
+                    if head.key.value_type == ValueType::Tombstone && self.evict_tombstones {
+                        fail_iter!(self.drain_key(&head.key.user_key));
+                        continue;
+                    }
+
                     // NOTE: If next item is an actual value, and current value is weak tombstone,
                     // drop the tombstone
                     let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
@@ -109,6 +127,8 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
                         continue;
                     }
                 }
+            } else if head.is_tombstone() && self.evict_tombstones {
+                continue;
             }
 
             // TODO: look at how this plays with blob GC

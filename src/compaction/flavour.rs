@@ -197,6 +197,8 @@ impl CompactionFlavour for RelocatingCompaction {
                     blob_entry.uncompressed_len,
                 )?;
 
+                self.inner.table_writer.register_blob(indirection);
+
                 self.inner
                     .table_writer
                     .write(InternalValue::from_components(
@@ -297,10 +299,6 @@ impl StandardCompaction {
         }
     }
 
-    fn register_blob(&mut self, indirection: BlobIndirection) {
-        self.table_writer.register_blob(indirection);
-    }
-
     fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Segment>> {
         let segments_base_folder = self.table_writer.base_path.clone();
 
@@ -334,7 +332,7 @@ impl CompactionFlavour for StandardCompaction {
         if item.key.value_type.is_indirection() {
             let mut reader = &item.value[..];
             let indirection = BlobIndirection::decode_from(&mut reader)?;
-            self.register_blob(indirection);
+            self.table_writer.register_blob(indirection);
         }
 
         self.table_writer.write(item)

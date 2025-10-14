@@ -216,18 +216,22 @@ pub mod stop_signal;
 mod format_version;
 mod time;
 mod tree;
+
+/// Utility functions
+pub mod util;
+
 mod value;
 mod value_type;
 mod version;
 mod vlog;
 
-/// User defined key
+/// User defined key (byte array)
 pub type UserKey = Slice;
 
 /// User defined data (byte array)
 pub type UserValue = Slice;
 
-/// KV-tuple, typically returned by an iterator
+/// KV-tuple (key + value)
 pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
