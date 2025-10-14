@@ -228,8 +228,8 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         F: Fn(&[u8]) -> bool,
     {
         // `partition_point_2` mirrors `partition_point` but keeps the *next* restart entry instead
-        // of the previous one.  This variant is used exclusively by reverse scans (`seek_upper`)
-        // that want the first restart whose head key exceeds the predicate.  Returning the raw
+        // of the previous one. This variant is used exclusively by reverse scans (`seek_upper`)
+        // that want the first restart whose head key exceeds the predicate. Returning the raw
         // offset preserves the ability to reuse linear scanning infrastructure without duplicating
         // decoder logic.
         let binary_index = self.get_binary_index_reader();
@@ -291,10 +291,10 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             return false;
         };
 
-        if second_partition && pred(self.get_key_at(offset)) {
+        if second_partition && self.restart_interval == 1 && pred(self.get_key_at(offset)) {
             // `second_partition == true` means we ran the "look one restart ahead" search used by
-            // index blocks.  When the predicate is still true at the chosen restart head it means
-            // the caller asked us to seek strictly beyond the last entry.  In that case we skip any
+            // index blocks. When the predicate is still true at the chosen restart head it means
+            // the caller asked us to seek strictly beyond the last entry. In that case we skip any
             // costly parsing and flip both scanners into an "exhausted" state so the outer iterator
             // immediately reports EOF.
             let end = self.block.data.len();
