@@ -401,7 +401,6 @@ tree.insert([0, 0, 0, 0, 0, 0, 1, 152], [104, 101, 108, 108, 111, 104, 101, 108,
 tree.insert([0, 0, 0, 0, 0, 0, 2, 16], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171180);
 tree.flush_active_memtable(171101)?;
 tree.compact(compaction.clone(), 171101)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 tree.insert([0, 0, 0, 0, 0, 0, 3, 6], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171201);
 tree.insert([0, 0, 0, 0, 0, 0, 1, 217], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171202);
 tree.insert([0, 0, 0, 0, 0, 0, 3, 80], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171203);
@@ -906,7 +905,6 @@ tree.insert([0, 0, 0, 0, 0, 0, 1, 162], [104, 101, 108, 108, 111, 104, 101, 108,
 tree.insert([0, 0, 0, 0, 0, 0, 1, 208], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 171997);
 tree.flush_active_memtable(171901)?;
 tree.compact(compaction.clone(), 171901)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 
 tree.insert([0, 0, 0, 0, 0, 0, 3, 78], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172007);
 tree.insert([0, 0, 0, 0, 0, 0, 1, 37], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172008);
@@ -1015,7 +1013,6 @@ tree.insert([0, 0, 0, 0, 0, 0, 1, 196], [104, 101, 108, 108, 111, 104, 101, 108,
 tree.insert([0, 0, 0, 0, 0, 0, 1, 153], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172167);
 tree.flush_active_memtable(172101)?;
 tree.compact(compaction.clone(), 172101)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 tree.insert([0, 0, 0, 0, 0, 0, 0, 219], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172222);
 tree.insert([0, 0, 0, 0, 0, 0, 0, 124], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172225);
 tree.insert([0, 0, 0, 0, 0, 0, 2, 192], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172226);
@@ -1276,18 +1273,12 @@ tree.insert([0, 0, 0, 0, 0, 0, 0, 106], [104, 101, 108, 108, 111, 104, 101, 108,
 tree.insert([0, 0, 0, 0, 0, 0, 1, 34], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 172788);
 tree.flush_active_memtable(172701)?;
 tree.compact(compaction.clone(), 172701)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 
 tree.compact(compaction.clone(), 172901)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 
 tree.compact(compaction.clone(), 173101)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
 
     tree.drop_range::<&[u8], _>(..)?;
-eprintln!("blob files: {:#?}", tree.current_version().gc_stats);
-
-    eprintln!("blob files: {:?}", tree.current_version().value_log.values().map(|x| x.id()).collect::<Vec<_>>());
 
     assert_eq!(0, tree.segment_count());
     assert_eq!(0, tree.blob_file_count());
