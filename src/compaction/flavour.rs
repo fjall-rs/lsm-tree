@@ -211,9 +211,10 @@ impl CompactionFlavour for RelocatingCompaction {
                 // This blob is not part of the rewritten blob files
                 // So just pass it through
                 log::trace!("Pass through {indirection:?} because it is not being relocated");
-                self.inner.table_writer.register_blob(indirection);
                 self.inner.table_writer.write(item)?;
             }
+
+            self.inner.table_writer.register_blob(indirection);
         } else {
             self.inner.table_writer.write(item)?;
         }
