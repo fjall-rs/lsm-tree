@@ -205,8 +205,6 @@ impl CompactionFlavour for RelocatingCompaction {
                         item.key.seqno,
                         crate::ValueType::Indirection,
                     ))?;
-
-                self.inner.table_writer.register_blob(indirection);
             } else {
                 // This blob is not part of the rewritten blob files
                 // So just pass it through
