@@ -76,8 +76,7 @@ pub struct Decoder<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> {
     hi_scanner: HiScanner,
 
     // Cached metadata
-    pub(crate) restart_interval: u8,
-
+    restart_interval: u8,
     binary_index_step_size: u8,
     binary_index_offset: u32,
     binary_index_len: u32,
@@ -89,8 +88,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         let trailer = Trailer::new(block);
         let mut reader = trailer.as_slice();
 
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
-
         let restart_interval = unwrap!(reader.read_u8());
 
         let binary_index_step_size = unwrap!(reader.read_u8());
@@ -100,9 +97,8 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             "invalid binary index step size",
         );
 
-        // TODO: flip len, offset
-        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
 
         Self {
             block,

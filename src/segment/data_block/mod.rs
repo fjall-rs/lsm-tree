@@ -303,8 +303,8 @@ impl DataBlock {
 
         let trailer = Trailer::new(&self.inner);
 
-        // NOTE: Skip item count (u32) and restart interval (u8)
-        let offset = size_of::<u32>() + size_of::<u8>();
+        // NOTE: Skip restart interval (u8)
+        let offset = size_of::<u8>();
 
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
@@ -315,9 +315,8 @@ impl DataBlock {
             "invalid binary index step size",
         );
 
-        // TODO: 3.0.0 flip len and offset
-        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
 
         BinaryIndexReader::new(
             &self.inner.data,
@@ -333,28 +332,24 @@ impl DataBlock {
 
         let trailer = Trailer::new(&self.inner);
 
-        // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8)
+        // NOTE: Skip restart interval (u8), binary index step size (u8)
         // and binary stuff (2x u32)
-        let offset = size_of::<u32>()
-            + size_of::<u8>()
-            + size_of::<u8>()
-            + size_of::<u32>()
-            + size_of::<u32>();
+        let offset = size_of::<u8>() + size_of::<u8>() + size_of::<u32>() + size_of::<u32>();
 
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
-        // TODO: 3.0.0 flip offset and len, so we can terminate after len if == 0
-        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
 
-        if hash_index_len > 0 {
+        if hash_index_len == 0 {
+            None
+        } else {
+            let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
+
             Some(HashIndexReader::new(
                 &self.inner.data,
                 hash_index_offset,
                 hash_index_len,
             ))
-        } else {
-            None
         }
     }
 
@@ -447,9 +442,8 @@ impl DataBlock {
 
         let trailer = Trailer::new(&self.inner);
 
-        // NOTE: Skip item count (u32), restart interval (u8), binary index step size (u8),
-        // and binary index offset (u32)
-        let offset = size_of::<u32>() + (2 * size_of::<u8>()) + size_of::<u32>();
+        // NOTE: Skip restart interval (u8) and binary index step size (u8)
+        let offset = 2 * size_of::<u8>();
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
         unwrap!(reader.read_u32::<LittleEndian>())
