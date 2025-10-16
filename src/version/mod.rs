@@ -365,10 +365,10 @@ impl Version {
             self.value_log.clone()
         };
 
-        let gc_map = if let Some(diff) = diff {
+        let gc_stats = if let Some(diff) = diff {
             let mut copy = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
-            copy.prune(&self.value_log);
+            copy.prune(&value_log);
             Arc::new(copy)
         } else {
             self.gc_stats.clone()
@@ -379,7 +379,7 @@ impl Version {
                 id,
                 levels,
                 value_log,
-                gc_stats: gc_map,
+                gc_stats,
             }),
             seqno_watermark: 0,
         }
@@ -514,25 +514,6 @@ impl Version {
 
         let has_diff = diff.is_some();
 
-        let gc_stats =
-            if has_diff || !blob_files_to_drop.is_empty() || !blob_files_to_drop.is_empty() {
-                let mut copy = self.gc_stats.deref().clone();
-
-                if let Some(diff) = diff {
-                    diff.merge_into(&mut copy);
-                }
-
-                for id in &blob_files_to_drop {
-                    copy.remove(id);
-                }
-
-                copy.prune(&self.value_log);
-
-                Arc::new(copy)
-            } else {
-                self.gc_stats.clone()
-            };
-
         let value_log = if has_diff || !new_blob_files.is_empty() || !blob_files_to_drop.is_empty()
         {
             let mut copy = self.value_log.deref().clone();
@@ -541,13 +522,31 @@ impl Version {
                 copy.insert(blob_file.id(), blob_file);
             }
 
-            for id in blob_files_to_drop {
-                copy.remove(&id);
+            for id in &blob_files_to_drop {
+                copy.remove(id);
             }
 
             Arc::new(copy)
         } else {
             self.value_log.clone()
+        };
+
+        let gc_stats = if has_diff || !blob_files_to_drop.is_empty() {
+            let mut copy = self.gc_stats.deref().clone();
+
+            if let Some(diff) = diff {
+                diff.merge_into(&mut copy);
+            }
+
+            for id in &blob_files_to_drop {
+                copy.remove(id);
+            }
+
+            copy.prune(&value_log);
+
+            Arc::new(copy)
+        } else {
+            self.gc_stats.clone()
         };
 
         Self {
@@ -601,7 +600,7 @@ impl Version {
                 id,
                 levels,
                 value_log: self.value_log.clone(),
-                gc_stats: Arc::default(),
+                gc_stats: self.gc_stats.clone(),
             }),
             seqno_watermark: 0,
         }
