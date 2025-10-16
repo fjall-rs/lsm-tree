@@ -69,8 +69,7 @@ pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
     pub(crate) restart_count: usize,
 
     pub(crate) restart_interval: u8,
-    pub(crate) use_prefix_truncation: bool,
-
+    // pub(crate) use_prefix_truncation: bool, // TODO: support non-prefix truncation
     pub(crate) binary_index_builder: BinaryIndexBuilder,
     pub(crate) hash_index_builder: HashIndexBuilder,
 
@@ -102,8 +101,7 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
             restart_count: 0,
 
             restart_interval,
-            use_prefix_truncation: true,
-
+            // use_prefix_truncation: true,
             binary_index_builder,
             hash_index_builder,
 
@@ -111,14 +109,14 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
         }
     }
 
-    /// Toggles prefix truncation.
-    pub fn use_prefix_truncation(mut self, flag: bool) -> Self {
-        assert!(flag, "prefix truncation is currently required to be true");
+    // /// Toggles prefix truncation.
+    // pub fn use_prefix_truncation(mut self, flag: bool) -> Self {
+    //     assert!(flag, "prefix truncation is currently required to be true");
 
-        self.use_prefix_truncation = flag;
+    //     self.use_prefix_truncation = flag;
 
-        self
-    }
+    //     self
+    // }
 
     pub fn write(&mut self, item: &'a Item) -> crate::Result<()> {
         // NOTE: Check if we are a restart marker
