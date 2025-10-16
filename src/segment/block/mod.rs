@@ -224,7 +224,7 @@ impl Block {
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
                 d.read_exact(&mut decompressed_data)
                     .map_err(|_| crate::Error::Decompress(compression))?;
-                decompressed_data.freeze().into
+                decompressed_data.freeze().into()
             }
         };
 
