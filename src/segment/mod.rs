@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_recover() -> crate::Result<()> {
+    fn segment_recover() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_scan() -> crate::Result<()> {
+    fn segment_scan() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_iter_simple() -> crate::Result<()> {
+    fn segment_iter_simple() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_range_simple() -> crate::Result<()> {
+    fn segment_range_simple() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -844,7 +844,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_range_ping_pong() -> crate::Result<()> {
+    fn segment_range_ping_pong() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_range_multiple_data_blocks() -> crate::Result<()> {
+    fn segment_range_multiple_data_blocks() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 
@@ -993,7 +993,7 @@ mod tests {
     // TODO: when using stats cfg feature: check filter hits += 1
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_segment_unpinned_filter() -> crate::Result<()> {
+    fn segment_unpinned_filter() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("segment");
 

@@ -132,7 +132,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_data_block_wtf() -> crate::Result<()> {
+    fn data_block_wtf() -> crate::Result<()> {
         let keys = [
             [0, 0, 0, 0, 0, 0, 0, 108],
             [0, 0, 0, 0, 0, 0, 0, 109],
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_range() -> crate::Result<()> {
+    fn data_block_range() -> crate::Result<()> {
         let items = (100u64..110)
             .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, Value))
             .collect::<Vec<_>>();
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_range_ping_pong() -> crate::Result<()> {
+    fn data_block_range_ping_pong() -> crate::Result<()> {
         let items = (0u64..100)
             .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, Value))
             .collect::<Vec<_>>();
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward() -> crate::Result<()> {
+    fn data_block_iter_forward() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_rev() -> crate::Result<()> {
+    fn data_block_iter_rev() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -442,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_rev_seek_back() -> crate::Result<()> {
+    fn data_block_iter_rev_seek_back() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -482,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_range_edges() -> crate::Result<()> {
+    fn data_block_iter_range_edges() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_range() -> crate::Result<()> {
+    fn data_block_iter_range() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -604,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_only_first() -> crate::Result<()> {
+    fn data_block_iter_only_first() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -644,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_range_same_key() -> crate::Result<()> {
+    fn data_block_iter_range_same_key() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -747,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_range_empty() -> crate::Result<()> {
+    fn data_block_iter_range_empty() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward_seek_restart_head() -> crate::Result<()> {
+    fn data_block_iter_forward_seek_restart_head() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -855,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward_seek_in_interval() -> crate::Result<()> {
+    fn data_block_iter_forward_seek_in_interval() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -895,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward_seek_last() -> crate::Result<()> {
+    fn data_block_iter_forward_seek_last() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -935,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward_seek_before_first() -> crate::Result<()> {
+    fn data_block_iter_forward_seek_before_first() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -972,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_forward_seek_after_last() -> crate::Result<()> {
+    fn data_block_iter_forward_seek_after_last() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -1005,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_consume_last_back() -> crate::Result<()> {
+    fn data_block_iter_consume_last_back() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
             InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
@@ -1093,7 +1093,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_consume_last_forwards() -> crate::Result<()> {
+    fn data_block_iter_consume_last_forwards() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
             InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),
@@ -1183,7 +1183,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_ping_pong_exhaust() -> crate::Result<()> {
+    fn data_block_iter_ping_pong_exhaust() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("a", "a", 0, Value),
             InternalValue::from_components("b", "b", 0, Value),
@@ -1273,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_fuzz_3() -> crate::Result<()> {
+    fn data_block_iter_fuzz_3() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(
                 Slice::from([
@@ -1324,7 +1324,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_iter_fuzz_4() -> crate::Result<()> {
+    fn data_block_iter_fuzz_4() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(
                 Slice::new(&[0]),

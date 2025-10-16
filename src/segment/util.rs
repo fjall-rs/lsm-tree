@@ -158,7 +158,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_compare_prefixed_slice() {
+    fn test_compare_prefixed_slice() {
         use std::cmp::Ordering::{Equal, Greater, Less};
 
         assert_eq!(Equal, compare_prefixed_slice(b"", b"", b""));

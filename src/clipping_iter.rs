@@ -161,7 +161,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_clipping_iter_forwards() {
+    fn clipping_iter_forwards() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_clipping_iter_rev() {
+    fn clipping_iter_rev() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),
@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_clipping_iter_ping_pong() {
+    fn clipping_iter_ping_pong() {
         let items = [
             InternalValue::from_components(b"a", b"", 0, crate::ValueType::Value),
             InternalValue::from_components(b"b", b"", 0, crate::ValueType::Value),

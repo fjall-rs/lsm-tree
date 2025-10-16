@@ -60,7 +60,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_index_block_iter_seek_before_start() -> crate::Result<()> {
+    fn index_block_iter_seek_before_start() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -96,7 +96,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_seek_start() -> crate::Result<()> {
+    fn index_block_iter_seek_start() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_seek_middle() -> crate::Result<()> {
+    fn index_block_iter_seek_middle() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_rev_seek() -> crate::Result<()> {
+    fn index_block_iter_rev_seek() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_rev_seek_2() -> crate::Result<()> {
+    fn index_block_iter_rev_seek_2() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_rev_seek_3() -> crate::Result<()> {
+    fn index_block_iter_rev_seek_3() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_too_far() -> crate::Result<()> {
+    fn index_block_iter_too_far() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_too_far_next_back() -> crate::Result<()> {
+    fn index_block_iter_too_far_next_back() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_span() -> crate::Result<()> {
+    fn index_block_iter_span() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_rev_span() -> crate::Result<()> {
+    fn index_block_iter_rev_span() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_index_block_iter_range_1() -> crate::Result<()> {
+    fn index_block_iter_range_1() -> crate::Result<()> {
         let items = [
             KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
             KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),

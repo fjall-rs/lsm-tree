@@ -135,7 +135,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_run_reader_skip() -> crate::Result<()> {
+    fn run_reader_skip() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_run_reader_basic() -> crate::Result<()> {
+    fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 

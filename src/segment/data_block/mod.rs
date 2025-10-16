@@ -517,7 +517,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_data_block_ping_pong_fuzz_1() -> crate::Result<()> {
+    fn data_block_ping_pong_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(
                 Slice::from([111]),
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_simple() -> crate::Result<()> {
+    fn data_block_point_read_simple() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("b", "b", 0, Value),
             InternalValue::from_components("c", "c", 0, Value),
@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_one() -> crate::Result<()> {
+    fn data_block_point_read_one() -> crate::Result<()> {
         let items = [InternalValue::from_components(
             "pla:earth:fact",
             "eaaaaaaaaarth",
@@ -666,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_vhandle() -> crate::Result<()> {
+    fn data_block_vhandle() -> crate::Result<()> {
         let items = [InternalValue::from_components(
             "abc",
             "world",
@@ -699,7 +699,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_mvcc_read_first() -> crate::Result<()> {
+    fn data_block_mvcc_read_first() -> crate::Result<()> {
         let items = [InternalValue::from_components(
             "hello",
             "world",
@@ -731,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_fuzz_1() -> crate::Result<()> {
+    fn data_block_point_read_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components([0], b"", 23_523_531_241_241_242, Value),
             InternalValue::from_components([0], b"", 0, Value),
@@ -770,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_fuzz_2() -> crate::Result<()> {
+    fn data_block_point_read_fuzz_2() -> crate::Result<()> {
         let items = [
             InternalValue::from_components([0], [], 5, Value),
             InternalValue::from_components([0], [], 4, Tombstone),
@@ -806,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_dense() -> crate::Result<()> {
+    fn data_block_point_read_dense() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(b"a", b"a", 3, Value),
             InternalValue::from_components(b"b", b"b", 2, Value),
@@ -841,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_dense_mvcc_with_hash() -> crate::Result<()> {
+    fn data_block_point_read_dense_mvcc_with_hash() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(b"a", b"a", 3, Value),
             InternalValue::from_components(b"a", b"a", 2, Value),
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_data_block_point_read_mvcc_latest_fuzz_1() -> crate::Result<()> {
+    fn data_block_point_read_mvcc_latest_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
             InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
@@ -920,56 +920,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_data_block_point_read_mvcc_latest_fuzz_2() -> crate::Result<()> {
-        let items = [
-            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 7, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 6, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 5, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 4, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 3, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 2, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 1, Value),
-            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
-            InternalValue::from_components(
-                Slice::from([255, 255, 0]),
-                Slice::from([]),
-                127_886_946_205_696,
-                Tombstone,
-            ),
-        ];
-
-        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
-
-        let data_block = DataBlock::new(Block {
-            data: bytes.into(),
-            header: Header {
-                block_type: BlockType::Data,
-                checksum: Checksum::from_raw(0),
-                data_length: 0,
-                uncompressed_length: 0,
-            },
-        });
-
-        assert_eq!(data_block.len(), items.len());
-
-        assert_eq!(
-            Some(items.get(1).cloned().unwrap()),
-            data_block.point_read(&[233, 233], SeqNo::MAX)
-        );
-        assert_eq!(
-            Some(items.last().cloned().unwrap()),
-            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
-        );
-        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
-
-        Ok(())
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn v3_data_block_point_read_mvcc_latest_fuzz_3() -> crate::Result<()> {
+    fn data_block_point_read_mvcc_latest_fuzz_2() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
             InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
@@ -1018,7 +969,56 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn v3_data_block_point_read_mvcc_latest_fuzz_3_dense() -> crate::Result<()> {
+    fn data_block_point_read_mvcc_latest_fuzz_3() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 7, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 6, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 5, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 4, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 3, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 2, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 1, Value),
+            InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 0, Value),
+            InternalValue::from_components(
+                Slice::from([255, 255, 0]),
+                Slice::from([]),
+                127_886_946_205_696,
+                Tombstone,
+            ),
+        ];
+
+        let bytes = DataBlock::encode_into_vec(&items, 2, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                block_type: BlockType::Data,
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+
+        assert_eq!(
+            Some(items.get(1).cloned().unwrap()),
+            data_block.point_read(&[233, 233], SeqNo::MAX)
+        );
+        assert_eq!(
+            Some(items.last().cloned().unwrap()),
+            data_block.point_read(&[255, 255, 0], SeqNo::MAX)
+        );
+        assert_eq!(None, data_block.point_read(b"yyy", SeqNo::MAX));
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn data_block_point_read_mvcc_latest_fuzz_3_dense() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
             InternalValue::from_components(Slice::from([233, 233]), Slice::from([]), 8, Value),
@@ -1066,7 +1066,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_dense_mvcc_no_hash() -> crate::Result<()> {
+    fn data_block_point_read_dense_mvcc_no_hash() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(b"a", b"a", 3, Value),
             InternalValue::from_components(b"a", b"a", 2, Value),
@@ -1102,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_shadowing() -> crate::Result<()> {
+    fn data_block_point_read_shadowing() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:saturn:fact", "Saturn is pretty big", 0, Value),
             InternalValue::from_components("pla:saturn:name", "Saturn", 0, Value),
@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_data_block_point_read_dense_2() -> crate::Result<()> {
+    fn data_block_point_read_dense_2() -> crate::Result<()> {
         let items = [
             InternalValue::from_components("pla:earth:fact", "eaaaaaaaaarth", 0, Value),
             InternalValue::from_components("pla:jupiter:fact", "Jupiter is big", 0, Value),

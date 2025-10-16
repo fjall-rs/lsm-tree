@@ -43,7 +43,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_hash_index_build_simple() {
+    fn hash_index_build_simple() {
         let mut hash_index = Builder::with_bucket_count(100);
 
         hash_index.set(b"a", 5);
@@ -76,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_hash_index_build_conflict() {
+    fn hash_index_build_conflict() {
         let mut hash_index = Builder::with_bucket_count(1);
 
         hash_index.set(b"a", 5);
@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_hash_index_build_same_offset() {
+    fn hash_index_build_same_offset() {
         let mut hash_index = Builder::with_bucket_count(1);
 
         hash_index.set(b"a", 5);
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_hash_index_build_mix() {
+    fn hash_index_build_mix() {
         let mut hash_index = Builder::with_bucket_count(1);
 
         hash_index.set(b"a", 5);
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_hash_index_read_conflict() {
+    fn hash_index_read_conflict() {
         let mut hash_index = Builder::with_bucket_count(1);
 
         hash_index.set(b"a", 5);
