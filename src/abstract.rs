@@ -97,6 +97,12 @@ pub trait AbstractTree {
     /// Returns the approximate number of tombstones in the tree.
     fn tombstone_count(&self) -> u64;
 
+    /// Returns the approximate number of weak tombstones (single deletes) in the tree.
+    fn weak_tombstone_count(&self) -> u64;
+
+    /// Returns the approximate number of values reclaimable once weak tombstones can be GC'd.
+    fn weak_tombstone_reclaimable_count(&self) -> u64;
+
     // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
 
     /// Drops segments that are fully contained in a given range.

@@ -8,6 +8,7 @@ use super::{
 use crate::{
     coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
     time::unix_timestamp, vlog::BlobFileId, CompressionType, InternalValue, SegmentId, UserKey,
+    ValueType,
 };
 use index::{BlockIndexWriter, FullIndexWriter};
 use std::{fs::File, io::BufWriter, path::PathBuf};
@@ -69,6 +70,9 @@ pub struct Writer {
     /// using enhanced double hashing, so we got two u64s
     pub bloom_hash_buffer: Vec<u64>,
 
+    /// Tracks the previously written item to detect weak tombstone/value pairs
+    previous_item: Option<(UserKey, ValueType)>,
+
     linked_blob_files: Vec<LinkedFile>,
 }
 
@@ -112,6 +116,8 @@ impl Writer {
             bloom_policy: BloomConstructionPolicy::default(),
 
             bloom_hash_buffer: Vec::new(),
+
+            previous_item: None,
 
             linked_blob_files: Vec::new(),
         })
@@ -190,33 +196,49 @@ impl Writer {
     /// sorted as described by the [`UserKey`], otherwise the block layout will
     /// be non-sense.
     pub fn write(&mut self, item: InternalValue) -> crate::Result<()> {
+        let value_type = item.key.value_type;
+        let seqno = item.key.seqno;
+        let user_key = item.key.user_key.clone();
+        let value_len = item.value.len();
+
         if item.is_tombstone() {
             self.meta.tombstone_count += 1;
         }
 
+        if value_type == ValueType::WeakTombstone {
+            self.meta.weak_tombstone_count += 1;
+        }
+
+        if value_type == ValueType::Value {
+            if let Some((prev_key, prev_type)) = &self.previous_item {
+                if prev_type == &ValueType::WeakTombstone && prev_key.as_ref() == user_key.as_ref()
+                {
+                    self.meta.weak_tombstone_reclaimable_count += 1;
+                }
+            }
+        }
+
         // NOTE: Check if we visit a new key
-        if Some(&item.key.user_key) != self.current_key.as_ref() {
+        if Some(&user_key) != self.current_key.as_ref() {
             self.meta.key_count += 1;
-            self.current_key = Some(item.key.user_key.clone());
+            self.current_key = Some(user_key.clone());
 
             // IMPORTANT: Do not buffer *every* item's key
             // because there may be multiple versions
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.bloom_hash_buffer
-                    .push(Builder::get_hash(&item.key.user_key));
+                self.bloom_hash_buffer.push(Builder::get_hash(&user_key));
             }
         }
 
-        let seqno = item.key.seqno;
-
         if self.meta.first_key.is_none() {
-            self.meta.first_key = Some(item.key.user_key.clone());
+            self.meta.first_key = Some(user_key.clone());
         }
 
-        self.chunk_size += item.key.user_key.len() + item.value.len();
+        self.chunk_size += user_key.len() + value_len;
         self.chunk.push(item);
+        self.previous_item = Some((user_key, value_type));
 
         if self.chunk_size >= self.data_block_size as usize {
             self.spill_block()?;
@@ -430,6 +452,14 @@ impl Writer {
                 meta(
                     "#user_data_size",
                     &self.meta.uncompressed_size.to_le_bytes(),
+                ),
+                meta(
+                    "#weak_tombstone_count",
+                    &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
+                ),
+                meta(
+                    "#weak_tombstone_reclaimable",
+                    &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
                 ),
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
                 meta("v#table_version", &[3u8]),

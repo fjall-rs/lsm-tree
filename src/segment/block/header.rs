@@ -134,7 +134,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_block_header_serde_roundtrip() -> crate::Result<()> {
+    fn block_header_serde_roundtrip() -> crate::Result<()> {
         let header = Header {
             block_type: BlockType::Data,
             checksum: Checksum::from_raw(5),

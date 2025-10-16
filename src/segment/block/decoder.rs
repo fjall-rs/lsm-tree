@@ -76,8 +76,7 @@ pub struct Decoder<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> {
     hi_scanner: HiScanner,
 
     // Cached metadata
-    pub(crate) restart_interval: u8,
-
+    restart_interval: u8,
     binary_index_step_size: u8,
     binary_index_offset: u32,
     binary_index_len: u32,
@@ -89,8 +88,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         let trailer = Trailer::new(block);
         let mut reader = trailer.as_slice();
 
-        let _item_count = reader.read_u32::<LittleEndian>().expect("should read");
-
         let restart_interval = unwrap!(reader.read_u8());
 
         let binary_index_step_size = unwrap!(reader.read_u8());
@@ -100,9 +97,8 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             "invalid binary index step size",
         );
 
-        // TODO: flip len, offset
-        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
         let binary_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+        let binary_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
 
         Self {
             block,
@@ -166,10 +162,19 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         Item::parse_restart_key(&mut cursor, pos, bytes).expect("should exist")
     }
 
-    fn partition_point(
-        &self,
-        pred: impl Fn(&[u8]) -> bool,
-    ) -> Option<(/* offset */ usize, /* idx */ usize)> {
+    fn partition_point<F>(&self, pred: F) -> Option<(/* offset */ usize, /* idx */ usize)>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        // The first pass over the binary index emulates `Iterator::partition_point` over the
+        // restart heads that are in natural key order.  We keep track of both the byte offset and
+        // the restart index because callers need the offset to seed the linear scanner, while the
+        // index is sometimes reused (for example by `seek_upper`).
+        //
+        // In contrast to the usual `partition_point`, we intentionally return the *last* restart
+        // entry when the predicate continues to hold for every head key.  Forward scans rely on
+        // this behaviour to land on the final restart interval and resume the linear scan there
+        // instead of erroneously reporting "not found".
         let binary_index = self.get_binary_index_reader();
 
         debug_assert!(
@@ -202,16 +207,27 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             return Some((0, 0));
         }
 
+        if left == binary_index.len() {
+            let idx = binary_index.len() - 1;
+            let offset = binary_index.get(idx);
+            return Some((offset, idx));
+        }
+
         let offset = binary_index.get(left - 1);
 
         Some((offset, left - 1))
     }
 
     // TODO:
-    fn partition_point_2(
-        &self,
-        pred: impl Fn(&[u8]) -> bool,
-    ) -> Option<(/* offset */ usize, /* idx */ usize)> {
+    fn partition_point_2<F>(&self, pred: F) -> Option<(/* offset */ usize, /* idx */ usize)>
+    where
+        F: Fn(&[u8]) -> bool,
+    {
+        // `partition_point_2` mirrors `partition_point` but keeps the *next* restart entry instead
+        // of the previous one. This variant is used exclusively by reverse scans (`seek_upper`)
+        // that want the first restart whose head key exceeds the predicate. Returning the raw
+        // offset preserves the ability to reuse linear scanning infrastructure without duplicating
+        // decoder logic.
         let binary_index = self.get_binary_index_reader();
 
         debug_assert!(
@@ -261,15 +277,35 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     pub fn seek(&mut self, pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         // TODO: make this nicer, maybe predicate that can affect the resulting index...?
         let result = if second_partition {
-            self.partition_point_2(pred)
+            self.partition_point_2(&pred)
         } else {
-            self.partition_point(pred)
+            self.partition_point(&pred)
         };
 
         // Binary index lookup
         let Some((offset, _)) = result else {
             return false;
         };
+
+        if second_partition && self.restart_interval == 1 && pred(self.get_key_at(offset)) {
+            // `second_partition == true` means we ran the "look one restart ahead" search used by
+            // index blocks. When the predicate is still true at the chosen restart head it means
+            // the caller asked us to seek strictly beyond the last entry. In that case we skip any
+            // costly parsing and flip both scanners into an "exhausted" state so the outer iterator
+            // immediately reports EOF.
+            let end = self.block.data.len();
+
+            self.lo_scanner.offset = end;
+            self.lo_scanner.remaining_in_interval = 0;
+            self.lo_scanner.base_key_offset = None;
+
+            self.hi_scanner.offset = end;
+            self.hi_scanner.ptr_idx = usize::MAX;
+            self.hi_scanner.stack.clear();
+            self.hi_scanner.base_key_offset = Some(0);
+
+            return false;
+        }
 
         self.lo_scanner.offset = offset;
 
@@ -279,11 +315,11 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     /// Seeks the upper bound using the given predicate.
     ///
     /// Returns `false` if the key does not possible exist.
-    pub fn seek_upper(&mut self, pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
+    pub fn seek_upper(&mut self, mut pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         let result = if second_partition {
-            self.partition_point_2(pred)
+            self.partition_point_2(&pred)
         } else {
-            self.partition_point(pred)
+            self.partition_point(&pred)
         };
 
         // Binary index lookup

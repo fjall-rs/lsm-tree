@@ -1,10 +1,14 @@
 // Found by model testing
 
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, KvSeparationOptions, Result, config::CompressionPolicy};
+use lsm_tree::{
+    config::BlockSizePolicy, config::CompressionPolicy, AbstractTree, KvSeparationOptions, Result,
+};
 use std::sync::Arc;
 use test_log::test;
 
+// Yes this file is very large, it's hard to condense it to a more minimal repro
 #[test]
+#[rustfmt::skip]
 fn model_6() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
@@ -20,8 +24,6 @@ fn model_6() -> Result<()> {
         target_size: 1_024,
         ..Default::default()
     });
-
-    let value = b"hellohello";
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 152], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170598);
 tree.insert([0, 0, 0, 0, 0, 0, 0, 9], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170599);

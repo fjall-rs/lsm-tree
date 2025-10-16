@@ -122,7 +122,7 @@ impl CompactionState {
     }
 
     pub(crate) fn maintenance(&mut self, gc_watermark: SeqNo) -> crate::Result<()> {
-        log::debug!("Running manifest GC");
+        log::trace!("Running manifest GC with watermark={gc_watermark}");
 
         loop {
             let Some(head) = self.version_free_list.front() else {
@@ -138,7 +138,10 @@ impl CompactionState {
             }
         }
 
-        log::debug!("Manifest GC done");
+        log::trace!(
+            "Manifest GC done, manifest length now {}",
+            self.version_free_list_len(),
+        );
 
         Ok(())
     }

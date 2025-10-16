@@ -44,6 +44,8 @@ pub struct ParsedMeta {
     pub file_size: u64,
     pub item_count: u64,
     pub tombstone_count: u64,
+    pub weak_tombstone_count: u64,
+    pub weak_tombstone_reclaimable: u64,
 
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
@@ -142,6 +144,8 @@ impl ParsedMeta {
         let data_block_count = read_u64!(block, b"#data_block_count");
         let index_block_count = read_u64!(block, b"#index_block_count");
         let file_size = read_u64!(block, b"#size"); // TODO: 3.0.0 rename file_size
+        let weak_tombstone_count = read_u64!(block, b"#weak_tombstone_count");
+        let weak_tombstone_reclaimable = read_u64!(block, b"#weak_tombstone_reclaimable");
 
         let created_at = {
             let bytes = block
@@ -213,6 +217,8 @@ impl ParsedMeta {
             file_size,
             item_count,
             tombstone_count,
+            weak_tombstone_count,
+            weak_tombstone_reclaimable,
             data_block_compression,
             index_block_compression,
         })

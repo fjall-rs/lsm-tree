@@ -14,6 +14,12 @@ pub struct Metadata {
     /// Tombstone count
     pub tombstone_count: usize,
 
+    /// Weak tombstone (single delete) count
+    pub weak_tombstone_count: usize,
+
+    /// Weak tombstone + value pairs that become reclaimable when GC watermark advances
+    pub weak_tombstone_reclaimable_count: usize,
+
     // TODO: 3.0.0 - https://github.com/fjall-rs/lsm-tree/issues/101
     /// Written key count (unique keys)
     pub key_count: usize,
@@ -44,6 +50,8 @@ impl Default for Metadata {
 
             item_count: 0,
             tombstone_count: 0,
+            weak_tombstone_count: 0,
+            weak_tombstone_reclaimable_count: 0,
             key_count: 0,
             file_pos: BlockOffset(0),
             uncompressed_size: 0,

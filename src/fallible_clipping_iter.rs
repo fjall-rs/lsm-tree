@@ -161,7 +161,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn v3_clipping_iter_forwards() -> crate::Result<()> {
+    fn clipping_iter_forwards() -> crate::Result<()> {
         let items = [
             Ok(InternalValue::from_components(
                 b"a",
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_clipping_iter_rev() -> crate::Result<()> {
+    fn clipping_iter_rev() -> crate::Result<()> {
         let items = [
             Ok(InternalValue::from_components(
                 b"a",
@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_clipping_iter_ping_pong() -> crate::Result<()> {
+    fn clipping_iter_ping_pong() -> crate::Result<()> {
         let items = [
             Ok(InternalValue::from_components(
                 b"a",
