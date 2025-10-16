@@ -227,6 +227,14 @@ impl AbstractTree for BlobTree {
         self.index.tombstone_count()
     }
 
+    fn weak_tombstone_count(&self) -> u64 {
+        self.index.weak_tombstone_count()
+    }
+
+    fn weak_tombstone_reclaimable_count(&self) -> u64 {
+        self.index.weak_tombstone_reclaimable_count()
+    }
+
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
         self.index.drop_range(range)
     }
