@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{binary_search::partition_point, KeyRange};
+use crate::KeyRange;
 use std::ops::{Bound, RangeBounds};
 
 pub trait Ranged {
@@ -93,7 +93,7 @@ impl<T: Ranged> Run<T> {
 
     /// Returns the segment tha'a,t possibly contains the key.
     pub fn get_for_key(&self, key: &[u8]) -> Option<&T> {
-        let idx = partition_point(self, |x| x.key_range().max() < &key);
+        let idx = self.partition_point(|x| x.key_range().max() < &key);
 
         self.0.get(idx).filter(|x| x.key_range().min() <= &key)
     }
@@ -160,10 +160,10 @@ impl<T: Ranged> Run<T> {
         let lo = match key_range.start_bound() {
             Bound::Unbounded => 0,
             Bound::Included(start_key) => {
-                partition_point(level, |x| x.key_range().max() < start_key)
+                level.partition_point(|x| x.key_range().max() < start_key)
             }
             Bound::Excluded(start_key) => {
-                partition_point(level, |x| x.key_range().max() <= start_key)
+                level.partition_point(|x| x.key_range().max() <= start_key)
             }
         };
 
@@ -179,7 +179,7 @@ impl<T: Ranged> Run<T> {
             Bound::Unbounded => level.len() - 1,
             Bound::Included(end_key) => {
                 // IMPORTANT: We need to add back `lo` because we sliced it off
-                let idx = lo + partition_point(truncated_level, |x| x.key_range().min() <= end_key);
+                let idx = lo + truncated_level.partition_point(|x| x.key_range().min() <= end_key);
 
                 if idx == 0 {
                     return None;
@@ -189,7 +189,7 @@ impl<T: Ranged> Run<T> {
             }
             Bound::Excluded(end_key) => {
                 // IMPORTANT: We need to add back `lo` because we sliced it off
-                let idx = lo + partition_point(truncated_level, |x| x.key_range().min() < end_key);
+                let idx = lo + truncated_level.partition_point(|x| x.key_range().min() < end_key);
 
                 if idx == 0 {
                     return None;
