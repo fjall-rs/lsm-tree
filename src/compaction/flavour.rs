@@ -108,7 +108,7 @@ impl RelocatingCompaction {
         inner: StandardCompaction,
         blob_scanner: Peekable<BlobFileMergeScanner>,
         blob_writer: BlobFileWriter,
-        rewriting_blob_file_ids: HashSet<BlobFileId>,
+        rewriting_blob_file_ids: HashSet<BlobFileId>, // TODO: <- remove
         rewriting_blob_files: Vec<BlobFile>,
     ) -> Self {
         Self {
@@ -119,6 +119,8 @@ impl RelocatingCompaction {
             rewriting_blob_files,
         }
     }
+
+    // TODO: vvv validate/unit test this vvv
 
     /// Drains all blobs that come "before" the given vptr.
     fn drain_blobs(&mut self, key: &[u8], vptr: &BlobIndirection) -> crate::Result<()> {
@@ -136,7 +138,7 @@ impl RelocatingCompaction {
 
             match blob {
                 Ok((entry, _)) => {
-                    assert!((entry.key <= key), "vptr was not matched with blob");
+                    assert!(entry.key <= key, "vptr was not matched with blob");
                 }
                 Err(e) => return Err(e),
             }
@@ -173,9 +175,18 @@ impl CompactionFlavour for RelocatingCompaction {
                     .next()
                     .expect("vptr was not matched with blob (scanner is unexpectedly exhausted)")?;
 
-                debug_assert_eq!(blob_file_id, indirection.vhandle.blob_file_id);
-                debug_assert_eq!(blob_entry.key, item.key.user_key);
-                debug_assert_eq!(blob_entry.offset, indirection.vhandle.offset);
+                assert_eq!(
+                    blob_file_id, indirection.vhandle.blob_file_id,
+                    "matched blob has different blob file ID than vptr",
+                );
+                assert_eq!(
+                    blob_entry.key, item.key.user_key,
+                    "matched blob has different key than vptr",
+                );
+                assert_eq!(
+                    blob_entry.offset, indirection.vhandle.offset,
+                    "matched blob has different offset than vptr",
+                );
 
                 log::trace!(
                     "=> use blob: {:?}:{} offset: {} from BF {}",
@@ -239,12 +250,11 @@ impl CompactionFlavour for RelocatingCompaction {
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
         let created_blob_files = self.blob_writer.finish()?;
 
-        let mut blob_file_ids_to_drop = self.rewriting_blob_file_ids;
+        let mut blob_files_to_drop = self.rewriting_blob_files;
 
         for blob_file in super_version.version.value_log.values() {
             if blob_file.is_dead(super_version.version.gc_stats()) {
-                blob_file_ids_to_drop.insert(blob_file.id());
-                self.rewriting_blob_files.push(blob_file.clone());
+                blob_files_to_drop.push(blob_file.clone());
             }
         }
 
@@ -261,7 +271,10 @@ impl CompactionFlavour for RelocatingCompaction {
                         Some(blob_frag_map_diff)
                     },
                     created_blob_files,
-                    blob_file_ids_to_drop,
+                    blob_files_to_drop
+                        .iter()
+                        .map(BlobFile::id)
+                        .collect::<HashSet<_>>(),
                 ))
             },
             opts.eviction_seqno,
@@ -274,7 +287,7 @@ impl CompactionFlavour for RelocatingCompaction {
             table.mark_as_deleted();
         }
 
-        for blob_file in self.rewriting_blob_files {
+        for blob_file in blob_files_to_drop {
             blob_file.mark_as_deleted();
         }
 
