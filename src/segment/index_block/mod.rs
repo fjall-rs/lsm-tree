@@ -69,6 +69,12 @@ impl IndexBlock {
         Self { inner }
     }
 
+    /// Accesses the inner raw bytes
+    #[must_use]
+    pub fn as_slice(&self) -> &Slice {
+        &self.inner.data
+    }
+
     /// Returns the number of items in the block.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
