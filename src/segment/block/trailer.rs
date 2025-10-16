@@ -14,8 +14,10 @@ pub const TRAILER_START_MARKER: u8 = 255;
 const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>()
     + (2 * std::mem::size_of::<u8>())
     // Fixed key size (unused)
+    + std::mem::size_of::<u8>()
     + std::mem::size_of::<u16>()
     // Fixed value size (unused)
+    + std::mem::size_of::<u8>()
     + std::mem::size_of::<u32>();
 
 /// Block trailer
@@ -135,10 +137,11 @@ impl<'a> Trailer<'a> {
             .write_u32::<LittleEndian>(hash_index_offset)?;
 
         // Fixed key size (unused)
+        encoder.writer.write_u8(0)?;
         encoder.writer.write_u16::<LittleEndian>(0)?;
 
-        // TODO: 3.0.0 what if value is actually 0...? we need another byte prob
         // Fixed value size (unused)
+        encoder.writer.write_u8(0)?;
         encoder.writer.write_u32::<LittleEndian>(0)?;
 
         // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
