@@ -348,12 +348,13 @@ fn merge_segments(
                         .expect("should not fail")
                         .unwrap_or_default();
 
-                    let other_ref = other_ref
-                        .iter()
-                        .find(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id));
+                    let other_refs = other_ref
+                        .into_iter()
+                        .filter(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id))
+                        .collect::<Vec<_>>();
 
-                    if let Some(other_ref) = other_ref {
-                        linked_blob_files.retain(|x| x.id() != other_ref.blob_file_id);
+                    for additional_ref in other_refs {
+                        linked_blob_files.retain(|x| x.id() != additional_ref.blob_file_id);
                     }
                 }
 
@@ -364,7 +365,7 @@ fn merge_segments(
                 Box::new(StandardCompaction::new(table_writer, segments))
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
-                log::warn!(
+                log::debug!(
                     "Relocate blob files: {:?}",
                     blob_files_to_rewrite
                         .iter()
