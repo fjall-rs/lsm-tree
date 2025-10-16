@@ -468,9 +468,10 @@ impl Writer {
         fsync_directory(self.path.parent().expect("should have folder"))?;
 
         log::debug!(
-            "Written {} items in {} blocks into new segment file, written {} MiB",
+            "Written {} items in {} blocks into new table file #{}, written {} MiB",
             self.meta.item_count,
             self.meta.data_block_count,
+            self.segment_id,
             *self.meta.file_pos / 1_024 / 1_024,
         );
 

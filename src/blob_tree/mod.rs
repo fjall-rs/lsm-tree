@@ -406,7 +406,7 @@ impl AbstractTree for BlobTree {
         );
 
         let iter = memtable.iter().map(Ok);
-        let compaction_filter = CompactionStream::new(iter, eviction_seqno);
+        let compaction_stream = CompactionStream::new(iter, eviction_seqno);
 
         let mut blob_bytes_referenced = 0;
         let mut blobs_referenced_count = 0;
@@ -419,7 +419,7 @@ impl AbstractTree for BlobTree {
             .expect("kv separation options should exist")
             .separation_threshold;
 
-        for item in compaction_filter {
+        for item in compaction_stream {
             let item = item?;
 
             if item.is_tombstone() {
