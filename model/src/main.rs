@@ -1,3 +1,4 @@
+use byteview::ByteView;
 use clap::Parser;
 use lsm_tree::{
     config::{BlockSizePolicy, CompressionPolicy},
@@ -5,29 +6,60 @@ use lsm_tree::{
 };
 use rand::{seq::IteratorRandom, Rng};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap as ModelTree, sync::Arc};
+use std::{
+    collections::BTreeMap as ModelTree,
+    fs::File,
+    io::{BufRead, BufReader},
+    path::PathBuf,
+    sync::Arc,
+};
+
+/// Choose a key using a zipfian distribution biased towards the
+/// end of the range.
+/// The key is chosen from the range [0, written_count), except for
+/// the case when written_count is 0, in which case 0 is returned.
+pub fn choose_zipf(rng: &mut impl Rng, exponent: f64, written_count: u64) -> u64 {
+    use rand::prelude::Distribution;
+    use zipf::ZipfDistribution;
+
+    if written_count == 0 {
+        return 0;
+    }
+
+    written_count
+        - ZipfDistribution::new(written_count as usize, exponent)
+            .unwrap()
+            .sample(rng) as u64
+}
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 enum Operation {
-    Insert(Vec<u8>, Vec<u8>, SeqNo),
-    Remove(Vec<u8>, SeqNo),
-    FlushAndCompact(SeqNo),
+    PointRead(ByteView, SeqNo),
+    Insert(ByteView, ByteView, SeqNo),
+    Remove(ByteView, SeqNo),
+    Flush(SeqNo),
+    Compact(SeqNo),
 }
 
 impl std::fmt::Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Operation::PointRead(key, seqno) => {
+                writeln!(f, "tree.get({:?}, {seqno});", key)
+            }
             Operation::Insert(key, value, seqno) => {
                 writeln!(f, "tree.insert({:?}, {:?}, {seqno});", key, value)
             }
             Operation::Remove(key, seqno) => {
                 writeln!(f, "tree.remove({:?}, {seqno});", key)
             }
-            Operation::FlushAndCompact(seqno) => {
-                writeln!(f, "tree.flush_active_memtable({seqno})?;")?;
+            Operation::Flush(seqno) => {
+                writeln!(f, "tree.flush_active_memtable({seqno})?;")
+            }
+            Operation::Compact(seqno) => {
                 writeln!(f, "tree.compact(compaction.clone(), {seqno})?;")
             }
         }
@@ -46,8 +78,11 @@ struct Args {
     #[clap(long, default_value_t = false)]
     verbose: bool,
 
-    #[clap(long, default_value_t = 10_000)]
+    #[clap(long, default_value_t = 100_000)]
     full_check_interval: usize,
+
+    #[clap(long)]
+    rerun: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -72,41 +107,38 @@ impl Drop for OpLog {
         if std::thread::panicking() {
             use std::io::Write;
 
-            println!("-- OP LOG --");
+            println!("Writing op log");
 
             let file = std::fs::File::create("oplog").unwrap();
             let mut file = std::io::BufWriter::new(file);
 
+            let json_file = std::fs::File::create("oplog.jsonl").unwrap();
+            let mut json_file = std::io::BufWriter::new(json_file);
+
             for op in &self.0 {
-                print!("{op}");
+                // print!("{op}");
                 write!(file, "{op}").unwrap();
+                writeln!(json_file, "{}", serde_json::to_string(&op).unwrap()).unwrap();
             }
 
             file.flush().unwrap();
             file.get_mut().sync_all().unwrap();
 
+            json_file.flush().unwrap();
+            json_file.get_mut().sync_all().unwrap();
+
             eprintln!("-- Written oplog file to ./oplog --");
+            eprintln!("-- Written oplog jsonl file to ./oplog.jsonl --");
         }
     }
 }
 
-fn main() -> lsm_tree::Result<()> {
-    env_logger::Builder::from_default_env().init();
+fn run_oplog(oplog: &[Operation]) -> lsm_tree::Result<bool> {
+    let folder = tempfile::tempdir_in("/king/tmp")?;
 
-    let args = Args::parse();
-
-    let mut rng = rand::rng();
-    let folder = tempfile::tempdir()?;
-    eprintln!("Using DB folder: {folder:?}");
-    std::thread::sleep(std::time::Duration::from_millis(1_000));
-
-    // TODO: append to log file instead?
-    let mut op_log = OpLog::default();
-
-    let mut model = ModelTree::new();
     let db = lsm_tree::Config::new(folder.path())
-        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::Lz4))
-        .index_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::Lz4))
+        .data_block_compression_policy(CompressionPolicy::disabled())
+        .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))
         // .index_block_size_policy(BlockSizePolicy::all(100))
         .with_kv_separation(Some(
@@ -114,54 +146,215 @@ fn main() -> lsm_tree::Result<()> {
         ))
         .open()?;
 
-    let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
+    let compaction = Arc::new(lsm_tree::compaction::Leveled {
+        target_size: 32_000,
+        ..Default::default()
+    });
+
+    let mut model = ModelTree::<ByteView, ByteView>::new();
+
+    for op in oplog {
+        match op {
+            Operation::PointRead(key, s) => {
+                let real_v = db.get(&key, *s)?;
+                let model_v = model.get(&*key).cloned().map(lsm_tree::Slice::from);
+                assert_eq!(model_v, real_v, "point read does not match");
+            }
+            Operation::Insert(key, value, s) => {
+                db.insert(key.clone(), value.clone(), *s);
+                model.insert(key.clone(), value.clone().into());
+            }
+            Operation::Remove(key, s) => {
+                db.remove(key.clone(), *s);
+                model.remove(key.into());
+            }
+            Operation::Flush(watermark) => {
+                db.flush_active_memtable(*watermark)?;
+            }
+            Operation::Compact(watermark) => {
+                db.compact(compaction.clone(), *watermark)?;
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    db.drop_range::<&[u8], _>(..)?;
+
+    Ok(db.segment_count() == 0 && db.blob_file_count() == 0)
+}
+
+fn main() -> lsm_tree::Result<()> {
+    env_logger::Builder::from_default_env().init();
+
+    let args = Args::parse();
+
+    if let Some(oplog_path) = args.rerun {
+        let file = File::open(oplog_path)?;
+        let reader = BufReader::new(file);
+
+        let mut oplog = vec![];
+
+        for line in reader.lines() {
+            let line = line?;
+            let op: Operation = serde_json::from_str(&line).unwrap();
+            oplog.push(op);
+        }
+
+        eprintln!("recovered oplog with {} operations", oplog.len());
+
+        {
+            if run_oplog(&oplog)? {
+                eprintln!("initial op log is OK - exiting");
+            } else {
+                eprintln!("initial op log is failing - trying to minimize");
+            }
+        }
+
+        let mut changed = false;
+
+        loop {
+            eprintln!("op log len: {}", oplog.len());
+
+            for splice_idx in (0..oplog.len()).rev() {
+                eprintln!("splice {splice_idx}");
+
+                let mut copy = oplog.clone();
+                copy.remove(splice_idx);
+
+                if run_oplog(&copy)? {
+                    // eprintln!("op log is OK - trying another index");
+                } else {
+                    eprintln!("op log is failing - trying to minimize further");
+                    oplog = copy;
+                    changed = true;
+                }
+            }
+
+            if !changed {
+                break;
+            }
+
+            changed = false;
+        }
+
+        {
+            use std::io::Write;
+
+            let file = std::fs::File::create("oplog_min").unwrap();
+            let mut file = std::io::BufWriter::new(file);
+
+            let json_file = std::fs::File::create("oplog_min.jsonl").unwrap();
+            let mut json_file = std::io::BufWriter::new(json_file);
+
+            for op in oplog {
+                write!(file, "{op}").unwrap();
+                writeln!(json_file, "{}", serde_json::to_string(&op).unwrap()).unwrap();
+            }
+
+            file.flush().unwrap();
+            file.get_mut().sync_all().unwrap();
+
+            json_file.flush().unwrap();
+            json_file.get_mut().sync_all().unwrap();
+        }
+
+        return Ok(());
+    }
+
+    let mut rng = rand::thread_rng();
+    let folder = tempfile::tempdir_in("/king/tmp")?;
+    eprintln!("Using DB folder: {folder:?}");
+    std::thread::sleep(std::time::Duration::from_millis(1_000));
+
+    // TODO: append to log file instead?
+    let mut op_log = OpLog::default();
+
+    let mut model = ModelTree::<ByteView, ByteView>::new();
+
+    let db = lsm_tree::Config::new(folder.path())
+        .data_block_compression_policy(CompressionPolicy::disabled())
+        .index_block_compression_policy(CompressionPolicy::disabled())
+        .data_block_size_policy(BlockSizePolicy::all(100))
+        // .index_block_size_policy(BlockSizePolicy::all(100))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().separation_threshold(10),
+        ))
+        .open()?;
+
+    let compaction = Arc::new(lsm_tree::compaction::Leveled {
+        target_size: 32_000,
+        ..Default::default()
+    });
     let seqno = lsm_tree::SequenceNumberCounter::default();
+
+    for x in 0u64..100_000 {
+        let key: ByteView = x.to_be_bytes().into();
+        let value: ByteView = ByteView::new(b"hellohello");
+        let s = seqno.next();
+
+        db.insert(key.clone(), value.clone(), s);
+        model.insert(key.clone(), value.clone().into());
+
+        op_log.push(Operation::Insert(key.clone(), value.clone(), s));
+    }
+    op_log.push(Operation::Flush(0));
+    db.flush_active_memtable(0)?;
 
     for i in 0..args.ops.unwrap_or(usize::MAX) {
         let op = match (0usize..100).choose(&mut rng).unwrap() {
-            0.. => Operation::Insert(
-                rng.random_range(0u64..100_000).to_be_bytes().to_vec(),
-                b"hellohello".to_vec(),
+            0..50 => Operation::Insert(
+                rng.gen_range(0u64..100_000).to_be_bytes().into(),
+                ByteView::new(b"hellohello"),
                 seqno.next(),
             ),
             // 50.. => Operation::Remove(
-            //     rng.random_range(0u64..100_000).to_be_bytes().to_vec(),
+            //     rng.gen_range(0u64..100_000).to_be_bytes().to_vec(),
             //     seqno.next(),
             // ),
+            _ => {
+                let key = choose_zipf(&mut rng, 1.0, 100_000);
+                let key = key.to_be_bytes().into();
+                Operation::PointRead(key, seqno.get())
+            }
         };
 
-        if args.verbose || i % 100 == 0 {
+        if args.verbose || i % 100_000 == 0 {
             eprintln!("[{i}] Apply: {op:?}");
         }
 
         op_log.push(op.clone());
 
         match op {
+            Operation::PointRead(key, s) => {
+                let model_v = model.get(&key).cloned().map(lsm_tree::Slice::from);
+                let real_v = db.get(&key, s)?;
+                assert_eq!(model_v, real_v, "point read does not match");
+            }
             Operation::Insert(key, value, s) => {
                 db.insert(key.clone(), value.clone(), s);
-                model.insert(key.clone(), value.clone());
+                model.insert(key.clone(), value.clone().into());
 
-                let v = model.get(&key).unwrap();
-                assert_eq!(v, &value);
+                // let v = model.get(&key).unwrap();
+                // assert_eq!(v, &value);
 
-                let v = db.get(&key, seqno.get())?.unwrap();
-                assert_eq!(
-                    v, &value,
-                    "value (of point read) for key {key:?} does not match",
-                );
+                // let v = db.get(&key, seqno.get())?.unwrap();
+                // assert_eq!(
+                //     v, &value,
+                //     "value (of point read) for key {key:?} does not match",
+                // );
             }
             Operation::Remove(key, s) => {
                 db.remove(key.clone(), s);
                 model.remove(&key);
 
-                assert!(
-                    !model.contains_key(&key),
-                    "model should not contain deleted key {key:?}",
-                );
-                assert!(
-                    !db.contains_key(&key, seqno.get())?,
-                    "db should not contain deleted key {key:?}",
-                );
+                // assert!(
+                //     !model.contains_key(&key),
+                //     "model should not contain deleted key {key:?}",
+                // );
+                // assert!(
+                //     !db.contains_key(&key, seqno.get())?,
+                //     "db should not contain deleted key {key:?}",
+                // );
             }
             _ => unreachable!(),
         }
@@ -173,8 +366,11 @@ fn main() -> lsm_tree::Result<()> {
             for (expected, guard) in model.iter().zip(db.iter(seqno.get(), None)) {
                 let (k, v) = expected;
                 let (real_k, real_v) = &guard.into_inner()?;
-                assert_eq!(k, &**real_k, "key does not match");
-                assert_eq!(v, &**real_v, "value for key {k:?} does not match");
+                let real_k = &**real_k;
+                let real_v = &**real_v;
+
+                assert_eq!(&**k, real_k, "key does not match");
+                assert_eq!(&**v, real_v, "value for key {k:?} does not match");
 
                 // Additionally, do a point read as well (because it's a different read path)
                 let v = db.get(k, seqno.get())?.unwrap();
@@ -191,12 +387,13 @@ fn main() -> lsm_tree::Result<()> {
             }
 
             let watermark = seqno.get().saturating_sub(100);
-            op_log.push(Operation::FlushAndCompact(watermark));
+            op_log.push(Operation::Flush(watermark));
             db.flush_active_memtable(watermark)?;
+            op_log.push(Operation::Compact(watermark));
             db.compact(compaction.clone(), watermark)?;
         }
 
-        if op_log.len() > 1_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
+        if op_log.len() > 10_000_000 || db.disk_space() > /* 1 GiB */ 1 * 1_024 * 1_024 * 1_024 {
             eprintln!(
                 "DB size: {}, # tables: {}, # blob files: {}",
                 db.disk_space(),
@@ -206,14 +403,14 @@ fn main() -> lsm_tree::Result<()> {
             eprintln!("-- Clearing state --");
             std::thread::sleep(std::time::Duration::from_millis(500));
 
-            op_log.push(Operation::FlushAndCompact(u64::MAX));
-            db.flush_active_memtable(u64::MAX)?;
+            op_log.push(Operation::Flush(seqno.get()));
+            db.flush_active_memtable(seqno.get())?;
             db.drop_range::<&[u8], _>(..)?;
             model.clear();
 
             eprintln!(
-                "DB size: {}, # tables: {}, # blob files: {}",
-                db.disk_space(),
+                "DB size: {} MiB, # tables: {}, # blob files: {}",
+                db.disk_space() / 1_024 / 1_024,
                 db.segment_count(),
                 db.blob_file_count(),
             );
