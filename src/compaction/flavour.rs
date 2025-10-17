@@ -44,12 +44,13 @@ pub(super) fn prepare_table_writer(
     let is_last_level = payload.dest_level == last_level;
 
     log::debug!(
-          "Compacting tables {:?} into L{} (canonical L{}), data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
-          payload.segment_ids,
-          payload.dest_level,
-          payload.canonical_level,
-          opts.eviction_seqno,
-      );
+        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
+        payload.segment_ids,
+        payload.dest_level,
+        payload.canonical_level,
+        payload.target_size,
+        opts.eviction_seqno,
+    );
 
     Ok(table_writer
         .use_data_block_restart_interval(data_block_restart_interval)
@@ -108,14 +109,13 @@ impl RelocatingCompaction {
         inner: StandardCompaction,
         blob_scanner: Peekable<BlobFileMergeScanner>,
         blob_writer: BlobFileWriter,
-        rewriting_blob_file_ids: HashSet<BlobFileId>, // TODO: <- remove
         rewriting_blob_files: Vec<BlobFile>,
     ) -> Self {
         Self {
             inner,
             blob_scanner,
             blob_writer,
-            rewriting_blob_file_ids,
+            rewriting_blob_file_ids: rewriting_blob_files.iter().map(BlobFile::id).collect(),
             rewriting_blob_files,
         }
     }

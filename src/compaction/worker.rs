@@ -393,7 +393,6 @@ fn merge_segments(
                     inner,
                     scanner.peekable(),
                     writer,
-                    blob_files_to_rewrite.iter().map(BlobFile::id).collect(),
                     blob_files_to_rewrite,
                 ))
             }

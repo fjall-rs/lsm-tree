@@ -429,7 +429,7 @@ impl Version {
             let mut copy = self.gc_stats.deref().clone();
 
             for segment in &dropped_segments {
-                let linked_blob_files = segment.get_linked_blob_files()?.unwrap_or_default();
+                let linked_blob_files = segment.list_blob_file_references()?.unwrap_or_default();
 
                 for blob_file in linked_blob_files {
                     copy.entry(blob_file.blob_file_id)

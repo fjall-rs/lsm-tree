@@ -87,7 +87,7 @@ impl MultiWriter {
 
             current_key: None,
 
-            linked_blobs: HashMap::default(), // TODO: consume on finish or rotate
+            linked_blobs: HashMap::default(),
         })
     }
 

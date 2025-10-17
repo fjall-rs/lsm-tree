@@ -412,6 +412,7 @@ impl Writer {
                     "#data_block_count",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
                 ),
+                meta("#file_size", &self.meta.file_pos.to_le_bytes()),
                 meta("#filter_hash_type", b"xxh3"),
                 meta("#id", &self.segment_id.to_le_bytes()),
                 meta(
@@ -444,7 +445,6 @@ impl Writer {
                 ),
                 meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
-                meta("#size", &self.meta.file_pos.to_le_bytes()),
                 meta(
                     "#tombstone_count",
                     &(self.meta.tombstone_count as u64).to_le_bytes(),

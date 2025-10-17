@@ -233,6 +233,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
+    blob_tree::handle::BlobIndirection,
     key_range::KeyRange,
     merge::BoxedIterator,
     segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},

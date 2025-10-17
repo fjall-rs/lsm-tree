@@ -47,14 +47,14 @@ impl FragmentationMap {
         self.0.values().map(|x| x.bytes).sum()
     }
 
-    // TODO: unit test
+    // TODO: 3.0.0 unit test
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.
     pub fn prune(&mut self, value_log: &BTreeMap<BlobFileId, BlobFile>) {
         self.0.retain(|k, _| value_log.contains_key(k));
     }
 
-    // TODO: unit test
+    // TODO: 3.0.0 unit test
     pub fn merge_into(self, other: &mut Self) {
         for (blob_file_id, diff) in self.0 {
             other

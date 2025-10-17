@@ -93,7 +93,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 .iter_segments()
                 .nth(1)
                 .unwrap()
-                .get_linked_blob_files()?,
+                .list_blob_file_references()?,
         );
 
         // Blob file has no fragmentation before compaction (in stats)
@@ -124,7 +124,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 .iter_segments()
                 .next()
                 .unwrap()
-                .get_linked_blob_files()?,
+                .list_blob_file_references()?,
         );
     }
 
