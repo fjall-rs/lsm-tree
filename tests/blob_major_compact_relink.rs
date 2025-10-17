@@ -34,7 +34,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 .iter_segments()
                 .next()
                 .unwrap()
-                .get_linked_blob_files()?,
+                .list_blob_file_references()?,
         );
 
         tree.flush_active_memtable(1)?;
@@ -53,7 +53,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 .iter_segments()
                 .next()
                 .unwrap()
-                .get_linked_blob_files()?,
+                .list_blob_file_references()?,
         );
     }
 

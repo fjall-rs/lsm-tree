@@ -101,7 +101,7 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
-    pub fn get_linked_blob_files(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
+    pub fn list_blob_file_references(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
         use byteorder::{ReadBytesExt, LE};
 
         Ok(if let Some(handle) = &self.regions.linked_blob_files {

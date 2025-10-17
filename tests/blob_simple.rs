@@ -10,9 +10,6 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        // TODO: 3.0.0 just do Config.with_kv_separation().open()
-        //   on recover, check manifest for type
-        //     just return AnyTree
         let tree = lsm_tree::Config::new(path)
             .with_kv_separation(Some(Default::default()))
             .open()?;
