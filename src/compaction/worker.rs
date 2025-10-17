@@ -213,6 +213,85 @@ fn move_segments(
     Ok(())
 }
 
+// TODO: 3.0.0 unit test
+/// Picks blob files to rewrite (defragment)
+fn pick_blob_files_to_rewrite(
+    picked_tables: &HashSet<SegmentId>,
+    current_version: &Version,
+    blob_opts: &crate::KvSeparationOptions,
+) -> crate::Result<Vec<BlobFile>> {
+    use crate::Segment;
+
+    // We start off by getting all the blob files that are referenced by the tables
+    // that we want to compact.
+    let linked_blob_files = picked_tables
+        .iter()
+        .map(|&id| {
+            current_version.get_segment(id).unwrap_or_else(|| {
+                panic!("table {id} should exist");
+            })
+        })
+        .map(Segment::list_blob_file_references)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Then we filter all blob files that are not fragmented or old enough.
+    let mut linked_blob_files = linked_blob_files
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|blob_file_ref| {
+            current_version
+                .value_log
+                .get(&blob_file_ref.blob_file_id)
+                .unwrap_or_else(|| {
+                    panic!("blob file {} should exist", blob_file_ref.blob_file_id);
+                })
+        })
+        .filter(|blob_file| {
+            blob_file.is_stale(current_version.gc_stats(), blob_opts.staleness_threshold)
+        })
+        .filter(|blob_file| {
+            // NOTE: Dead blob files are dropped anyway during current_version change commit
+            !blob_file.is_dead(current_version.gc_stats())
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    linked_blob_files.sort_by_key(|a| a.id());
+
+    let cutoff_point = {
+        let len = linked_blob_files.len() as f32;
+        (len * blob_opts.age_cutoff) as usize
+    };
+    linked_blob_files.drain(cutoff_point..);
+
+    // IMPORTANT: Additionally, we also have to check if any other tables reference any of our candidate blob files.
+    // We have to *not* include blob files that are referenced by other tables, because otherwise those
+    // blob references would point into nothing (becoming dangling).
+    for table in current_version.iter_segments() {
+        if picked_tables.contains(&table.id()) {
+            continue;
+        }
+
+        let other_ref = table
+            .list_blob_file_references()
+            .expect("should not fail")
+            .unwrap_or_default();
+
+        let other_refs = other_ref
+            .into_iter()
+            .filter(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id))
+            .collect::<Vec<_>>();
+
+        for additional_ref in other_refs {
+            linked_blob_files.retain(|x| x.id() != additional_ref.blob_file_id);
+        }
+    }
+
+    Ok(linked_blob_files.into_iter().cloned().collect::<Vec<_>>())
+}
+
 fn hidden_guard(
     payload: &CompactionPayload,
     opts: &Options,
@@ -300,68 +379,12 @@ fn merge_segments(
         Some(blob_opts) => {
             merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
 
-            let blob_files_to_rewrite = {
-                // TODO: 3.0.0 vvv if blob gc is disabled, skip this part vvv
-
-                // TODO: 3.0.0 unit test and optimize... somehow
-                let mut linked_blob_files = payload
-                    .segment_ids
-                    .iter()
-                    .map(|&id| current_version.get_segment(id).expect("table should exist"))
-                    .filter_map(|x| x.get_linked_blob_files().expect("handle error"))
-                    .flatten()
-                    .map(|blob_file_ref| {
-                        current_version
-                            .value_log
-                            .get(&blob_file_ref.blob_file_id)
-                            .expect("blob file should exist")
-                    })
-                    .filter(|blob_file| {
-                        blob_file
-                            .is_stale(current_version.gc_stats(), blob_opts.staleness_threshold)
-                    })
-                    .filter(|blob_file| {
-                        // NOTE: Dead blob files are dropped anyway during current_version change commit
-                        !blob_file.is_dead(current_version.gc_stats())
-                    })
-                    .collect::<HashSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
-
-                linked_blob_files.sort_by_key(|a| a.id());
-
-                let cutoff_point = {
-                    let len = linked_blob_files.len() as f32;
-                    (len * blob_opts.age_cutoff) as usize
-                };
-                linked_blob_files.drain(cutoff_point..);
-
-                // NOTE: If there is any table not part of our compaction input
-                // that also points to the blob file, we cannot rewrite the blob file
-                for table in current_version.iter_segments() {
-                    if payload.segment_ids.contains(&table.id()) {
-                        continue;
-                    }
-
-                    let other_ref = table
-                        .get_linked_blob_files()
-                        .expect("should not fail")
-                        .unwrap_or_default();
-
-                    let other_refs = other_ref
-                        .into_iter()
-                        .filter(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id))
-                        .collect::<Vec<_>>();
-
-                    for additional_ref in other_refs {
-                        linked_blob_files.retain(|x| x.id() != additional_ref.blob_file_id);
-                    }
-                }
-
-                linked_blob_files.into_iter().cloned().collect::<Vec<_>>()
-            };
+            let blob_files_to_rewrite =
+                pick_blob_files_to_rewrite(&payload.segment_ids, current_version, blob_opts)?;
 
             if blob_files_to_rewrite.is_empty() {
+                log::debug!("No blob relocation needed");
+
                 Box::new(StandardCompaction::new(table_writer, segments))
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
@@ -433,6 +456,8 @@ fn merge_segments(
     log::trace!("Acquiring super version write lock");
     let mut super_version = opts.super_version.write().expect("lock is poisoned");
     log::trace!("Acquired super version write lock");
+
+    log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
     compactor
         .finish(
