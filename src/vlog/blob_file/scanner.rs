@@ -2,8 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{meta::METADATA_HEADER_MAGIC, writer::BLOB_HEADER_MAGIC};
-use crate::{coding::DecodeError, vlog::BlobFileId, Checksum, SeqNo, UserKey, UserValue};
+use super::writer::BLOB_HEADER_MAGIC;
+use crate::{
+    coding::DecodeError,
+    vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
+    Checksum, SeqNo, UserKey, UserValue,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,

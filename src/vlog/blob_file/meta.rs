@@ -3,22 +3,46 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    CompressionType, KeyRange,
+    coding::{Decode, Encode},
+    segment::{Block, DataBlock},
+    CompressionType, InternalValue, KeyRange, SeqNo, Slice,
 };
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Write};
+
+macro_rules! read_u64 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u64::<LittleEndian>()?
+    }};
+}
+
+macro_rules! read_u128 {
+    ($block:expr, $name:expr) => {{
+        let bytes = $block
+            .point_read($name, SeqNo::MAX)
+            .unwrap_or_else(|| panic!("meta property {:?} should exist", $name));
+
+        let mut bytes = &bytes.value[..];
+        bytes.read_u128::<LittleEndian>()?
+    }};
+}
 
 pub const METADATA_HEADER_MAGIC: &[u8] = b"META";
 
 #[derive(Debug)]
 pub struct Metadata {
-    // TODO: 3.0.0 created at, so we can do age-based compaction
+    pub created_at: u128,
+
     /// Number of KV-pairs in the blob file
     pub item_count: u64,
 
-    /// compressed size in bytes (on disk) (without the fixed size trailer)
-    pub compressed_bytes: u64,
+    /// compressed size in bytes (on disk) (without metadata or trailer)
+    pub total_compressed_bytes: u64,
 
     /// true size in bytes (if no compression were used)
     pub total_uncompressed_bytes: u64,
@@ -30,55 +54,96 @@ pub struct Metadata {
     pub compression: CompressionType,
 }
 
-impl Encode for Metadata {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+impl Metadata {
+    pub fn encode_into<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
+        fn meta(key: &str, value: &[u8]) -> InternalValue {
+            InternalValue::from_components(key, value, 0, crate::ValueType::Value)
+        }
+
         // Write header
         writer.write_all(METADATA_HEADER_MAGIC)?;
 
-        // Checksum type (always 0x0 = XXH3)
-        writer.write_u8(0x0)?;
+        #[rustfmt::skip]
+        let meta_items = [
+            meta("#checksum_type", b"xxh3"),
+            meta("#compression", &self.compression.encode_into_vec()),
+            meta("#created_at", &self.created_at.to_le_bytes()),
+            meta("#file_size", &self.total_compressed_bytes.to_le_bytes()),
+            meta("#item_count", &self.item_count.to_le_bytes()),
+            meta("#key#max", self.key_range.min()),
+            meta("#key#min", self.key_range.max()),
+            meta("#uncompressed_size", &self.total_uncompressed_bytes.to_le_bytes()),
+        ];
 
-        writer.write_u64::<LittleEndian>(self.item_count)?;
-        writer.write_u64::<LittleEndian>(self.compressed_bytes)?;
-        writer.write_u64::<LittleEndian>(self.total_uncompressed_bytes)?;
+        // NOTE: Just to make sure the items are definitely sorted
+        #[cfg(debug_assertions)]
+        {
+            let is_sorted = meta_items.iter().is_sorted_by_key(|kv| &kv.key);
+            assert!(is_sorted, "meta items not sorted correctly");
+        }
 
-        self.key_range.encode_into(writer)?;
+        // TODO: no binary index
+        let buf = DataBlock::encode_into_vec(&meta_items, 1, 0.0)?;
 
-        self.compression.encode_into(writer)?;
+        Block::write_into(
+            writer,
+            &buf,
+            crate::segment::block::BlockType::Meta,
+            self.compression,
+        )?;
 
         Ok(())
     }
-}
 
-impl Decode for Metadata {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    pub fn from_slice(slice: &Slice) -> crate::Result<Self> {
+        let reader = &mut &slice[..];
+
         // Check header
         let mut magic = [0u8; METADATA_HEADER_MAGIC.len()];
         reader.read_exact(&mut magic)?;
 
         if magic != METADATA_HEADER_MAGIC {
-            return Err(DecodeError::InvalidHeader("BlobFileMeta"));
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
+                "BlobFileMeta",
+            )));
         }
 
-        let checksum_type = reader.read_u8()?;
-        if checksum_type != 0x0 {
-            return Err(DecodeError::InvalidTag(("BlobFileChecksum", checksum_type)));
-        }
+        // TODO: Block::from_slice
+        let block = Block::from_reader(reader, CompressionType::None)?;
+        let block = DataBlock::new(block);
 
-        let item_count = reader.read_u64::<LittleEndian>()?;
-        let compressed_bytes = reader.read_u64::<LittleEndian>()?;
-        let total_uncompressed_bytes = reader.read_u64::<LittleEndian>()?;
+        let created_at = read_u128!(block, b"#created_at");
+        let item_count = read_u64!(block, b"#item_count");
+        let file_size = read_u64!(block, b"#file_size");
+        let total_uncompressed_bytes = read_u64!(block, b"#uncompressed_size");
 
-        let key_range = KeyRange::decode_from(reader)?;
+        let compression = {
+            let bytes = block
+                .point_read(b"#compression", SeqNo::MAX)
+                .expect("size should exist");
 
-        let compression = CompressionType::decode_from(reader)?;
+            let mut bytes = &bytes.value[..];
+            CompressionType::decode_from(&mut bytes)?
+        };
+
+        let key_range = KeyRange::new((
+            block
+                .point_read(b"#key#min", SeqNo::MAX)
+                .expect("key min should exist")
+                .value,
+            block
+                .point_read(b"#key#max", SeqNo::MAX)
+                .expect("key max should exist")
+                .value,
+        ));
 
         Ok(Self {
+            created_at,
+            compression,
             item_count,
-            compressed_bytes,
+            total_compressed_bytes: file_size,
             total_uncompressed_bytes,
             key_range,
-            compression,
         })
     }
 }

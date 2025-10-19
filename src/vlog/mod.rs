@@ -47,8 +47,14 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
             #[allow(clippy::expect_used)]
             let metadata_section = toc.section(b"meta").expect("metadata section should exist");
 
-            let mut reader = metadata_section.buf_reader(&path)?;
-            Metadata::decode_from(&mut reader)?
+            let file = std::fs::File::open(&path)?;
+            let metadata_slice = crate::file::read_exact(
+                &file,
+                metadata_section.pos(),
+                metadata_section.len() as usize,
+            )?;
+
+            Metadata::from_slice(&metadata_slice)?
         };
 
         blob_files.push(BlobFile(Arc::new(BlobFileInner {
