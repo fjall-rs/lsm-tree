@@ -3,23 +3,22 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    vlog::{blob_file::reader::Reader, BlobFileId, ValueHandle},
-    BlobFile, Cache, DescriptorTable, GlobalSegmentId, TreeId, UserValue,
+    version::BlobFileList,
+    vlog::{blob_file::reader::Reader, ValueHandle},
+    Cache, DescriptorTable, GlobalSegmentId, TreeId, UserValue,
 };
-use std::{collections::BTreeMap, fs::File, path::Path, sync::Arc};
+use std::{fs::File, path::Path, sync::Arc};
 
-type Inner = BTreeMap<BlobFileId, BlobFile>;
-
-pub struct Accessor<'a>(&'a Inner);
+pub struct Accessor<'a>(&'a BlobFileList);
 
 impl<'a> Accessor<'a> {
-    pub fn new(blob_files: &'a Inner) -> Self {
+    pub fn new(blob_files: &'a BlobFileList) -> Self {
         Self(blob_files)
     }
 
     pub fn disk_space(&self) -> u64 {
         self.0
-            .values()
+            .iter()
             .map(|x| x.0.meta.total_uncompressed_bytes)
             .sum()
     }
@@ -37,7 +36,7 @@ impl<'a> Accessor<'a> {
             return Ok(Some(value));
         }
 
-        let Some(blob_file) = self.0.get(&vhandle.blob_file_id) else {
+        let Some(blob_file) = self.0.get(vhandle.blob_file_id) else {
             return Ok(None);
         };
 

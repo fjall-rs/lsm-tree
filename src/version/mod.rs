@@ -2,10 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+mod blob_file_list;
 mod optimize;
 pub mod recovery;
 pub mod run;
 
+pub use blob_file_list::BlobFileList;
 pub use run::Run;
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
@@ -147,14 +149,13 @@ pub struct VersionInner {
     /// The individual LSM-tree levels which consist of runs of tables
     levels: Vec<Level>,
 
-    // TODO: 3.0.0 this should really be a newtype
     // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
     //
     // Changing the value log tends to happen way less often than other modifications to the
     // LSM-tree
     //
     /// Blob files for large values (value log)
-    pub(crate) value_log: Arc<BTreeMap<BlobFileId, BlobFile>>,
+    pub(crate) blob_files: Arc<BlobFileList>,
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
@@ -216,7 +217,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: Arc::default(),
+                blob_files: Arc::default(),
                 gc_stats: Arc::default(),
             }),
             seqno_watermark: 0,
@@ -257,7 +258,7 @@ impl Version {
         Ok(Self::from_levels(
             recovery.curr_version_id,
             version_levels,
-            blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect(),
+            BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
         ))
     }
@@ -266,14 +267,14 @@ impl Version {
     pub fn from_levels(
         id: VersionId,
         levels: Vec<Level>,
-        blob_files: BTreeMap<BlobFileId, BlobFile>,
+        blob_files: BlobFileList,
         gc_stats: FragmentationMap,
     ) -> Self {
         Self {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: Arc::new(blob_files),
+                blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
             }),
             seqno_watermark: 0,
@@ -296,7 +297,7 @@ impl Version {
     }
 
     pub fn blob_file_count(&self) -> usize {
-        self.value_log.len()
+        self.blob_files.len()
     }
 
     /// Returns an iterator over all segments.
@@ -358,11 +359,11 @@ impl Version {
 
         // Value log
         let value_log = if let Some(blob_files) = blob_files {
-            let mut copy = self.value_log.deref().clone();
+            let mut copy = self.blob_files.deref().clone();
             copy.extend(blob_files.iter().cloned().map(|bf| (bf.id(), bf)));
             copy.into()
         } else {
-            self.value_log.clone()
+            self.blob_files.clone()
         };
 
         let gc_stats = if let Some(diff) = diff {
@@ -378,7 +379,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log,
+                blob_files: value_log,
                 gc_stats,
             }),
             seqno_watermark: 0,
@@ -445,24 +446,10 @@ impl Version {
         };
 
         let value_log = if dropped_segments.is_empty() {
-            self.value_log.clone()
+            self.blob_files.clone()
         } else {
-            // TODO: 3.0.0 this should really be a newtype
-            let mut copy = self.value_log.deref().clone();
-
-            // TODO: 3.0.0 1.91
-            // copy.extract_if(.., |_, blob_file| blob_file.is_dead(&gc_stats));
-
-            copy.retain(|_, blob_file| {
-                if blob_file.is_dead(&gc_stats) {
-                    log::debug!("Dropping blob file: {}", blob_file.id());
-                    dropped_blob_files.push(blob_file.clone());
-                    false
-                } else {
-                    true
-                }
-            });
-
+            let mut copy = self.blob_files.deref().clone();
+            dropped_blob_files.extend(copy.prune_dead(&gc_stats));
             Arc::new(copy)
         };
 
@@ -470,7 +457,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log,
+                blob_files: value_log,
                 gc_stats,
             }),
             seqno_watermark: 0,
@@ -516,19 +503,19 @@ impl Version {
 
         let value_log = if has_diff || !new_blob_files.is_empty() || !blob_files_to_drop.is_empty()
         {
-            let mut copy = self.value_log.deref().clone();
+            let mut copy = self.blob_files.deref().clone();
 
             for blob_file in new_blob_files {
                 copy.insert(blob_file.id(), blob_file);
             }
 
-            for id in &blob_files_to_drop {
+            for &id in &blob_files_to_drop {
                 copy.remove(id);
             }
 
             Arc::new(copy)
         } else {
-            self.value_log.clone()
+            self.blob_files.clone()
         };
 
         let gc_stats = if has_diff || !blob_files_to_drop.is_empty() {
@@ -553,7 +540,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log,
+                blob_files: value_log,
                 gc_stats,
             }),
             seqno_watermark: 0,
@@ -599,7 +586,7 @@ impl Version {
             inner: Arc::new(VersionInner {
                 id,
                 levels,
-                value_log: self.value_log.clone(),
+                blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
             }),
             seqno_watermark: 0,
@@ -642,9 +629,9 @@ impl Version {
         // Blob file count
         // NOTE: We know there are always less than 4 billion blob files
         #[allow(clippy::cast_possible_truncation)]
-        writer.write_u32::<LittleEndian>(self.value_log.len() as u32)?;
+        writer.write_u32::<LittleEndian>(self.blob_files.len() as u32)?;
 
-        for file in self.value_log.values() {
+        for file in self.blob_files.iter() {
             writer.write_u64::<LittleEndian>(file.id())?;
         }
 
@@ -728,15 +715,12 @@ impl Version {
             }
         }
 
-        if !self.value_log.is_empty() {
+        if !self.blob_files.is_empty() {
             writeln!(f)?;
             writeln!(
                 f,
                 "BLOB: {:?}",
-                self.value_log
-                    .values()
-                    .map(BlobFile::id)
-                    .collect::<Vec<_>>(),
+                self.blob_files.list_ids().collect::<Vec<_>>(),
             )?;
         }
 

@@ -4,9 +4,8 @@
 
 use crate::{
     blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::ExpiredKvCallback,
-    vlog::BlobFileId, BlobFile,
+    version::BlobFileList, vlog::BlobFileId,
 };
-use std::collections::BTreeMap;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FragmentationEntry {
@@ -50,8 +49,8 @@ impl FragmentationMap {
     // TODO: 3.0.0 unit test
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.
-    pub fn prune(&mut self, value_log: &BTreeMap<BlobFileId, BlobFile>) {
-        self.0.retain(|k, _| value_log.contains_key(k));
+    pub fn prune(&mut self, value_log: &BlobFileList) {
+        self.0.retain(|&k, _| value_log.contains_key(k));
     }
 
     // TODO: 3.0.0 unit test

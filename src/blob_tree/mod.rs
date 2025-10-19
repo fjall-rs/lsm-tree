@@ -59,7 +59,7 @@ fn resolve_value_handle(tree: &BlobTree, version: &Version, item: InternalValue)
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
-        match Accessor::new(&version.value_log).get(
+        match Accessor::new(&version.blob_files).get(
             tree.id(),
             &tree.blobs_folder,
             &item.key.user_key,
@@ -111,9 +111,8 @@ impl BlobTree {
 
         let blob_file_id_to_continue_with = index
             .current_version()
-            .value_log
-            .values()
-            .map(BlobFile::id)
+            .blob_files
+            .list_ids()
             .max()
             .map(|x| x + 1)
             .unwrap_or_default();
@@ -576,7 +575,7 @@ impl AbstractTree for BlobTree {
 
     fn disk_space(&self) -> u64 {
         let version = self.current_version();
-        let vlog = crate::vlog::Accessor::new(&version.value_log);
+        let vlog = crate::vlog::Accessor::new(&version.blob_files);
         self.index.disk_space() + vlog.disk_space()
     }
 
