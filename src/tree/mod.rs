@@ -882,9 +882,11 @@ impl Tree {
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
-        let bytes = std::fs::read(config.path.join(MANIFEST_FILE))?;
-        let mut bytes = Cursor::new(bytes);
-        let manifest = Manifest::decode_from(&mut bytes)?;
+        let manifest = {
+            let manifest_path = config.path.join(MANIFEST_FILE);
+            let reader = sfa::Reader::new(&manifest_path)?;
+            Manifest::decode_from(&manifest_path, &reader)?
+        };
 
         if manifest.version != FormatVersion::V3 {
             return Err(crate::Error::InvalidVersion(manifest.version));
@@ -939,7 +941,7 @@ impl Tree {
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
         use crate::file::{fsync_directory, MANIFEST_FILE, SEGMENTS_FOLDER};
-        use std::fs::{create_dir_all, File};
+        use std::fs::create_dir_all;
 
         let path = config.path.clone();
         log::trace!("Creating LSM-tree at {}", path.display());
@@ -952,20 +954,23 @@ impl Tree {
         let segment_folder_path = path.join(SEGMENTS_FOLDER);
         create_dir_all(&segment_folder_path)?;
 
-        // NOTE: Lastly, fsync version marker, which contains the version
-        // -> the LSM is fully initialized
-        let mut file = File::create_new(manifest_path)?;
-        Manifest {
-            version: FormatVersion::V3,
-            level_count: config.level_count,
-            tree_type: if config.kv_separation_opts.is_some() {
-                TreeType::Blob
-            } else {
-                TreeType::Standard
-            },
+        // Create manifest
+        {
+            let mut writer = sfa::Writer::new_at_path(manifest_path)?;
+
+            Manifest {
+                version: FormatVersion::V3,
+                level_count: config.level_count,
+                tree_type: if config.kv_separation_opts.is_some() {
+                    TreeType::Blob
+                } else {
+                    TreeType::Standard
+                },
+            }
+            .encode_into(&mut writer)?;
+
+            writer.finish()?;
         }
-        .encode_into(&mut file)?;
-        file.sync_all()?;
 
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&segment_folder_path)?;
