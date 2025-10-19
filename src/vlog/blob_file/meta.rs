@@ -89,7 +89,7 @@ impl Metadata {
             writer,
             &buf,
             crate::segment::block::BlockType::Meta,
-            self.compression,
+            CompressionType::None,
         )?;
 
         Ok(())
