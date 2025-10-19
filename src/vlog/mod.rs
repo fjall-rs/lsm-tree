@@ -42,7 +42,11 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
         let meta = {
             let reader = sfa::Reader::new(&path)?;
             let toc = reader.toc();
+
+            // NOTE: Nothing we can do - something has gone horribly wrong
+            #[allow(clippy::expect_used)]
             let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+
             let mut reader = metadata_section.buf_reader(&path)?;
             Metadata::decode_from(&mut reader)?
         };
