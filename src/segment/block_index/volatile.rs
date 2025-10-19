@@ -10,6 +10,9 @@ use crate::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+#[cfg(feature = "metrics")]
+use crate::Metrics;
+
 /// Index that translates item keys to data block handles
 ///
 /// The index is loaded on demand.
@@ -20,6 +23,9 @@ pub struct VolatileBlockIndex {
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
+
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl VolatileBlockIndex {
@@ -48,6 +54,9 @@ struct Iter {
 
     lo: Option<UserKey>,
     hi: Option<UserKey>,
+
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl Iter {
@@ -63,6 +72,9 @@ impl Iter {
 
             lo: None,
             hi: None,
+
+            #[cfg(feature = "metrics")]
+            metrics: index.metrics.clone(),
         }
     }
 }
@@ -94,6 +106,8 @@ impl Iterator for Iter {
                 &self.handle,
                 BlockType::Index,
                 self.compression,
+                #[cfg(feature = "metrics")]
+                &self.metrics,
             ));
             let index_block = IndexBlock::new(block);
 
@@ -132,6 +146,8 @@ impl DoubleEndedIterator for Iter {
                 &self.handle,
                 BlockType::Index,
                 self.compression,
+                #[cfg(feature = "metrics")]
+                &self.metrics,
             ));
             let index_block = IndexBlock::new(block);
 

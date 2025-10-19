@@ -425,6 +425,9 @@ impl Segment {
                 descriptor_table: descriptor_table.clone(),
                 path: file_path.clone(),
                 segment_id: (tree_id, metadata.id).into(),
+
+                #[cfg(feature = "metrics")]
+                metrics: metrics.clone(),
             })
         } else if pin_index {
             log::trace!(
@@ -444,6 +447,9 @@ impl Segment {
                 handle: regions.tli,
                 path: file_path.clone(),
                 segment_id: (tree_id, metadata.id).into(),
+
+                #[cfg(feature = "metrics")]
+                metrics: metrics.clone(),
             })
         };
 

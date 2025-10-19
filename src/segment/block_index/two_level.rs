@@ -9,6 +9,9 @@ use crate::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+#[cfg(feature = "metrics")]
+use crate::Metrics;
+
 /// Index that translates item keys to data block handles
 ///
 /// Only the top-level index is loaded into memory.
@@ -19,6 +22,9 @@ pub struct TwoLevelBlockIndex {
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
+
+    #[cfg(feature = "metrics")]
+    pub(crate) metrics: Arc<Metrics>,
 }
 
 impl TwoLevelBlockIndex {
@@ -44,6 +50,9 @@ impl TwoLevelBlockIndex {
             descriptor_table: self.descriptor_table.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
+
+            #[cfg(feature = "metrics")]
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -63,6 +72,9 @@ struct Iter {
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
+
+    #[cfg(feature = "metrics")]
+    metrics: Arc<Metrics>,
 }
 
 impl Iter {
@@ -124,6 +136,8 @@ impl Iterator for Iter {
                     &handle.into_inner(),
                     BlockType::Index,
                     self.compression,
+                    #[cfg(feature = "metrics")]
+                    &self.metrics,
                 ));
                 let index_block = IndexBlock::new(block);
 
@@ -185,6 +199,8 @@ impl DoubleEndedIterator for Iter {
                     &handle.into_inner(),
                     BlockType::Index,
                     self.compression,
+                    #[cfg(feature = "metrics")]
+                    &self.metrics,
                 ));
                 let index_block = IndexBlock::new(block);
 
