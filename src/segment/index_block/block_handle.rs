@@ -103,6 +103,11 @@ impl AsRef<BlockHandle> for KeyedBlockHandle {
 
 impl KeyedBlockHandle {
     #[must_use]
+    pub fn into_inner(self) -> BlockHandle {
+        self.inner
+    }
+
+    #[must_use]
     pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
         Self {
             end_key,

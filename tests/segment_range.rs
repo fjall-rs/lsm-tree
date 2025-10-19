@@ -4,7 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 1_000_000;
 
 #[test]
-fn segment_ranges() -> lsm_tree::Result<()> {
+fn a_lot_of_ranges() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)

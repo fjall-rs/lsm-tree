@@ -241,8 +241,8 @@ fn pick_blob_files_to_rewrite(
         .flatten()
         .map(|blob_file_ref| {
             current_version
-                .value_log
-                .get(&blob_file_ref.blob_file_id)
+                .blob_files
+                .get(blob_file_ref.blob_file_id)
                 .unwrap_or_else(|| {
                     panic!("blob file {} should exist", blob_file_ref.blob_file_id);
                 })

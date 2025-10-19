@@ -45,8 +45,6 @@ impl<'a> Trailer<'a> {
     pub fn item_count(&self) -> usize {
         let reader = self.as_slice();
 
-        eprintln!("{reader:?}");
-
         // NOTE: We now that the item count is the the end and is a u32
         #[allow(clippy::indexing_slicing)]
         let reader = &mut &reader[(TRAILER_SIZE - std::mem::size_of::<u32>())..];

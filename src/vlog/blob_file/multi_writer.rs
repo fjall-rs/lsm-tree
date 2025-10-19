@@ -132,8 +132,9 @@ impl MultiWriter {
                 id: blob_file_id,
                 path: writer.path.clone(),
                 meta: Metadata {
+                    created_at: crate::time::unix_timestamp().as_nanos(),
                     item_count: writer.item_count,
-                    compressed_bytes: writer.written_blob_bytes,
+                    total_compressed_bytes: writer.written_blob_bytes,
                     total_uncompressed_bytes: writer.uncompressed_bytes,
 
                     // NOTE: We are checking for 0 items above

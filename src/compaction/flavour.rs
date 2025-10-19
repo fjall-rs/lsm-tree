@@ -252,7 +252,7 @@ impl CompactionFlavour for RelocatingCompaction {
 
         let mut blob_files_to_drop = self.rewriting_blob_files;
 
-        for blob_file in super_version.version.value_log.values() {
+        for blob_file in super_version.version.blob_files.iter() {
             if blob_file.is_dead(super_version.version.gc_stats()) {
                 blob_files_to_drop.push(blob_file.clone());
             }
@@ -376,7 +376,7 @@ impl CompactionFlavour for StandardCompaction {
 
         let mut blob_files_to_drop = Vec::default();
 
-        for blob_file in super_version.version.value_log.values() {
+        for blob_file in super_version.version.blob_files.iter() {
             if blob_file.is_dead(super_version.version.gc_stats()) {
                 blob_files_to_drop.push(blob_file.clone());
             }

@@ -6,11 +6,14 @@ use super::{
     KeyedBlockHandle,
 };
 use crate::{
-    coding::Encode, file::fsync_directory, segment::filter::standard_bloom::Builder,
-    time::unix_timestamp, vlog::BlobFileId, CompressionType, InternalValue, SegmentId, UserKey,
-    ValueType,
+    coding::Encode,
+    file::fsync_directory,
+    segment::{filter::standard_bloom::Builder, writer::index::FullIndexWriter},
+    time::unix_timestamp,
+    vlog::BlobFileId,
+    CompressionType, InternalValue, SegmentId, UserKey, ValueType,
 };
-use index::{BlockIndexWriter, FullIndexWriter};
+use index::BlockIndexWriter;
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
@@ -80,7 +83,7 @@ impl Writer {
     pub fn new(path: PathBuf, segment_id: SegmentId) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
-        let mut block_writer = sfa::Writer::into_writer(block_writer);
+        let mut block_writer = sfa::Writer::from_writer(block_writer);
         block_writer.start("data")?;
 
         Ok(Self {
@@ -132,6 +135,13 @@ impl Writer {
     }
 
     #[must_use]
+    pub fn use_partitioned_index(mut self) -> Self {
+        self.index_writer = Box::new(index::PartitionedIndexWriter::new())
+            .use_compression(self.index_block_compression);
+        self
+    }
+
+    #[must_use]
     pub fn use_data_block_restart_interval(mut self, interval: u8) -> Self {
         self.data_block_restart_interval = interval;
         self
@@ -178,7 +188,7 @@ impl Writer {
     #[must_use]
     pub fn use_index_block_compression(mut self, compression: CompressionType) -> Self {
         self.index_block_compression = compression;
-        self.index_writer.set_compression(compression);
+        self.index_writer = self.index_writer.use_compression(compression);
         self
     }
 
@@ -463,7 +473,6 @@ impl Writer {
                 ),
                 meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
                 meta("v#table_version", &[3u8]),
-                // TODO: tli_handle_count
                 // TODO: hash ratio etc
             ];
 

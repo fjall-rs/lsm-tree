@@ -4,9 +4,7 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
 use crate::{
-    segment::{
-        block::ParsedItem, block_index::iter::OwnedIndexBlockIter, util::load_block, BlockHandle,
-    },
+    segment::{block::ParsedItem, block_index::BlockIndexIter, util::load_block, BlockHandle},
     Cache, CompressionType, DescriptorTable, InternalValue, SeqNo, UserKey,
 };
 use self_cell::self_cell;
@@ -55,7 +53,7 @@ impl DoubleEndedIterator for OwnedDataBlockIter {
     }
 }
 
-pub fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
+fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
     OwnedDataBlockIter::new(block, super::data_block::DataBlock::iter)
 }
 
@@ -64,7 +62,7 @@ pub struct Iter {
     path: Arc<PathBuf>,
 
     #[allow(clippy::struct_field_names)]
-    index_iter: OwnedIndexBlockIter,
+    index_iter: Box<dyn BlockIndexIter>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
@@ -87,7 +85,7 @@ impl Iter {
     pub fn new(
         segment_id: GlobalSegmentId,
         path: Arc<PathBuf>,
-        index_iter: OwnedIndexBlockIter,
+        index_iter: Box<dyn BlockIndexIter>,
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
         compression: CompressionType,
@@ -145,15 +143,16 @@ impl Iterator for Iter {
             let mut ok = true;
 
             if let Some(key) = &self.range.0 {
-                // Seek to the first block whose end key is ≥ lower bound.  If this fails we can
-                // immediately conclude the range is empty.
+                // Seek to the first block whose end key is ≥ lower bound.
+                // If this fails we can immediately conclude the range is empty.
                 ok = self.index_iter.seek_lower(key);
             }
 
             if ok {
                 if let Some(key) = &self.range.1 {
                     // Narrow the iterator further by skipping any blocks strictly above the upper
-                    // bound.  Again, a miss means the range is empty.
+                    // bound.
+                    // Again, a miss means the range is empty.
                     ok = self.index_iter.seek_upper(key);
                 }
             }
@@ -184,6 +183,7 @@ impl Iterator for Iter {
                 self.hi_data_block = None;
                 return None;
             };
+            let handle = fail_iter!(handle);
 
             // Load the next data block referenced by the index handle.  We try the shared block
             // cache first to avoid hitting the filesystem, and fall back to `load_block` on miss.
@@ -282,6 +282,7 @@ impl DoubleEndedIterator for Iter {
                 self.hi_data_block = None;
                 return None;
             };
+            let handle = fail_iter!(handle);
 
             // Retrieve the next data block from the cache (or disk on miss) so the high-side reader
             // can serve entries in reverse order.

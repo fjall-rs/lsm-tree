@@ -44,7 +44,3 @@ impl DoubleEndedIterator for OwnedIndexBlockIter {
         })
     }
 }
-
-pub fn create_index_block_reader(block: IndexBlock) -> OwnedIndexBlockIter {
-    OwnedIndexBlockIter::new(block, IndexBlock::iter)
-}
