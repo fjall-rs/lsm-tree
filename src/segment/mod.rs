@@ -28,7 +28,9 @@ use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
     segment::{
-        block::{BlockType, ParsedItem},
+        block::BlockType,
+        block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
+        regions::ParsedRegions,
         writer::LinkedFile,
     },
     CompressionType, InternalValue, SeqNo, TreeId, UserKey,
@@ -155,7 +157,10 @@ impl Segment {
     pub fn pinned_block_index_size(&self) -> usize {
         match &*self.block_index {
             BlockIndexImpl::Full(full_block_index) => full_block_index.inner().inner.size(),
-            BlockIndexImpl::VolatileFull => 0,
+            BlockIndexImpl::VolatileFull(_) => 0,
+            BlockIndexImpl::TwoLevel(two_level_block_index) => {
+                two_level_block_index.top_level_index.inner.size()
+            }
         }
     }
 
@@ -254,31 +259,13 @@ impl Segment {
     // TODO: we would need to return something like ValueType + Value
     // TODO: so the caller can decide whether to return the value or not
     fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        // TODO: enum_dispatch BlockIndex::iter
-        let index_block = match &*self.block_index {
-            BlockIndexImpl::Full(index) => index.inner(),
-            BlockIndexImpl::VolatileFull => &IndexBlock::new(self.load_block(
-                &self.regions.tli,
-                BlockType::Index,
-                self.metadata.index_block_compression,
-            )?),
-        };
-
-        let iter = {
-            let mut iter = index_block.iter();
-
-            if iter.seek(key) {
-                Some(iter.map(|x| x.materialize(&index_block.inner.data)))
-            } else {
-                None
-            }
-        };
-
-        let Some(iter) = iter else {
+        let Some(iter) = self.block_index.forward_reader(key) else {
             return Ok(None);
         };
 
         for block_handle in iter {
+            let block_handle = block_handle?;
+
             // TODO: can this ever happen...?
             if block_handle.end_key() < &key {
                 return Ok(None);
@@ -351,25 +338,8 @@ impl Segment {
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
         use crate::fallible_clipping_iter::FallibleClippingIter;
-        use block_index::iter::create_index_block_reader;
 
-        // TODO: enum_dispatch BlockIndex::iter
-        let index_block = match &*self.block_index {
-            BlockIndexImpl::Full(idx) => idx.inner(),
-            BlockIndexImpl::VolatileFull => {
-                &IndexBlock::new(
-                    // TODO: load on initial access to block index
-                    self.load_block(
-                        &self.regions.tli,
-                        BlockType::Index,
-                        self.metadata.index_block_compression,
-                    )
-                    .expect("should load block"),
-                )
-            }
-        };
-
-        let index_iter = create_index_block_reader(index_block.clone());
+        let index_iter = self.block_index.iter();
 
         let mut iter = Iter::new(
             self.global_id(),
@@ -399,6 +369,25 @@ impl Segment {
         FallibleClippingIter::new(iter, range)
     }
 
+    fn read_tli(
+        regions: &ParsedRegions,
+        file: &File,
+        compression: CompressionType,
+    ) -> crate::Result<IndexBlock> {
+        log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
+
+        let block = Block::from_file(file, regions.tli, compression)?;
+
+        if block.header.block_type != BlockType::Index {
+            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                "BlockType",
+                block.header.block_type.into(),
+            ))));
+        }
+
+        Ok(IndexBlock::new(block))
+    }
+
     /// Tries to recover a segment from a file.
     pub fn recover(
         file_path: PathBuf,
@@ -409,7 +398,6 @@ impl Segment {
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
     ) -> crate::Result<Self> {
-        use block_index::FullBlockIndex;
         use meta::ParsedMeta;
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
@@ -423,39 +411,40 @@ impl Segment {
         log::trace!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
-        let block_index = if let Some(index_block_handle) = regions.index {
+        let block_index = if regions.index.is_some() {
             log::trace!(
-                "Creating partitioned block index, with tli_ptr={:?}, index_block_ptr={index_block_handle:?}",
+                "Creating partitioned block index, with tli_ptr={:?}",
                 regions.tli,
             );
 
-            unimplemented!("partitioned index is not supported yet");
-
-            // BlockIndexImpl::TwoLevel(tli_block, todo!())
+            let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+            BlockIndexImpl::TwoLevel(TwoLevelBlockIndex {
+                top_level_index: block,
+                cache: cache.clone(),
+                compression: metadata.index_block_compression,
+                descriptor_table: descriptor_table.clone(),
+                path: file_path.clone(),
+                segment_id: (tree_id, metadata.id).into(),
+            })
         } else if pin_index {
-            let tli_block = {
-                log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
-
-                let block = Block::from_file(&file, regions.tli, metadata.index_block_compression)?;
-
-                if block.header.block_type != BlockType::Index {
-                    return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                        "BlockType",
-                        block.header.block_type.into(),
-                    ))));
-                }
-
-                IndexBlock::new(block)
-            };
-
             log::trace!(
-                "Creating pinned block index, with tli_ptr={:?}",
+                "Creating pinned, full block index, with tli_ptr={:?}",
                 regions.tli,
             );
-            BlockIndexImpl::Full(FullBlockIndex::new(tli_block))
+
+            let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+            BlockIndexImpl::Full(FullBlockIndex::new(block))
         } else {
-            log::trace!("Creating volatile block index");
-            BlockIndexImpl::VolatileFull
+            log::trace!("Creating volatile, full block index");
+
+            BlockIndexImpl::VolatileFull(VolatileBlockIndex {
+                cache: cache.clone(),
+                compression: metadata.index_block_compression,
+                descriptor_table: descriptor_table.clone(),
+                handle: regions.tli,
+                path: file_path.clone(),
+                segment_id: (tree_id, metadata.id).into(),
+            })
         };
 
         // TODO: FilterBlock newtype
@@ -487,6 +476,8 @@ impl Segment {
         } else {
             None
         };
+
+        log::trace!("Table #{} recovered", metadata.id);
 
         let segment = Self(Arc::new(Inner {
             path: Arc::new(file_path),
@@ -611,6 +602,11 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             assert_eq!(
                 b"abc",
@@ -624,6 +620,161 @@ mod tests {
                     .key
                     .user_key,
             );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"____",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
+                )?
+            );
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"abc".into())),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn segment_volatile_index_point_read() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            writer.write(crate::InternalValue::from_components(
+                b"abc",
+                b"asdasdasd",
+                3,
+                crate::ValueType::Value,
+            ))?;
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                false,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(1, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 2 because we use a full index
+            assert!(segment.regions.index.is_none(), "should use full index");
+            assert_eq!(
+                0,
+                segment.pinned_block_index_size(),
+                "should not pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
+            assert_eq!(
+                b"abc",
+                &*segment
+                    .get(
+                        b"abc",
+                        SeqNo::MAX,
+                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
+                    )?
+                    .unwrap()
+                    .key
+                    .user_key,
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"def",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"def")
+                )?
+            );
+            assert_eq!(
+                None,
+                segment.get(
+                    b"____",
+                    SeqNo::MAX,
+                    crate::segment::filter::standard_bloom::Builder::get_hash(b"____")
+                )?
+            );
+
+            assert_eq!(
+                segment.metadata.key_range,
+                crate::KeyRange::new((b"abc".into(), b"abc".into())),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn segment_partitioned_index_point_read() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_partitioned_index();
+
+            writer.write(crate::InternalValue::from_components(
+                b"abc",
+                b"asdasdasd",
+                3,
+                crate::ValueType::Value,
+            ))?;
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(1, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(2, segment.metadata.index_block_count); // 2 because we use a full index, + 1 2nd level index block
+            assert!(segment.regions.index.is_some(), "should use 2-tier index");
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin TLI block",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
             assert_eq!(
                 b"abc",
                 &*segment
@@ -707,6 +858,11 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             assert_eq!(items, &*segment.scan()?.flatten().collect::<Vec<_>>());
 
@@ -764,6 +920,11 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             assert_eq!(items, &*segment.iter().flatten().collect::<Vec<_>>());
             assert_eq!(
@@ -820,6 +981,84 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
+            assert_eq!(
+                items.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items.iter().skip(1).rev().cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..)
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn segment_range_simple_volatile_index() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"def", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"xyz", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                false,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(3, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(1, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_none(),
+                "should use full index, so only TLI exists",
+            );
+            assert_eq!(
+                0,
+                segment.pinned_block_index_size(),
+                "should not pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             assert_eq!(
                 items.iter().skip(1).cloned().collect::<Vec<_>>(),
@@ -887,6 +1126,89 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
+            let mut iter = segment
+                .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()));
+
+            let mut count = 0;
+
+            for x in 0.. {
+                if x % 2 == 0 {
+                    let Some(_) = iter.next() else {
+                        break;
+                    };
+
+                    count += 1;
+                } else {
+                    let Some(_) = iter.next_back() else {
+                        break;
+                    };
+
+                    count += 1;
+                }
+            }
+
+            assert_eq!(5, count);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn segment_range_ping_pong_partitioned() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = (0u64..10)
+            .map(|i| {
+                InternalValue::from_components(i.to_be_bytes(), "", 0, crate::ValueType::Value)
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_partitioned_index();
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(10, segment.metadata.item_count);
+            assert_eq!(1, segment.metadata.data_block_count);
+            assert_eq!(2, segment.metadata.index_block_count); // 1 because we use a full index
+            assert!(
+                segment.regions.index.is_some(),
+                "should use full index, so 2nd level index blocks should exist",
+            );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin top-level index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             let mut iter = segment
                 .range(UserKey::from(5u64.to_be_bytes())..UserKey::from(10u64.to_be_bytes()));
@@ -962,6 +1284,93 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
+            assert_eq!(
+                items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .flatten()
+                    .collect::<Vec<_>>()
+            );
+
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(1)
+                    .take(3)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*segment
+                    .range(UserKey::from("b")..=UserKey::from("d"))
+                    .rev()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn segment_range_multiple_data_blocks_partitioned_index() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("segment");
+
+        let items = [
+            crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"b", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"c", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"d", b"asdasdasd", 3, crate::ValueType::Value),
+            crate::InternalValue::from_components(b"e", b"asdasdasd", 3, crate::ValueType::Value),
+        ];
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?
+                .use_data_block_size(1)
+                .use_partitioned_index();
+
+            for item in items.iter().cloned() {
+                writer.write(item)?;
+            }
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(5, segment.metadata.item_count);
+            assert_eq!(5, segment.metadata.data_block_count);
+            assert_eq!(2, segment.metadata.index_block_count); // 1 because we use a full index and a 2nd level index block
+            assert!(
+                segment.regions.index.is_some(),
+                "should use partitioned index, so 2nd level index blocks should exist",
+            );
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin top-level index",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
             assert_eq!(
                 items.iter().skip(1).take(3).cloned().collect::<Vec<_>>(),
@@ -1031,19 +1440,12 @@ mod tests {
                 segment.regions.index.is_none(),
                 "should use full index, so only TLI exists",
             );
-
-            assert_eq!(
-                b"abc",
-                &*segment
-                    .get(
-                        b"abc",
-                        SeqNo::MAX,
-                        crate::segment::filter::standard_bloom::Builder::get_hash(b"abc")
-                    )?
-                    .unwrap()
-                    .key
-                    .user_key,
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin block index",
             );
+            assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+
             assert_eq!(
                 b"abc",
                 &*segment
