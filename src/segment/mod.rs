@@ -118,13 +118,15 @@ impl Segment {
 
             for _ in 0..len {
                 let blob_file_id = reader.read_u64::<LE>()?;
-                let bytes = reader.read_u64::<LE>()?;
                 let len = reader.read_u64::<LE>()?;
+                let bytes = reader.read_u64::<LE>()?;
+                let on_disk_bytes = reader.read_u64::<LE>()?;
 
                 blob_files.push(LinkedFile {
                     blob_file_id,
                     bytes,
                     len: len as usize,
+                    on_disk_bytes,
                 });
             }
 

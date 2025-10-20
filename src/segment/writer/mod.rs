@@ -20,6 +20,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 pub struct LinkedFile {
     pub blob_file_id: BlobFileId,
     pub bytes: u64,
+    pub on_disk_bytes: u64,
     pub len: usize,
 }
 
@@ -126,11 +127,18 @@ impl Writer {
         })
     }
 
-    pub fn link_blob_file(&mut self, blob_file_id: BlobFileId, bytes: u64, len: usize) {
+    pub fn link_blob_file(
+        &mut self,
+        blob_file_id: BlobFileId,
+        len: usize,
+        bytes: u64,
+        on_disk_bytes: u64,
+    ) {
         self.linked_blob_files.push(LinkedFile {
             blob_file_id,
             bytes,
             len,
+            on_disk_bytes,
         });
     }
 
@@ -394,8 +402,9 @@ impl Writer {
 
             for file in self.linked_blob_files {
                 self.block_writer.write_u64::<LE>(file.blob_file_id)?;
-                self.block_writer.write_u64::<LE>(file.bytes)?;
                 self.block_writer.write_u64::<LE>(file.len as u64)?;
+                self.block_writer.write_u64::<LE>(file.bytes)?;
+                self.block_writer.write_u64::<LE>(file.on_disk_bytes)?;
             }
         }
 

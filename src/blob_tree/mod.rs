@@ -416,6 +416,7 @@ impl AbstractTree for BlobTree {
         let compaction_stream = CompactionStream::new(iter, eviction_seqno);
 
         let mut blob_bytes_referenced = 0;
+        let mut blob_on_disk_bytes_referenced = 0;
         let mut blobs_referenced_count = 0;
 
         let separation_threshold = self
@@ -464,6 +465,7 @@ impl AbstractTree for BlobTree {
                 })?;
 
                 blob_bytes_referenced += u64::from(value_size);
+                blob_on_disk_bytes_referenced += u64::from(on_disk_size);
                 blobs_referenced_count += 1;
             } else {
                 segment_writer.write(InternalValue::new(item.key, value))?;
@@ -481,8 +483,9 @@ impl AbstractTree for BlobTree {
             if let Some(blob_file) = &blob_file {
                 segment_writer.link_blob_file(
                     blob_file.id(),
-                    blob_bytes_referenced,
                     blobs_referenced_count,
+                    blob_bytes_referenced,
+                    blob_on_disk_bytes_referenced,
                 );
             }
         }

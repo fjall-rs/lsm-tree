@@ -438,7 +438,13 @@ impl Version {
                             counter.bytes += blob_file.bytes;
                             counter.len += blob_file.len;
                         })
-                        .or_insert_with(|| FragmentationEntry::new(blob_file.len, blob_file.bytes));
+                        .or_insert_with(|| {
+                            FragmentationEntry::new(
+                                blob_file.len,
+                                blob_file.bytes,
+                                blob_file.on_disk_bytes,
+                            )
+                        });
                 }
             }
 
