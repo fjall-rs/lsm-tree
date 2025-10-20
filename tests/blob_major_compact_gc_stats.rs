@@ -65,7 +65,9 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
 
     {
         let tree = lsm_tree::Config::new(path)
-            .with_kv_separation(Some(Default::default()))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
