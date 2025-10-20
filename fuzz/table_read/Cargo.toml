@@ -1,0 +1,13 @@
+[package]
+name = "table_read"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+afl = "*"
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+lsm-tree = { path = "../.." }
+rand_chacha = "0.9"
+rand = "0.9"
+tempfile = "3.23.0"
