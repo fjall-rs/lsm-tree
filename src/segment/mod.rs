@@ -137,7 +137,7 @@ impl Segment {
         })
     }
 
-    /// Gets the global segment ID.
+    /// Gets the global table ID.
     #[must_use]
     pub fn global_id(&self) -> GlobalSegmentId {
         (self.tree_id, self.id()).into()
@@ -167,10 +167,10 @@ impl Segment {
         }
     }
 
-    /// Gets the segment ID.
+    /// Gets the table ID.
     ///
-    /// The segment ID is unique for this tree, but not
-    /// across multiple trees, use [`Segment::global_id`] for that.
+    /// The table ID is unique for this tree, but not
+    /// across multiple trees, use [`Table::global_id`] for that.
     #[must_use]
     pub fn id(&self) -> SegmentId {
         self.metadata.id
@@ -290,7 +290,7 @@ impl Segment {
         Ok(None)
     }
 
-    /// Creates a scanner over the `Segment`.
+    /// Creates a scanner over the `Table`.
     ///
     /// The scanner is ĺogically the same as a normal iter(),
     /// however it uses its own file descriptor, does not look into the block cache
@@ -316,7 +316,7 @@ impl Segment {
         )
     }
 
-    /// Creates an iterator over the `Segment`.
+    /// Creates an iterator over the `Table`.
     ///
     /// # Errors
     ///
@@ -328,7 +328,7 @@ impl Segment {
         self.range(..)
     }
 
-    /// Creates a ranged iterator over the `Segment`.
+    /// Creates a ranged iterator over the `Table`.
     ///
     /// # Errors
     ///
@@ -391,7 +391,7 @@ impl Segment {
         Ok(IndexBlock::new(block))
     }
 
-    /// Tries to recover a segment from a file.
+    /// Tries to recover a table from a file.
     pub fn recover(
         file_path: PathBuf,
         tree_id: TreeId,
