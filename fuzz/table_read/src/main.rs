@@ -79,6 +79,7 @@ fn main() {
         let index_type = IndexType::arbitrary(&mut unstructured).unwrap();
 
         let data_block_size = rng.random_range(1..64_000);
+        let index_block_size = rng.random_range(1..64_000);
 
         let item_count = rng.random_range(1..200);
 
@@ -115,6 +116,7 @@ fn main() {
                 .unwrap()
                 .use_data_block_restart_interval(restart_interval)
                 .use_data_block_size(data_block_size)
+                .use_index_block_size(index_block_size)
                 .use_data_block_hash_ratio(hash_ratio);
 
             if index_type == IndexType::TwoLevel {
