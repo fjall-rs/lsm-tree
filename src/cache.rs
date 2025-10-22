@@ -27,8 +27,8 @@ impl Equivalent<CacheKey> for (u8, u64, u64, u64) {
 }
 
 impl From<(u8, u64, u64, u64)> for CacheKey {
-    fn from((tag, root_id, segment_id, offset): (u8, u64, u64, u64)) -> Self {
-        Self(tag, root_id, segment_id, offset)
+    fn from((tag, root_id, table_id, offset): (u8, u64, u64, u64)) -> Self {
+        Self(tag, root_id, table_id, offset)
     }
 }
 
