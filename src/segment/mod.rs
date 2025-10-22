@@ -821,6 +821,91 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
+    fn segment_partitioned_index_point_read_mvcc_block_boundary() -> crate::Result<()> {
+        let dir = tempdir()?;
+        let file = dir.path().join("table");
+
+        {
+            let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_partitioned_index();
+
+            writer.write(crate::InternalValue::from_components(
+                b"a",
+                b"5",
+                5,
+                crate::ValueType::Value,
+            ))?;
+            writer.write(crate::InternalValue::from_components(
+                b"a",
+                b"4",
+                4,
+                crate::ValueType::Value,
+            ))?;
+            writer.write(crate::InternalValue::from_components(
+                b"a",
+                b"3",
+                3,
+                crate::ValueType::Value,
+            ))?;
+            writer.spill_block()?;
+            writer.write(crate::InternalValue::from_components(
+                b"a",
+                b"2",
+                2,
+                crate::ValueType::Value,
+            ))?;
+            writer.write(crate::InternalValue::from_components(
+                b"a",
+                b"1",
+                1,
+                crate::ValueType::Value,
+            ))?;
+
+            let _trailer = writer.finish()?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let segment = Segment::recover(
+                file,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::new(10)),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(5, segment.id());
+            assert_eq!(5, segment.metadata.item_count);
+            assert_eq!(2, segment.metadata.data_block_count);
+            assert_eq!(2, segment.metadata.index_block_count); // 2 because we use a full index, + 1 2nd level index block
+            assert!(segment.regions.index.is_some(), "should use 2-tier index");
+            assert!(
+                segment.pinned_block_index_size() > 0,
+                "should pin TLI block",
+            );
+            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+
+            let key_hash = crate::segment::filter::standard_bloom::Builder::get_hash(b"a");
+
+            assert_eq!(
+                b"5",
+                &*segment.get(b"a", SeqNo::MAX, key_hash)?.unwrap().value
+            );
+            assert_eq!(b"4", &*segment.get(b"a", 5, key_hash)?.unwrap().value);
+            assert_eq!(b"3", &*segment.get(b"a", 4, key_hash)?.unwrap().value);
+            assert_eq!(b"2", &*segment.get(b"a", 3, key_hash)?.unwrap().value);
+            assert_eq!(b"1", &*segment.get(b"a", 2, key_hash)?.unwrap().value);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
     fn segment_scan() -> crate::Result<()> {
         let dir = tempdir()?;
         let file = dir.path().join("table");
