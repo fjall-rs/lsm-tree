@@ -60,14 +60,14 @@ use crate::metrics::Metrics;
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
 
-/// Disk segment (a.k.a. `SSTable`, `SST`, `sorted string table`) that is located on disk
+/// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
-/// A segment is an immutable list of key-value pairs, split into compressed blocks.
+/// A table is an immutable list of key-value pairs, split into compressed blocks.
 /// A reference to the block (`block handle`) is saved in the "block index".
 ///
 /// Deleted entries are represented by tombstones.
 ///
-/// Segments can be merged together to improve read performance and reduce disk space by removing outdated item versions.
+/// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
 #[derive(Clone)]
 pub struct Segment(Arc<Inner>);
