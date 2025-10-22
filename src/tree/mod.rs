@@ -1100,7 +1100,7 @@ impl Tree {
 
         log::debug!("Successfully recovered {} tables", tables.len());
 
-        let blob_files = crate::vlog::recover_blob_files(
+        let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
             &tree_path.join(BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
@@ -1116,7 +1116,10 @@ impl Tree {
             std::fs::remove_file(&table_path)?;
         }
 
-        // TODO: remove orphaned blob files as well -> unit test
+        for blob_file_path in orphaned_blob_files {
+            log::debug!("Deleting orphaned blob file {}", blob_file_path.display());
+            std::fs::remove_file(&blob_file_path)?;
+        }
 
         Ok(version)
     }
