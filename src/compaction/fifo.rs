@@ -7,13 +7,13 @@ use crate::{compaction::state::CompactionState, config::Config, version::Version
 
 /// FIFO-style compaction
 ///
-/// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)
+/// Limits the tree size to roughly `limit` bytes, deleting the oldest table(s)
 /// when the threshold is reached.
 ///
-/// Will also merge segments if the number of segments in level 0 grows too much, which
+/// Will also merge tables if the number of tables in level 0 grows too much, which
 /// could cause write stalls.
 ///
-/// Additionally, a (lazy) TTL can be configured to drop old segments.
+/// Additionally, a (lazy) TTL can be configured to drop old tables.
 ///
 /// ###### Caution
 ///
