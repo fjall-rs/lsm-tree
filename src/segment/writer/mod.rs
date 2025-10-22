@@ -1,3 +1,4 @@
+mod filter;
 mod index;
 mod meta;
 
@@ -8,7 +9,10 @@ use super::{
 use crate::{
     coding::Encode,
     file::fsync_directory,
-    segment::{filter::standard_bloom::Builder, writer::index::FullIndexWriter},
+    segment::writer::{
+        filter::{FilterWriter, FullFilterWriter},
+        index::FullIndexWriter,
+    },
     time::unix_timestamp,
     vlog::BlobFileId,
     CompressionType, InternalValue, SegmentId, UserKey, ValueType,
@@ -56,6 +60,10 @@ pub struct Writer {
     #[allow(clippy::struct_field_names)]
     index_writer: Box<dyn BlockIndexWriter<BufWriter<File>>>,
 
+    /// Writer of filter
+    #[allow(clippy::struct_field_names)]
+    filter_writer: Box<dyn FilterWriter<BufWriter<File>>>,
+
     /// Buffer of KVs
     chunk: Vec<InternalValue>,
     chunk_size: usize,
@@ -68,11 +76,6 @@ pub struct Writer {
     current_key: Option<UserKey>,
 
     bloom_policy: BloomConstructionPolicy,
-
-    /// Hashes for bloom filter
-    ///
-    /// using enhanced double hashing, so we got two u64s
-    pub bloom_hash_buffer: Vec<u64>,
 
     /// Tracks the previously written item to detect weak tombstone/value pairs
     previous_item: Option<(UserKey, ValueType)>,
@@ -106,6 +109,7 @@ impl Writer {
             path: std::path::absolute(path)?,
 
             index_writer: Box::new(FullIndexWriter::new()),
+            filter_writer: Box::new(FullFilterWriter::new()),
 
             block_buffer: Vec::new(),
             block_writer,
@@ -118,8 +122,6 @@ impl Writer {
             current_key: None,
 
             bloom_policy: BloomConstructionPolicy::default(),
-
-            bloom_hash_buffer: Vec::new(),
 
             previous_item: None,
 
@@ -137,8 +139,8 @@ impl Writer {
         self.linked_blob_files.push(LinkedFile {
             blob_file_id,
             bytes,
-            len,
             on_disk_bytes,
+            len,
         });
     }
 
@@ -246,7 +248,7 @@ impl Writer {
             // of the same key
 
             if self.bloom_policy.is_active() {
-                self.bloom_hash_buffer.push(Builder::get_hash(&user_key));
+                self.filter_writer.register_key(&user_key)?;
             }
         }
 
@@ -354,41 +356,8 @@ impl Writer {
         self.index_writer.finish(&mut self.block_writer)?;
 
         // Write filter
-        if !self.bloom_hash_buffer.is_empty() {
-            self.block_writer.start("filter")?;
-
-            let n = self.bloom_hash_buffer.len();
-
-            log::trace!(
-                "Constructing Bloom filter with {n} entries: {:?}",
-                self.bloom_policy,
-            );
-
-            let start = std::time::Instant::now();
-
-            let filter_bytes = {
-                let mut builder = self.bloom_policy.init(n);
-
-                for hash in self.bloom_hash_buffer {
-                    builder.set_with_hash(hash);
-                }
-
-                builder.build()
-            };
-
-            log::trace!(
-                "Built Bloom filter ({} B) in {:?}",
-                filter_bytes.len(),
-                start.elapsed(),
-            );
-
-            Block::write_into(
-                &mut self.block_writer,
-                &filter_bytes,
-                crate::segment::block::BlockType::Filter,
-                CompressionType::None,
-            )?;
-        }
+        self.filter_writer
+            .finish(&mut self.block_writer, self.bloom_policy)?;
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};
