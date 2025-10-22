@@ -8,7 +8,6 @@ mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
-    coding::{Decode, Encode},
     compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
@@ -27,7 +26,6 @@ use crate::{
 };
 use inner::{MemtableId, TreeId, TreeInner};
 use std::{
-    io::Cursor,
     ops::{Bound, RangeBounds},
     path::Path,
     sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
