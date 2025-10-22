@@ -57,16 +57,6 @@ use crate::metrics::Metrics;
 // TODO: in Leveled compaction, compact segments that live very long and have
 // many versions (possibly unnecessary space usage of old, stale versions)
 
-// TODO: move into module
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CachePolicy {
-    /// Read cached blocks, but do not change cache
-    Read,
-
-    /// Read cached blocks, and update cache
-    Write,
-}
-
 #[allow(clippy::module_name_repetitions)]
 pub type SegmentInner = Inner;
 
