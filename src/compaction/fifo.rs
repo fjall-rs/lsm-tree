@@ -44,7 +44,7 @@ impl CompactionStrategy for Strategy {
         "FifoCompaction"
     }
 
-    // TODO: TTL
+    // TODO: 3.0.0 TTL
     fn choose(&self, version: &Version, _config: &Config, state: &CompactionState) -> Choice {
         // NOTE: We always have at least one level
         #[allow(clippy::expect_used)]
@@ -71,7 +71,10 @@ impl CompactionStrategy for Strategy {
                 }
 
                 oldest_segments.insert(segment.id());
-                collected_bytes += segment.file_size();
+
+                let linked_blob_file_bytes = segment.referenced_blob_bytes().unwrap_or_default();
+
+                collected_bytes += segment.file_size() + linked_blob_file_bytes;
             }
 
             Choice::Drop(oldest_segments)

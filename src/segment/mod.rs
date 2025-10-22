@@ -103,6 +103,14 @@ impl std::fmt::Debug for Segment {
 }
 
 impl Segment {
+    pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
+        Ok(self
+            .list_blob_file_references()?
+            .iter()
+            .map(|bf| bf.iter().map(|f| f.on_disk_bytes).sum::<u64>())
+            .sum::<u64>())
+    }
+
     pub fn list_blob_file_references(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
         use byteorder::{ReadBytesExt, LE};
 
