@@ -57,10 +57,11 @@ impl CompactionStrategy for Strategy {
             "FIFO compaction never compacts",
         );
 
-        let l0_size = first_level.size();
+        let db_size = first_level.size() + version.blob_files.on_disk_size();
+        // eprintln!("db_size={db_size}");
 
-        if l0_size > self.limit {
-            let overshoot = l0_size - self.limit;
+        if db_size > self.limit {
+            let overshoot = db_size - self.limit;
 
             let mut oldest_segments = HashSet::default();
             let mut collected_bytes = 0;
@@ -77,12 +78,39 @@ impl CompactionStrategy for Strategy {
                 collected_bytes += segment.file_size() + linked_blob_file_bytes;
             }
 
+            eprintln!("DROP {oldest_segments:?}");
+
             Choice::Drop(oldest_segments)
         } else {
             Choice::DoNothing
         }
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use test_log::test;
+
+//     #[test]
+//     fn fifo_empty_levels() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_below_limit() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_more_than_limit() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
+//         Ok(())
+//     }
+// }
 
 // TODO: restore tests
 /*

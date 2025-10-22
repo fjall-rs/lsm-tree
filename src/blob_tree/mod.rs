@@ -578,8 +578,7 @@ impl AbstractTree for BlobTree {
 
     fn disk_space(&self) -> u64 {
         let version = self.current_version();
-        let vlog = crate::vlog::Accessor::new(&version.blob_files);
-        self.index.disk_space() + vlog.disk_space()
+        self.index.disk_space() + version.blob_files.on_disk_size()
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
