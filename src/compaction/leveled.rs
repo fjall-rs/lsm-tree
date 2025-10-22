@@ -138,13 +138,11 @@ pub struct Strategy {
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
     /// This is the exponential growth of the from one.
-    /// level to the next
-    ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
+    /// level to the next.
     ///
     /// Default = 10
     #[allow(clippy::doc_markdown)]
-    pub level_ratio: u8,
+    pub level_ratio_policy: Vec<f32>,
 }
 
 impl Default for Strategy {
@@ -152,12 +150,24 @@ impl Default for Strategy {
         Self {
             l0_threshold: 4,
             target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
-            level_ratio: 10,
+            level_ratio_policy: vec![10.0],
         }
     }
 }
 
 impl Strategy {
+    /// Sets the growth ratio between levels.
+    #[must_use]
+    pub fn with_level_ratio_policy(mut self, policy: Vec<f32>) -> Self {
+        self.level_ratio_policy = policy;
+        self
+    }
+
+    /// Calculates the size of L1.
+    fn level_base_size(&self) -> u64 {
+        u64::from(self.target_size) * u64::from(self.l0_threshold)
+    }
+
     /// Calculates the level target size.
     ///
     /// L1 = `level_base_size`
@@ -173,13 +183,25 @@ impl Strategy {
             "level_target_size does not apply to L0",
         );
 
-        let power = (self.level_ratio as usize).pow(u32::from(canonical_level_idx) - 1) as u64;
+        if canonical_level_idx == 1 {
+            // u64::from(self.target_size)
+            self.level_base_size()
+        } else {
+            let mut size = self.level_base_size() as f32;
 
-        power * self.level_base_size()
-    }
+            // NOTE: Minus 2 because |{L0, L1}|
+            for idx in 0..=(canonical_level_idx - 2) {
+                let ratio = self
+                    .level_ratio_policy
+                    .get(usize::from(idx))
+                    .copied()
+                    .unwrap_or_else(|| self.level_ratio_policy.last().copied().unwrap_or(10.0));
 
-    fn level_base_size(&self) -> u64 {
-        u64::from(self.target_size) * u64::from(self.l0_threshold)
+                size *= ratio;
+            }
+
+            size as u64
+        }
     }
 }
 
