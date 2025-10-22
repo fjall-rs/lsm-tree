@@ -477,7 +477,7 @@ impl AbstractTree for BlobTree {
         assert!(blob_files.len() <= 1);
         let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree segment {segment_id}");
+        log::trace!("Creating LSM-tree table {segment_id}");
 
         if blob_bytes_referenced > 0 {
             if let Some(blob_file) = &blob_file {
