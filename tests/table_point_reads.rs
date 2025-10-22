@@ -4,7 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
-fn segment_point_reads() -> lsm_tree::Result<()> {
+fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -28,7 +28,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
+fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -70,7 +70,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -117,7 +117,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
 #[test]
 #[ignore]
-fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
