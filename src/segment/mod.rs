@@ -88,7 +88,7 @@ impl std::ops::Deref for Segment {
 
 impl std::fmt::Debug for Segment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Segment:{}({:?})", self.id(), self.metadata.key_range)
+        write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
@@ -572,7 +572,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_recover() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         {
             let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
@@ -656,7 +656,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_volatile_index_point_read() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         {
             let mut writer = crate::segment::Writer::new(file.clone(), 5)?;
@@ -740,7 +740,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_partitioned_index_point_read() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         {
             let mut writer = crate::segment::Writer::new(file.clone(), 5)?.use_partitioned_index();
@@ -823,7 +823,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_scan() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -885,7 +885,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_iter_simple() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -946,7 +946,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_simple() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -1018,7 +1018,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_simple_volatile_index() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -1091,7 +1091,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_ping_pong() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = (0u64..10)
             .map(|i| {
@@ -1169,7 +1169,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_ping_pong_partitioned() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = (0u64..10)
             .map(|i| {
@@ -1247,7 +1247,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_multiple_data_blocks() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
@@ -1327,7 +1327,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_range_multiple_data_blocks_partitioned_index() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         let items = [
             crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
@@ -1410,7 +1410,7 @@ mod tests {
     #[allow(clippy::unwrap_used)]
     fn segment_unpinned_filter() -> crate::Result<()> {
         let dir = tempdir()?;
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table");
 
         {
             let mut writer = crate::segment::Writer::new(file.clone(), 5)?;

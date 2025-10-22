@@ -50,8 +50,8 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
 }
 
 fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
-    use rand::SeedableRng;
     use rand::prelude::*;
+    use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -59,8 +59,8 @@ fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
 }
 
 fn main() {
-    use rand::SeedableRng;
     use rand::prelude::*;
+    use rand::SeedableRng;
 
     fuzz!(|data: &[u8]| {
         /*  let data = &[
@@ -108,7 +108,7 @@ fn main() {
         } */
 
         let dir = tempfile::tempdir_in("/king").unwrap();
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table_fuzz");
 
         {
             let mut writer = lsm_tree::segment::Writer::new(file.clone(), 0)
@@ -297,8 +297,8 @@ fn main() {
         }
 
         {
-            use rand::SeedableRng;
             use rand::prelude::*;
+            use rand::SeedableRng;
             use rand_chacha::ChaCha8Rng;
 
             let mut rng = ChaCha8Rng::seed_from_u64(seed);
