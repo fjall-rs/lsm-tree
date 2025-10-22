@@ -335,10 +335,10 @@ impl Segment {
     #[must_use]
     #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
-    pub fn range<R: RangeBounds<UserKey>>(
+    pub fn range<R: RangeBounds<UserKey> + Send>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send {
         use crate::fallible_clipping_iter::FallibleClippingIter;
 
         let index_iter = self.block_index.iter();

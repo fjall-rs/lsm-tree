@@ -41,7 +41,7 @@ pub trait IterGuard {
 }
 
 #[enum_dispatch(IterGuard)]
-pub enum IterGuardImpl<'a> {
+pub enum IterGuardImpl {
     Standard(StandardGuard),
-    Blob(BlobGuard<'a>),
+    Blob(BlobGuard),
 }

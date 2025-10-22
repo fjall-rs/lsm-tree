@@ -23,7 +23,9 @@ pub trait BlockIndex {
     fn iter(&self) -> Box<dyn BlockIndexIter>;
 }
 
-pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHandle>> {
+pub trait BlockIndexIter:
+    DoubleEndedIterator<Item = crate::Result<KeyedBlockHandle>> + Send
+{
     fn seek_lower(&mut self, key: &[u8]) -> bool;
     fn seek_upper(&mut self, key: &[u8]) -> bool;
 }

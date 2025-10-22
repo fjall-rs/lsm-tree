@@ -49,7 +49,7 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         self.range::<&[u8], _>(.., seqno, index)
     }
 
@@ -61,7 +61,7 @@ pub trait AbstractTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_>;
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
 
     /// Returns an iterator over a range of items.
     ///
@@ -71,7 +71,7 @@ pub trait AbstractTree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_>;
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
 
     /// Ingests a sorted stream of key-value pairs into the tree.
     ///
