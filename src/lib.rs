@@ -182,7 +182,7 @@ mod manifest;
 mod memtable;
 
 #[doc(hidden)]
-mod descriptor_table;
+pub mod descriptor_table;
 
 #[doc(hidden)]
 pub mod merge;
