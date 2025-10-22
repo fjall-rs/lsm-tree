@@ -357,7 +357,7 @@ impl AbstractTree for Tree {
         let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
 
         log::debug!(
-            "Flushing segment to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             segment_file_path.display(),
         );
 
@@ -401,7 +401,7 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
-            "Registering {} segments, {} blob files",
+            "Registering {} tables, {} blob files",
             segments.len(),
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
@@ -676,7 +676,7 @@ impl Tree {
             return Ok(None);
         };
 
-        log::debug!("Finalized segment write at {}", segment_file_path.display());
+        log::debug!("Finalized table write at {}", segment_file_path.display());
 
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
@@ -692,7 +692,7 @@ impl Tree {
             self.metrics.clone(),
         )?;
 
-        log::debug!("Flushed segment to {:?}", created_segment.path);
+        log::debug!("Flushed table to {:?}", created_segment.path);
 
         Ok(Some(created_segment))
     }
