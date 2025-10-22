@@ -12,9 +12,9 @@ use crate::{
     HashSet, KeyRange, SegmentId,
 };
 
-pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
-    let lo = segments.first().expect("run should never be empty");
-    let hi = segments.last().expect("run should never be empty");
+pub fn aggregate_run_key_range(tables: &[Segment]) -> KeyRange {
+    let lo = tables.first().expect("run should never be empty");
+    let hi = tables.last().expect("run should never be empty");
     KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
@@ -52,7 +52,7 @@ fn pick_minimal_compaction(
         next_run
             .growing_windows()
             .take_while(|window| {
-                // Cap at 50x segments per compaction for now
+                // Cap at 50x tables per compaction for now
                 //
                 // At this point, all compactions are too large anyway
                 // so we can escape early
@@ -68,7 +68,7 @@ fn pick_minimal_compaction(
 
                 let key_range = aggregate_run_key_range(window);
 
-                // Pull in all contained segments in current level into compaction
+                // Pull in all contained tables in current level into compaction
                 let curr_level_pull_in = curr_run.get_contained(&key_range);
 
                 let curr_level_size = curr_level_pull_in
@@ -109,9 +109,9 @@ fn pick_minimal_compaction(
 
 /// Levelled compaction strategy (LCS)
 ///
-/// When a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
+/// When a level reaches some threshold size, parts of it are merged into overlapping tables in the next level.
 ///
-/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` segments.
+/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` tables.
 ///
 /// LCS suffers from comparatively high write amplification, but has decent read amplification and great space amplification (~1.1x).
 ///
@@ -120,7 +120,7 @@ fn pick_minimal_compaction(
 /// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
 #[derive(Clone)]
 pub struct Strategy {
-    /// When the number of segments in L0 reaches this threshold,
+    /// When the number of tables in L0 reaches this threshold,
     /// they are merged into L1.
     ///
     /// Default = 4
@@ -128,7 +128,7 @@ pub struct Strategy {
     /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
     pub l0_threshold: u8,
 
-    /// The target segment size as disk (possibly compressed).
+    /// The target table size as disk (possibly compressed).
     ///
     /// Default = 64 MiB
     ///
@@ -237,9 +237,9 @@ impl CompactionStrategy for Strategy {
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
         {
-            // TODO(weak-tombstone-rewrite): incorporate `Segment::weak_tombstone_count` and
-            // `Segment::weak_tombstone_reclaimable` when computing level scores so rewrite
-            // decisions can prioritize segments that would free the most reclaimable values.
+            // TODO(weak-tombstone-rewrite): incorporate `Table::weak_tombstone_count` and
+            // `Table::weak_tombstone_reclaimable` when computing level scores so rewrite
+            // decisions can prioritize tables that would free the most reclaimable values.
 
             // Score first level
 
@@ -332,7 +332,7 @@ impl CompactionStrategy for Strategy {
 
             let key_range = first_level.aggregate_key_range();
 
-            // Get overlapping segments in next level
+            // Get overlapping tables in next level
             let target_level_overlapping_segment_ids: Vec<_> = target_level
                 .iter()
                 .flat_map(|run| run.get_overlapping(&key_range))
@@ -349,7 +349,7 @@ impl CompactionStrategy for Strategy {
             };
 
             /* eprintln!(
-                "merge {} segments, L0->L1: {:?}",
+                "merge {} tables, L0->L1: {:?}",
                 choice.segment_ids.len(),
                 choice.segment_ids,
             ); */
@@ -397,7 +397,7 @@ impl CompactionStrategy for Strategy {
         };
 
         /* eprintln!(
-            "{} {} segments, L{}->L{next_level_index}: {:?}",
+            "{} {} tables, L{}->L{next_level_index}: {:?}",
             if can_trivial_move { "move" } else { "merge" },
             choice.segment_ids.len(),
             next_level_index - 1,
