@@ -110,6 +110,7 @@ impl<'a> Ingestion<'a> {
             .config
             .filter_block_pinning_policy
             .get(INITIAL_CANONICAL_LEVEL);
+
         let pin_index = self
             .tree
             .config
