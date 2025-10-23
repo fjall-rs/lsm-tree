@@ -14,7 +14,7 @@ type Item = Arc<File>;
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64);
 
-/// Caches file descriptors to disk segments and blob files
+/// Caches file descriptors to tables and blob files
 pub struct DescriptorTable {
     inner: QuickCache<CacheKey, Item, UnitWeighter, rustc_hash::FxBuildHasher>,
 }

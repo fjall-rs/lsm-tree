@@ -29,12 +29,12 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn current_version(&self) -> Version;
 
-    /// Synchronously flushes the active memtable to a disk segment.
+    /// Synchronously flushes the active memtable to a table.
     ///
     /// The function may not return a result, if, during concurrent workloads, the memtable
     /// ends up being empty before the flush is set up.
     ///
-    /// The result will contain the [`Segment`].
+    /// The result will contain the [`Table`].
     ///
     /// # Errors
     ///
@@ -105,7 +105,7 @@ pub trait AbstractTree {
 
     // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
 
-    /// Drops segments that are fully contained in a given range.
+    /// Drops tables that are fully contained in a given range.
     ///
     /// Accepts any `RangeBounds`, including unbounded or exclusive endpoints.
     /// If the normalized lower bound is greater than the upper bound, the
@@ -146,9 +146,9 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    /// Synchronously flushes a memtable to a disk segment.
+    /// Synchronously flushes a memtable to a table.
     ///
-    /// This method will not make the segment immediately available,
+    /// This method will not make the table immediately available,
     /// use [`AbstractTree::register_segments`] for that.
     ///
     /// # Errors
@@ -162,7 +162,7 @@ pub trait AbstractTree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
 
-    /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
+    /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///
     /// # Errors
     ///
@@ -203,7 +203,7 @@ pub trait AbstractTree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 
-    /// Returns the next segment's ID.
+    /// Returns the next table's ID.
     fn get_next_segment_id(&self) -> SegmentId;
 
     /// Returns the tree config.
@@ -227,10 +227,10 @@ pub trait AbstractTree {
     /// Seals the active memtable, and returns a reference to it.
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
 
-    /// Returns the number of disk segments currently in the tree.
+    /// Returns the number of tables currently in the tree.
     fn segment_count(&self) -> usize;
 
-    /// Returns the number of segments in `levels[idx]`.
+    /// Returns the number of tables in `levels[idx]`.
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
     fn level_segment_count(&self, idx: usize) -> Option<usize>;

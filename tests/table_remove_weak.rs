@@ -2,7 +2,7 @@ use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
 use test_log::test;
 
 #[test]
-fn segment_remove_weak_simple() -> lsm_tree::Result<()> {
+fn table_remove_weak_simple() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)

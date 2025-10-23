@@ -16,13 +16,6 @@ impl<'a> Accessor<'a> {
         Self(blob_files)
     }
 
-    pub fn disk_space(&self) -> u64 {
-        self.0
-            .iter()
-            .map(|x| x.0.meta.total_uncompressed_bytes)
-            .sum()
-    }
-
     pub fn get(
         &self,
         tree_id: TreeId,

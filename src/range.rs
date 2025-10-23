@@ -8,7 +8,6 @@ use crate::{
     merge::Merger,
     mvcc_stream::MvccStream,
     run_reader::RunReader,
-    segment::CachePolicy,
     value::{SeqNo, UserKey},
     version::Version,
     BoxedIterator, InternalValue,
@@ -249,7 +248,6 @@ impl TreeIter {
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
-                            CachePolicy::Write,
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),

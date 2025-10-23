@@ -4,7 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 100;
 
 #[test]
-fn segment_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
+fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -27,7 +27,7 @@ fn segment_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
+fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)

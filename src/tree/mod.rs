@@ -8,7 +8,6 @@ mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
-    coding::{Decode, Encode},
     compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
@@ -27,7 +26,6 @@ use crate::{
 };
 use inner::{MemtableId, TreeId, TreeInner};
 use std::{
-    io::Cursor,
     ops::{Bound, RangeBounds},
     path::Path,
     sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
@@ -359,7 +357,7 @@ impl AbstractTree for Tree {
         let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
 
         log::debug!(
-            "Flushing segment to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             segment_file_path.display(),
         );
 
@@ -403,7 +401,7 @@ impl AbstractTree for Tree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
-            "Registering {} segments, {} blob files",
+            "Registering {} tables, {} blob files",
             segments.len(),
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
@@ -678,7 +676,7 @@ impl Tree {
             return Ok(None);
         };
 
-        log::debug!("Finalized segment write at {}", segment_file_path.display());
+        log::debug!("Finalized table write at {}", segment_file_path.display());
 
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
@@ -694,7 +692,7 @@ impl Tree {
             self.metrics.clone(),
         )?;
 
-        log::debug!("Flushed segment to {:?}", created_segment.path);
+        log::debug!("Flushed table to {:?}", created_segment.path);
 
         Ok(Some(created_segment))
     }
@@ -1100,7 +1098,7 @@ impl Tree {
 
         log::debug!("Successfully recovered {} tables", tables.len());
 
-        let blob_files = crate::vlog::recover_blob_files(
+        let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
             &tree_path.join(BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
@@ -1116,7 +1114,10 @@ impl Tree {
             std::fs::remove_file(&table_path)?;
         }
 
-        // TODO: remove orphaned blob files as well -> unit test
+        for blob_file_path in orphaned_blob_files {
+            log::debug!("Deleting orphaned blob file {}", blob_file_path.display());
+            std::fs::remove_file(&blob_file_path)?;
+        }
 
         Ok(version)
     }

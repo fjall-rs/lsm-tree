@@ -4,7 +4,7 @@ use test_log::test;
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
-fn segment_point_reads() -> lsm_tree::Result<()> {
+fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -28,7 +28,7 @@ fn segment_point_reads() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
+fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -51,7 +51,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
         assert_eq!(item.key.seqno, 2);
         assert_eq!(&*item.value, b"2");
 
-        // TODO: test snapshot reads
+        // TODO: 3.0.0 test snapshot reads
 
         // let snapshot = tree.snapshot(3);
         // let item = snapshot.get(key)?.unwrap();
@@ -70,7 +70,7 @@ fn segment_point_reads_mvcc() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -95,7 +95,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
         assert_eq!(item.key.seqno, ITEM_COUNT as u64 - 1);
     }
 
-    // TODO: test snapshot reads
+    // TODO: 3.0.0 test snapshot reads
 
     // for key in &keys {
     //     // NOTE: Need to start at seqno=1
@@ -117,7 +117,7 @@ fn segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
 #[test]
 #[ignore]
-fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
+fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -146,7 +146,7 @@ fn blob_tree_segment_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
         );
     }
 
-    // TODO: test snapshot reads
+    // TODO: 3.0.0 test snapshot reads
 
     // for key in &keys {
     //     // NOTE: Need to start at seqno=1

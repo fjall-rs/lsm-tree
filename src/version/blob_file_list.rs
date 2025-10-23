@@ -12,6 +12,11 @@ impl BlobFileList {
         Self(blob_files)
     }
 
+    /// On-disk size
+    pub fn on_disk_size(&self) -> u64 {
+        self.iter().map(|bf| bf.0.meta.total_compressed_bytes).sum()
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }

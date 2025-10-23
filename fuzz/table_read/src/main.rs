@@ -5,6 +5,13 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 use lsm_tree::{InternalValue, SeqNo, ValueType};
 use std::sync::Arc;
 
+#[derive(Arbitrary, Eq, PartialEq, Debug, Copy, Clone)]
+enum IndexType {
+    Full,
+    Volatile,
+    TwoLevel,
+}
+
 #[derive(Arbitrary, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 enum FuzzyValueType {
     Value,
@@ -43,8 +50,8 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
 }
 
 fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
-    use rand::SeedableRng;
     use rand::prelude::*;
+    use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -52,6 +59,9 @@ fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
 }
 
 fn main() {
+    use rand::prelude::*;
+    use rand::SeedableRng;
+
     fuzz!(|data: &[u8]| {
         /*  let data = &[
             117, 3, 0, 42, 117, 147, 87, 255, 253, 43, 255, 255, 255, 255, 255, 255, 255, 255, 255,
@@ -61,27 +71,19 @@ fn main() {
         let mut unstructured = Unstructured::new(data);
 
         let seed = u64::arbitrary(&mut unstructured).unwrap();
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
 
         let restart_interval = u8::arbitrary(&mut unstructured).unwrap();
         let restart_interval = restart_interval.max(1);
 
-        let item_count = {
-            use rand::SeedableRng;
-            use rand::prelude::*;
-            use rand_chacha::ChaCha8Rng;
+        let index_type = IndexType::arbitrary(&mut unstructured).unwrap();
 
-            let mut rng = ChaCha8Rng::seed_from_u64(seed);
-            rng.random_range(1..100)
-        };
+        let data_block_size = rng.random_range(1..64_000);
+        let index_block_size = rng.random_range(1..64_000);
 
-        // let hash_ratio = {
-        //     use rand::SeedableRng;
-        //     use rand::prelude::*;
-        //     use rand_chacha::ChaCha8Rng;
+        let item_count = rng.random_range(1..200);
 
-        //     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        //     rng.random_range(0.0..8.0)
-        // };
+        let hash_ratio = rng.random_range(0.0..8.0);
 
         // eprintln!("restart_interval={restart_interval}, hash_ratio={hash_ratio}");
 
@@ -107,12 +109,19 @@ fn main() {
         } */
 
         let dir = tempfile::tempdir_in("/king").unwrap();
-        let file = dir.path().join("segment");
+        let file = dir.path().join("table_fuzz");
 
         {
             let mut writer = lsm_tree::segment::Writer::new(file.clone(), 0)
                 .unwrap()
-                .use_data_block_restart_interval(restart_interval);
+                .use_data_block_restart_interval(restart_interval)
+                .use_data_block_size(data_block_size)
+                .use_index_block_size(index_block_size)
+                .use_data_block_hash_ratio(hash_ratio);
+
+            if index_type == IndexType::TwoLevel {
+                writer = writer.use_partitioned_index();
+            }
 
             for item in items.iter().cloned() {
                 writer.write(item.0).unwrap();
@@ -127,7 +136,7 @@ fn main() {
             Arc::new(lsm_tree::Cache::with_capacity_bytes(0)),
             Arc::new(lsm_tree::DescriptorTable::new(10)),
             true,
-            true,
+            index_type == IndexType::Full,
         )
         .unwrap();
 
@@ -290,8 +299,8 @@ fn main() {
         }
 
         {
-            use rand::SeedableRng;
             use rand::prelude::*;
+            use rand::SeedableRng;
             use rand_chacha::ChaCha8Rng;
 
             let mut rng = ChaCha8Rng::seed_from_u64(seed);

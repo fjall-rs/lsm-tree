@@ -12,7 +12,7 @@ fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.segment_count());
     }
 
-    let ds_store = folder.join("segments").join(".DS_Store");
+    let ds_store = folder.join("tables").join(".DS_Store");
     std::fs::File::create(&ds_store)?;
     assert!(ds_store.try_exists()?);
 

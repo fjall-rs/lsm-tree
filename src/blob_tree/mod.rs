@@ -542,7 +542,7 @@ impl AbstractTree for BlobTree {
         assert!(blob_files.len() <= 1);
         let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree segment {segment_id}");
+        log::trace!("Creating LSM-tree table {segment_id}");
 
         if blob_bytes_referenced > 0 {
             if let Some(blob_file) = &blob_file {
@@ -643,8 +643,7 @@ impl AbstractTree for BlobTree {
 
     fn disk_space(&self) -> u64 {
         let version = self.current_version();
-        let vlog = crate::vlog::Accessor::new(&version.blob_files);
-        self.index.disk_space() + vlog.disk_space()
+        self.index.disk_space() + version.blob_files.on_disk_size()
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {

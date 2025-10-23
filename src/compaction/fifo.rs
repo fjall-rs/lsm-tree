@@ -7,13 +7,13 @@ use crate::{compaction::state::CompactionState, config::Config, version::Version
 
 /// FIFO-style compaction
 ///
-/// Limits the tree size to roughly `limit` bytes, deleting the oldest segment(s)
+/// Limits the tree size to roughly `limit` bytes, deleting the oldest table(s)
 /// when the threshold is reached.
 ///
-/// Will also merge segments if the number of segments in level 0 grows too much, which
+/// Will also merge tables if the number of tables in level 0 grows too much, which
 /// could cause write stalls.
 ///
-/// Additionally, a (lazy) TTL can be configured to drop old segments.
+/// Additionally, a (lazy) TTL can be configured to drop old tables.
 ///
 /// ###### Caution
 ///
@@ -44,7 +44,7 @@ impl CompactionStrategy for Strategy {
         "FifoCompaction"
     }
 
-    // TODO: TTL
+    // TODO: 3.0.0 TTL
     fn choose(&self, version: &Version, _config: &Config, state: &CompactionState) -> Choice {
         // NOTE: We always have at least one level
         #[allow(clippy::expect_used)]
@@ -57,10 +57,11 @@ impl CompactionStrategy for Strategy {
             "FIFO compaction never compacts",
         );
 
-        let l0_size = first_level.size();
+        let db_size = first_level.size() + version.blob_files.on_disk_size();
+        // eprintln!("db_size={db_size}");
 
-        if l0_size > self.limit {
-            let overshoot = l0_size - self.limit;
+        if db_size > self.limit {
+            let overshoot = db_size - self.limit;
 
             let mut oldest_segments = HashSet::default();
             let mut collected_bytes = 0;
@@ -71,8 +72,13 @@ impl CompactionStrategy for Strategy {
                 }
 
                 oldest_segments.insert(segment.id());
-                collected_bytes += segment.file_size();
+
+                let linked_blob_file_bytes = segment.referenced_blob_bytes().unwrap_or_default();
+
+                collected_bytes += segment.file_size() + linked_blob_file_bytes;
             }
+
+            eprintln!("DROP {oldest_segments:?}");
 
             Choice::Drop(oldest_segments)
         } else {
@@ -80,6 +86,31 @@ impl CompactionStrategy for Strategy {
         }
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use test_log::test;
+
+//     #[test]
+//     fn fifo_empty_levels() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_below_limit() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_more_than_limit() -> crate::Result<()> {
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
+//         Ok(())
+//     }
+// }
 
 // TODO: restore tests
 /*
