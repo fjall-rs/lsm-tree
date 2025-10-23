@@ -57,7 +57,7 @@ impl IterGuard for Guard {
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
-        resolve_value_handle_owned(
+        resolve_value_handle(
             self.shared.tree_id,
             self.shared.blobs_folder.as_path(),
             &self.shared.cache,
@@ -68,41 +68,7 @@ impl IterGuard for Guard {
     }
 }
 
-fn resolve_value_handle(tree: &BlobTree, version: &Version, item: InternalValue) -> RangeItem {
-    if item.key.value_type.is_indirection() {
-        let mut cursor = Cursor::new(item.value);
-        let vptr = BlobIndirection::decode_from(&mut cursor)?;
-
-        // Resolve indirection using value log
-        match Accessor::new(&version.blob_files).get(
-            tree.id(),
-            tree.blobs_folder.as_path(),
-            &item.key.user_key,
-            &vptr.vhandle,
-            &tree.index.config.cache,
-            &tree.index.config.descriptor_table,
-        ) {
-            Ok(Some(v)) => {
-                let k = item.key.user_key;
-                Ok((k, v))
-            }
-            Ok(None) => {
-                panic!(
-                    "value handle ({:?} => {:?}) did not match any blob - this is a bug; version={}",
-                    item.key.user_key, vptr.vhandle,
-                    version.id(),
-                );
-            }
-            Err(e) => Err(e),
-        }
-    } else {
-        let k = item.key.user_key;
-        let v = item.value;
-        Ok((k, v))
-    }
-}
-
-fn resolve_value_handle_owned(
+fn resolve_value_handle(
     tree_id: TreeId,
     blobs_folder: &std::path::Path,
     cache: &Arc<Cache>,
@@ -674,7 +640,14 @@ impl AbstractTree for BlobTree {
         };
 
         let version = self.current_version();
-        let (_, v) = resolve_value_handle(self, &version, item)?;
+        let (_, v) = resolve_value_handle(
+            self.id(),
+            self.blobs_folder.as_path(),
+            &self.index.config.cache,
+            &self.index.config.descriptor_table,
+            &version,
+            item,
+        )?;
 
         Ok(Some(v))
     }
