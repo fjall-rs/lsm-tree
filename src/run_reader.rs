@@ -15,7 +15,6 @@ pub struct RunReader {
     hi: usize,
     lo_reader: Option<BoxedIterator<'static>>,
     hi_reader: Option<BoxedIterator<'static>>,
-
 }
 
 impl RunReader {
