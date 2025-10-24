@@ -12,9 +12,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc},
 };
 
-/// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
+/// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
-/// This results in a sorted "run" of segments
+/// This results in a sorted "run" of tables
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
     pub(crate) base_path: PathBuf,

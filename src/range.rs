@@ -224,13 +224,13 @@ impl TreeIter {
                     1 => {
                         // NOTE: We checked for length
                         #[allow(clippy::expect_used)]
-                        let segment = run.first().expect("should exist");
+                        let table = run.first().expect("should exist");
 
-                        if segment.check_key_range_overlap(&(
+                        if table.check_key_range_overlap(&(
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
-                            let reader = segment.range((
+                            let reader = table.range((
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ));

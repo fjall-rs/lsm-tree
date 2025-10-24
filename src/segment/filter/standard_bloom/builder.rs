@@ -118,7 +118,7 @@ impl Builder {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
-            // NOTE: Even for a large segment, filters tend to be pretty small, definitely less than 4 GiB
+            // NOTE: Even for a large table, filters tend to be pretty small, definitely less than 4 GiB
             #[allow(clippy::cast_possible_truncation)]
             self.inner.enable_bit(idx as usize);
 

@@ -23,9 +23,9 @@ impl RunScanner {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
 
-        let lo_segment = run.get(lo).expect("should exist");
+        let lo_table = run.get(lo).expect("should exist");
 
-        let lo_reader = lo_segment.scan()?;
+        let lo_reader = lo_table.scan()?;
 
         Ok(Self {
             segments: run,
@@ -89,13 +89,13 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
             .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         #[allow(clippy::unwrap_used)]
         {

@@ -57,7 +57,7 @@ mod tests {
     // TODO: same test for prefix & ranges
 
     #[test]
-    fn segment_multi_reader_basic() -> crate::Result<()> {
+    fn table_multi_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
 
@@ -75,7 +75,7 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
             .iter_segments()
             .cloned()
@@ -85,8 +85,8 @@ mod tests {
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -111,8 +111,8 @@ mod tests {
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -137,8 +137,8 @@ mod tests {
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);

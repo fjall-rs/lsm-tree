@@ -212,8 +212,8 @@ pub trait AbstractTree {
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         let memtable_seqno = self.get_highest_memtable_seqno();
-        let segment_seqno = self.get_highest_persisted_seqno();
-        memtable_seqno.max(segment_seqno)
+        let table_seqno = self.get_highest_persisted_seqno();
+        memtable_seqno.max(table_seqno)
     }
 
     /// Returns the approximate size of the active memtable in bytes.

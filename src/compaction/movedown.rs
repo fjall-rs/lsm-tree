@@ -23,14 +23,14 @@ impl CompactionStrategy for Strategy {
             return Choice::DoNothing;
         };
 
-        let segment_ids = level
+        let table_ids = level
             .iter()
             .flat_map(|run| run.iter())
             .map(Segment::id)
             .collect();
 
         Choice::Move(Input {
-            segment_ids,
+            segment_ids: table_ids,
             dest_level: self.1,
             canonical_level: self.1,
             target_size: u64::MAX,
