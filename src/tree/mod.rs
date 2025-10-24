@@ -98,7 +98,7 @@ impl AbstractTree for Tree {
             return Ok(ignore_tombstone_value(entry));
         }
 
-        // Now look in segments... this may involve disk I/O
+        // Now look in tables... this may involve disk I/O
         self.get_internal_entry_from_segments(&version_lock, key, seqno)
     }
 
@@ -333,7 +333,7 @@ impl AbstractTree for Tree {
 
     fn flush_memtable(
         &self,
-        segment_id: SegmentId,
+        table_id: SegmentId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
@@ -343,7 +343,7 @@ impl AbstractTree for Tree {
         let start = Instant::now();
 
         let folder = self.config.path.join(SEGMENTS_FOLDER);
-        let segment_file_path = folder.join(segment_id.to_string());
+        let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
         let index_block_size = self.config.index_block_size_policy.get(0);
@@ -358,10 +358,10 @@ impl AbstractTree for Tree {
 
         log::debug!(
             "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
-            segment_file_path.display(),
+            table_file_path.display(),
         );
 
-        let mut segment_writer = Writer::new(segment_file_path, segment_id)?
+        let mut table_writer = Writer::new(table_file_path, table_id)?
             .use_data_block_restart_interval(data_block_restart_interval)
             .use_index_block_restart_interval(index_block_restart_interval)
             .use_data_block_compression(data_block_compression)
@@ -383,26 +383,26 @@ impl AbstractTree for Tree {
         let compaction_filter = CompactionStream::new(iter, seqno_threshold);
 
         for item in compaction_filter {
-            segment_writer.write(item?)?;
+            table_writer.write(item?)?;
         }
 
-        let result = self.consume_writer(segment_writer)?;
+        let result = self.consume_writer(table_writer)?;
 
-        log::debug!("Flushed memtable {segment_id:?} in {:?}", start.elapsed());
+        log::debug!("Flushed memtable {table_id:?} in {:?}", start.elapsed());
 
-        Ok(result.map(|segment| (segment, None)))
+        Ok(result.map(|table| (table, None)))
     }
 
     fn register_segments(
         &self,
-        segments: &[Segment],
+        tables: &[Segment],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
-            segments.len(),
+            tables.len(),
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
 
@@ -412,20 +412,16 @@ impl AbstractTree for Tree {
         compaction_state.upgrade_version(
             &mut super_version,
             |version| {
-                Ok(version.with_new_l0_run(
-                    segments,
-                    blob_files,
-                    frag_map.filter(|x| !x.is_empty()),
-                ))
+                Ok(version.with_new_l0_run(tables, blob_files, frag_map.filter(|x| !x.is_empty())))
             },
             seqno_threshold,
         )?;
 
-        for segment in segments {
-            log::trace!("releasing sealed memtable {}", segment.id());
+        for table in tables {
+            log::trace!("releasing sealed memtable {}", table.id());
 
             super_version.sealed_memtables =
-                Arc::new(super_version.sealed_memtables.remove(segment.id()));
+                Arc::new(super_version.sealed_memtables.remove(table.id()));
         }
 
         Ok(())
@@ -523,7 +519,7 @@ impl AbstractTree for Tree {
     fn approximate_len(&self) -> usize {
         let version = self.super_version.read().expect("lock is poisoned");
 
-        let segments_item_count = self
+        let tables_item_count = self
             .current_version()
             .iter_segments()
             .map(|x| x.metadata.item_count)
@@ -536,7 +532,7 @@ impl AbstractTree for Tree {
             .map(|(_, mt)| mt.len())
             .sum::<usize>() as u64;
 
-        (memtable_count + sealed_count + segments_item_count)
+        (memtable_count + sealed_count + tables_item_count)
             .try_into()
             .expect("should not be too large")
     }
@@ -670,19 +666,19 @@ impl Tree {
         &self,
         writer: crate::segment::Writer,
     ) -> crate::Result<Option<Segment>> {
-        let segment_file_path = writer.path.clone();
+        let table_file_path = writer.path.clone();
 
         let Some(_) = writer.finish()? else {
             return Ok(None);
         };
 
-        log::debug!("Finalized table write at {}", segment_file_path.display());
+        log::debug!("Finalized table write at {}", table_file_path.display());
 
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
 
-        let created_segment = Segment::recover(
-            segment_file_path,
+        let created_table = Segment::recover(
+            table_file_path,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
@@ -692,9 +688,9 @@ impl Tree {
             self.metrics.clone(),
         )?;
 
-        log::debug!("Flushed table to {:?}", created_segment.path);
+        log::debug!("Flushed table to {:?}", created_table.path);
 
-        Ok(Some(created_segment))
+        Ok(Some(created_table))
     }
 
     /// Returns `true` if there are some segments that are being compacted.
@@ -745,12 +741,12 @@ impl Tree {
                     }
                 } else {
                     // NOTE: Fallback to linear search
-                    for segment in run.iter() {
-                        if !segment.is_key_in_key_range(key) {
+                    for table in run.iter() {
+                        if !table.is_key_in_key_range(key) {
                             continue;
                         }
 
-                        if let Some(item) = segment.get(key, seqno, key_hash)? {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
@@ -949,8 +945,8 @@ impl Tree {
         let manifest_path = path.join(MANIFEST_FILE);
         assert!(!manifest_path.try_exists()?);
 
-        let segment_folder_path = path.join(SEGMENTS_FOLDER);
-        create_dir_all(&segment_folder_path)?;
+        let table_folder_path = path.join(SEGMENTS_FOLDER);
+        create_dir_all(&table_folder_path)?;
 
         // Create manifest
         {
@@ -971,7 +967,7 @@ impl Tree {
         }
 
         // IMPORTANT: fsync folders on Unix
-        fsync_directory(&segment_folder_path)?;
+        fsync_directory(&table_folder_path)?;
         fsync_directory(&path)?;
 
         let inner = TreeInner::create_new(config)?;
