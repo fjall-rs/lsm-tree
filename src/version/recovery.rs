@@ -50,9 +50,9 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
 
             for _ in 0..run_count {
                 let mut run = vec![];
-                let segment_count = reader.read_u32::<LittleEndian>()?;
+                let table_count = reader.read_u32::<LittleEndian>()?;
 
-                for _ in 0..segment_count {
+                for _ in 0..table_count {
                     let id = reader.read_u64::<LittleEndian>()?;
                     run.push(id);
                 }
