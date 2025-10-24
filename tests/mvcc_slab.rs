@@ -2,7 +2,7 @@ use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SequenceNumberCoun
 use test_log::test;
 
 #[test]
-fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
+fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
     let folder = tempfile::tempdir()?;
@@ -23,22 +23,22 @@ fn segment_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     let version = tree.current_version();
 
-    let segment = version
+    let table = version
         .level(0)
         .expect("level should exist")
         .first()
         .expect("run should exist")
         .first()
-        .expect("segment should exist");
+        .expect("table should exist");
 
-    let reader = segment.iter();
+    let reader = table.iter();
     assert_eq!(reader.count(), ITEM_COUNT + 1);
 
     Ok(())
 }
 
 #[test]
-fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
+fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 1_000;
 
     let folder = tempfile::tempdir()?;
@@ -60,15 +60,15 @@ fn segment_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     let version = tree.current_version();
 
-    let segment = version
+    let table = version
         .level(0)
         .expect("level should exist")
         .first()
         .expect("run should exist")
         .first()
-        .expect("segment should exist");
+        .expect("table should exist");
 
-    let reader = segment.iter();
+    let reader = table.iter();
     assert_eq!(reader.count(), ITEM_COUNT + 1);
 
     Ok(())

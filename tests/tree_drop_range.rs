@@ -1,7 +1,7 @@
 use lsm_tree::{AbstractTree, AnyTree, Config, SeqNo};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
-fn populate_segments(tree: &AnyTree) -> lsm_tree::Result<()> {
+fn populate_tables(tree: &AnyTree) -> lsm_tree::Result<()> {
     for key in 'a'..='e' {
         tree.insert([key as u8], "", 0);
         tree.flush_active_memtable(0)?;
@@ -14,7 +14,7 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     assert_eq!(1, tree.l0_run_count());
     assert_eq!(5, tree.segment_count());
@@ -34,7 +34,7 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn tree_drop_range_partial_segment_overlap_kept() -> lsm_tree::Result<()> {
+fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
@@ -63,7 +63,7 @@ fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range("a".."d")?;
 
@@ -81,7 +81,7 @@ fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range::<&str, _>((Excluded("a"), Included("c")))?;
 
@@ -98,7 +98,7 @@ fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range::<&str, _>((Unbounded, Included("c")))?;
 
@@ -116,7 +116,7 @@ fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range::<&str, _>((Unbounded, Excluded("d")))?;
 
@@ -133,7 +133,7 @@ fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range::<&str, _>((Excluded("b"), Excluded("b")))?;
 
@@ -162,7 +162,7 @@ fn tree_drop_range_unbounded_upper() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range("c"..)?;
 
@@ -180,7 +180,7 @@ fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range::<&str, _>(..)?;
 
@@ -197,7 +197,7 @@ fn tree_drop_range_inverted_bounds_is_noop() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let tree = Config::new(&folder).open()?;
 
-    populate_segments(&tree)?;
+    populate_tables(&tree)?;
 
     tree.drop_range("c".."a")?;
     tree.drop_range("c"..="a")?;
