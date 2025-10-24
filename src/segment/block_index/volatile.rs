@@ -29,21 +29,18 @@ pub struct VolatileBlockIndex {
 }
 
 impl VolatileBlockIndex {
-    pub fn forward_reader(
-        &self,
-        needle: &[u8],
-    ) -> impl Iterator<Item = crate::Result<KeyedBlockHandle>> + '_ {
+    pub fn forward_reader(&self, needle: &[u8]) -> Iter {
         let mut iter = Iter::new(self);
         iter.seek_lower(needle);
         iter
     }
 
-    pub fn iter(&self) -> impl BlockIndexIter {
+    pub fn iter(&self) -> Iter {
         Iter::new(self)
     }
 }
 
-struct Iter {
+pub(super) struct Iter {
     inner: Option<OwnedIndexBlockIter>,
     segment_id: GlobalSegmentId,
     path: PathBuf,

@@ -1,8 +1,5 @@
-use super::{IndexBlock, KeyedBlockHandle};
-use crate::segment::{
-    block::ParsedItem,
-    block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
-};
+use crate::segment::block_index::{iter::OwnedIndexBlockIter, BlockIndexIter};
+use crate::segment::{IndexBlock, KeyedBlockHandle};
 
 /// Index that translates item keys to data block handles
 ///
@@ -18,25 +15,21 @@ impl FullBlockIndex {
         &self.0
     }
 
-    pub fn forward_reader(
-        &self,
-        needle: &[u8],
-    ) -> Option<impl Iterator<Item = KeyedBlockHandle> + '_> {
-        let mut iter = self.0.iter();
-
-        if iter.seek(needle) {
-            Some(iter.map(|x| x.materialize(&self.0.inner.data)))
+    pub fn forward_reader(&self, needle: &[u8]) -> Option<Iter> {
+        let mut it = self.iter();
+        if it.seek_lower(needle) {
+            Some(it)
         } else {
             None
         }
     }
 
-    pub fn iter(&self) -> impl BlockIndexIter {
+    pub fn iter(&self) -> Iter {
         Iter(OwnedIndexBlockIter::new(self.0.clone(), IndexBlock::iter))
     }
 }
 
-struct Iter(OwnedIndexBlockIter);
+pub(super) struct Iter(OwnedIndexBlockIter);
 
 impl BlockIndexIter for Iter {
     fn seek_lower(&mut self, key: &[u8]) -> bool {
