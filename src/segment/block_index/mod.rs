@@ -11,21 +11,62 @@ pub use full::FullBlockIndex;
 pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
-use super::{IndexBlock, KeyedBlockHandle};
+use super::KeyedBlockHandle;
 
-#[enum_dispatch::enum_dispatch]
 pub trait BlockIndex {
-    fn forward_reader(
-        &self,
-        needle: &[u8],
-    ) -> Option<Box<dyn Iterator<Item = crate::Result<KeyedBlockHandle>> + '_>>;
-
-    fn iter(&self) -> Box<dyn BlockIndexIter>;
+    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl>;
+    fn iter(&self) -> BlockIndexIterImpl;
 }
 
 pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHandle>> {
     fn seek_lower(&mut self, key: &[u8]) -> bool;
     fn seek_upper(&mut self, key: &[u8]) -> bool;
+}
+
+pub enum BlockIndexIterImpl {
+    Full(self::full::Iter),
+    Volatile(self::volatile::Iter),
+    TwoLevel(self::two_level::Iter),
+}
+
+impl BlockIndexIter for BlockIndexIterImpl {
+    fn seek_lower(&mut self, key: &[u8]) -> bool {
+        match self {
+            Self::Full(i) => i.seek_lower(key),
+            Self::Volatile(i) => i.seek_lower(key),
+            Self::TwoLevel(i) => i.seek_lower(key),
+        }
+    }
+
+    fn seek_upper(&mut self, key: &[u8]) -> bool {
+        match self {
+            Self::Full(i) => i.seek_upper(key),
+            Self::Volatile(i) => i.seek_upper(key),
+            Self::TwoLevel(i) => i.seek_upper(key),
+        }
+    }
+}
+
+impl Iterator for BlockIndexIterImpl {
+    type Item = crate::Result<KeyedBlockHandle>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Full(i) => i.next(),
+            Self::Volatile(i) => i.next(),
+            Self::TwoLevel(i) => i.next(),
+        }
+    }
+}
+
+impl DoubleEndedIterator for BlockIndexIterImpl {
+    fn next_back(&mut self) -> Option<<Self as Iterator>::Item> {
+        match self {
+            Self::Full(i) => i.next_back(),
+            Self::Volatile(i) => i.next_back(),
+            Self::TwoLevel(i) => i.next_back(),
+        }
+    }
 }
 
 /// The block index stores references to the positions of blocks on a file and their size
@@ -54,30 +95,27 @@ pub enum BlockIndexImpl {
 }
 
 impl BlockIndex for BlockIndexImpl {
-    fn forward_reader(
-        &self,
-        needle: &[u8],
-    ) -> Option<Box<dyn Iterator<Item = crate::Result<KeyedBlockHandle>> + '_>> {
-        // TODO: 3.0.0 convert to enum_dispatch
+    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl> {
         match self {
-            Self::Full(index) => index
-                .forward_reader(needle)
-                .map(|x| Box::new(x.map(Ok)) as Box<_>),
-
-            Self::VolatileFull(index) => Some(Box::new(index.forward_reader(needle)) as Box<_>),
-
-            BlockIndexImpl::TwoLevel(index) => {
-                Some(Box::new(index.forward_reader(needle)) as Box<_>)
+            Self::Full(index) => index.forward_reader(needle).map(BlockIndexIterImpl::Full),
+            Self::VolatileFull(index) => {
+                let mut it = index.iter();
+                it.seek_lower(needle);
+                Some(BlockIndexIterImpl::Volatile(it))
+            }
+            Self::TwoLevel(index) => {
+                let mut it = index.iter();
+                it.seek_lower(needle);
+                Some(BlockIndexIterImpl::TwoLevel(it))
             }
         }
     }
 
-    fn iter(&self) -> Box<dyn BlockIndexIter> {
-        // TODO: convert to enum_dispatch?
+    fn iter(&self) -> BlockIndexIterImpl {
         match self {
-            Self::Full(index) => Box::new(index.iter()) as Box<_>,
-            Self::VolatileFull(index) => Box::new(index.iter()) as Box<_>,
-            BlockIndexImpl::TwoLevel(index) => Box::new(index.iter()) as Box<_>,
+            Self::Full(index) => BlockIndexIterImpl::Full(index.iter()),
+            Self::VolatileFull(index) => BlockIndexIterImpl::Volatile(index.iter()),
+            Self::TwoLevel(index) => BlockIndexIterImpl::TwoLevel(index.iter()),
         }
     }
 }

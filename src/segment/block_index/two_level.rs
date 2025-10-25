@@ -1,4 +1,4 @@
-use super::{IndexBlock, KeyedBlockHandle};
+use crate::segment::{IndexBlock, KeyedBlockHandle};
 use crate::{
     segment::{
         block::BlockType,
@@ -28,16 +28,7 @@ pub struct TwoLevelBlockIndex {
 }
 
 impl TwoLevelBlockIndex {
-    pub fn forward_reader(
-        &self,
-        needle: &[u8],
-    ) -> impl Iterator<Item = crate::Result<KeyedBlockHandle>> + '_ {
-        let mut iter = self.iter();
-        iter.seek_lower(needle);
-        iter
-    }
-
-    pub fn iter(&self) -> impl BlockIndexIter {
+    pub fn iter(&self) -> Iter {
         Iter {
             tli_block: self.top_level_index.clone(),
             tli: None,
@@ -57,7 +48,7 @@ impl TwoLevelBlockIndex {
     }
 }
 
-struct Iter {
+pub struct Iter {
     tli_block: IndexBlock,
     tli: Option<OwnedIndexBlockIter>,
 

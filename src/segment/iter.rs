@@ -4,7 +4,12 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
 use crate::{
-    segment::{block::ParsedItem, block_index::BlockIndexIter, util::load_block, BlockHandle},
+    segment::{
+        block::ParsedItem,
+        block_index::{BlockIndexIter, BlockIndexIterImpl},
+        util::load_block,
+        BlockHandle,
+    },
     Cache, CompressionType, DescriptorTable, InternalValue, SeqNo, UserKey,
 };
 use self_cell::self_cell;
@@ -62,7 +67,7 @@ pub struct Iter {
     path: Arc<PathBuf>,
 
     #[allow(clippy::struct_field_names)]
-    index_iter: Box<dyn BlockIndexIter>,
+    index_iter: BlockIndexIterImpl,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
@@ -85,7 +90,7 @@ impl Iter {
     pub fn new(
         segment_id: GlobalSegmentId,
         path: Arc<PathBuf>,
-        index_iter: Box<dyn BlockIndexIter>,
+        index_iter: BlockIndexIterImpl,
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
         compression: CompressionType,
