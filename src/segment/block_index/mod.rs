@@ -32,17 +32,17 @@ pub enum BlockIndexIterImpl {
 impl BlockIndexIter for BlockIndexIterImpl {
     fn seek_lower(&mut self, key: &[u8]) -> bool {
         match self {
-            Self::Full(ref mut i) => i.seek_lower(key),
-            Self::Volatile(ref mut i) => i.seek_lower(key),
-            Self::TwoLevel(ref mut i) => i.seek_lower(key),
+            Self::Full(i) => i.seek_lower(key),
+            Self::Volatile(i) => i.seek_lower(key),
+            Self::TwoLevel(i) => i.seek_lower(key),
         }
     }
 
     fn seek_upper(&mut self, key: &[u8]) -> bool {
         match self {
-            Self::Full(ref mut i) => i.seek_upper(key),
-            Self::Volatile(ref mut i) => i.seek_upper(key),
-            Self::TwoLevel(ref mut i) => i.seek_upper(key),
+            Self::Full(i) => i.seek_upper(key),
+            Self::Volatile(i) => i.seek_upper(key),
+            Self::TwoLevel(i) => i.seek_upper(key),
         }
     }
 }
@@ -52,9 +52,9 @@ impl Iterator for BlockIndexIterImpl {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Full(ref mut i) => i.next(),
-            Self::Volatile(ref mut i) => i.next(),
-            Self::TwoLevel(ref mut i) => i.next(),
+            Self::Full(i) => i.next(),
+            Self::Volatile(i) => i.next(),
+            Self::TwoLevel(i) => i.next(),
         }
     }
 }
@@ -62,9 +62,9 @@ impl Iterator for BlockIndexIterImpl {
 impl DoubleEndedIterator for BlockIndexIterImpl {
     fn next_back(&mut self) -> Option<<Self as Iterator>::Item> {
         match self {
-            Self::Full(ref mut i) => i.next_back(),
-            Self::Volatile(ref mut i) => i.next_back(),
-            Self::TwoLevel(ref mut i) => i.next_back(),
+            Self::Full(i) => i.next_back(),
+            Self::Volatile(i) => i.next_back(),
+            Self::TwoLevel(i) => i.next_back(),
         }
     }
 }
