@@ -146,7 +146,8 @@ impl Writer {
 
     #[must_use]
     pub fn use_partitioned_filter(mut self) -> Self {
-        self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy));
+        self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy))
+            .use_tli_compression(self.index_block_compression);
         self
     }
 
@@ -205,6 +206,7 @@ impl Writer {
     pub fn use_index_block_compression(mut self, compression: CompressionType) -> Self {
         self.index_block_compression = compression;
         self.index_writer = self.index_writer.use_compression(compression);
+        self.filter_writer = self.filter_writer.use_tli_compression(compression);
         self
     }
 
@@ -360,7 +362,7 @@ impl Writer {
         }
 
         // Write index
-        self.index_writer.finish(&mut self.block_writer)?;
+        let index_block_count = self.index_writer.finish(&mut self.block_writer)?;
 
         // Write filter
         self.filter_writer.finish(&mut self.block_writer)?;
@@ -411,7 +413,7 @@ impl Writer {
                 meta("#id", &self.segment_id.to_le_bytes()),
                 meta(
                     "#index_block_count",
-                    &(self.index_writer.len() as u64).to_le_bytes(),
+                    &(index_block_count as u64).to_le_bytes(),
                 ),
                 meta("#item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(

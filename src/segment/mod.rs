@@ -474,11 +474,8 @@ impl Segment {
         };
 
         let pinned_filter_index = if let Some(filter_tli_handle) = regions.filter_tli {
-            let block = Block::from_file(
-                &file,
-                filter_tli_handle,
-                CompressionType::None, // TODO: 3.0.0
-            )?;
+            let block =
+                Block::from_file(&file, filter_tli_handle, metadata.index_block_compression)?;
             Some(IndexBlock::new(block))
         } else {
             None

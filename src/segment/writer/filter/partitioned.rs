@@ -26,6 +26,8 @@ pub struct PartitionedFilterWriter {
     relative_file_pos: u64,
 
     last_key: Option<UserKey>,
+
+    compression: CompressionType,
 }
 
 impl PartitionedFilterWriter {
@@ -43,6 +45,8 @@ impl PartitionedFilterWriter {
             relative_file_pos: 0,
 
             last_key: None,
+
+            compression: CompressionType::None,
         }
     }
 
@@ -121,6 +125,14 @@ impl PartitionedFilterWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWriter {
+    fn use_tli_compression(
+        mut self: Box<Self>,
+        compression: CompressionType,
+    ) -> Box<dyn FilterWriter<W>> {
+        self.compression = compression;
+        self
+    }
+
     fn set_filter_policy(
         mut self: Box<Self>,
         policy: BloomConstructionPolicy,

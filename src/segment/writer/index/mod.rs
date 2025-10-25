@@ -15,13 +15,12 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()>;
 
     /// Writes the block index to a file.
-    fn finish(&mut self, file_writer: &mut sfa::Writer) -> crate::Result<()>;
+    ///
+    /// Returns the number of index blocks written.
+    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize>;
 
     fn use_compression(
         self: Box<Self>,
         compression: CompressionType,
     ) -> Box<dyn BlockIndexWriter<W>>;
-
-    /// Returns the number of index blocks.
-    fn len(&self) -> usize;
 }
