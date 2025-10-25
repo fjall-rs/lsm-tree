@@ -16,6 +16,9 @@ pub use hash_ratio::HashRatioPolicy;
 pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
+/// Partioning policy for indexes and filters
+pub type PartioningPolicy = PinningPolicy;
+
 use crate::{
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
     DescriptorTable, Tree,
@@ -64,7 +67,7 @@ pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
     pub compression: CompressionType,
 
-    /// Blob file (value log segment) target size in bytes
+    /// Blob file target size in bytes
     #[doc(hidden)]
     pub file_target_size: u64,
 
@@ -199,6 +202,12 @@ pub struct Config {
     /// Data block hash ratio
     pub data_block_hash_ratio_policy: HashRatioPolicy,
 
+    /// Whether to partition index blocks
+    pub index_block_partioning_policy: PartioningPolicy,
+
+    /// Whether to partition filter blocks
+    pub filter_block_partioning_policy: PartioningPolicy,
+
     /// If `true`, the last level will not build filters, reducing the filter size of a database
     /// by ~90% typically
     pub(crate) expect_point_read_hits: bool,
@@ -230,6 +239,9 @@ impl Default for Config {
 
             index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
+
+            index_block_partioning_policy: PinningPolicy::new(&[false, false, false, true]),
+            filter_block_partioning_policy: PinningPolicy::new(&[false, false, false, true]),
 
             data_block_compression_policy: CompressionPolicy::default(),
             index_block_compression_policy: CompressionPolicy::all(CompressionType::None),

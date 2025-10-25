@@ -147,23 +147,23 @@ impl AbstractTree for BlobTree {
     }
 
     fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
-        let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
+        let Some((table_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
 
-        let Some((segment, blob_file)) =
-            self.flush_memtable(segment_id, &yanked_memtable, eviction_seqno)?
+        let Some((table, blob_file)) =
+            self.flush_memtable(table_id, &yanked_memtable, eviction_seqno)?
         else {
             return Ok(None);
         };
         self.register_segments(
-            std::slice::from_ref(&segment),
+            std::slice::from_ref(&table),
             blob_file.as_ref().map(std::slice::from_ref),
             None,
             eviction_seqno,
         )?;
 
-        Ok(Some(segment))
+        Ok(Some(table))
     }
 
     #[cfg(feature = "metrics")]
@@ -372,20 +372,20 @@ impl AbstractTree for BlobTree {
 
     fn flush_memtable(
         &self,
-        segment_id: SegmentId,
+        table_id: SegmentId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
         use crate::{file::SEGMENTS_FOLDER, segment::Writer as SegmentWriter};
 
-        let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
+        let table_folder = self.index.config.path.join(SEGMENTS_FOLDER);
 
         log::debug!("Flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM table in {}", lsm_segment_folder.display());
+        log::debug!("=> to table in {}", table_folder.display());
         log::debug!("=> to blob file at {}", self.blobs_folder.display());
 
-        let mut segment_writer =
-            SegmentWriter::new(lsm_segment_folder.join(segment_id.to_string()), segment_id)?
+        let mut table_writer =
+            SegmentWriter::new(table_folder.join(table_id.to_string()), table_id)?
                 // TODO: apply other policies
                 .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
                 .use_bloom_policy({
@@ -433,7 +433,7 @@ impl AbstractTree for BlobTree {
             if item.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
-                segment_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
+                table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
                 continue;
             }
 
@@ -457,7 +457,7 @@ impl AbstractTree for BlobTree {
                     size: value_size,
                 };
 
-                segment_writer.write({
+                table_writer.write({
                     let mut vptr =
                         InternalValue::new(item.key.clone(), indirection.encode_into_vec());
                     vptr.key.value_type = crate::ValueType::Indirection;
@@ -468,7 +468,7 @@ impl AbstractTree for BlobTree {
                 blob_on_disk_bytes_referenced += u64::from(on_disk_size);
                 blobs_referenced_count += 1;
             } else {
-                segment_writer.write(InternalValue::new(item.key, value))?;
+                table_writer.write(InternalValue::new(item.key, value))?;
             }
         }
 
@@ -477,11 +477,11 @@ impl AbstractTree for BlobTree {
         assert!(blob_files.len() <= 1);
         let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree table {segment_id}");
+        log::trace!("Creating LSM-tree table {table_id}");
 
         if blob_bytes_referenced > 0 {
             if let Some(blob_file) = &blob_file {
-                segment_writer.link_blob_file(
+                table_writer.link_blob_file(
                     blob_file.id(),
                     blobs_referenced_count,
                     blob_bytes_referenced,
@@ -490,9 +490,9 @@ impl AbstractTree for BlobTree {
             }
         }
 
-        let segment = self.index.consume_writer(segment_writer)?;
+        let table = self.index.consume_writer(table_writer)?;
 
-        Ok(segment.map(|segment| (segment, blob_file)))
+        Ok(table.map(|segment| (segment, blob_file)))
     }
 
     fn register_segments(

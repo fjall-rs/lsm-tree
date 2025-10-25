@@ -63,24 +63,24 @@ impl CompactionStrategy for Strategy {
         if db_size > self.limit {
             let overshoot = db_size - self.limit;
 
-            let mut oldest_segments = HashSet::default();
+            let mut oldest_tables = HashSet::default();
             let mut collected_bytes = 0;
 
-            for segment in first_level.iter().flat_map(|run| run.iter().rev()) {
+            for table in first_level.iter().flat_map(|run| run.iter().rev()) {
                 if collected_bytes >= overshoot {
                     break;
                 }
 
-                oldest_segments.insert(segment.id());
+                oldest_tables.insert(table.id());
 
-                let linked_blob_file_bytes = segment.referenced_blob_bytes().unwrap_or_default();
+                let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
 
-                collected_bytes += segment.file_size() + linked_blob_file_bytes;
+                collected_bytes += table.file_size() + linked_blob_file_bytes;
             }
 
-            eprintln!("DROP {oldest_segments:?}");
+            eprintln!("DROP {oldest_tables:?}");
 
-            Choice::Drop(oldest_segments)
+            Choice::Drop(oldest_tables)
         } else {
             Choice::DoNothing
         }

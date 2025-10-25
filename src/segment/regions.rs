@@ -9,7 +9,7 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
     BlockHandle::new(BlockOffset(entry.pos()), entry.len() as u32)
 }
 
-/// The regions block stores offsets to the different segment disk file "regions"
+/// The regions block stores offsets to the different table file "regions"
 ///
 /// ----------------
 /// |     data     | <- implicitly start at 0
@@ -34,6 +34,7 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
 pub struct ParsedRegions {
     pub tli: BlockHandle,
     pub index: Option<BlockHandle>,
+    pub filter_tli: Option<BlockHandle>,
     pub filter: Option<BlockHandle>,
     pub linked_blob_files: Option<BlockHandle>,
     pub metadata: BlockHandle,
@@ -42,6 +43,7 @@ pub struct ParsedRegions {
 impl ParsedRegions {
     pub fn parse_from_toc(toc: &sfa::Toc) -> crate::Result<Self> {
         Ok(Self {
+            filter_tli: toc.section(b"filter_tli").map(toc_entry_to_handle),
             tli: toc
                 .section(b"tli")
                 .map(toc_entry_to_handle)

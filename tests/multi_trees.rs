@@ -2,7 +2,7 @@ use lsm_tree::{AbstractTree, Config};
 use test_log::test;
 
 #[test]
-fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
+fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     let folder0 = tempfile::tempdir()?;
     let folder1 = tempfile::tempdir()?;
 
@@ -25,7 +25,7 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
             .first()
             .expect("run should exist")
             .first()
-            .expect("segment should exist")
+            .expect("table should exist")
             .metadata
             .id
     );
@@ -49,7 +49,7 @@ fn tree_multi_segment_ids() -> lsm_tree::Result<()> {
             .first()
             .expect("run should exist")
             .first()
-            .expect("segment should exist")
+            .expect("table should exist")
             .metadata
             .id
     );

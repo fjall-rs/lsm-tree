@@ -13,18 +13,18 @@ pub fn optimize_runs<T: Clone + Debug + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>
         let mut new_runs: Vec<Run<T>> = Vec::new();
 
         for run in runs.iter().rev() {
-            'run: for segment in run.iter().rev() {
+            'run: for table in run.iter().rev() {
                 for existing_run in new_runs.iter_mut().rev() {
                     if existing_run
                         .iter()
-                        .all(|x| !segment.key_range().overlaps_with_key_range(x.key_range()))
+                        .all(|x| !table.key_range().overlaps_with_key_range(x.key_range()))
                     {
-                        existing_run.push(segment.clone());
+                        existing_run.push(table.clone());
                         continue 'run;
                     }
                 }
 
-                new_runs.insert(0, Run::new(vec![segment.clone()]));
+                new_runs.insert(0, Run::new(vec![table.clone()]));
             }
         }
 
@@ -39,19 +39,19 @@ mod tests {
     use test_log::test;
 
     #[derive(Clone, Debug, Eq, PartialEq)]
-    struct FakeSegment {
+    struct FakeTable {
         id: u64,
         key_range: KeyRange,
     }
 
-    impl Ranged for FakeSegment {
+    impl Ranged for FakeTable {
         fn key_range(&self) -> &KeyRange {
             &self.key_range
         }
     }
 
-    fn s(id: u64, min: &str, max: &str) -> FakeSegment {
-        FakeSegment {
+    fn s(id: u64, min: &str, max: &str) -> FakeTable {
+        FakeTable {
             id,
             key_range: KeyRange::new((min.as_bytes().into(), max.as_bytes().into())),
         }
@@ -60,15 +60,15 @@ mod tests {
     #[test]
     fn optimize_runs_empty() {
         let runs = vec![];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
-        assert_eq!(Vec::<Run<FakeSegment>>::new(), &*runs);
+        assert_eq!(Vec::<Run<FakeTable>>::new(), &*runs);
     }
 
     #[test]
     fn optimize_runs_one() {
         let runs = vec![Run::new(vec![s(0, "a", "b")])];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(vec![Run::new(vec![s(0, "a", "b")])], &*runs);
     }
@@ -79,7 +79,7 @@ mod tests {
             Run::new(vec![s(0, "a", "b")]),
             Run::new(vec![s(1, "a", "b")]),
         ];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
@@ -96,7 +96,7 @@ mod tests {
             Run::new(vec![s(0, "a", "z")]),
             Run::new(vec![s(1, "c", "f")]),
         ];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
@@ -113,7 +113,7 @@ mod tests {
             Run::new(vec![s(0, "c", "f")]),
             Run::new(vec![s(1, "a", "z")]),
         ];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
@@ -130,7 +130,7 @@ mod tests {
             Run::new(vec![s(0, "a", "c")]),
             Run::new(vec![s(1, "d", "f")]),
         ];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")])], &*runs);
     }
@@ -141,7 +141,7 @@ mod tests {
             Run::new(vec![s(1, "d", "f")]),
             Run::new(vec![s(0, "a", "c")]),
         ];
-        let runs = optimize_runs::<FakeSegment>(runs);
+        let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")])], &*runs);
     }

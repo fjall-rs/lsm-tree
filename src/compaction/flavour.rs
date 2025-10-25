@@ -19,7 +19,7 @@ pub(super) fn prepare_table_writer(
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<MultiWriter> {
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let table_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
 
     let dst_lvl = payload.canonical_level.into();
 
@@ -34,14 +34,8 @@ pub(super) fn prepare_table_writer(
 
     let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
 
-    let table_writer = MultiWriter::new(
-        segments_base_folder,
-        opts.segment_id_generator.clone(),
-        payload.target_size,
-    )?;
-
-    let last_level = (version.level_count() - 1) as u8;
-    let is_last_level = payload.dest_level == last_level;
+    let index_partioning = opts.config.index_block_partioning_policy.get(dst_lvl);
+    let filter_partioning = opts.config.filter_block_partioning_policy.get(dst_lvl);
 
     log::debug!(
         "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
@@ -51,6 +45,22 @@ pub(super) fn prepare_table_writer(
         payload.target_size,
         opts.eviction_seqno,
     );
+
+    let mut table_writer = MultiWriter::new(
+        table_base_folder,
+        opts.segment_id_generator.clone(),
+        payload.target_size,
+    )?;
+
+    if index_partioning {
+        table_writer = table_writer.use_partitioned_index();
+    }
+    if filter_partioning {
+        table_writer = table_writer.use_partitioned_filter();
+    }
+
+    let last_level = (version.level_count() - 1) as u8;
+    let is_last_level = payload.dest_level == last_level;
 
     Ok(table_writer
         .use_data_block_restart_interval(data_block_restart_interval)
@@ -312,18 +322,17 @@ impl StandardCompaction {
     }
 
     fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Segment>> {
-        let segments_base_folder = self.table_writer.base_path.clone();
+        let table_base_folder = self.table_writer.base_path.clone();
 
         let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
         let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
 
-        let writer_results = self.table_writer.finish()?;
-
-        let created_segments = writer_results
+        self.table_writer
+            .finish()?
             .into_iter()
-            .map(|segment_id| -> crate::Result<Segment> {
+            .map(|table_id| -> crate::Result<Segment> {
                 Segment::recover(
-                    segments_base_folder.join(segment_id.to_string()),
+                    table_base_folder.join(table_id.to_string()),
                     opts.tree_id,
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),
@@ -333,9 +342,7 @@ impl StandardCompaction {
                     opts.metrics.clone(),
                 )
             })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        Ok(created_segments)
+            .collect::<crate::Result<Vec<_>>>()
     }
 }
 

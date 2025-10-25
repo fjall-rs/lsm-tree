@@ -12,9 +12,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc},
 };
 
-/// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
+/// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
-/// This results in a sorted "run" of segments
+/// This results in a sorted "run" of tables
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
     pub(crate) base_path: PathBuf,
@@ -27,10 +27,13 @@ pub struct MultiWriter {
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
 
-    /// Target size of segments in bytes
+    use_partitioned_index: bool,
+    use_partitioned_filter: bool,
+
+    /// Target size of tables in bytes
     ///
-    /// If a segment reaches the target size, a new one is started,
-    /// resulting in a sorted "run" of segments
+    /// If a table reaches the target size, a new one is started,
+    /// resulting in a sorted "run" of tables
     pub target_size: u64,
 
     results: Vec<SegmentId>,
@@ -83,6 +86,9 @@ impl MultiWriter {
             data_block_compression: CompressionType::None,
             index_block_compression: CompressionType::None,
 
+            use_partitioned_index: false,
+            use_partitioned_filter: false,
+
             bloom_policy: BloomConstructionPolicy::default(),
 
             current_key: None,
@@ -104,6 +110,20 @@ impl MultiWriter {
                 on_disk_bytes: u64::from(indirection.vhandle.on_disk_size),
                 len: 1,
             });
+    }
+
+    #[must_use]
+    pub fn use_partitioned_index(mut self) -> Self {
+        self.use_partitioned_index = true;
+        self.writer = self.writer.use_partitioned_index();
+        self
+    }
+
+    #[must_use]
+    pub fn use_partitioned_filter(mut self) -> Self {
+        self.use_partitioned_filter = true;
+        self.writer = self.writer.use_partitioned_filter();
+        self
     }
 
     #[must_use]
@@ -185,7 +205,7 @@ impl MultiWriter {
         let new_segment_id = self.get_next_segment_id();
         let path = self.base_path.join(new_segment_id.to_string());
 
-        let new_writer = Writer::new(path, new_segment_id)?
+        let mut new_writer = Writer::new(path, new_segment_id)?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)
@@ -194,6 +214,13 @@ impl MultiWriter {
             .use_index_block_restart_interval(self.index_block_restart_interval)
             .use_bloom_policy(self.bloom_policy)
             .use_data_block_hash_ratio(self.data_block_hash_ratio);
+
+        if self.use_partitioned_index {
+            new_writer = new_writer.use_partitioned_index();
+        }
+        if self.use_partitioned_filter {
+            new_writer = new_writer.use_partitioned_filter();
+        }
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 

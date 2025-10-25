@@ -43,7 +43,7 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn snapshot_zombie_segment() -> lsm_tree::Result<()> {
+fn snapshot_zombie_table() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     let seqno = SequenceNumberCounter::default();

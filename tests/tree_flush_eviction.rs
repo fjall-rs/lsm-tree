@@ -90,7 +90,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
             .first()
             .expect("should have at least 1 run")
             .first()
-            .expect("should have one segment")
+            .expect("should have one table")
             .metadata
             .tombstone_count
     );
@@ -107,7 +107,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
             .first()
             .expect("should have at least 1 run")
             .first()
-            .expect("should have one segment")
+            .expect("should have one table")
             .metadata
             .tombstone_count
     );

@@ -38,6 +38,17 @@ impl BloomConstructionPolicy {
             Self::FpRate(fpr) => *fpr > 0.0,
         }
     }
+
+    #[must_use]
+    pub fn estimated_key_bits(&self, n: usize) -> f32 {
+        match self {
+            Self::BitsPerKey(bpk) => *bpk,
+            Self::FpRate(fpr) => {
+                let m = StandardBloomFilterBuilder::calculate_m(n, *fpr);
+                (m / n) as f32
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]

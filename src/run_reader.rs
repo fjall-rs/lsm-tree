@@ -40,13 +40,13 @@ impl RunReader {
         let hi = hi.unwrap_or(run.len() - 1);
 
         // TODO: lazily init readers?
-        let lo_segment = run.deref().get(lo).expect("should exist");
-        let lo_reader = lo_segment.range(range.clone());
+        let lo_table = run.deref().get(lo).expect("should exist");
+        let lo_reader = lo_table.range(range.clone());
 
         // TODO: lazily init readers?
         let hi_reader = if hi > lo {
-            let hi_segment = run.deref().get(hi).expect("should exist");
-            Some(hi_segment.range(range))
+            let hi_table = run.deref().get(hi).expect("should exist");
+            Some(hi_table.range(range))
         } else {
             None
         };
@@ -147,13 +147,13 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
             .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         assert!(RunReader::new(level.clone(), UserKey::from("y")..=UserKey::from("z"),).is_none());
 
@@ -182,13 +182,13 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
             .iter_segments()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         {
             let multi_reader = RunReader::new(level.clone(), ..).unwrap();

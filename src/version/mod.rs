@@ -20,7 +20,7 @@ use crate::{
 };
 use optimize::optimize_runs;
 use run::Ranged;
-use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 
@@ -163,7 +163,7 @@ pub struct VersionInner {
 
 /// A version is an immutable, point-in-time view of a tree's structure
 ///
-/// Any time a segment is created or deleted, a new version is created.
+/// Any time a table is created or deleted, a new version is created.
 #[derive(Clone)]
 pub struct Version {
     inner: Arc<VersionInner>,
@@ -226,7 +226,7 @@ impl Version {
 
     pub(crate) fn from_recovery(
         recovery: Recovery,
-        segments: &[Segment],
+        tables: &[Segment],
         blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
         let version_levels = recovery
@@ -236,18 +236,18 @@ impl Version {
                 let level_runs = level
                     .iter()
                     .map(|run| {
-                        let run_segments = run
+                        let run_tables = run
                             .iter()
-                            .map(|segment_id| {
-                                segments
+                            .map(|&table_id| {
+                                tables
                                     .iter()
-                                    .find(|x| x.id() == *segment_id)
+                                    .find(|x| x.id() == table_id)
                                     .cloned()
                                     .ok_or(crate::Error::Unrecoverable)
                             })
                             .collect::<crate::Result<Vec<_>>>()?;
 
-                        Ok(Arc::new(Run::new(run_segments)))
+                        Ok(Arc::new(Run::new(run_tables)))
                     })
                     .collect::<crate::Result<Vec<_>>>()?;
 
@@ -291,7 +291,7 @@ impl Version {
         self.levels.iter()
     }
 
-    /// Returns the number of segments in all levels.
+    /// Returns the number of tables in all levels.
     pub fn segment_count(&self) -> usize {
         self.iter_levels().map(|x| x.segment_count()).sum()
     }
@@ -300,7 +300,7 @@ impl Version {
         self.blob_files.len()
     }
 
-    /// Returns an iterator over all segments.
+    /// Returns an iterator over all tables.
     pub fn iter_segments(&self) -> impl Iterator<Item = &Segment> {
         self.levels
             .iter()
@@ -340,7 +340,7 @@ impl Version {
                 .runs
                 .iter()
                 .map(|run| {
-                    let run: Run<Segment> = run.deref().clone();
+                    let run: Run<_> = run.deref().clone();
                     run
                 })
                 .collect::<Vec<_>>();
@@ -398,7 +398,7 @@ impl Version {
 
         let mut levels = vec![];
 
-        let mut dropped_segments: Vec<Segment> = vec![];
+        let mut dropped_tables: Vec<Segment> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -406,13 +406,13 @@ impl Version {
                 .iter()
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
-                    let mut run: Run<Segment> = run.deref().clone();
+                    let mut run: Run<_> = run.deref().clone();
 
-                    let removed_segments = run
+                    let removed_tables = run
                         .inner_mut()
                         .extract_if(.., |x| ids.contains(&x.metadata.id));
 
-                    dropped_segments.extend(removed_segments);
+                    dropped_tables.extend(removed_tables);
 
                     run
                 })
@@ -424,13 +424,13 @@ impl Version {
             levels.push(Level::from_runs(runs.into_iter().map(Arc::new).collect()));
         }
 
-        let gc_stats = if dropped_segments.is_empty() {
+        let gc_stats = if dropped_tables.is_empty() {
             self.gc_stats.clone()
         } else {
             let mut copy = self.gc_stats.deref().clone();
 
-            for segment in &dropped_segments {
-                let linked_blob_files = segment.list_blob_file_references()?.unwrap_or_default();
+            for table in &dropped_tables {
+                let linked_blob_files = table.list_blob_file_references()?.unwrap_or_default();
 
                 for blob_file in linked_blob_files {
                     copy.entry(blob_file.blob_file_id)
@@ -451,7 +451,7 @@ impl Version {
             Arc::new(copy)
         };
 
-        let value_log = if dropped_segments.is_empty() {
+        let value_log = if dropped_tables.is_empty() {
             self.blob_files.clone()
         } else {
             let mut copy = self.blob_files.deref().clone();
@@ -473,7 +473,7 @@ impl Version {
     pub fn with_merge(
         &self,
         old_ids: &[SegmentId],
-        new_segments: &[Segment],
+        new_tables: &[Segment],
         dest_level: usize,
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
@@ -489,7 +489,7 @@ impl Version {
                 .iter()
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
-                    let mut run: Run<Segment> = run.deref().clone();
+                    let mut run: Run<_> = run.deref().clone();
                     run.retain(|x| !old_ids.contains(&x.metadata.id));
                     run
                 })
@@ -497,7 +497,7 @@ impl Version {
                 .collect::<Vec<_>>();
 
             if level_idx == dest_level {
-                runs.insert(0, Run::new(new_segments.to_vec()));
+                runs.insert(0, Run::new(new_tables.to_vec()));
             }
 
             let runs = optimize_runs(runs);
@@ -556,13 +556,13 @@ impl Version {
     pub fn with_moved(&self, ids: &[SegmentId], dest_level: usize) -> Self {
         let id = self.id + 1;
 
-        let affected_segments = self
+        let affected_tables = self
             .iter_segments()
             .filter(|x| ids.contains(&x.id()))
             .cloned()
             .collect::<Vec<_>>();
 
-        assert_eq!(affected_segments.len(), ids.len(), "invalid segment IDs");
+        assert_eq!(affected_tables.len(), ids.len(), "invalid table IDs");
 
         let mut levels = vec![];
 
@@ -572,7 +572,7 @@ impl Version {
                 .iter()
                 .map(|run| {
                     // TODO: don't clone Arc inner if we don't need to modify
-                    let mut run: Run<Segment> = run.deref().clone();
+                    let mut run: Run<_> = run.deref().clone();
                     run.retain(|x| !ids.contains(&x.metadata.id));
                     run
                 })
@@ -580,7 +580,7 @@ impl Version {
                 .collect::<Vec<_>>();
 
             if level_idx == dest_level {
-                runs.insert(0, Run::new(affected_segments.clone()));
+                runs.insert(0, Run::new(affected_tables.clone()));
             }
 
             let runs = optimize_runs(runs);
@@ -618,12 +618,12 @@ impl Version {
             writer.write_u8(level.len() as u8)?;
 
             for run in level.iter() {
-                // Segment count
-                // NOTE: We know there are always less than 4 billion segments in a run
+                // Table count
+                // NOTE: We know there are always less than 4 billion tables in a run
                 #[allow(clippy::cast_possible_truncation)]
                 writer.write_u32::<LittleEndian>(run.len() as u32)?;
 
-                // Segment IDs
+                // Table IDs
                 for id in run.iter().map(Segment::id) {
                     writer.write_u64::<LittleEndian>(id)?;
                 }
@@ -666,8 +666,8 @@ impl Version {
 
                 if run.len() >= 30 {
                     #[allow(clippy::indexing_slicing)]
-                    for segment in run.iter().take(2) {
-                        let id = segment.id();
+                    for table in run.iter().take(2) {
+                        let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);
 
                         write!(
@@ -680,8 +680,8 @@ impl Version {
                     write!(f, " . . . ")?;
 
                     #[allow(clippy::indexing_slicing)]
-                    for segment in run.iter().rev().take(2).rev() {
-                        let id = segment.id();
+                    for table in run.iter().rev().take(2).rev() {
+                        let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);
 
                         write!(
@@ -699,8 +699,8 @@ impl Version {
                         run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 } else {
-                    for segment in run.iter() {
-                        let id = segment.id();
+                    for table in run.iter() {
+                        let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);
 
                         write!(

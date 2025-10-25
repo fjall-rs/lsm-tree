@@ -172,7 +172,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
 
         file_writer.start("index")?;
         file_writer.write_all(&self.final_write_buffer)?;
-        log::trace!("Concatted index blocks onto blocks file");
+        log::trace!("Concatted index partitions onto blocks file");
 
         self.write_top_level_index(file_writer, index_base_offset)?;
 
