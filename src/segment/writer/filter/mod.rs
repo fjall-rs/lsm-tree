@@ -3,21 +3,24 @@
 // (found in the LICENSE-* files in the repository)
 
 mod full;
-// mod partitioned;
+mod partitioned;
 
 pub use full::FullFilterWriter;
-// pub use partitioned::PartitionedFilterWriter;
+pub use partitioned::PartitionedFilterWriter;
 
-use crate::config::BloomConstructionPolicy;
+use crate::{config::BloomConstructionPolicy, UserKey};
 
 pub trait FilterWriter<W: std::io::Write> {
+    // NOTE: We purposefully use a UserKey instead of &[u8]
+    // so we can clone it without heap allocation, if needed
     /// Registers a key in the block index.
-    fn register_key(&mut self, key: &[u8]) -> crate::Result<()>;
+    fn register_key(&mut self, key: &UserKey) -> crate::Result<()>;
 
     /// Writes the filter to a file.
-    fn finish(
+    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<()>;
+
+    fn set_filter_policy(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer,
-        bloom_policy: BloomConstructionPolicy,
-    ) -> crate::Result<()>;
+        policy: BloomConstructionPolicy,
+    ) -> Box<dyn FilterWriter<W>>;
 }

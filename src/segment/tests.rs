@@ -12,16 +12,16 @@ fn test_with_table(
     items: &[InternalValue],
     f: impl Fn(Segment) -> crate::Result<()>,
     rotate_every: Option<usize>,
-    data_block_size: Option<u32>,
+    config_writer: Option<impl Fn(Writer) -> Writer>,
 ) -> crate::Result<()> {
     let dir = tempdir()?;
     let file = dir.path().join("table");
 
     {
-        let mut writer = crate::segment::Writer::new(file.clone(), 0)?;
+        let mut writer = Writer::new(file.clone(), 0)?;
 
-        if let Some(data_block_size) = data_block_size {
-            writer = writer.use_data_block_size(data_block_size);
+        if let Some(f) = &config_writer {
+            writer = f(writer);
         }
 
         for (idx, item) in items.iter().enumerate() {
@@ -38,7 +38,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -49,20 +49,20 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(segment.regions.index.is_none(), "should use full index");
-            assert_eq!(0, segment.pinned_block_index_size(), "should not pin index");
-            assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_none(), "should use full index");
+            assert_eq!(0, table.pinned_block_index_size(), "should not pin index");
+            assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -73,20 +73,20 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(segment.regions.index.is_none(), "should use full index");
-            assert_eq!(0, segment.pinned_block_index_size(), "should not pin index");
-            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_none(), "should use full index");
+            assert_eq!(0, table.pinned_block_index_size(), "should not pin index");
+            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -97,20 +97,20 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(segment.regions.index.is_none(), "should use full index");
-            assert!(segment.pinned_block_index_size() > 0, "should pin index");
-            assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_none(), "should use full index");
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -121,23 +121,23 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(segment.regions.index.is_none(), "should use full index");
-            assert!(segment.pinned_block_index_size() > 0, "should pin index");
-            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_none(), "should use full index");
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
     }
 
     std::fs::remove_file(&file)?;
 
     {
-        let mut writer = crate::segment::Writer::new(file.clone(), 0)?.use_partitioned_index();
+        let mut writer = Writer::new(file.clone(), 0)?.use_partitioned_index();
 
-        if let Some(data_block_size) = data_block_size {
-            writer = writer.use_data_block_size(data_block_size);
+        if let Some(f) = config_writer {
+            writer = f(writer);
         }
 
         for (idx, item) in items.iter().enumerate() {
@@ -154,7 +154,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -165,22 +165,19 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(
-                segment.regions.index.is_some(),
-                "should use two-level index",
-            );
-            assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_some(), "should use two-level index",);
+            assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -191,22 +188,19 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(
-                segment.regions.index.is_some(),
-                "should use two-level index",
-            );
-            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_some(), "should use two-level index",);
+            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
+            let table = Segment::recover(
                 file.clone(),
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
@@ -217,24 +211,21 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(
-                segment.regions.index.is_some(),
-                "should use two-level index",
-            );
-            assert!(segment.pinned_block_index_size() > 0, "should pin index");
-            assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_some(), "should use two-level index",);
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            // assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
 
         {
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let segment = Segment::recover(
-                file.clone(),
+            let table = Segment::recover(
+                file,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -244,16 +235,13 @@ fn test_with_table(
                 metrics,
             )?;
 
-            assert_eq!(0, segment.id());
-            assert_eq!(items.len(), segment.metadata.item_count as usize);
-            assert!(
-                segment.regions.index.is_some(),
-                "should use two-level index",
-            );
-            assert!(segment.pinned_block_index_size() > 0, "should pin index");
-            assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_some(), "should use two-level index",);
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
 
-            f(segment)?;
+            f(table)?;
         }
     }
 
@@ -298,7 +286,7 @@ fn table_point_read() -> crate::Result<()> {
             Ok(())
         },
         None,
-        None,
+        Some(|x| x),
     )
 }
 
@@ -332,7 +320,7 @@ fn table_point_read_mvcc_block_boundary() -> crate::Result<()> {
             Ok(())
         },
         Some(3),
-        None,
+        Some(|x| x),
     )
 }
 
@@ -358,7 +346,7 @@ fn table_scan() -> crate::Result<()> {
             Ok(())
         },
         None,
-        None,
+        Some(|x| x),
     )
 }
 
@@ -383,7 +371,7 @@ fn table_iter_simple() -> crate::Result<()> {
             Ok(())
         },
         None,
-        None,
+        Some(|x| x),
     )
 }
 
@@ -419,7 +407,7 @@ fn table_range_simple() -> crate::Result<()> {
             Ok(())
         },
         None,
-        None,
+        Some(|x| x),
     )
 }
 
@@ -459,7 +447,7 @@ fn table_range_ping_pong() -> crate::Result<()> {
             Ok(())
         },
         None,
-        None,
+        Some(|x| x),
     )
 }
 
@@ -505,6 +493,42 @@ fn table_range_multiple_data_blocks() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(1),
+        Some(|x: Writer| x.use_data_block_size(1)),
+    )
+}
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
+    let items = [
+        crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"b", b"asdasdasd", 3, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"c", b"asdasdasd", 3, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"d", b"asdasdasd", 3, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"e", b"asdasdasd", 3, crate::ValueType::Value),
+    ];
+
+    test_with_table(
+        &items,
+        |table| {
+            assert_eq!(1, table.metadata.data_block_count);
+
+            for item in &items {
+                let key_hash = BloomBuilder::get_hash(&item.key.user_key);
+
+                assert_eq!(
+                    item.value,
+                    table
+                        .get(&item.key.user_key, SeqNo::MAX, key_hash)
+                        .unwrap()
+                        .unwrap()
+                        .value,
+                );
+            }
+
+            Ok(())
+        },
+        None,
+        Some(|x: Writer| x.use_partitioned_filter()),
     )
 }

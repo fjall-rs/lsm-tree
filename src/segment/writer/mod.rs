@@ -109,7 +109,7 @@ impl Writer {
             path: std::path::absolute(path)?,
 
             index_writer: Box::new(FullIndexWriter::new()),
-            filter_writer: Box::new(FullFilterWriter::new()),
+            filter_writer: Box::new(FullFilterWriter::new(BloomConstructionPolicy::default())),
 
             block_buffer: Vec::new(),
             block_writer,
@@ -142,6 +142,12 @@ impl Writer {
             on_disk_bytes,
             len,
         });
+    }
+
+    #[must_use]
+    pub fn use_partitioned_filter(mut self) -> Self {
+        self.filter_writer = Box::new(filter::PartitionedFilterWriter::new(self.bloom_policy));
+        self
     }
 
     #[must_use]
@@ -205,6 +211,7 @@ impl Writer {
     #[must_use]
     pub fn use_bloom_policy(mut self, bloom_policy: BloomConstructionPolicy) -> Self {
         self.bloom_policy = bloom_policy;
+        self.filter_writer = self.filter_writer.set_filter_policy(bloom_policy);
         self
     }
 
@@ -356,8 +363,7 @@ impl Writer {
         self.index_writer.finish(&mut self.block_writer)?;
 
         // Write filter
-        self.filter_writer
-            .finish(&mut self.block_writer, self.bloom_policy)?;
+        self.filter_writer.finish(&mut self.block_writer)?;
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};

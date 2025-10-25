@@ -31,7 +31,7 @@ use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
     segment::{
-        block::BlockType,
+        block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
         regions::ParsedRegions,
         writer::LinkedFile,
@@ -42,6 +42,7 @@ use block_index::BlockIndexImpl;
 use inner::Inner;
 use iter::Iter;
 use std::{
+    borrow::Cow,
     fs::File,
     io::{BufReader, Read, Seek},
     ops::{Bound, RangeBounds},
@@ -223,25 +224,41 @@ impl Segment {
             return Ok(None);
         }
 
-        if let Some(block) = &self.pinned_filter_block {
-            let filter = StandardBloomFilterReader::new(&block.data)?;
+        let filter_block = if let Some(block) = &self.pinned_filter_block {
+            Some(Cow::Borrowed(block))
+        } else if let Some(filter_idx) = &self.pinned_filter_index {
+            let mut iter = filter_idx.iter();
+            iter.seek(key);
 
-            #[cfg(feature = "metrics")]
-            self.metrics.filter_queries.fetch_add(1, Relaxed);
+            if let Some(filter_block_handle) = iter.next() {
+                let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
 
-            if !filter.contains_hash(key_hash) {
-                #[cfg(feature = "metrics")]
-                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                let block = self.load_block(
+                    &filter_block_handle.into_inner(),
+                    BlockType::Filter,
+                    CompressionType::None, // NOTE: We never write a filter block with compression
+                )?;
 
-                return Ok(None);
+                Some(Cow::Owned(block))
+            } else {
+                None
             }
+        } else if let Some(_filter_tli_handle) = &self.regions.filter_tli {
+            unimplemented!("unpinned filter TLI not supported");
         } else if let Some(filter_block_handle) = &self.regions.filter {
             let block = self.load_block(
                 filter_block_handle,
                 BlockType::Filter,
                 CompressionType::None, // NOTE: We never write a filter block with compression
             )?;
-            let filter = StandardBloomFilterReader::new(&block.data)?;
+
+            Some(Cow::Owned(block))
+        } else {
+            None
+        };
+
+        if let Some(filter_block) = filter_block {
+            let filter = StandardBloomFilterReader::new(&filter_block.data)?;
 
             #[cfg(feature = "metrics")]
             self.metrics.filter_queries.fetch_add(1, Relaxed);
@@ -269,10 +286,10 @@ impl Segment {
         for block_handle in iter {
             let block_handle = block_handle?;
 
-            // TODO: can this ever happen...?
-            if block_handle.end_key() < &key {
-                return Ok(None);
-            }
+            // // TODO: 3.0.0 can this ever happen...?
+            // if block_handle.end_key() < &key {
+            //     return Ok(None);
+            // }
 
             let block = self.load_data_block(block_handle.as_ref())?;
 
@@ -456,8 +473,19 @@ impl Segment {
             })
         };
 
+        let pinned_filter_index = if let Some(filter_tli_handle) = regions.filter_tli {
+            let block = Block::from_file(
+                &file,
+                filter_tli_handle,
+                CompressionType::None, // TODO: 3.0.0
+            )?;
+            Some(IndexBlock::new(block))
+        } else {
+            None
+        };
+
         // TODO: FilterBlock newtype
-        let pinned_filter_block = if pin_filter {
+        let pinned_filter_block = if pinned_filter_index.is_none() && pin_filter {
             regions
                 .filter
                 .map(|filter_handle| {
@@ -488,7 +516,7 @@ impl Segment {
 
         log::trace!("Table #{} recovered", metadata.id);
 
-        let segment = Self(Arc::new(Inner {
+        Ok(Self(Arc::new(Inner {
             path: Arc::new(file_path),
             tree_id,
 
@@ -501,15 +529,15 @@ impl Segment {
 
             block_index: Arc::new(block_index),
 
+            pinned_filter_index,
+
             pinned_filter_block,
 
             is_deleted: AtomicBool::default(),
 
             #[cfg(feature = "metrics")]
             metrics,
-        }));
-
-        Ok(segment)
+        })))
     }
 
     pub(crate) fn mark_as_deleted(&self) {

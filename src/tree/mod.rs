@@ -356,6 +356,9 @@ impl AbstractTree for Tree {
 
         let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
 
+        let index_partioning = self.config.index_block_partioning_policy.get(0);
+        let filter_partioning = self.config.filter_block_partioning_policy.get(0);
+
         log::debug!(
             "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             table_file_path.display(),
@@ -378,6 +381,13 @@ impl AbstractTree for Tree {
                     None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             });
+
+        if index_partioning {
+            table_writer = table_writer.use_partitioned_index();
+        }
+        if filter_partioning {
+            table_writer = table_writer.use_partitioned_filter();
+        }
 
         let iter = memtable.iter().map(Ok);
         let compaction_filter = CompactionStream::new(iter, seqno_threshold);

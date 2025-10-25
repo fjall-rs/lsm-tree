@@ -7,7 +7,8 @@ use crate::metrics::Metrics;
 
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, tree::inner::TreeId, GlobalSegmentId,
+    cache::Cache, descriptor_table::DescriptorTable, segment::IndexBlock, tree::inner::TreeId,
+    GlobalSegmentId,
 };
 use std::{
     path::PathBuf,
@@ -39,6 +40,8 @@ pub struct Inner {
     /// Stores index and data blocks
     #[doc(hidden)]
     pub cache: Arc<Cache>,
+
+    pub(super) pinned_filter_index: Option<IndexBlock>,
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<Block>,
