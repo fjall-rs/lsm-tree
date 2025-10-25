@@ -21,10 +21,6 @@ impl FullIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter {
-    fn len(&self) -> usize {
-        1
-    }
-
     fn use_compression(
         mut self: Box<Self>,
         compression: CompressionType,
@@ -46,7 +42,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         Ok(())
     }
 
-    fn finish(&mut self, file_writer: &mut sfa::Writer) -> crate::Result<()> {
+    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
         file_writer.start("tli")?;
 
         let mut bytes = vec![];
@@ -68,6 +64,6 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             self.block_handles.len(),
         );
 
-        Ok(())
+        Ok(1)
     }
 }

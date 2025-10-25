@@ -127,10 +127,6 @@ impl PartitionedIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndexWriter {
-    fn len(&self) -> usize {
-        self.index_block_count + 1 // 1 = TLI
-    }
-
     fn use_compression(
         mut self: Box<Self>,
         compression: CompressionType,
@@ -163,7 +159,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
         Ok(())
     }
 
-    fn finish(&mut self, file_writer: &mut sfa::Writer) -> crate::Result<()> {
+    fn finish(mut self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
         if self.buffer_size > 0 {
             self.cut_index_block()?;
         }
@@ -176,6 +172,6 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
 
         self.write_top_level_index(file_writer, index_base_offset)?;
 
-        Ok(())
+        Ok(self.index_block_count)
     }
 }

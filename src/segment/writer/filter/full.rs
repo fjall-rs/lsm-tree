@@ -22,6 +22,10 @@ impl FullFilterWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
+    fn use_tli_compression(self: Box<Self>, _: CompressionType) -> Box<dyn FilterWriter<W>> {
+        self
+    }
+
     fn set_filter_policy(
         mut self: Box<Self>,
         policy: BloomConstructionPolicy,
