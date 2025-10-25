@@ -29,8 +29,8 @@ pub struct MultiWriter {
 
     /// Target size of segments in bytes
     ///
-    /// If a segment reaches the target size, a new one is started,
-    /// resulting in a sorted "run" of segments
+    /// If a table reaches the target size, a new one is started,
+    /// resulting in a sorted "run" of tables
     pub target_size: u64,
 
     results: Vec<SegmentId>,

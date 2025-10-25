@@ -133,7 +133,7 @@ fn create_compaction_stream<'a>(
             let Some(lo) = run
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.id()))
+                .filter(|(_, table)| to_compact.contains(&table.id()))
                 .min_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -143,7 +143,7 @@ fn create_compaction_stream<'a>(
             let Some(hi) = run
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.id()))
+                .filter(|(_, table)| to_compact.contains(&table.id()))
                 .max_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -157,13 +157,13 @@ fn create_compaction_stream<'a>(
 
             found += hi - lo + 1;
         } else {
-            for segment in level
+            for table in level
                 .iter()
                 .flat_map(|x| x.iter())
                 .filter(|x| to_compact.contains(&x.metadata.id))
             {
                 found += 1;
-                readers.push(Box::new(segment.scan()?));
+                readers.push(Box::new(table.scan()?));
             }
         }
     }
@@ -197,11 +197,11 @@ fn move_segments(
         return Ok(());
     }
 
-    let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
+    let table_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
 
     compaction_state.upgrade_version(
         &mut super_version,
-        |current| Ok(current.with_moved(&segment_ids, payload.dest_level as usize)),
+        |current| Ok(current.with_moved(&table_ids, payload.dest_level as usize)),
         opts.eviction_seqno,
     )?;
 
@@ -518,7 +518,7 @@ fn drop_segments(
         return Ok(());
     }
 
-    let Some(segments) = ids_to_drop
+    let Some(tables) = ids_to_drop
         .iter()
         .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
@@ -534,8 +534,8 @@ fn drop_segments(
 
     let mut dropped_blob_files = vec![];
 
-    // IMPORTANT: Write the manifest with the removed segments first
-    // Otherwise the segment files are deleted, but are still referenced!
+    // IMPORTANT: Write the manifest with the removed tables first
+    // Otherwise the table files are deleted, but are still referenced!
     compaction_state.upgrade_version(
         &mut super_version,
         |current| current.with_dropped(ids_to_drop, &mut dropped_blob_files),
@@ -543,10 +543,10 @@ fn drop_segments(
     )?;
 
     // NOTE: If the application were to crash >here< it's fine
-    // The segments are not referenced anymore, and will be
+    // The tables are not referenced anymore, and will be
     // cleaned up upon recovery
-    for segment in segments {
-        segment.mark_as_deleted();
+    for table in tables {
+        table.mark_as_deleted();
     }
 
     for blob_file in dropped_blob_files {

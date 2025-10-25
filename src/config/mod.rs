@@ -64,7 +64,7 @@ pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
     pub compression: CompressionType,
 
-    /// Blob file (value log segment) target size in bytes
+    /// Blob file target size in bytes
     #[doc(hidden)]
     pub file_target_size: u64,
 

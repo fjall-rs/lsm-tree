@@ -342,11 +342,11 @@ impl Writer {
 
     // TODO: 3.0.0 split meta writing into new function
     #[allow(clippy::too_many_lines)]
-    /// Finishes the segment, making sure all data is written durably
+    /// Finishes the table, making sure all data is written durably
     pub fn finish(mut self) -> crate::Result<Option<SegmentId>> {
         self.spill_block()?;
 
-        // No items written! Just delete segment file and return nothing
+        // No items written! Just delete table file and return nothing
         if self.meta.item_count == 0 {
             std::fs::remove_file(&self.path)?;
             return Ok(None);

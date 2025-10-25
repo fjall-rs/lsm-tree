@@ -53,11 +53,11 @@ use util::load_block;
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-// TODO: segment iter:
+// TODO: table iter:
 // TODO:    we only need to truncate items from blocks that are not the first and last block
 // TODO:    because any block inbetween must (trivially) only contain relevant items
 
-// TODO: in Leveled compaction, compact segments that live very long and have
+// TODO: in Leveled compaction, compact tables that live very long and have
 // many versions (possibly unnecessary space usage of old, stale versions)
 
 #[allow(clippy::module_name_repetitions)]
