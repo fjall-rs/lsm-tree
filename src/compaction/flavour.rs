@@ -34,8 +34,8 @@ pub(super) fn prepare_table_writer(
 
     let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
 
-    let index_partioning = opts.config.index_block_partioning_policy.get(dst_lvl);
-    let filter_partioning = opts.config.filter_block_partioning_policy.get(dst_lvl);
+    let index_partioning = opts.config.index_block_partitioning_policy.get(dst_lvl);
+    let filter_partioning = opts.config.filter_block_partitioning_policy.get(dst_lvl);
 
     log::debug!(
         "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",

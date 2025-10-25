@@ -203,10 +203,10 @@ pub struct Config {
     pub data_block_hash_ratio_policy: HashRatioPolicy,
 
     /// Whether to partition index blocks
-    pub index_block_partioning_policy: PartioningPolicy,
+    pub index_block_partitioning_policy: PartioningPolicy,
 
     /// Whether to partition filter blocks
-    pub filter_block_partioning_policy: PartioningPolicy,
+    pub filter_block_partitioning_policy: PartioningPolicy,
 
     /// If `true`, the last level will not build filters, reducing the filter size of a database
     /// by ~90% typically
@@ -240,8 +240,8 @@ impl Default for Config {
             index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
 
-            index_block_partioning_policy: PinningPolicy::new(&[false, false, false, true]),
-            filter_block_partioning_policy: PinningPolicy::new(&[false, false, false, true]),
+            index_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
+            filter_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
 
             data_block_compression_policy: CompressionPolicy::default(),
             index_block_compression_policy: CompressionPolicy::all(CompressionType::None),
@@ -292,6 +292,20 @@ impl Config {
     #[must_use]
     pub fn expect_point_read_hits(mut self, b: bool) -> Self {
         self.expect_point_read_hits = b;
+        self
+    }
+
+    /// Sets the partitioning policy for filter blocks.
+    #[must_use]
+    pub fn filter_block_partitioning_policy(mut self, policy: PinningPolicy) -> Self {
+        self.filter_block_partitioning_policy = policy;
+        self
+    }
+
+    /// Sets the partitioning policy for index blocks.
+    #[must_use]
+    pub fn index_block_partitioning_policy(mut self, policy: PinningPolicy) -> Self {
+        self.index_block_partitioning_policy = policy;
         self
     }
 
