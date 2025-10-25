@@ -1,4 +1,4 @@
-use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, SeqNo};
+use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
 use test_log::test;
 
 #[test]
@@ -10,7 +10,9 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
 
     {
         let tree = lsm_tree::Config::new(path)
-            .with_kv_separation(Some(Default::default()))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
@@ -36,7 +38,8 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(
             &{
                 let mut map = lsm_tree::HashMap::default();
-                map.insert(0, FragmentationEntry::new(1, big_value.len() as u64));
+                let size = big_value.len() as u64;
+                map.insert(0, FragmentationEntry::new(1, size, size));
                 map
             },
             &*gc_stats,

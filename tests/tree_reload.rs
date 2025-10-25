@@ -28,6 +28,38 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let large_value = "a".repeat(10_000);
+
+    {
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
+
+        assert_eq!(0, tree.segment_count());
+
+        tree.insert("a", &large_value, 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(1, tree.segment_count());
+        assert!(tree.contains_key("a", SeqNo::MAX)?);
+    }
+
+    {
+        let tree = Config::new(&folder)
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
+
+        assert_eq!(1, tree.segment_count());
+        assert_eq!(large_value.as_bytes(), tree.get("a", SeqNo::MAX)?.unwrap());
+    }
+
+    Ok(())
+}
+
+#[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 

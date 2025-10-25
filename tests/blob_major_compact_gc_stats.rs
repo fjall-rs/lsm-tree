@@ -1,4 +1,4 @@
-use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, SeqNo};
+use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
 use test_log::test;
 
 // TODO: 3.0.0 check that decompressed value size is used (enable compression)
@@ -13,7 +13,9 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
 
     {
         let tree = lsm_tree::Config::new(path)
-            .with_kv_separation(Some(Default::default()))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
@@ -43,7 +45,8 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(
             &{
                 let mut map = lsm_tree::HashMap::default();
-                map.insert(0, FragmentationEntry::new(1, big_value.len() as u64));
+                let size = big_value.len() as u64;
+                map.insert(0, FragmentationEntry::new(1, size, size));
                 map
             },
             &*gc_stats,
@@ -62,7 +65,9 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
 
     {
         let tree = lsm_tree::Config::new(path)
-            .with_kv_separation(Some(Default::default()))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+            ))
             .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
@@ -87,6 +92,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
             Some(vec![lsm_tree::segment::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: 2 * big_value.len() as u64,
+                on_disk_bytes: 2 * big_value.len() as u64,
                 len: 2,
             }]),
             tree.current_version()
@@ -108,7 +114,8 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         assert_eq!(
             &{
                 let mut map = lsm_tree::HashMap::default();
-                map.insert(0, FragmentationEntry::new(1, big_value.len() as u64));
+                let size = big_value.len() as u64;
+                map.insert(0, FragmentationEntry::new(1, size, size));
                 map
             },
             &*gc_stats,
@@ -118,6 +125,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
             Some(vec![lsm_tree::segment::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
+                on_disk_bytes: big_value.len() as u64,
                 len: 1,
             }]),
             tree.current_version()

@@ -12,7 +12,7 @@ fn recovery_mac_underscore_file() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.segment_count());
     }
 
-    let ds_store = folder.join("segments").join("._0");
+    let ds_store = folder.join("tables").join("._0");
     std::fs::File::create(&ds_store)?;
     assert!(ds_store.try_exists()?);
 

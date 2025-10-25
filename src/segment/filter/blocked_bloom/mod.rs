@@ -20,7 +20,7 @@ const CACHE_LINE_BYTES: usize = 64;
 ///
 /// Allows buffering the key hashes before actual filter construction
 /// which is needed to properly calculate the filter size, as the number of items
-/// are unknown during segment construction.
+/// are unknown during table construction.
 ///
 /// The filter uses double hashing instead of `k` hash functions, see:
 /// <https://fjall-rs.github.io/post/bloom-filter-hash-sharing>

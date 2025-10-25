@@ -220,11 +220,8 @@ impl MultiWriter {
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
-        if self.active_writer.item_count > 0 {
-            let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
-            self.results.extend(blob_file);
-        }
-
+        let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
+        self.results.extend(blob_file);
         Ok(self.results)
     }
 }

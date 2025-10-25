@@ -91,7 +91,7 @@ impl ParsedMeta {
         {
             let table_version = block
                 .point_read(b"v#table_version", SeqNo::MAX)
-                .expect("Segment ID should exist")
+                .expect("Table version should exist")
                 .value;
 
             assert_eq!(1, table_version.len(), "invalid table version byte array");
@@ -107,7 +107,7 @@ impl ParsedMeta {
         {
             let hash_type = block
                 .point_read(b"#filter_hash_type", SeqNo::MAX)
-                .expect("Segment ID should exist")
+                .expect("Filter hash type should exist")
                 .value;
 
             assert_eq!(
@@ -121,7 +121,7 @@ impl ParsedMeta {
         {
             let hash_type = block
                 .point_read(b"#checksum_type", SeqNo::MAX)
-                .expect("Segment ID should exist")
+                .expect("Checksum type should exist")
                 .value;
 
             assert_eq!(
@@ -150,7 +150,7 @@ impl ParsedMeta {
         let created_at = {
             let bytes = block
                 .point_read(b"#created_at", SeqNo::MAX)
-                .expect("Segment created_at should exist");
+                .expect("created_at timestamp should exist");
 
             let mut bytes = &bytes.value[..];
             bytes.read_u128::<LittleEndian>()?.into()

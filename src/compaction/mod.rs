@@ -36,23 +36,23 @@ pub use pulldown::Strategy as PullDown;
 
 /// Input for compactor.
 ///
-/// The compaction strategy chooses which segments to compact and how.
+/// The compaction strategy chooses which tables to compact and how.
 /// That information is given to the compactor.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
-    /// Segments to compact
+    /// Tables to compact
     pub segment_ids: HashSet<SegmentId>,
 
-    /// Level to put the created segments into
+    /// Level to put the created tables into
     pub dest_level: u8,
 
-    /// The logical level the segments are part of
+    /// The logical level the tables are part of
     pub canonical_level: u8,
 
-    /// Segment target size
+    /// Table target size
     ///
-    /// If a segment compaction reaches the level, a new segment is started.
-    /// This results in a sorted "run" of segments
+    /// If a table merge reaches the size threshold, a new table is started.
+    /// This results in a sorted "run" of tables.
     pub target_size: u64,
 }
 
@@ -62,13 +62,13 @@ pub enum Choice {
     /// Just do nothing.
     DoNothing,
 
-    /// Moves segments into another level without rewriting.
+    /// Moves tables into another level without rewriting.
     Move(Input),
 
-    /// Compacts some segments into a new level.
+    /// Compacts some tables into a new level.
     Merge(Input),
 
-    /// Delete segments without doing compaction.
+    /// Delete tables without doing compaction.
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].

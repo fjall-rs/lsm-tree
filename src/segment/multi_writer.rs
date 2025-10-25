@@ -12,9 +12,9 @@ use std::{
     sync::{atomic::AtomicU64, Arc},
 };
 
-/// Like `Writer` but will rotate to a new segment, once a segment grows larger than `target_size`
+/// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
-/// This results in a sorted "run" of segments
+/// This results in a sorted "run" of tables
 #[allow(clippy::module_name_repetitions)]
 pub struct MultiWriter {
     pub(crate) base_path: PathBuf,
@@ -101,6 +101,7 @@ impl MultiWriter {
             .or_insert_with(|| LinkedFile {
                 blob_file_id: indirection.vhandle.blob_file_id,
                 bytes: u64::from(indirection.size),
+                on_disk_bytes: u64::from(indirection.vhandle.on_disk_size),
                 len: 1,
             });
     }
@@ -197,7 +198,12 @@ impl MultiWriter {
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
         for linked in self.linked_blobs.values() {
-            old_writer.link_blob_file(linked.blob_file_id, linked.bytes, linked.len);
+            old_writer.link_blob_file(
+                linked.blob_file_id,
+                linked.len,
+                linked.bytes,
+                linked.on_disk_bytes,
+            );
         }
         self.linked_blobs.clear();
 
@@ -230,8 +236,12 @@ impl MultiWriter {
     /// Returns the metadata of created segments
     pub fn finish(mut self) -> crate::Result<Vec<SegmentId>> {
         for linked in self.linked_blobs.values() {
-            self.writer
-                .link_blob_file(linked.blob_file_id, linked.bytes, linked.len);
+            self.writer.link_blob_file(
+                linked.blob_file_id,
+                linked.len,
+                linked.bytes,
+                linked.on_disk_bytes,
+            );
         }
 
         if let Some(last_writer_result) = self.writer.finish()? {

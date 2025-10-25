@@ -191,7 +191,7 @@ fn move_segments(
         .should_decline_compaction(payload.segment_ids.iter().copied())
     {
         log::warn!(
-        "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+        "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
         return Ok(());
@@ -228,7 +228,7 @@ fn pick_blob_files_to_rewrite(
         .iter()
         .map(|&id| {
             current_version.get_segment(id).unwrap_or_else(|| {
-                panic!("table {id} should exist");
+                panic!("Table {id} should exist");
             })
         })
         .map(Segment::list_blob_file_references)
@@ -244,7 +244,7 @@ fn pick_blob_files_to_rewrite(
                 .blob_files
                 .get(blob_file_ref.blob_file_id)
                 .unwrap_or_else(|| {
-                    panic!("blob file {} should exist", blob_file_ref.blob_file_id);
+                    panic!("Blob file {} should exist", blob_file_ref.blob_file_id);
                 })
         })
         .filter(|blob_file| {
@@ -327,7 +327,7 @@ fn merge_segments(
         .should_decline_compaction(payload.segment_ids.iter().copied())
     {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+            "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -340,7 +340,7 @@ fn merge_segments(
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
-            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -355,7 +355,7 @@ fn merge_segments(
     )?
     else {
         log::warn!(
-            "Compaction task tried to compact segments that do not exist, declining to run it"
+            "Compaction task tried to compact tables that do not exist, declining to run it"
         );
         return Ok(());
     };
@@ -512,7 +512,7 @@ fn drop_segments(
         .should_decline_compaction(ids_to_drop.iter().copied())
     {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+            "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -524,7 +524,7 @@ fn drop_segments(
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
-            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -561,7 +561,7 @@ fn drop_segments(
     drop(super_version);
     drop(compaction_state);
 
-    log::trace!("Dropped {} segments", ids_to_drop.len());
+    log::trace!("Dropped {} tables", ids_to_drop.len());
 
     Ok(())
 }

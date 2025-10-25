@@ -9,15 +9,16 @@ fn file_descriptor_table(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get file descriptor");
 
     let id = (0, 523).into();
-    let descriptor_table = lsm_tree::descriptor_table::FileDescriptorTable::new(1, 1);
-    descriptor_table.insert(file.path(), id);
+    let descriptor_table = lsm_tree::descriptor_table::DescriptorTable::new(100);
+    descriptor_table.insert_for_table(id, Arc::new(file.into_file()));
 
     group.bench_function("descriptor table", |b: &mut criterion::Bencher<'_>| {
         b.iter(|| {
-            let guard = descriptor_table.access(&id).unwrap().unwrap();
-            let _fd = guard.file.lock().unwrap();
+            let _guard = descriptor_table.access_for_table(&id).unwrap();
         });
     });
+
+    let file = tempfile::NamedTempFile::new().unwrap();
 
     group.bench_function("fopen", |b: &mut criterion::Bencher<'_>| {
         b.iter(|| {
@@ -31,18 +32,16 @@ fn file_descriptor_table_threading(c: &mut Criterion) {
 
     let files_to_open = 1_000;
 
-    let file = Box::leak(Box::new(tempfile::NamedTempFile::new().unwrap()));
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let file = Arc::new(file.into_file());
 
     let mut group = c.benchmark_group("Get file descriptor (threaded)");
     group.throughput(criterion::Throughput::Elements(files_to_open as u64));
 
     for thread_count in [1, 2, 4, 8, 16] {
         let id = (0, 523).into();
-        let descriptor_table = Arc::new(lsm_tree::descriptor_table::FileDescriptorTable::new(
-            thread_count,
-            thread_count,
-        ));
-        descriptor_table.insert(file.path(), id);
+        let descriptor_table = Arc::new(lsm_tree::descriptor_table::DescriptorTable::new(100));
+        descriptor_table.insert_for_table(id, file.clone());
 
         group.bench_function(
             format!("descriptor table - {thread_count} threads"),
@@ -54,8 +53,7 @@ fn file_descriptor_table_threading(c: &mut Criterion) {
 
                             std::thread::spawn(move || {
                                 for _ in 0..(files_to_open / thread_count) {
-                                    let guard = table.access(&id).unwrap().unwrap();
-                                    let _fd = guard.file.lock().unwrap();
+                                    let _guard = table.access_for_table(&id).unwrap();
                                 }
                             })
                         })
@@ -67,6 +65,8 @@ fn file_descriptor_table_threading(c: &mut Criterion) {
                 });
             },
         );
+
+        let file = Box::leak(Box::new(tempfile::NamedTempFile::new().unwrap()));
 
         group.bench_function(
             format!("fopen - {thread_count} threads"),

@@ -15,8 +15,6 @@ pub trait BlockIndexWriter<W: std::io::Write> {
     fn register_data_block(&mut self, block_handle: KeyedBlockHandle) -> crate::Result<()>;
 
     /// Writes the block index to a file.
-    ///
-    /// Returns the (optional) index blocks handle and the TLI handle.
     fn finish(&mut self, file_writer: &mut sfa::Writer) -> crate::Result<()>;
 
     fn use_compression(

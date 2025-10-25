@@ -110,23 +110,24 @@ impl<'a> Ingestion<'a> {
             .config
             .filter_block_pinning_policy
             .get(INITIAL_CANONICAL_LEVEL);
+
         let pin_index = self
             .tree
             .config
             .filter_block_pinning_policy
             .get(INITIAL_CANONICAL_LEVEL);
 
-        let created_segments = results
+        let created_tables = results
             .into_iter()
-            .map(|segment_id| -> crate::Result<Segment> {
-                // TODO: segment recoverer struct w/ builder pattern
+            .map(|table_id| -> crate::Result<Segment> {
+                // TODO: table recoverer struct w/ builder pattern
                 // Segment::recover()
                 //  .pin_filters(true)
                 //  .with_metrics(metrics)
                 //  .run(path, tree_id, cache, descriptor_table);
 
                 Segment::recover(
-                    self.folder.join(segment_id.to_string()),
+                    self.folder.join(table_id.to_string()),
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
@@ -139,7 +140,7 @@ impl<'a> Ingestion<'a> {
             .collect::<crate::Result<Vec<_>>>()?;
 
         self.tree
-            .register_segments(&created_segments, None, None, 0)?;
+            .register_segments(&created_tables, None, None, 0)?;
 
         let last_level_idx = self.tree.config.level_count - 1;
 

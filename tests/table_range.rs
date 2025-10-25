@@ -62,7 +62,7 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_range_last_back() -> lsm_tree::Result<()> {
+fn table_range_last_back() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
@@ -97,7 +97,7 @@ fn segment_range_last_back() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn segment_range_last_back_2() -> lsm_tree::Result<()> {
+fn table_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)

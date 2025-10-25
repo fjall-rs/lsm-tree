@@ -56,7 +56,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
                 let mut map = lsm_tree::HashMap::default();
                 map.insert(
                     0,
-                    FragmentationEntry::new(1, b"smol".len().try_into().unwrap()),
+                    FragmentationEntry::new(1, b"smol".len().try_into().unwrap(), 5),
                 );
                 map
             },

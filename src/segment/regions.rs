@@ -9,7 +9,7 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
     BlockHandle::new(BlockOffset(entry.pos()), entry.len() as u32)
 }
 
-/// The regions block stores offsets to the different segment disk file "regions"
+/// The regions block stores offsets to the different table file "regions"
 ///
 /// ----------------
 /// |     data     | <- implicitly start at 0

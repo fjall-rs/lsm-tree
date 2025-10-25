@@ -33,7 +33,7 @@ impl PartitionedIndexWriter {
             buffer_size: 0,
             index_block_count: 0,
 
-            block_size: 4_096,
+            block_size: 4_096, // TODO: 3.0.0 allow to set this
             compression: CompressionType::None,
 
             tli_handles: Vec::new(),
@@ -172,7 +172,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
 
         file_writer.start("index")?;
         file_writer.write_all(&self.final_write_buffer)?;
-        log::trace!("Concatted index blocks onto blocks file");
+        log::trace!("Concatted index partitions onto blocks file");
 
         self.write_top_level_index(file_writer, index_base_offset)?;
 

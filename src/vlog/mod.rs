@@ -12,16 +12,20 @@ pub use {
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
-use crate::{
-    coding::Decode,
-    vlog::blob_file::{Inner as BlobFileInner, Metadata},
-};
+use crate::vlog::blob_file::{Inner as BlobFileInner, Metadata};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
 
-pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Vec<BlobFile>> {
+pub fn recover_blob_files(
+    folder: &Path,
+    ids: &[BlobFileId],
+) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
+    if !folder.try_exists()? {
+        return Ok((vec![], vec![]));
+    }
+
     let cnt = ids.len();
 
     let progress_mod = match cnt {
@@ -33,39 +37,68 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
     log::debug!("Recovering {cnt} blob files from {:?}", folder.display());
 
     let mut blob_files = Vec::with_capacity(ids.len());
+    let mut orphaned_blob_files = vec![];
 
-    for (idx, &id) in ids.iter().enumerate() {
-        log::trace!("Recovering blob file #{id:?}");
+    for (idx, dirent) in std::fs::read_dir(folder)?.enumerate() {
+        let dirent = dirent?;
+        let file_name = dirent.file_name();
 
-        let path = folder.join(id.to_string());
+        // https://en.wikipedia.org/wiki/.DS_Store
+        if file_name == ".DS_Store" {
+            continue;
+        }
 
-        let meta = {
-            let reader = sfa::Reader::new(&path)?;
-            let toc = reader.toc();
+        // https://en.wikipedia.org/wiki/AppleSingle_and_AppleDouble_formats
+        if file_name.to_string_lossy().starts_with("._") {
+            continue;
+        }
 
-            // NOTE: Nothing we can do - something has gone horribly wrong
-            #[allow(clippy::expect_used)]
-            let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+        let blob_file_name = file_name.to_str().ok_or_else(|| {
+            log::error!("invalid table file name {}", file_name.display());
+            crate::Error::Unrecoverable
+        })?;
 
-            let file = std::fs::File::open(&path)?;
-            let metadata_slice = crate::file::read_exact(
-                &file,
-                metadata_section.pos(),
-                metadata_section.len() as usize,
-            )?;
+        let blob_file_id = blob_file_name.parse::<BlobFileId>().map_err(|e| {
+            log::error!("invalid table file name {blob_file_name:?}: {e:?}");
+            crate::Error::Unrecoverable
+        })?;
 
-            Metadata::from_slice(&metadata_slice)?
-        };
+        let blob_file_path = dirent.path();
+        assert!(!blob_file_path.is_dir());
 
-        blob_files.push(BlobFile(Arc::new(BlobFileInner {
-            id,
-            path,
-            meta,
-            is_deleted: AtomicBool::new(false),
-        })));
+        if ids.contains(&blob_file_id) {
+            log::trace!("Recovering blob file #{blob_file_id:?}");
 
-        if idx % progress_mod == 0 {
-            log::debug!("Recovered {idx}/{cnt} blob files");
+            let meta = {
+                let reader = sfa::Reader::new(&blob_file_path)?;
+                let toc = reader.toc();
+
+                // NOTE: Nothing we can do - something has gone horribly wrong
+                #[allow(clippy::expect_used)]
+                let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+
+                let file = std::fs::File::open(&blob_file_path)?;
+                let metadata_slice = crate::file::read_exact(
+                    &file,
+                    metadata_section.pos(),
+                    metadata_section.len() as usize,
+                )?;
+
+                Metadata::from_slice(&metadata_slice)?
+            };
+
+            blob_files.push(BlobFile(Arc::new(BlobFileInner {
+                id: blob_file_id,
+                path: blob_file_path,
+                meta,
+                is_deleted: AtomicBool::new(false),
+            })));
+
+            if idx % progress_mod == 0 {
+                log::debug!("Recovered {idx}/{cnt} blob files");
+            }
+        } else {
+            orphaned_blob_files.push(blob_file_path.to_path_buf());
         }
     }
 
@@ -75,7 +108,7 @@ pub fn recover_blob_files(folder: &Path, ids: &[BlobFileId]) -> crate::Result<Ve
 
     log::debug!("Successfully recovered {} blob files", blob_files.len());
 
-    Ok(blob_files)
+    Ok((blob_files, orphaned_blob_files))
 }
 
 /// The unique identifier for a value log blob file.

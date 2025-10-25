@@ -14,12 +14,18 @@ pub struct FragmentationEntry {
 
     /// Unreferenced (garbage) blob bytes that could be freed
     pub(crate) bytes: u64,
+
+    pub(crate) on_disk_bytes: u64,
 }
 
 impl FragmentationEntry {
     #[must_use]
-    pub fn new(len: usize, bytes: u64) -> Self {
-        Self { len, bytes }
+    pub fn new(len: usize, bytes: u64, on_disk_bytes: u64) -> Self {
+        Self {
+            len,
+            bytes,
+            on_disk_bytes,
+        }
     }
 }
 
@@ -84,6 +90,8 @@ impl crate::coding::Encode for FragmentationMap {
             writer.write_u32::<LE>(item.len as u32)?;
 
             writer.write_u64::<LE>(item.bytes)?;
+
+            writer.write_u64::<LE>(item.on_disk_bytes)?;
         }
 
         Ok(())
@@ -110,7 +118,9 @@ impl crate::coding::Decode for FragmentationMap {
 
             let bytes = reader.read_u64::<LE>()?;
 
-            map.insert(id, FragmentationEntry::new(len, bytes));
+            let on_disk_bytes = reader.read_u64::<LE>()?;
+
+            map.insert(id, FragmentationEntry::new(len, bytes, on_disk_bytes));
         }
 
         Ok(Self(map))
@@ -135,6 +145,7 @@ impl ExpiredKvCallback for FragmentationMap {
                 })
                 .or_insert_with(|| FragmentationEntry {
                     bytes: size,
+                    on_disk_bytes: u64::from(vptr.vhandle.on_disk_size),
                     len: 1,
                 });
         }
@@ -164,6 +175,7 @@ mod tests {
                 FragmentationEntry {
                     len: 1,
                     bytes: 1_000,
+                    on_disk_bytes: 500,
                 },
             );
             map.insert(
@@ -171,6 +183,7 @@ mod tests {
                 FragmentationEntry {
                     len: 2,
                     bytes: 2_000,
+                    on_disk_bytes: 1_000,
                 },
             );
             map
@@ -217,6 +230,7 @@ mod tests {
                     FragmentationEntry {
                         len: 1,
                         bytes: 1_000,
+                        on_disk_bytes: 500,
                     },
                 );
                 map

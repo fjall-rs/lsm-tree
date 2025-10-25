@@ -54,7 +54,7 @@ impl OwnedBounds {
     }
 }
 
-/// Drops all segments that are **contained** in a key range
+/// Drops all tables that are **contained** in a key range
 pub struct Strategy {
     bounds: OwnedBounds,
 }
@@ -74,7 +74,7 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
-        let segment_ids: HashSet<_> = version
+        let table_ids: HashSet<_> = version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| {
@@ -90,14 +90,12 @@ impl CompactionStrategy for Strategy {
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock
         // But just as a fail-safe...
-        let some_hidden = segment_ids
-            .iter()
-            .any(|&id| state.hidden_set().is_hidden(id));
+        let some_hidden = table_ids.iter().any(|&id| state.hidden_set().is_hidden(id));
 
         if some_hidden {
             Choice::DoNothing
         } else {
-            Choice::Drop(segment_ids)
+            Choice::Drop(table_ids)
         }
     }
 }

@@ -8,7 +8,6 @@ use crate::{
     merge::Merger,
     mvcc_stream::MvccStream,
     run_reader::RunReader,
-    segment::CachePolicy,
     value::{SeqNo, UserKey},
     version::Version,
     BoxedIterator, InternalValue,
@@ -225,13 +224,13 @@ impl TreeIter {
                     1 => {
                         // NOTE: We checked for length
                         #[allow(clippy::expect_used)]
-                        let segment = run.first().expect("should exist");
+                        let table = run.first().expect("should exist");
 
-                        if segment.check_key_range_overlap(&(
+                        if table.check_key_range_overlap(&(
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
-                            let reader = segment.range((
+                            let reader = table.range((
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ));
@@ -249,7 +248,6 @@ impl TreeIter {
                                 range.start_bound().map(|x| &x.user_key).cloned(),
                                 range.end_bound().map(|x| &x.user_key).cloned(),
                             ),
-                            CachePolicy::Write,
                         ) {
                             iters.push(Box::new(reader.filter(move |item| match item {
                                 Ok(item) => seqno_filter(item.key.seqno, seqno),
