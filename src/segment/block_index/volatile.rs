@@ -40,7 +40,7 @@ impl VolatileBlockIndex {
     }
 }
 
-pub(super) struct Iter {
+pub struct Iter {
     inner: Option<OwnedIndexBlockIter>,
     segment_id: GlobalSegmentId,
     path: PathBuf,

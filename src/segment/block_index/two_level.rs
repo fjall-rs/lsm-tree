@@ -28,12 +28,6 @@ pub struct TwoLevelBlockIndex {
 }
 
 impl TwoLevelBlockIndex {
-    pub fn forward_reader(&self, needle: &[u8]) -> Iter {
-        let mut iter = self.iter();
-        iter.seek_lower(needle);
-        iter
-    }
-
     pub fn iter(&self) -> Iter {
         Iter {
             tli_block: self.top_level_index.clone(),
@@ -54,7 +48,7 @@ impl TwoLevelBlockIndex {
     }
 }
 
-pub(super) struct Iter {
+pub struct Iter {
     tli_block: IndexBlock,
     tli: Option<OwnedIndexBlockIter>,
 

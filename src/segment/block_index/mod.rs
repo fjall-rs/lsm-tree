@@ -14,8 +14,7 @@ pub use volatile::VolatileBlockIndex;
 use super::KeyedBlockHandle;
 
 pub trait BlockIndex {
-    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexForward>;
-
+    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl>;
     fn iter(&self) -> BlockIndexIterImpl;
 }
 
@@ -70,24 +69,6 @@ impl DoubleEndedIterator for BlockIndexIterImpl {
     }
 }
 
-pub enum BlockIndexForward {
-    Full(self::full::Iter),
-    Volatile(self::volatile::Iter),
-    TwoLevel(self::two_level::Iter),
-}
-
-impl Iterator for BlockIndexForward {
-    type Item = crate::Result<KeyedBlockHandle>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Full(ref mut i) => i.next(),
-            Self::Volatile(ref mut i) => i.next(),
-            Self::TwoLevel(ref mut i) => i.next(),
-        }
-    }
-}
-
 /// The block index stores references to the positions of blocks on a file and their size
 ///
 /// __________________
@@ -114,18 +95,18 @@ pub enum BlockIndexImpl {
 }
 
 impl BlockIndex for BlockIndexImpl {
-    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexForward> {
+    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl> {
         match self {
-            Self::Full(index) => index.forward_reader(needle).map(BlockIndexForward::Full),
+            Self::Full(index) => index.forward_reader(needle).map(BlockIndexIterImpl::Full),
             Self::VolatileFull(index) => {
                 let mut it = index.iter();
                 it.seek_lower(needle);
-                Some(BlockIndexForward::Volatile(it))
+                Some(BlockIndexIterImpl::Volatile(it))
             }
             Self::TwoLevel(index) => {
                 let mut it = index.iter();
                 it.seek_lower(needle);
-                Some(BlockIndexForward::TwoLevel(it))
+                Some(BlockIndexIterImpl::TwoLevel(it))
             }
         }
     }
@@ -134,7 +115,7 @@ impl BlockIndex for BlockIndexImpl {
         match self {
             Self::Full(index) => BlockIndexIterImpl::Full(index.iter()),
             Self::VolatileFull(index) => BlockIndexIterImpl::Volatile(index.iter()),
-            BlockIndexImpl::TwoLevel(index) => BlockIndexIterImpl::TwoLevel(index.iter()),
+            Self::TwoLevel(index) => BlockIndexIterImpl::TwoLevel(index.iter()),
         }
     }
 }

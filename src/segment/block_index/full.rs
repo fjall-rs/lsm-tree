@@ -29,7 +29,7 @@ impl FullBlockIndex {
     }
 }
 
-pub(super) struct Iter(OwnedIndexBlockIter);
+pub struct Iter(OwnedIndexBlockIter);
 
 impl BlockIndexIter for Iter {
     fn seek_lower(&mut self, key: &[u8]) -> bool {
