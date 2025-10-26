@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, SegmentId};
+use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SegmentId};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
@@ -16,12 +16,12 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 
 pub struct Recovery {
     pub curr_version_id: VersionId,
-    pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
+    pub segment_ids: Vec<Vec<Vec<(SegmentId, Checksum)>>>,
     pub blob_file_ids: Vec<BlobFileId>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
-pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
+pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let curr_version_id = get_current_version(folder)?;
     let version_file_path = folder.join(format!("v{curr_version_id}"));
 
@@ -54,7 +54,19 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
 
                 for _ in 0..table_count {
                     let id = reader.read_u64::<LittleEndian>()?;
-                    run.push(id);
+                    let checksum_type = reader.read_u8()?;
+
+                    if checksum_type != 0 {
+                        return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                            "ChecksumType",
+                            checksum_type,
+                        ))));
+                    }
+
+                    let checksum = reader.read_u128::<LittleEndian>()?;
+                    let checksum = Checksum::from_raw(checksum);
+
+                    run.push((id, checksum));
                 }
 
                 level.push(run);

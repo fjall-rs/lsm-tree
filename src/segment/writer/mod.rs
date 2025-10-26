@@ -15,7 +15,7 @@ use crate::{
     },
     time::unix_timestamp,
     vlog::BlobFileId,
-    CompressionType, InternalValue, SegmentId, UserKey, ValueType,
+    Checksum, CompressionType, InternalValue, SegmentId, UserKey, ValueType,
 };
 use index::BlockIndexWriter;
 use std::{fs::File, io::BufWriter, path::PathBuf};
@@ -52,9 +52,9 @@ pub struct Writer {
     /// Buffer to serialize blocks into
     block_buffer: Vec<u8>,
 
-    /// Writer of data blocks
+    /// File writer
     #[allow(clippy::struct_field_names)]
-    block_writer: sfa::Writer,
+    file_writer: sfa::Writer,
 
     /// Writer of index blocks
     #[allow(clippy::struct_field_names)]
@@ -112,7 +112,7 @@ impl Writer {
             filter_writer: Box::new(FullFilterWriter::new(BloomConstructionPolicy::default())),
 
             block_buffer: Vec::new(),
-            block_writer,
+            file_writer: block_writer,
             chunk: Vec::new(),
 
             prev_pos: (BlockOffset(0), BlockOffset(0)),
@@ -299,7 +299,7 @@ impl Writer {
         )?;
 
         let header = Block::write_into(
-            &mut self.block_writer,
+            &mut self.file_writer,
             &self.block_buffer,
             super::block::BlockType::Data,
             self.data_block_compression,
@@ -352,7 +352,7 @@ impl Writer {
     // TODO: 3.0.0 split meta writing into new function
     #[allow(clippy::too_many_lines)]
     /// Finishes the table, making sure all data is written durably
-    pub fn finish(mut self) -> crate::Result<Option<SegmentId>> {
+    pub fn finish(mut self) -> crate::Result<Option<(SegmentId, Checksum)>> {
         self.spill_block()?;
 
         // No items written! Just delete table file and return nothing
@@ -362,31 +362,31 @@ impl Writer {
         }
 
         // Write index
-        let index_block_count = self.index_writer.finish(&mut self.block_writer)?;
+        let index_block_count = self.index_writer.finish(&mut self.file_writer)?;
 
         // Write filter
-        self.filter_writer.finish(&mut self.block_writer)?;
+        self.filter_writer.finish(&mut self.file_writer)?;
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};
 
-            self.block_writer.start("linked_blob_files")?;
+            self.file_writer.start("linked_blob_files")?;
 
             // NOTE: We know that there are never 4 billion blob files linked to a single table
             #[allow(clippy::cast_possible_truncation)]
-            self.block_writer
+            self.file_writer
                 .write_u32::<LE>(self.linked_blob_files.len() as u32)?;
 
             for file in self.linked_blob_files {
-                self.block_writer.write_u64::<LE>(file.blob_file_id)?;
-                self.block_writer.write_u64::<LE>(file.len as u64)?;
-                self.block_writer.write_u64::<LE>(file.bytes)?;
-                self.block_writer.write_u64::<LE>(file.on_disk_bytes)?;
+                self.file_writer.write_u64::<LE>(file.blob_file_id)?;
+                self.file_writer.write_u64::<LE>(file.len as u64)?;
+                self.file_writer.write_u64::<LE>(file.bytes)?;
+                self.file_writer.write_u64::<LE>(file.on_disk_bytes)?;
             }
         }
 
         // Write metadata
-        self.block_writer.start("meta")?;
+        self.file_writer.start("meta")?;
 
         {
             fn meta(key: &str, value: &[u8]) -> InternalValue {
@@ -475,7 +475,7 @@ impl Writer {
             DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
 
             Block::write_into(
-                &mut self.block_writer,
+                &mut self.file_writer,
                 &self.block_buffer,
                 crate::segment::block::BlockType::Meta,
                 CompressionType::None,
@@ -484,7 +484,7 @@ impl Writer {
 
         // Write fixed-size trailer
         // and flush & fsync the table file
-        self.block_writer.finish()?;
+        let checksum = self.file_writer.finish()?;
 
         // IMPORTANT: fsync folder on Unix
 
@@ -500,7 +500,7 @@ impl Writer {
             *self.meta.file_pos / 1_024 / 1_024,
         );
 
-        Ok(Some(self.segment_id))
+        Ok(Some((self.segment_id, checksum.into())))
     }
 }
 

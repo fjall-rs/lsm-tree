@@ -46,10 +46,9 @@ pub struct Inner {
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<Block>,
 
-    // /// Pinned filter
-    // #[doc(hidden)]
-    // pub bloom_filter: Option<crate::bloom::BloomFilter>,
     pub is_deleted: AtomicBool,
+
+    pub(super) checksum: Checksum,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,

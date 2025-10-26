@@ -411,6 +411,7 @@ impl Segment {
     /// Tries to recover a table from a file.
     pub fn recover(
         file_path: PathBuf,
+        checksum: Checksum,
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
@@ -532,9 +533,15 @@ impl Segment {
 
             is_deleted: AtomicBool::default(),
 
+            checksum,
+
             #[cfg(feature = "metrics")]
             metrics,
         })))
+    }
+
+    pub fn checksum(&self) -> Checksum {
+        self.0.checksum
     }
 
     pub(crate) fn mark_as_deleted(&self) {

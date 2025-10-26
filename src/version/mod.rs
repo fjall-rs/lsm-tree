@@ -238,7 +238,7 @@ impl Version {
                     .map(|run| {
                         let run_tables = run
                             .iter()
-                            .map(|&table_id| {
+                            .map(|&(table_id, _)| {
                                 tables
                                     .iter()
                                     .find(|x| x.id() == table_id)
@@ -623,9 +623,11 @@ impl Version {
                 #[allow(clippy::cast_possible_truncation)]
                 writer.write_u32::<LittleEndian>(run.len() as u32)?;
 
-                // Table IDs
-                for id in run.iter().map(Segment::id) {
-                    writer.write_u64::<LittleEndian>(id)?;
+                // Tables
+                for table in run.iter() {
+                    writer.write_u64::<LittleEndian>(table.id())?;
+                    writer.write_u8(0)?; // Checksum type, 0 = XXH3
+                    writer.write_u128::<LittleEndian>(*table.checksum())?;
                 }
             }
         }

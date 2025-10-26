@@ -19,10 +19,10 @@ use crate::{
     slice::Slice,
     tree::inner::SuperVersion,
     value::InternalValue,
-    version::{recovery::recover_ids, Version, VersionId},
+    version::{recovery::recover, Version, VersionId},
     vlog::BlobFile,
-    AbstractTree, Cache, DescriptorTable, KvPair, SegmentId, SeqNo, SequenceNumberCounter,
-    TreeType, UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SegmentId, SeqNo,
+    SequenceNumberCounter, TreeType, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, TreeId, TreeInner};
 use std::{
@@ -678,7 +678,7 @@ impl Tree {
     ) -> crate::Result<Option<Segment>> {
         let table_file_path = writer.path.clone();
 
-        let Some(_) = writer.finish()? else {
+        let Some((_, checksum)) = writer.finish()? else {
             return Ok(None);
         };
 
@@ -689,6 +689,7 @@ impl Tree {
 
         let created_table = Segment::recover(
             table_file_path,
+            checksum,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
@@ -996,22 +997,25 @@ impl Tree {
 
         let tree_path = tree_path.as_ref();
 
-        let recovery = recover_ids(tree_path)?;
+        let recovery = recover(tree_path)?;
 
-        let table_id_map = {
-            let mut result: crate::HashMap<SegmentId, u8 /* Level index */> =
+        let table_map = {
+            let mut result: crate::HashMap<SegmentId, (u8 /* Level index */, Checksum)> =
                 crate::HashMap::default();
 
             for (level_idx, table_ids) in recovery.segment_ids.iter().enumerate() {
                 for run in table_ids {
-                    for table_id in run {
+                    for &(table_id, checksum) in run {
                         // NOTE: We know there are always less than 256 levels
                         #[allow(clippy::expect_used)]
                         result.insert(
-                            *table_id,
-                            level_idx
-                                .try_into()
-                                .expect("there are less than 256 levels"),
+                            table_id,
+                            (
+                                level_idx
+                                    .try_into()
+                                    .expect("there are less than 256 levels"),
+                                checksum,
+                            ),
                         );
                     }
                 }
@@ -1020,7 +1024,7 @@ impl Tree {
             result
         };
 
-        let cnt = table_id_map.len();
+        let cnt = table_map.len();
 
         log::debug!("Recovering {cnt} tables from {}", tree_path.display());
 
@@ -1070,9 +1074,10 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&level_idx) = table_id_map.get(&table_id) {
+            if let Some(&(level_idx, checksum)) = table_map.get(&table_id) {
                 let table = Segment::recover(
                     table_file_path,
+                    checksum,
                     tree_id,
                     cache.clone(),
                     descriptor_table.clone(),
@@ -1097,7 +1102,7 @@ impl Tree {
         if tables.len() < cnt {
             log::error!(
                 "Recovered less tables than expected: {:?}",
-                table_id_map.keys(),
+                table_map.keys(),
             );
             return Err(crate::Error::Unrecoverable);
         }

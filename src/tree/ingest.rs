@@ -119,7 +119,7 @@ impl<'a> Ingestion<'a> {
 
         let created_tables = results
             .into_iter()
-            .map(|table_id| -> crate::Result<Segment> {
+            .map(|(table_id, checksum)| -> crate::Result<Segment> {
                 // TODO: table recoverer struct w/ builder pattern
                 // Segment::recover()
                 //  .pin_filters(true)
@@ -128,6 +128,7 @@ impl<'a> Ingestion<'a> {
 
                 Segment::recover(
                     self.folder.join(table_id.to_string()),
+                    checksum,
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),

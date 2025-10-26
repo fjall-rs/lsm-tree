@@ -6,7 +6,8 @@ use test_log::test;
 #[allow(
     clippy::too_many_lines,
     clippy::cognitive_complexity,
-    clippy::cast_possible_truncation
+    clippy::cast_possible_truncation,
+    clippy::unwrap_used
 )]
 fn test_with_table(
     items: &[InternalValue],
@@ -32,7 +33,7 @@ fn test_with_table(
             }
             writer.write(item.clone())?;
         }
-        let _trailer = writer.finish()?;
+        let (_, checksum) = writer.finish()?.unwrap();
 
         {
             #[cfg(feature = "metrics")]
@@ -40,6 +41,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -64,6 +66,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -88,6 +91,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -112,6 +116,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -148,7 +153,7 @@ fn test_with_table(
             }
             writer.write(item.clone())?;
         }
-        let _trailer = writer.finish()?;
+        let (_, checksum) = writer.finish()?.unwrap();
 
         {
             #[cfg(feature = "metrics")]
@@ -156,6 +161,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -179,6 +185,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -202,6 +209,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file.clone(),
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -226,6 +234,7 @@ fn test_with_table(
 
             let table = Segment::recover(
                 file,
+                checksum,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),

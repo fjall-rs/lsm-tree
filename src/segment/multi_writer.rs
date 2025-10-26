@@ -5,7 +5,7 @@
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
     blob_tree::handle::BlobIndirection, segment::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, CompressionType, HashMap, SegmentId, UserKey,
+    vlog::BlobFileId, Checksum, CompressionType, HashMap, SegmentId, UserKey,
 };
 use std::{
     path::PathBuf,
@@ -36,7 +36,7 @@ pub struct MultiWriter {
     /// resulting in a sorted "run" of tables
     pub target_size: u64,
 
-    results: Vec<SegmentId>,
+    results: Vec<(SegmentId, Checksum)>,
 
     segment_id_generator: Arc<AtomicU64>,
     current_segment_id: u64,
@@ -234,8 +234,8 @@ impl MultiWriter {
         }
         self.linked_blobs.clear();
 
-        if let Some(segment_id) = old_writer.finish()? {
-            self.results.push(segment_id);
+        if let Some((segment_id, checksum)) = old_writer.finish()? {
+            self.results.push((segment_id, checksum));
         }
 
         Ok(())
@@ -261,7 +261,7 @@ impl MultiWriter {
     /// Finishes the last segment, making sure all data is written durably
     ///
     /// Returns the metadata of created segments
-    pub fn finish(mut self) -> crate::Result<Vec<SegmentId>> {
+    pub fn finish(mut self) -> crate::Result<Vec<(SegmentId, Checksum)>> {
         for linked in self.linked_blobs.values() {
             self.writer.link_blob_file(
                 linked.blob_file_id,
@@ -271,8 +271,8 @@ impl MultiWriter {
             );
         }
 
-        if let Some(last_writer_result) = self.writer.finish()? {
-            self.results.push(last_writer_result);
+        if let Some((segment_id, checksum)) = self.writer.finish()? {
+            self.results.push((segment_id, checksum));
         }
 
         Ok(self.results)

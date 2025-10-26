@@ -330,9 +330,10 @@ impl StandardCompaction {
         self.table_writer
             .finish()?
             .into_iter()
-            .map(|table_id| -> crate::Result<Segment> {
+            .map(|(table_id, checksum)| -> crate::Result<Segment> {
                 Segment::recover(
                     table_base_folder.join(table_id.to_string()),
+                    checksum,
                     opts.tree_id,
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),
