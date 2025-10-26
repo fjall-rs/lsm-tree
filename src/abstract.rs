@@ -167,7 +167,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(
+    fn register_tables(
         &self,
         segments: &[Segment],
         blob_files: Option<&[BlobFile]>,

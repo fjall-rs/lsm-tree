@@ -140,8 +140,7 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree
-            .register_segments(&created_tables, None, None, 0)?;
+        self.tree.register_tables(&created_tables, None, None, 0)?;
 
         let last_level_idx = self.tree.config.level_count - 1;
 

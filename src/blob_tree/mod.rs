@@ -156,7 +156,7 @@ impl AbstractTree for BlobTree {
         else {
             return Ok(None);
         };
-        self.register_segments(
+        self.register_tables(
             std::slice::from_ref(&table),
             blob_file.as_ref().map(std::slice::from_ref),
             None,
@@ -495,7 +495,7 @@ impl AbstractTree for BlobTree {
         Ok(table.map(|segment| (segment, blob_file)))
     }
 
-    fn register_segments(
+    fn register_tables(
         &self,
         segments: &[Segment],
         blob_files: Option<&[BlobFile]>,
@@ -503,7 +503,7 @@ impl AbstractTree for BlobTree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         self.index
-            .register_segments(segments, blob_files, frag_map, seqno_threshold)
+            .register_tables(segments, blob_files, frag_map, seqno_threshold)
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {

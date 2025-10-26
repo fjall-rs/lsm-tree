@@ -118,7 +118,7 @@ impl AbstractTree for Tree {
         else {
             return Ok(None);
         };
-        self.register_segments(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
+        self.register_tables(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
 
         Ok(Some(segment))
     }
@@ -403,7 +403,7 @@ impl AbstractTree for Tree {
         Ok(result.map(|table| (table, None)))
     }
 
-    fn register_segments(
+    fn register_tables(
         &self,
         tables: &[Segment],
         blob_files: Option<&[BlobFile]>,
