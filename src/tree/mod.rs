@@ -471,7 +471,7 @@ impl AbstractTree for Tree {
         self.inner_compact(strategy, seqno_threshold)
     }
 
-    fn get_next_segment_id(&self) -> TableId {
+    fn get_next_table_id(&self) -> TableId {
         self.0.get_next_table_id()
     }
 
@@ -504,7 +504,7 @@ impl AbstractTree for Tree {
         let yanked_memtable = std::mem::take(&mut version_lock.active_memtable);
         let yanked_memtable = yanked_memtable;
 
-        let tmp_memtable_id = self.get_next_segment_id();
+        let tmp_memtable_id = self.get_next_table_id();
 
         version_lock.sealed_memtables = Arc::new(
             version_lock

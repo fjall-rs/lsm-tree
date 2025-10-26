@@ -20,7 +20,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     let (table, _) = tree.flush_memtable(id, &memtable, 0)?.unwrap();
-    tree.register_segments(&[table], None, None, 0)?;
+    tree.register_tables(&[table], None, None, 0)?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

@@ -522,8 +522,8 @@ impl AbstractTree for BlobTree {
         self.index.compact(strategy, seqno_threshold)
     }
 
-    fn get_next_segment_id(&self) -> TableId {
-        self.index.get_next_segment_id()
+    fn get_next_table_id(&self) -> TableId {
+        self.index.get_next_table_id()
     }
 
     fn tree_config(&self) -> &Config {

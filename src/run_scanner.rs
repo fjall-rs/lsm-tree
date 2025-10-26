@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 /// Scans through a disjoint run
 ///
-/// Optimized for compaction, by using a `SegmentScanner` instead of `SegmentReader`.
+/// Optimized for compaction, by using a `TableScanner` instead of `TableReader`.
 pub struct RunScanner {
-    segments: Arc<Run<Segment>>,
+    tables: Arc<Run<Segment>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
@@ -28,7 +28,7 @@ impl RunScanner {
         let lo_reader = lo_table.scan()?;
 
         Ok(Self {
-            segments: run,
+            tables: run,
             lo,
             hi,
             lo_reader: Some(lo_reader),
@@ -52,7 +52,7 @@ impl Iterator for RunScanner {
 
                 if self.lo <= self.hi {
                     let scanner =
-                        fail_iter!(self.segments.get(self.lo).expect("should exist").scan());
+                        fail_iter!(self.tables.get(self.lo).expect("should exist").scan());
 
                     self.lo_reader = Some(scanner);
                 }

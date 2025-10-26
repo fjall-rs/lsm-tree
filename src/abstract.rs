@@ -204,7 +204,7 @@ pub trait AbstractTree {
     ) -> crate::Result<()>;
 
     /// Returns the next table's ID.
-    fn get_next_segment_id(&self) -> TableId;
+    fn get_next_table_id(&self) -> TableId;
 
     /// Returns the tree config.
     fn tree_config(&self) -> &Config;
