@@ -517,7 +517,7 @@ impl AbstractTree for Tree {
         Some((tmp_memtable_id, yanked_memtable))
     }
 
-    fn segment_count(&self) -> usize {
+    fn table_count(&self) -> usize {
         self.current_version().segment_count()
     }
 

@@ -546,8 +546,8 @@ impl AbstractTree for BlobTree {
         self.index.rotate_memtable()
     }
 
-    fn segment_count(&self) -> usize {
-        self.index.segment_count()
+    fn table_count(&self) -> usize {
+        self.index.table_count()
     }
 
     fn level_segment_count(&self, idx: usize) -> Option<usize> {

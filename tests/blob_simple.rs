@@ -23,7 +23,7 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
 
         tree.flush_active_memtable(0)?;
 
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("smol", SeqNo::MAX)?.expect("should exist");

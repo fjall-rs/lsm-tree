@@ -17,7 +17,7 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
     populate_tables(&tree)?;
 
     assert_eq!(1, tree.l0_run_count());
-    assert_eq!(5, tree.segment_count());
+    assert_eq!(5, tree.table_count());
 
     tree.drop_range("a"..="c")?;
 
@@ -28,7 +28,7 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
     assert!(tree.contains_key("e", SeqNo::MAX)?);
 
     assert_eq!(1, tree.l0_run_count());
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
 
     Ok(())
 }
@@ -44,7 +44,7 @@ fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     assert_eq!(1, tree.l0_run_count());
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     tree.drop_range("b".."d")?;
 
@@ -53,7 +53,7 @@ fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
     }
 
     assert_eq!(1, tree.l0_run_count());
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     Ok(())
 }
@@ -152,7 +152,7 @@ fn tree_drop_range_empty_tree() -> lsm_tree::Result<()> {
     tree.drop_range("a"..="c")?;
 
     assert_eq!(0, tree.l0_run_count());
-    assert_eq!(0, tree.segment_count());
+    assert_eq!(0, tree.table_count());
 
     Ok(())
 }
@@ -185,7 +185,7 @@ fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
     tree.drop_range::<&str, _>(..)?;
 
     assert_eq!(0, tree.l0_run_count());
-    assert_eq!(0, tree.segment_count());
+    assert_eq!(0, tree.table_count());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
     assert!(!tree.contains_key("e", SeqNo::MAX)?);
 

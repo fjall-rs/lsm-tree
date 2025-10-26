@@ -15,10 +15,10 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.insert("c".as_bytes(), "abc", seqno.next());
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());
@@ -35,7 +35,7 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     assert!(!item.is_tombstone());
     // assert_eq!(item.key.seqno, 0); // NOTE: Seqno is zeroed because below GC threshold // TODO:
 
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
     let batch_seqno = seqno.next();
@@ -44,11 +44,11 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     tree.remove("c".as_bytes(), batch_seqno);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
 
     tree.major_compact(u64::MAX, 1_000 /* NOTE: Simulate some time passing */)?;
 
-    assert_eq!(0, tree.segment_count());
+    assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     Ok(())

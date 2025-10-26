@@ -22,7 +22,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(1)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.drop_range::<&[u8], _>(..)?;
@@ -30,7 +30,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
         // NOTE: Because the blob does not have any incoming references anymore
         // it is pruned from the Version
         assert_eq!(0, tree.blob_file_count());
-        assert_eq!(0, tree.segment_count());
+        assert_eq!(0, tree.table_count());
 
         let gc_stats = tree.current_version().gc_stats().clone();
 

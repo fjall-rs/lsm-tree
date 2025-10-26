@@ -99,7 +99,7 @@ fn model_4() -> Result<()> {
 
     tree.drop_range::<&[u8], _>(..)?;
 
-    assert_eq!(0, tree.segment_count());
+    assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());
 
     Ok(())

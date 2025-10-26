@@ -5,8 +5,8 @@
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
     iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
-    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, TableId,
-    SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
+    SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{ops::RangeBounds, sync::Arc};
@@ -228,7 +228,7 @@ pub trait AbstractTree {
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
 
     /// Returns the number of tables currently in the tree.
-    fn segment_count(&self) -> usize;
+    fn table_count(&self) -> usize;
 
     /// Returns the number of tables in `levels[idx]`.
     ///

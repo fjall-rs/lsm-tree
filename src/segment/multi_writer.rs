@@ -305,11 +305,11 @@ mod tests {
         tree.insert("a", "a4".repeat(4_000), 3);
         tree.insert("a", "a5".repeat(4_000), 4);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
         tree.major_compact(1_024, 0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
         Ok(())
@@ -334,11 +334,11 @@ mod tests {
         tree.insert("c", "a1".repeat(4_000), 0);
         tree.insert("c", "a1".repeat(4_000), 1);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
         tree.major_compact(1_024, 0)?;
-        assert_eq!(3, tree.segment_count());
+        assert_eq!(3, tree.table_count());
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
         Ok(())

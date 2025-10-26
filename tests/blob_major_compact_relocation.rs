@@ -31,7 +31,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.insert("big", &new_big_value, 1);
@@ -46,7 +46,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(2, tree.blob_file_count());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
@@ -72,7 +72,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
         }
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(2, tree.blob_file_count());
 
         {
@@ -128,13 +128,13 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.remove("c", 1);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(2, tree.segment_count());
+        assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("a", SeqNo::MAX)?.expect("should exist");
@@ -149,7 +149,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("a", SeqNo::MAX)?.expect("should exist");
@@ -178,7 +178,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
         }
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         {
@@ -237,13 +237,13 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.remove("d", 1);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(2, tree.segment_count());
+        assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("a", SeqNo::MAX)?.expect("should exist");
@@ -258,7 +258,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
         assert_eq!(&*value, b"smol");
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let value = tree.get("a", SeqNo::MAX)?.expect("should exist");
@@ -286,7 +286,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
         }
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         {

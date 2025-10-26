@@ -170,12 +170,12 @@ mod tests {
 
         tree.major_compact(u64::MAX, 3)?;
 
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
 
         tree.insert("a", "a", 3);
         tree.flush_active_memtable(0)?;
 
-        let table_count_before_major_compact = tree.segment_count();
+        let table_count_before_major_compact = tree.table_count();
 
         let crate::AnyTree::Standard(tree) = tree else {
             unreachable!();
@@ -199,7 +199,7 @@ mod tests {
             .hidden_set()
             .is_empty());
 
-        assert_eq!(table_count_before_major_compact, tree.segment_count());
+        assert_eq!(table_count_before_major_compact, tree.table_count());
 
         Ok(())
     }

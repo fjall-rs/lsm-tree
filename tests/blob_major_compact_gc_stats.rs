@@ -26,7 +26,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.insert("big", &new_big_value, 1);
@@ -36,7 +36,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
         // Blob file has no fragmentation before compaction (in stats)
         // so it is not rewritten
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(2, tree.blob_file_count());
 
         let gc_stats = tree.current_version().gc_stats().clone();
@@ -79,13 +79,13 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.remove("big", 1);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(2, tree.segment_count());
+        assert_eq!(2, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
@@ -105,7 +105,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
         // Blob file has no fragmentation before compaction (in stats)
         // so it is not rewritten
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         let gc_stats = tree.current_version().gc_stats().clone();

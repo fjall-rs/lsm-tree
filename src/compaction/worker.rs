@@ -589,7 +589,7 @@ mod tests {
 
         tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
-        assert_eq!(0, tree.segment_count());
+        assert_eq!(0, tree.table_count());
 
         Ok(())
     }
