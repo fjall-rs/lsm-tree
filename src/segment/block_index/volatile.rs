@@ -42,7 +42,7 @@ impl VolatileBlockIndex {
 
 pub struct Iter {
     inner: Option<OwnedIndexBlockIter>,
-    segment_id: GlobalTableId,
+    table_id: GlobalTableId,
     path: PathBuf,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
@@ -60,7 +60,7 @@ impl Iter {
     fn new(index: &VolatileBlockIndex) -> Self {
         Self {
             inner: None,
-            segment_id: index.table_id,
+            table_id: index.table_id,
             path: index.path.clone(),
             descriptor_table: index.descriptor_table.clone(),
             cache: index.cache.clone(),
@@ -96,7 +96,7 @@ impl Iterator for Iter {
             inner.next().map(Ok)
         } else {
             let block = fail_iter!(load_block(
-                self.segment_id,
+                self.table_id,
                 &self.path,
                 &self.descriptor_table,
                 &self.cache,
@@ -136,7 +136,7 @@ impl DoubleEndedIterator for Iter {
             inner.next_back().map(Ok)
         } else {
             let block = fail_iter!(load_block(
-                self.segment_id,
+                self.table_id,
                 &self.path,
                 &self.descriptor_table,
                 &self.cache,
