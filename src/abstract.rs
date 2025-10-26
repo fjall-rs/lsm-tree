@@ -233,7 +233,7 @@ pub trait AbstractTree {
     /// Returns the number of tables in `levels[idx]`.
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
-    fn level_segment_count(&self, idx: usize) -> Option<usize>;
+    fn level_table_count(&self, idx: usize) -> Option<usize>;
 
     /// Returns the number of disjoint runs in L0.
     ///

@@ -521,7 +521,7 @@ impl AbstractTree for Tree {
         self.current_version().segment_count()
     }
 
-    fn level_segment_count(&self, idx: usize) -> Option<usize> {
+    fn level_table_count(&self, idx: usize) -> Option<usize> {
         self.current_version().level(idx).map(|x| x.segment_count())
     }
 

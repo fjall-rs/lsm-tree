@@ -550,8 +550,8 @@ impl AbstractTree for BlobTree {
         self.index.table_count()
     }
 
-    fn level_segment_count(&self, idx: usize) -> Option<usize> {
-        self.index.level_segment_count(idx)
+    fn level_table_count(&self, idx: usize) -> Option<usize> {
+        self.index.level_table_count(idx)
     }
 
     fn approximate_len(&self) -> usize {
