@@ -75,7 +75,7 @@ impl std::ops::Deref for Tree {
 impl AbstractTree for Tree {
     fn next_table_id(&self) -> TableId {
         self.0
-            .segment_id_counter
+            .table_id_counter
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
@@ -472,7 +472,7 @@ impl AbstractTree for Tree {
     }
 
     fn get_next_segment_id(&self) -> TableId {
-        self.0.get_next_segment_id()
+        self.0.get_next_table_id()
     }
 
     fn tree_config(&self) -> &Config {
@@ -924,7 +924,7 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
-            segment_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
+            table_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
             blob_file_id_generator: SequenceNumberCounter::default(),
             super_version: Arc::new(RwLock::new(SuperVersion {
                 active_memtable: Arc::default(),

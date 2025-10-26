@@ -29,13 +29,13 @@ impl<'a> Ingestion<'a> {
     /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a Tree) -> crate::Result<Self> {
         let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
-        log::debug!("Ingesting into disk segments in {}", folder.display());
+        log::debug!("Ingesting into tables in {}", folder.display());
 
         // TODO: 3.0.0 look at tree configuration
         // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
         let writer = MultiWriter::new(
             folder.clone(),
-            tree.segment_id_counter.clone(),
+            tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
         )?
         .use_data_block_hash_ratio(

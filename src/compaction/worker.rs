@@ -63,7 +63,7 @@ impl Options {
     pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
         Self {
             tree_id: tree.id,
-            segment_id_generator: tree.segment_id_counter.clone(),
+            segment_id_generator: tree.table_id_counter.clone(),
             blob_file_id_generator: tree.blob_file_id_generator.clone(),
             config: tree.config.clone(),
             super_version: tree.super_version.clone(),
