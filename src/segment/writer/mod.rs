@@ -28,12 +28,12 @@ pub struct LinkedFile {
     pub len: usize,
 }
 
-/// Serializes and compresses values into blocks and writes them to disk as segment
+/// Serializes and compresses values into blocks and writes them to disk as a table
 pub struct Writer {
-    /// Segment file
+    /// Table file path
     pub(crate) path: PathBuf,
 
-    segment_id: TableId,
+    table_id: TableId,
 
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
@@ -93,7 +93,7 @@ impl Writer {
         Ok(Self {
             meta: meta::Metadata::default(),
 
-            segment_id,
+            table_id: segment_id,
 
             data_block_restart_interval: 16,
             index_block_restart_interval: 1,
@@ -410,7 +410,7 @@ impl Writer {
                 ),
                 meta("#file_size", &self.meta.file_pos.to_le_bytes()),
                 meta("#filter_hash_type", b"xxh3"),
-                meta("#id", &self.segment_id.to_le_bytes()),
+                meta("#id", &self.table_id.to_le_bytes()),
                 meta(
                     "#index_block_count",
                     &(index_block_count as u64).to_le_bytes(),
@@ -496,11 +496,11 @@ impl Writer {
             "Written {} items in {} blocks into new table file #{}, written {} MiB",
             self.meta.item_count,
             self.meta.data_block_count,
-            self.segment_id,
+            self.table_id,
             *self.meta.file_pos / 1_024 / 1_024,
         );
 
-        Ok(Some((self.segment_id, checksum.into())))
+        Ok(Some((self.table_id, checksum.into())))
     }
 }
 

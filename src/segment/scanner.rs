@@ -9,7 +9,7 @@ use crate::{
 };
 use std::{fs::File, io::BufReader, path::Path};
 
-/// Segment reader that is optimized for consuming an entire segment
+/// Table reader that is optimized for consuming an entire table
 pub struct Scanner {
     reader: BufReader<File>,
     iter: OwnedDataBlockIter,

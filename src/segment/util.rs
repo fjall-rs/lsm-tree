@@ -18,7 +18,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Also handles file descriptor opening and caching.
 #[warn(clippy::too_many_arguments)]
 pub fn load_block(
-    segment_id: GlobalTableId,
+    table_id: GlobalTableId,
     path: &Path,
     descriptor_table: &DescriptorTable,
     cache: &Cache,
@@ -32,7 +32,7 @@ pub fn load_block(
 
     log::trace!("load {block_type:?} block {handle:?}");
 
-    if let Some(block) = cache.get_block(segment_id, handle.offset()) {
+    if let Some(block) = cache.get_block(table_id, handle.offset()) {
         #[cfg(feature = "metrics")]
         match block_type {
             BlockType::Filter => {
@@ -50,7 +50,7 @@ pub fn load_block(
         return Ok(block);
     }
 
-    let cached_fd = descriptor_table.access_for_table(&segment_id);
+    let cached_fd = descriptor_table.access_for_table(&table_id);
     let fd_cache_miss = cached_fd.is_none();
 
     let fd = if let Some(fd) = cached_fd {
@@ -92,10 +92,10 @@ pub fn load_block(
 
     // Cache FD
     if fd_cache_miss {
-        descriptor_table.insert_for_table(segment_id, fd);
+        descriptor_table.insert_for_table(table_id, fd);
     }
 
-    cache.insert_block(segment_id, handle.offset(), block.clone());
+    cache.insert_block(table_id, handle.offset(), block.clone());
 
     Ok(block)
 }

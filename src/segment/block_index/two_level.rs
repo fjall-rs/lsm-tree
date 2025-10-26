@@ -17,7 +17,7 @@ use crate::Metrics;
 /// Only the top-level index is loaded into memory.
 pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
-    pub(crate) segment_id: GlobalTableId,
+    pub(crate) table_id: GlobalTableId,
     pub(crate) path: PathBuf,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
@@ -36,7 +36,7 @@ impl TwoLevelBlockIndex {
             hi_consumer: None,
             lo: None,
             hi: None,
-            segment_id: self.segment_id,
+            table_id: self.table_id,
             path: self.path.clone(),
             descriptor_table: self.descriptor_table.clone(),
             cache: self.cache.clone(),
@@ -58,7 +58,7 @@ pub struct Iter {
     lo: Option<UserKey>,
     hi: Option<UserKey>,
 
-    segment_id: GlobalTableId,
+    table_id: GlobalTableId,
     path: PathBuf,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
@@ -120,7 +120,7 @@ impl Iterator for Iter {
 
             if let Some(handle) = next_lowest_block {
                 let block = fail_iter!(load_block(
-                    self.segment_id,
+                    self.table_id,
                     &self.path,
                     &self.descriptor_table,
                     &self.cache,
@@ -183,7 +183,7 @@ impl DoubleEndedIterator for Iter {
 
             if let Some(handle) = next_highest_block {
                 let block = fail_iter!(load_block(
-                    self.segment_id,
+                    self.table_id,
                     &self.path,
                     &self.descriptor_table,
                     &self.cache,

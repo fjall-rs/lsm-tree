@@ -445,7 +445,7 @@ impl Segment {
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
                 path: file_path.clone(),
-                segment_id: (tree_id, metadata.id).into(),
+                table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
