@@ -6,7 +6,7 @@ use crate::{
         util::load_block,
         BlockHandle, IndexBlock,
     },
-    Cache, CompressionType, DescriptorTable, GlobalSegmentId, UserKey,
+    Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -17,7 +17,7 @@ use crate::Metrics;
 ///
 /// The index is loaded on demand.
 pub struct VolatileBlockIndex {
-    pub(crate) segment_id: GlobalSegmentId,
+    pub(crate) segment_id: GlobalTableId,
     pub(crate) path: PathBuf,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
@@ -42,7 +42,7 @@ impl VolatileBlockIndex {
 
 pub struct Iter {
     inner: Option<OwnedIndexBlockIter>,
-    segment_id: GlobalSegmentId,
+    segment_id: GlobalTableId,
     path: PathBuf,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,

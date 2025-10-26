@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, SegmentId};
+use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, TableId};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
@@ -16,7 +16,7 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 
 pub struct Recovery {
     pub curr_version_id: VersionId,
-    pub segment_ids: Vec<Vec<Vec<(SegmentId, Checksum)>>>,
+    pub segment_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }

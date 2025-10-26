@@ -9,7 +9,7 @@ use crate::{
     segment::Segment,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     version::{run::Ranged, Run, Version},
-    HashSet, KeyRange, SegmentId,
+    HashSet, KeyRange, TableId,
 };
 
 pub fn aggregate_run_key_range(tables: &[Segment]) -> KeyRange {
@@ -25,7 +25,7 @@ fn pick_minimal_compaction(
     hidden_set: &HiddenSet,
     overshoot: u64,
     segment_base_size: u64,
-) -> Option<(HashSet<SegmentId>, bool)> {
+) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
     if let Some(window) = curr_run.shrinking_windows().find(|window| {
         if hidden_set.is_blocked(window.iter().map(Segment::id)) {

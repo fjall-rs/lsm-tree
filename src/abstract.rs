@@ -5,7 +5,7 @@
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
     iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
-    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SegmentId,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, TableId,
     SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
@@ -18,7 +18,7 @@ pub type RangeItem = crate::Result<KvPair>;
 #[enum_dispatch]
 pub trait AbstractTree {
     #[doc(hidden)]
-    fn next_table_id(&self) -> SegmentId;
+    fn next_table_id(&self) -> TableId;
 
     #[doc(hidden)]
     fn id(&self) -> TreeId;
@@ -157,7 +157,7 @@ pub trait AbstractTree {
     #[warn(clippy::type_complexity)]
     fn flush_memtable(
         &self,
-        segment_id: SegmentId, // TODO: remove?
+        segment_id: TableId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
@@ -204,7 +204,7 @@ pub trait AbstractTree {
     ) -> crate::Result<()>;
 
     /// Returns the next table's ID.
-    fn get_next_segment_id(&self) -> SegmentId;
+    fn get_next_segment_id(&self) -> TableId;
 
     /// Returns the tree config.
     fn tree_config(&self) -> &Config;

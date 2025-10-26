@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalSegmentId};
+use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
     segment::{
         block::ParsedItem,
@@ -63,7 +63,7 @@ fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
 }
 
 pub struct Iter {
-    segment_id: GlobalSegmentId,
+    segment_id: GlobalTableId,
     path: Arc<PathBuf>,
 
     #[allow(clippy::struct_field_names)]
@@ -88,7 +88,7 @@ pub struct Iter {
 
 impl Iter {
     pub fn new(
-        segment_id: GlobalSegmentId,
+        segment_id: GlobalTableId,
         path: Arc<PathBuf>,
         index_iter: BlockIndexIterImpl,
         descriptor_table: Arc<DescriptorTable>,

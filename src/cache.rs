@@ -4,7 +4,7 @@
 
 use crate::segment::block::Header;
 use crate::segment::{Block, BlockOffset};
-use crate::{GlobalSegmentId, UserValue};
+use crate::{GlobalTableId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
 
@@ -134,7 +134,7 @@ impl Cache {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<Block> {
+    pub fn get_block(&self, id: GlobalTableId, offset: BlockOffset) -> Option<Block> {
         let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
 
         Some(match self.data.get(&key)? {
@@ -144,7 +144,7 @@ impl Cache {
     }
 
     #[doc(hidden)]
-    pub fn insert_block(&self, id: GlobalSegmentId, offset: BlockOffset, block: Block) {
+    pub fn insert_block(&self, id: GlobalTableId, offset: BlockOffset, block: Block) {
         self.data.insert(
             (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
             Item::Block(block),

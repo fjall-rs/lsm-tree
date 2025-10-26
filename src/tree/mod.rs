@@ -21,7 +21,7 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, Version, VersionId},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SegmentId, SeqNo,
+    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, TableId, SeqNo,
     SequenceNumberCounter, TreeType, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, TreeId, TreeInner};
@@ -73,7 +73,7 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
-    fn next_table_id(&self) -> SegmentId {
+    fn next_table_id(&self) -> TableId {
         self.0
             .segment_id_counter
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -333,7 +333,7 @@ impl AbstractTree for Tree {
 
     fn flush_memtable(
         &self,
-        table_id: SegmentId,
+        table_id: TableId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
@@ -471,7 +471,7 @@ impl AbstractTree for Tree {
         self.inner_compact(strategy, seqno_threshold)
     }
 
-    fn get_next_segment_id(&self) -> SegmentId {
+    fn get_next_segment_id(&self) -> TableId {
         self.0.get_next_segment_id()
     }
 
@@ -993,14 +993,14 @@ impl Tree {
         descriptor_table: &Arc<DescriptorTable>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
-        use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, SegmentId};
+        use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, TableId};
 
         let tree_path = tree_path.as_ref();
 
         let recovery = recover(tree_path)?;
 
         let table_map = {
-            let mut result: crate::HashMap<SegmentId, (u8 /* Level index */, Checksum)> =
+            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum)> =
                 crate::HashMap::default();
 
             for (level_idx, table_ids) in recovery.segment_ids.iter().enumerate() {
@@ -1069,7 +1069,7 @@ impl Tree {
 
             log::debug!("Recovering table from {}", table_file_path.display());
 
-            let table_id = table_file_name.parse::<SegmentId>().map_err(|e| {
+            let table_id = table_file_name.parse::<TableId>().map_err(|e| {
                 log::error!("invalid table file name {table_file_name:?}: {e:?}");
                 crate::Error::Unrecoverable
             })?;

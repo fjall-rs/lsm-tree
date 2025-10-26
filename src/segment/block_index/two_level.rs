@@ -5,7 +5,7 @@ use crate::{
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
         util::load_block,
     },
-    Cache, CompressionType, DescriptorTable, GlobalSegmentId, UserKey,
+    Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -17,7 +17,7 @@ use crate::Metrics;
 /// Only the top-level index is loaded into memory.
 pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
-    pub(crate) segment_id: GlobalSegmentId,
+    pub(crate) segment_id: GlobalTableId,
     pub(crate) path: PathBuf,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
@@ -58,7 +58,7 @@ pub struct Iter {
     lo: Option<UserKey>,
     hi: Option<UserKey>,
 
-    segment_id: GlobalSegmentId,
+    segment_id: GlobalTableId,
     path: PathBuf,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,

@@ -22,7 +22,7 @@ mod tests;
 
 pub use block::{Block, BlockOffset, Checksum};
 pub use data_block::DataBlock;
-pub use id::{GlobalSegmentId, SegmentId};
+pub use id::{GlobalTableId, TableId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
 pub use scanner::Scanner;
 pub use writer::Writer;
@@ -141,7 +141,7 @@ impl Segment {
 
     /// Gets the global table ID.
     #[must_use]
-    pub fn global_id(&self) -> GlobalSegmentId {
+    pub fn global_id(&self) -> GlobalTableId {
         (self.tree_id, self.id()).into()
     }
 
@@ -174,7 +174,7 @@ impl Segment {
     /// The table ID is unique for this tree, but not
     /// across multiple trees, use [`Table::global_id`] for that.
     #[must_use]
-    pub fn id(&self) -> SegmentId {
+    pub fn id(&self) -> TableId {
         self.metadata.id
     }
 

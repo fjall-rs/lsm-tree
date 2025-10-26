@@ -11,7 +11,7 @@ use crate::{
     descriptor_table::DescriptorTable,
     segment::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
-    Checksum, GlobalSegmentId,
+    Checksum, GlobalTableId,
 };
 use std::{
     path::PathBuf,
@@ -59,7 +59,7 @@ pub struct Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        let global_id: GlobalSegmentId = (self.tree_id, self.metadata.id).into();
+        let global_id: GlobalTableId = (self.tree_id, self.metadata.id).into();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);

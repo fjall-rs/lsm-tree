@@ -9,7 +9,7 @@ use crate::{
     stop_signal::StopSignal,
     tree::sealed::SealedMemtables,
     version::Version,
-    SegmentId, SequenceNumberCounter,
+    TableId, SequenceNumberCounter,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 
@@ -104,7 +104,7 @@ impl TreeInner {
         })
     }
 
-    pub fn get_next_segment_id(&self) -> SegmentId {
+    pub fn get_next_segment_id(&self) -> TableId {
         self.segment_id_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }

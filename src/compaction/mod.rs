@@ -22,7 +22,7 @@ pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
 use crate::{
-    compaction::state::CompactionState, config::Config, version::Version, HashSet, SegmentId,
+    compaction::state::CompactionState, config::Config, version::Version, HashSet, TableId,
 };
 
 /// Alias for `Leveled`
@@ -41,7 +41,7 @@ pub use pulldown::Strategy as PullDown;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
     /// Tables to compact
-    pub segment_ids: HashSet<SegmentId>,
+    pub segment_ids: HashSet<TableId>,
 
     /// Level to put the created tables into
     pub dest_level: u8,
@@ -72,7 +72,7 @@ pub enum Choice {
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].
-    Drop(HashSet<SegmentId>),
+    Drop(HashSet<TableId>),
 }
 
 /// Trait for a compaction strategy

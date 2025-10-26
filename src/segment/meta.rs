@@ -4,7 +4,7 @@
 
 use super::{Block, BlockHandle, DataBlock};
 use crate::{
-    coding::Decode, segment::block::BlockType, CompressionType, KeyRange, SegmentId, SeqNo,
+    coding::Decode, segment::block::BlockType, CompressionType, KeyRange, TableId, SeqNo,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
@@ -35,7 +35,7 @@ impl From<u128> for Timestamp {
 
 #[derive(Debug)]
 pub struct ParsedMeta {
-    pub id: SegmentId,
+    pub id: TableId,
     pub created_at: Timestamp,
     pub data_block_count: u64,
     pub index_block_count: u64,

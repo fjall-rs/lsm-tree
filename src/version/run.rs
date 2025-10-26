@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn run_range_contained() {
-        use crate::SegmentId;
+        use crate::TableId;
 
         let items = vec![
             s(0, "a", "d"),
@@ -338,7 +338,7 @@ mod tests {
         let run = Run(items);
 
         assert_eq!(
-            &[] as &[SegmentId],
+            &[] as &[TableId],
             &*run
                 .get_contained(&KeyRange::new((b"a".into(), b"a".into())))
                 .iter()

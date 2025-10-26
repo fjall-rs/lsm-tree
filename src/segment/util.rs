@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{Block, BlockHandle, GlobalSegmentId};
+use super::{Block, BlockHandle, GlobalTableId};
 use crate::{segment::block::BlockType, Cache, CompressionType, DescriptorTable};
 use std::{path::Path, sync::Arc};
 
@@ -18,7 +18,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Also handles file descriptor opening and caching.
 #[warn(clippy::too_many_arguments)]
 pub fn load_block(
-    segment_id: GlobalSegmentId,
+    segment_id: GlobalTableId,
     path: &Path,
     descriptor_table: &DescriptorTable,
     cache: &Cache,

@@ -18,7 +18,7 @@ use crate::{
     tree::inner::{SuperVersion, TreeId},
     version::Version,
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
-    BlobFile, Config, HashSet, InternalValue, SegmentId, SeqNo, SequenceNumberCounter,
+    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, TableId,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
@@ -116,7 +116,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 
 fn create_compaction_stream<'a>(
     version: &Version,
-    to_compact: &[SegmentId],
+    to_compact: &[TableId],
     eviction_seqno: SeqNo,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
@@ -216,7 +216,7 @@ fn move_segments(
 // TODO: 3.0.0 unit test
 /// Picks blob files to rewrite (defragment)
 fn pick_blob_files_to_rewrite(
-    picked_tables: &HashSet<SegmentId>,
+    picked_tables: &HashSet<TableId>,
     current_version: &Version,
     blob_opts: &crate::KvSeparationOptions,
 ) -> crate::Result<Vec<BlobFile>> {
@@ -500,7 +500,7 @@ fn drop_segments(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
-    ids_to_drop: &[SegmentId],
+    ids_to_drop: &[TableId],
 ) -> crate::Result<()> {
     drop(super_version);
 

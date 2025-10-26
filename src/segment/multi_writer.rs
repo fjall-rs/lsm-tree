@@ -5,7 +5,7 @@
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
     blob_tree::handle::BlobIndirection, segment::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SegmentId, UserKey,
+    vlog::BlobFileId, Checksum, CompressionType, HashMap, TableId, UserKey,
 };
 use std::{
     path::PathBuf,
@@ -36,7 +36,7 @@ pub struct MultiWriter {
     /// resulting in a sorted "run" of tables
     pub target_size: u64,
 
-    results: Vec<(SegmentId, Checksum)>,
+    results: Vec<(TableId, Checksum)>,
 
     segment_id_generator: Arc<AtomicU64>,
     current_segment_id: u64,
@@ -261,7 +261,7 @@ impl MultiWriter {
     /// Finishes the last segment, making sure all data is written durably
     ///
     /// Returns the metadata of created segments
-    pub fn finish(mut self) -> crate::Result<Vec<(SegmentId, Checksum)>> {
+    pub fn finish(mut self) -> crate::Result<Vec<(TableId, Checksum)>> {
         for linked in self.linked_blobs.values() {
             self.writer.link_blob_file(
                 linked.blob_file_id,

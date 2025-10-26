@@ -15,7 +15,7 @@ use crate::{
     },
     time::unix_timestamp,
     vlog::BlobFileId,
-    Checksum, CompressionType, InternalValue, SegmentId, UserKey, ValueType,
+    Checksum, CompressionType, InternalValue, TableId, UserKey, ValueType,
 };
 use index::BlockIndexWriter;
 use std::{fs::File, io::BufWriter, path::PathBuf};
@@ -33,7 +33,7 @@ pub struct Writer {
     /// Segment file
     pub(crate) path: PathBuf,
 
-    segment_id: SegmentId,
+    segment_id: TableId,
 
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
@@ -84,7 +84,7 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new(path: PathBuf, segment_id: SegmentId) -> crate::Result<Self> {
+    pub fn new(path: PathBuf, segment_id: TableId) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
         let mut block_writer = sfa::Writer::from_writer(block_writer);
@@ -352,7 +352,7 @@ impl Writer {
     // TODO: 3.0.0 split meta writing into new function
     #[allow(clippy::too_many_lines)]
     /// Finishes the table, making sure all data is written durably
-    pub fn finish(mut self) -> crate::Result<Option<(SegmentId, Checksum)>> {
+    pub fn finish(mut self) -> crate::Result<Option<(TableId, Checksum)>> {
         self.spill_block()?;
 
         // No items written! Just delete table file and return nothing

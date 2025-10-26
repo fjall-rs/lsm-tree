@@ -16,7 +16,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Segment, SegmentId, SeqNo,
+    HashSet, KeyRange, Segment, TableId, SeqNo,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -103,7 +103,7 @@ impl Level {
         Self(Arc::new(GenericLevel { runs }))
     }
 
-    pub fn list_ids(&self) -> HashSet<SegmentId> {
+    pub fn list_ids(&self) -> HashSet<TableId> {
         self.iter()
             .flat_map(|run| run.iter())
             .map(Segment::id)
@@ -309,7 +309,7 @@ impl Version {
             .flat_map(|x| x.iter())
     }
 
-    pub(crate) fn get_segment(&self, id: SegmentId) -> Option<&Segment> {
+    pub(crate) fn get_segment(&self, id: TableId) -> Option<&Segment> {
         self.iter_segments().find(|x| x.metadata.id == id)
     }
 
@@ -392,7 +392,7 @@ impl Version {
     /// The table files are not immediately deleted, this is handled by the version system's free list.
     pub fn with_dropped(
         &self,
-        ids: &[SegmentId],
+        ids: &[TableId],
         dropped_blob_files: &mut Vec<BlobFile>,
     ) -> crate::Result<Self> {
         let id = self.id + 1;
@@ -473,7 +473,7 @@ impl Version {
 
     pub fn with_merge(
         &self,
-        old_ids: &[SegmentId],
+        old_ids: &[TableId],
         new_tables: &[Segment],
         dest_level: usize,
         diff: Option<FragmentationMap>,
@@ -554,7 +554,7 @@ impl Version {
         }
     }
 
-    pub fn with_moved(&self, ids: &[SegmentId], dest_level: usize) -> Self {
+    pub fn with_moved(&self, ids: &[TableId], dest_level: usize) -> Self {
         let id = self.id + 1;
 
         let affected_tables = self

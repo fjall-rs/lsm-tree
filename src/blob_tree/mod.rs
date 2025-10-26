@@ -19,7 +19,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
+    Config, Memtable, TableId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
@@ -130,7 +130,7 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
-    fn next_table_id(&self) -> SegmentId {
+    fn next_table_id(&self) -> TableId {
         self.index.next_table_id()
     }
 
@@ -372,7 +372,7 @@ impl AbstractTree for BlobTree {
 
     fn flush_memtable(
         &self,
-        table_id: SegmentId,
+        table_id: TableId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
@@ -522,7 +522,7 @@ impl AbstractTree for BlobTree {
         self.index.compact(strategy, seqno_threshold)
     }
 
-    fn get_next_segment_id(&self) -> SegmentId {
+    fn get_next_segment_id(&self) -> TableId {
         self.index.get_next_segment_id()
     }
 
