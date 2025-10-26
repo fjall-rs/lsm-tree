@@ -162,7 +162,7 @@ impl AbstractTree for Tree {
     /// Returns the number of tombstones in the tree.
     fn tombstone_count(&self) -> u64 {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::tombstone_count)
             .sum()
     }
@@ -170,7 +170,7 @@ impl AbstractTree for Tree {
     /// Returns the number of weak tombstones (single deletes) in the tree.
     fn weak_tombstone_count(&self) -> u64 {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::weak_tombstone_count)
             .sum()
     }
@@ -178,7 +178,7 @@ impl AbstractTree for Tree {
     /// Returns the number of value entries that become reclaimable once weak tombstones can be GC'd.
     fn weak_tombstone_reclaimable_count(&self) -> u64 {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::weak_tombstone_reclaimable)
             .sum()
     }
@@ -287,21 +287,21 @@ impl AbstractTree for Tree {
 
     fn filter_size(&self) -> usize {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::filter_size)
             .sum()
     }
 
     fn pinned_filter_size(&self) -> usize {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::pinned_filter_size)
             .sum()
     }
 
     fn pinned_block_index_size(&self) -> usize {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::pinned_block_index_size)
             .sum()
     }
@@ -531,7 +531,7 @@ impl AbstractTree for Tree {
 
         let tables_item_count = self
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .map(|x| x.metadata.item_count)
             .sum::<u64>();
 
@@ -571,7 +571,7 @@ impl AbstractTree for Tree {
 
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         self.current_version()
-            .iter_segments()
+            .iter_tables()
             .map(Segment::get_highest_seqno)
             .max()
     }
@@ -915,7 +915,7 @@ impl Tree {
         )?;
 
         let highest_segment_id = version
-            .iter_segments()
+            .iter_tables()
             .map(Segment::id)
             .max()
             .unwrap_or_default();

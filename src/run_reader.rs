@@ -149,7 +149,7 @@ mod tests {
 
         let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
@@ -184,7 +184,7 @@ mod tests {
 
         let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 

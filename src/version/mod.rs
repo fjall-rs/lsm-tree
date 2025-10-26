@@ -16,7 +16,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Segment, TableId, SeqNo,
+    HashSet, KeyRange, Segment, SeqNo, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -302,7 +302,7 @@ impl Version {
     }
 
     /// Returns an iterator over all tables.
-    pub fn iter_segments(&self) -> impl Iterator<Item = &Segment> {
+    pub fn iter_tables(&self) -> impl Iterator<Item = &Segment> {
         self.levels
             .iter()
             .flat_map(|x| x.iter())
@@ -310,7 +310,7 @@ impl Version {
     }
 
     pub(crate) fn get_segment(&self, id: TableId) -> Option<&Segment> {
-        self.iter_segments().find(|x| x.metadata.id == id)
+        self.iter_tables().find(|x| x.metadata.id == id)
     }
 
     /// Gets the n-th level.
@@ -558,7 +558,7 @@ impl Version {
         let id = self.id + 1;
 
         let affected_tables = self
-            .iter_segments()
+            .iter_tables()
             .filter(|x| ids.contains(&x.id()))
             .cloned()
             .collect::<Vec<_>>();

@@ -96,7 +96,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 len: 2,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .nth(1)
                 .unwrap()
                 .list_blob_file_references()?,
@@ -129,7 +129,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
                 len: 1,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .next()
                 .unwrap()
                 .list_blob_file_references()?,

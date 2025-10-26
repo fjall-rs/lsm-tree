@@ -16,7 +16,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
         tree.flush_active_memtable(0)?;
 
         let version = tree.current_version();
-        let table = version.iter_segments().next().unwrap();
+        let table = version.iter_tables().next().unwrap();
 
         let expected_checksum = *table.checksum();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);
@@ -30,7 +30,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
         let tree = Config::new(&folder).open()?;
 
         let version = tree.current_version();
-        let table = version.iter_segments().next().unwrap();
+        let table = version.iter_tables().next().unwrap();
 
         let expected_checksum = *table.checksum();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);

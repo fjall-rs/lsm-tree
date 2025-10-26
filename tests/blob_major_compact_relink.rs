@@ -34,7 +34,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 len: 1,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .next()
                 .unwrap()
                 .list_blob_file_references()?,
@@ -54,7 +54,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
                 len: 1,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .next()
                 .unwrap()
                 .list_blob_file_references()?,

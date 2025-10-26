@@ -269,7 +269,7 @@ fn pick_blob_files_to_rewrite(
     // IMPORTANT: Additionally, we also have to check if any other tables reference any of our candidate blob files.
     // We have to *not* include blob files that are referenced by other tables, because otherwise those
     // blob references would point into nothing (becoming dangling).
-    for table in current_version.iter_segments() {
+    for table in current_version.iter_tables() {
         if picked_tables.contains(&table.id()) {
             continue;
         }
