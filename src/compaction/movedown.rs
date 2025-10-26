@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{compaction::state::CompactionState, table::Segment, version::Version, Config};
+use crate::{compaction::state::CompactionState, table::Table, version::Version, Config};
 
 /// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
@@ -26,7 +26,7 @@ impl CompactionStrategy for Strategy {
         let table_ids = level
             .iter()
             .flat_map(|run| run.iter())
-            .map(Segment::id)
+            .map(Table::id)
             .collect();
 
         Choice::Move(Input {

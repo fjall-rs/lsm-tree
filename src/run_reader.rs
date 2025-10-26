@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{version::Run, BoxedIterator, InternalValue, Segment, UserKey};
+use crate::{version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
@@ -10,7 +10,7 @@ use std::{
 
 /// Reads through a disjoint run
 pub struct RunReader {
-    run: Arc<Run<Segment>>,
+    run: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
@@ -20,7 +20,7 @@ pub struct RunReader {
 impl RunReader {
     #[must_use]
     pub fn new<R: RangeBounds<UserKey> + Clone + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
@@ -32,7 +32,7 @@ impl RunReader {
 
     #[must_use]
     pub fn culled<R: RangeBounds<UserKey> + Clone + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> Self {

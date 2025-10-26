@@ -2,14 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{table::Scanner, version::Run, InternalValue, Segment};
+use crate::{table::Scanner, version::Run, InternalValue, Table};
 use std::sync::Arc;
 
 /// Scans through a disjoint run
 ///
 /// Optimized for compaction, by using a `TableScanner` instead of `TableReader`.
 pub struct RunScanner {
-    tables: Arc<Run<Segment>>,
+    tables: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
@@ -17,7 +17,7 @@ pub struct RunScanner {
 
 impl RunScanner {
     pub fn culled(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> crate::Result<Self> {
         let lo = lo.unwrap_or_default();

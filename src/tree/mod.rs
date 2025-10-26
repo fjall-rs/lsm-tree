@@ -15,7 +15,7 @@ use crate::{
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
-    table::Segment,
+    table::Table,
     slice::Slice,
     tree::inner::SuperVersion,
     value::InternalValue,
@@ -106,7 +106,7 @@ impl AbstractTree for Tree {
         self.super_version.read().expect("poisoned").version.clone()
     }
 
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>> {
         log::debug!("Flushing active memtable");
 
         let Some((table_id, yanked_memtable)) = self.rotate_memtable() else {
@@ -162,7 +162,7 @@ impl AbstractTree for Tree {
     fn tombstone_count(&self) -> u64 {
         self.current_version()
             .iter_tables()
-            .map(Segment::tombstone_count)
+            .map(Table::tombstone_count)
             .sum()
     }
 
@@ -170,7 +170,7 @@ impl AbstractTree for Tree {
     fn weak_tombstone_count(&self) -> u64 {
         self.current_version()
             .iter_tables()
-            .map(Segment::weak_tombstone_count)
+            .map(Table::weak_tombstone_count)
             .sum()
     }
 
@@ -178,7 +178,7 @@ impl AbstractTree for Tree {
     fn weak_tombstone_reclaimable_count(&self) -> u64 {
         self.current_version()
             .iter_tables()
-            .map(Segment::weak_tombstone_reclaimable)
+            .map(Table::weak_tombstone_reclaimable)
             .sum()
     }
 
@@ -287,21 +287,21 @@ impl AbstractTree for Tree {
     fn filter_size(&self) -> usize {
         self.current_version()
             .iter_tables()
-            .map(Segment::filter_size)
+            .map(Table::filter_size)
             .sum()
     }
 
     fn pinned_filter_size(&self) -> usize {
         self.current_version()
             .iter_tables()
-            .map(Segment::pinned_filter_size)
+            .map(Table::pinned_filter_size)
             .sum()
     }
 
     fn pinned_block_index_size(&self) -> usize {
         self.current_version()
             .iter_tables()
-            .map(Segment::pinned_block_index_size)
+            .map(Table::pinned_block_index_size)
             .sum()
     }
 
@@ -335,7 +335,7 @@ impl AbstractTree for Tree {
         table_id: TableId,
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
+    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
         use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, table::Writer};
         use std::time::Instant;
 
@@ -404,7 +404,7 @@ impl AbstractTree for Tree {
 
     fn register_tables(
         &self,
-        tables: &[Segment],
+        tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
@@ -571,7 +571,7 @@ impl AbstractTree for Tree {
     fn get_highest_persisted_seqno(&self) -> Option<SeqNo> {
         self.current_version()
             .iter_tables()
-            .map(Segment::get_highest_seqno)
+            .map(Table::get_highest_seqno)
             .max()
     }
 
@@ -674,7 +674,7 @@ impl Tree {
     pub(crate) fn consume_writer(
         &self,
         writer: crate::table::Writer,
-    ) -> crate::Result<Option<Segment>> {
+    ) -> crate::Result<Option<Table>> {
         let table_file_path = writer.path.clone();
 
         let Some((_, checksum)) = writer.finish()? else {
@@ -686,7 +686,7 @@ impl Tree {
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
         let pin_index = self.config.filter_block_pinning_policy.get(0);
 
-        let created_table = Segment::recover(
+        let created_table = Table::recover(
             table_file_path,
             checksum,
             self.id,
@@ -915,7 +915,7 @@ impl Tree {
 
         let highest_table_id = version
             .iter_tables()
-            .map(Segment::id)
+            .map(Table::id)
             .max()
             .unwrap_or_default();
 
@@ -1074,7 +1074,7 @@ impl Tree {
             })?;
 
             if let Some(&(level_idx, checksum)) = table_map.get(&table_id) {
-                let table = Segment::recover(
+                let table = Table::recover(
                     table_file_path,
                     checksum,
                     tree_id,

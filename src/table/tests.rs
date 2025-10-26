@@ -11,7 +11,7 @@ use test_log::test;
 )]
 fn test_with_table(
     items: &[InternalValue],
-    f: impl Fn(Segment) -> crate::Result<()>,
+    f: impl Fn(Table) -> crate::Result<()>,
     rotate_every: Option<usize>,
     config_writer: Option<impl Fn(Writer) -> Writer>,
 ) -> crate::Result<()> {
@@ -39,7 +39,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -64,7 +64,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -89,7 +89,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -114,7 +114,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -159,7 +159,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -183,7 +183,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -207,7 +207,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -232,7 +232,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Segment::recover(
+            let table = Table::recover(
                 file,
                 checksum,
                 0,

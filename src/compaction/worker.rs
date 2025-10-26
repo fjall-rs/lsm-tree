@@ -220,7 +220,7 @@ fn pick_blob_files_to_rewrite(
     current_version: &Version,
     blob_opts: &crate::KvSeparationOptions,
 ) -> crate::Result<Vec<BlobFile>> {
-    use crate::Segment;
+    use crate::Table;
 
     // We start off by getting all the blob files that are referenced by the tables
     // that we want to compact.
@@ -231,7 +231,7 @@ fn pick_blob_files_to_rewrite(
                 panic!("Table {id} should exist");
             })
         })
-        .map(Segment::list_blob_file_references)
+        .map(Table::list_blob_file_references)
         .collect::<Result<Vec<_>, _>>()?;
 
     // Then we filter all blob files that are not fragmented or old enough.

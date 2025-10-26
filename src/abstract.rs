@@ -4,7 +4,7 @@
 
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, table::Segment, tree::inner::MemtableId, version::Version,
+    iter_guard::IterGuardImpl, table::Table, tree::inner::MemtableId, version::Version,
     vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
     SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
 };
@@ -40,7 +40,7 @@ pub trait AbstractTree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>>;
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>>;
 
     /// Returns an iterator that scans through the entire tree.
     ///
@@ -160,7 +160,7 @@ pub trait AbstractTree {
         segment_id: TableId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
+    ) -> crate::Result<Option<(Table, Option<BlobFile>)>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///
@@ -169,7 +169,7 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn register_tables(
         &self,
-        segments: &[Segment],
+        segments: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,

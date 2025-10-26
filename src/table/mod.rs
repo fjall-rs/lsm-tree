@@ -63,7 +63,7 @@ use crate::metrics::Metrics;
 // many versions (possibly unnecessary space usage of old, stale versions)
 
 #[allow(clippy::module_name_repetitions)]
-pub type SegmentInner = Inner;
+pub type TableInner = Inner;
 
 /// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -75,15 +75,15 @@ pub type SegmentInner = Inner;
 /// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
 #[derive(Clone)]
-pub struct Segment(Arc<Inner>);
+pub struct Table(Arc<Inner>);
 
-impl From<Inner> for Segment {
+impl From<Inner> for Table {
     fn from(value: Inner) -> Self {
         Self(Arc::new(value))
     }
 }
 
-impl std::ops::Deref for Segment {
+impl std::ops::Deref for Table {
     type Target = Inner;
 
     fn deref(&self) -> &Self::Target {
@@ -91,13 +91,13 @@ impl std::ops::Deref for Segment {
     }
 }
 
-impl std::fmt::Debug for Segment {
+impl std::fmt::Debug for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
-impl Segment {
+impl Table {
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
         Ok(self
             .list_blob_file_references()?

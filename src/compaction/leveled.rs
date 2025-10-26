@@ -6,13 +6,13 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
-    table::Segment,
+    table::Table,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     version::{run::Ranged, Run, Version},
     HashSet, KeyRange, TableId,
 };
 
-pub fn aggregate_run_key_range(tables: &[Segment]) -> KeyRange {
+pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
     let lo = tables.first().expect("run should never be empty");
     let hi = tables.last().expect("run should never be empty");
     KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
@@ -20,15 +20,15 @@ pub fn aggregate_run_key_range(tables: &[Segment]) -> KeyRange {
 
 /// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
-    curr_run: &Run<Segment>,
-    next_run: Option<&Run<Segment>>,
+    curr_run: &Run<Table>,
+    next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
     overshoot: u64,
     segment_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
     if let Some(window) = curr_run.shrinking_windows().find(|window| {
-        if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+        if hidden_set.is_blocked(window.iter().map(Table::id)) {
             // IMPORTANT: Compaction is blocked because of other
             // on-going compaction
             return false;
@@ -43,7 +43,7 @@ fn pick_minimal_compaction(
 
         next_run.get_overlapping(&key_range).is_empty()
     }) {
-        let ids = window.iter().map(Segment::id).collect();
+        let ids = window.iter().map(Table::id).collect();
         return Some((ids, true));
     }
 
@@ -56,11 +56,11 @@ fn pick_minimal_compaction(
                 //
                 // At this point, all compactions are too large anyway
                 // so we can escape early
-                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+                let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
                 next_level_size <= (50 * segment_base_size)
             })
             .filter_map(|window| {
-                if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+                if hidden_set.is_blocked(window.iter().map(Table::id)) {
                     // IMPORTANT: Compaction is blocked because of other
                     // on-going compaction
                     return None;
@@ -73,20 +73,20 @@ fn pick_minimal_compaction(
 
                 let curr_level_size = curr_level_pull_in
                     .iter()
-                    .map(Segment::file_size)
+                    .map(Table::file_size)
                     .sum::<u64>();
 
                 // if curr_level_size < overshoot {
                 //     return None;
                 // }
 
-                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Segment::id)) {
+                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Table::id)) {
                     // IMPORTANT: Compaction is blocked because of other
                     // on-going compaction
                     return None;
                 }
 
-                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+                let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
 
                 //  let compaction_bytes = curr_level_size + next_level_size;
 
@@ -98,8 +98,8 @@ fn pick_minimal_compaction(
             // Find the compaction with the smallest write amplification factor
             .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(window, curr_level_pull_in, _)| {
-                let mut ids: HashSet<_> = window.iter().map(Segment::id).collect();
-                ids.extend(curr_level_pull_in.iter().map(Segment::id));
+                let mut ids: HashSet<_> = window.iter().map(Table::id).collect();
+                ids.extend(curr_level_pull_in.iter().map(Table::id));
                 (ids, false)
             })
     } else {
@@ -240,7 +240,7 @@ impl CompactionStrategy for Strategy {
                         // NOTE: Take bytes that are already being compacted into account,
                         // otherwise we may be overcompensating
                         .filter(|x| !state.hidden_set().is_hidden(x.id()))
-                        .map(Segment::file_size)
+                        .map(Table::file_size)
                         .sum::<u64>();
 
                     let target_size = self.level_target_size((idx - level_shift) as u8);
@@ -287,7 +287,7 @@ impl CompactionStrategy for Strategy {
                     // NOTE: Take bytes that are already being compacted into account,
                     // otherwise we may be overcompensating
                     .filter(|x| !state.hidden_set().is_hidden(x.id()))
-                    .map(Segment::file_size)
+                    .map(Table::file_size)
                     .sum::<u64>();
 
                 let target_size = self.level_target_size((idx - level_shift) as u8);
@@ -358,7 +358,7 @@ impl CompactionStrategy for Strategy {
             let target_level_overlapping_segment_ids: Vec<_> = target_level
                 .iter()
                 .flat_map(|run| run.get_overlapping(&key_range))
-                .map(Segment::id)
+                .map(Table::id)
                 .collect();
 
             segment_ids.extend(&target_level_overlapping_segment_ids);

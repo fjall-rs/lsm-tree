@@ -237,7 +237,7 @@ pub use {
     key_range::KeyRange,
     merge::BoxedIterator,
     slice::Builder,
-    table::{block::Checksum, GlobalTableId, Segment, TableId},
+    table::{block::Checksum, GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,

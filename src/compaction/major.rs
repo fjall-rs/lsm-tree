@@ -4,7 +4,7 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    compaction::state::CompactionState, config::Config, table::Segment, version::Version, HashSet,
+    compaction::state::CompactionState, config::Config, table::Table, version::Version, HashSet,
 };
 
 /// Compacts all tables into the last level
@@ -35,7 +35,7 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
-        let table_ids: HashSet<_> = version.iter_tables().map(Segment::id).collect();
+        let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock

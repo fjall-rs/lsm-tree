@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy};
 use crate::compaction::state::CompactionState;
 use crate::version::Version;
 use crate::{config::Config, slice::Slice, version::run::Ranged, KeyRange};
-use crate::{HashSet, Segment};
+use crate::{HashSet, Table};
 use std::ops::{Bound, RangeBounds};
 
 #[derive(Clone, Debug)]
@@ -84,7 +84,7 @@ impl CompactionStrategy for Strategy {
                     .iter()
                     .filter(|x| self.bounds.contains(x.key_range()))
             })
-            .map(Segment::id)
+            .map(Table::id)
             .collect();
 
         // NOTE: This should generally not occur because of the

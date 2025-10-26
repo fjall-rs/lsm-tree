@@ -4,8 +4,7 @@
 
 use super::Tree;
 use crate::{
-    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey,
-    UserValue,
+    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey, UserValue,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -99,7 +98,7 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::Segment;
+        use crate::Table;
 
         let results = self.writer.finish()?;
 
@@ -119,14 +118,14 @@ impl<'a> Ingestion<'a> {
 
         let created_tables = results
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Segment> {
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
                 // TODO: table recoverer struct w/ builder pattern
                 // Segment::recover()
                 //  .pin_filters(true)
                 //  .with_metrics(metrics)
                 //  .run(path, tree_id, cache, descriptor_table);
 
-                Segment::recover(
+                Table::recover(
                     self.folder.join(table_id.to_string()),
                     checksum,
                     self.tree.id,

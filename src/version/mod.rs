@@ -16,7 +16,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, Segment, SeqNo, TableId,
+    HashSet, KeyRange, SeqNo, Table, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -27,7 +27,7 @@ pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 /// Monotonically increasing ID of a version.
 pub type VersionId = u64;
 
-impl Ranged for Segment {
+impl Ranged for Table {
     fn key_range(&self) -> &KeyRange {
         &self.metadata.key_range
     }
@@ -84,10 +84,10 @@ impl<T: Ranged> GenericLevel<T> {
 }
 
 #[derive(Clone)]
-pub struct Level(Arc<GenericLevel<Segment>>);
+pub struct Level(Arc<GenericLevel<Table>>);
 
 impl std::ops::Deref for Level {
-    type Target = GenericLevel<Segment>;
+    type Target = GenericLevel<Table>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -99,18 +99,18 @@ impl Level {
         Self::from_runs(vec![])
     }
 
-    pub fn from_runs(runs: Vec<Arc<Run<Segment>>>) -> Self {
+    pub fn from_runs(runs: Vec<Arc<Run<Table>>>) -> Self {
         Self(Arc::new(GenericLevel { runs }))
     }
 
     pub fn list_ids(&self) -> HashSet<TableId> {
         self.iter()
             .flat_map(|run| run.iter())
-            .map(Segment::id)
+            .map(Table::id)
             .collect()
     }
 
-    pub fn first_run(&self) -> Option<&Arc<Run<Segment>>> {
+    pub fn first_run(&self) -> Option<&Arc<Run<Table>>> {
         self.runs.first()
     }
 
@@ -119,7 +119,7 @@ impl Level {
         self.0
             .iter()
             .flat_map(|x| x.iter())
-            .map(Segment::file_size)
+            .map(Table::file_size)
             .sum()
     }
 
@@ -227,7 +227,7 @@ impl Version {
 
     pub(crate) fn from_recovery(
         recovery: Recovery,
-        tables: &[Segment],
+        tables: &[Table],
         blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
         let version_levels = recovery
@@ -302,14 +302,14 @@ impl Version {
     }
 
     /// Returns an iterator over all tables.
-    pub fn iter_tables(&self) -> impl Iterator<Item = &Segment> {
+    pub fn iter_tables(&self) -> impl Iterator<Item = &Table> {
         self.levels
             .iter()
             .flat_map(|x| x.iter())
             .flat_map(|x| x.iter())
     }
 
-    pub(crate) fn get_table(&self, id: TableId) -> Option<&Segment> {
+    pub(crate) fn get_table(&self, id: TableId) -> Option<&Table> {
         self.iter_tables().find(|x| x.metadata.id == id)
     }
 
@@ -321,7 +321,7 @@ impl Version {
     /// Creates a new version with the additional run added to the "top" of L0.
     pub fn with_new_l0_run(
         &self,
-        run: &[Segment],
+        run: &[Table],
         blob_files: Option<&[BlobFile]>,
         diff: Option<FragmentationMap>,
     ) -> Self {
@@ -399,7 +399,7 @@ impl Version {
 
         let mut levels = vec![];
 
-        let mut dropped_tables: Vec<Segment> = vec![];
+        let mut dropped_tables: Vec<Table> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -474,7 +474,7 @@ impl Version {
     pub fn with_merge(
         &self,
         old_ids: &[TableId],
-        new_tables: &[Segment],
+        new_tables: &[Table],
         dest_level: usize,
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
@@ -701,7 +701,7 @@ impl Version {
                         f,
                         " | # = {}, {} MiB",
                         run.len(),
-                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                        run.iter().map(Table::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 } else {
                     for table in run.iter() {
@@ -720,7 +720,7 @@ impl Version {
                         f,
                         " | # = {}, {} MiB",
                         run.len(),
-                        run.iter().map(Segment::file_size).sum::<u64>() / 1_024 / 1_024,
+                        run.iter().map(Table::file_size).sum::<u64>() / 1_024 / 1_024,
                     )?;
                 }
             }

@@ -12,7 +12,7 @@ use crate::table::multi_writer::MultiWriter;
 use crate::tree::inner::SuperVersion;
 use crate::version::Version;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
-use crate::{BlobFile, HashSet, InternalValue, Segment};
+use crate::{BlobFile, HashSet, InternalValue, Table};
 
 pub(super) fn prepare_table_writer(
     version: &Version,
@@ -309,11 +309,11 @@ impl CompactionFlavour for RelocatingCompaction {
 pub struct StandardCompaction {
     start: Instant,
     table_writer: MultiWriter,
-    tables_to_rewrite: Vec<Segment>,
+    tables_to_rewrite: Vec<Table>,
 }
 
 impl StandardCompaction {
-    pub fn new(table_writer: MultiWriter, tables_to_rewrite: Vec<Segment>) -> Self {
+    pub fn new(table_writer: MultiWriter, tables_to_rewrite: Vec<Table>) -> Self {
         Self {
             start: Instant::now(),
             table_writer,
@@ -321,7 +321,7 @@ impl StandardCompaction {
         }
     }
 
-    fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Segment>> {
+    fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Table>> {
         let table_base_folder = self.table_writer.base_path.clone();
 
         let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
@@ -330,8 +330,8 @@ impl StandardCompaction {
         self.table_writer
             .finish()?
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Segment> {
-                Segment::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
                     table_base_folder.join(table_id.to_string()),
                     checksum,
                     opts.tree_id,

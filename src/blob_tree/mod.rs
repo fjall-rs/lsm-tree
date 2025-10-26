@@ -14,7 +14,7 @@ use crate::{
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
-    table::Segment,
+    table::Table,
     tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
@@ -146,7 +146,7 @@ impl AbstractTree for BlobTree {
         self.index.current_version()
     }
 
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
+    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Table>> {
         let Some((table_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
@@ -375,7 +375,7 @@ impl AbstractTree for BlobTree {
         table_id: TableId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
+    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
         use crate::{file::TABLES_FOLDER, table::Writer as SegmentWriter};
 
         let table_folder = self.index.config.path.join(TABLES_FOLDER);
@@ -497,7 +497,7 @@ impl AbstractTree for BlobTree {
 
     fn register_tables(
         &self,
-        segments: &[Segment],
+        segments: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
