@@ -15,8 +15,8 @@ use crate::{
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
-    table::Table,
     slice::Slice,
+    table::Table,
     tree::inner::SuperVersion,
     value::InternalValue,
     version::{recovery::recover, Version, VersionId},
@@ -312,23 +312,6 @@ impl AbstractTree for Tree {
             .sealed_memtables
             .len()
     }
-
-    /* fn verify(&self) -> crate::Result<usize> {
-        // NOTE: Lock memtable to prevent any tampering with disk segments
-        let _lock = self.lock_active_memtable();
-
-        let mut sum = 0;
-
-        let level_manifest = self.levels.read().expect("lock is poisoned");
-
-        for level in &level_manifest.levels {
-            for segment in &level.segments {
-                sum += segment.verify()?;
-            }
-        }
-
-        Ok(sum)
-    } */
 
     fn flush_memtable(
         &self,

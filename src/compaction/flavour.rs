@@ -380,7 +380,7 @@ impl CompactionFlavour for StandardCompaction {
 
         let table_ids_to_delete = std::mem::take(&mut self.tables_to_rewrite);
 
-        let created_segments = self.consume_writer(opts, dst_lvl)?;
+        let created_tables = self.consume_writer(opts, dst_lvl)?;
 
         let mut blob_files_to_drop = Vec::default();
 
@@ -395,7 +395,7 @@ impl CompactionFlavour for StandardCompaction {
             |current| {
                 Ok(current.with_merge(
                     &payload.table_ids.iter().copied().collect::<Vec<_>>(),
-                    &created_segments,
+                    &created_tables,
                     payload.dest_level as usize,
                     if blob_frag_map.is_empty() {
                         None

@@ -84,7 +84,7 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new(path: PathBuf, segment_id: TableId) -> crate::Result<Self> {
+    pub fn new(path: PathBuf, table_id: TableId) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
         let mut block_writer = sfa::Writer::from_writer(block_writer);
@@ -93,7 +93,7 @@ impl Writer {
         Ok(Self {
             meta: meta::Metadata::default(),
 
-            table_id: segment_id,
+            table_id,
 
             data_block_restart_interval: 16,
             index_block_restart_interval: 1,

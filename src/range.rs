@@ -67,7 +67,7 @@ pub struct IterState {
     pub(crate) sealed: Vec<Arc<Memtable>>,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
 
-    // NOTE: Hold the version so segments cannot be unlinked
+    // NOTE: Hold the version so tables cannot be unlinked
     #[allow(unused)]
     pub(crate) version: Version,
 }

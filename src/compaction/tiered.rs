@@ -11,7 +11,7 @@ use crate::{compaction::state::CompactionState, version::Version, Config};
 
 /// Size-tiered compaction strategy (STCS)
 ///
-/// If a level reaches a threshold, it is merged into a larger segment to the next level.
+/// If a level reaches a threshold, it is merged into a larger table to the next level.
 ///
 /// STCS suffers from high read and temporary doubled space amplification, but has good write amplification.
 #[derive(Clone)]

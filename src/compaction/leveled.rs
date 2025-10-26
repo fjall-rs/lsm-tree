@@ -6,8 +6,8 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
-    table::Table,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
+    table::Table,
     version::{run::Ranged, Run, Version},
     HashSet, KeyRange, TableId,
 };
@@ -24,7 +24,7 @@ fn pick_minimal_compaction(
     next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
     overshoot: u64,
-    segment_base_size: u64,
+    table_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
     if let Some(window) = curr_run.shrinking_windows().find(|window| {
@@ -57,7 +57,7 @@ fn pick_minimal_compaction(
                 // At this point, all compactions are too large anyway
                 // so we can escape early
                 let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
-                next_level_size <= (50 * segment_base_size)
+                next_level_size <= (50 * table_base_size)
             })
             .filter_map(|window| {
                 if hidden_set.is_blocked(window.iter().map(Table::id)) {
@@ -71,10 +71,7 @@ fn pick_minimal_compaction(
                 // Pull in all contained tables in current level into compaction
                 let curr_level_pull_in = curr_run.get_contained(&key_range);
 
-                let curr_level_size = curr_level_pull_in
-                    .iter()
-                    .map(Table::file_size)
-                    .sum::<u64>();
+                let curr_level_size = curr_level_pull_in.iter().map(Table::file_size).sum::<u64>();
 
                 // if curr_level_size < overshoot {
                 //     return None;
@@ -350,21 +347,21 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            let mut segment_ids: HashSet<u64> = first_level.list_ids();
+            let mut table_ids: HashSet<u64> = first_level.list_ids();
 
             let key_range = first_level.aggregate_key_range();
 
             // Get overlapping tables in next level
-            let target_level_overlapping_segment_ids: Vec<_> = target_level
+            let target_level_overlapping_table_ids: Vec<_> = target_level
                 .iter()
                 .flat_map(|run| run.get_overlapping(&key_range))
                 .map(Table::id)
                 .collect();
 
-            segment_ids.extend(&target_level_overlapping_segment_ids);
+            table_ids.extend(&target_level_overlapping_table_ids);
 
             let choice = CompactionInput {
-                table_ids: segment_ids,
+                table_ids,
                 dest_level: canonical_l1_idx as u8,
                 canonical_level: 1,
                 target_size: u64::from(self.target_size),
@@ -376,7 +373,7 @@ impl CompactionStrategy for Strategy {
                 choice.segment_ids,
             ); */
 
-            if target_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
+            if target_level_overlapping_table_ids.is_empty() && first_level.is_disjoint() {
                 return Choice::Move(choice);
             }
             return Choice::Merge(choice);
@@ -401,7 +398,7 @@ impl CompactionStrategy for Strategy {
         debug_assert!(level.is_disjoint(), "level should be disjoint");
         debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
 
-        let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
+        let Some((table_ids, can_trivial_move)) = pick_minimal_compaction(
             level.first_run().expect("should have exactly one run"),
             next_level.first_run().map(std::ops::Deref::deref),
             state.hidden_set(),
@@ -412,7 +409,7 @@ impl CompactionStrategy for Strategy {
         };
 
         let choice = CompactionInput {
-            table_ids: segment_ids,
+            table_ids,
             dest_level: next_level_index,
             canonical_level: next_level_index - (level_shift as u8),
             target_size: u64::from(self.target_size),

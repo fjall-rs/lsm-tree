@@ -120,7 +120,7 @@ impl<'a> Ingestion<'a> {
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
                 // TODO: table recoverer struct w/ builder pattern
-                // Segment::recover()
+                // Table::recover()
                 //  .pin_filters(true)
                 //  .with_metrics(metrics)
                 //  .run(path, tree_id, cache, descriptor_table);

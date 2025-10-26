@@ -80,7 +80,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_none(), "should use full index");
             assert_eq!(0, table.pinned_block_index_size(), "should not pin index");
-            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
 
             f(table)?;
         }
@@ -130,7 +130,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_none(), "should use full index");
             assert!(table.pinned_block_index_size() > 0, "should pin index");
-            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
 
             f(table)?;
         }
@@ -198,7 +198,7 @@ fn test_with_table(
             assert_eq!(0, table.id());
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_some(), "should use two-level index",);
-            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
 
             f(table)?;
         }
@@ -223,7 +223,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_some(), "should use two-level index",);
             assert!(table.pinned_block_index_size() > 0, "should pin index");
-            // assert_eq!(0, segment.pinned_filter_size(), "should not pin filter");
+            // assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
 
             f(table)?;
         }
@@ -248,7 +248,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_some(), "should use two-level index",);
             assert!(table.pinned_block_index_size() > 0, "should pin index");
-            // assert!(segment.pinned_filter_size() > 0, "should pin filter");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
 
             f(table)?;
         }

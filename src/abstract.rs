@@ -149,7 +149,7 @@ pub trait AbstractTree {
     /// Synchronously flushes a memtable to a table.
     ///
     /// This method will not make the table immediately available,
-    /// use [`AbstractTree::register_segments`] for that.
+    /// use [`AbstractTree::register_tables`] for that.
     ///
     /// # Errors
     ///
@@ -157,7 +157,7 @@ pub trait AbstractTree {
     #[warn(clippy::type_complexity)]
     fn flush_memtable(
         &self,
-        segment_id: TableId, // TODO: remove?
+        table_id: TableId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Table, Option<BlobFile>)>>;
@@ -169,7 +169,7 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn register_tables(
         &self,
-        segments: &[Table],
+        tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
