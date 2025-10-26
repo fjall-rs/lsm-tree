@@ -5,43 +5,70 @@
 use super::Checksum;
 use crate::coding::{Decode, DecodeError, Encode, EncodeError};
 use crate::file::MAGIC_BYTES;
-use byteorder::LittleEndian;
+use crate::segment::block::BlockType;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum BlockType {
-    Data,
-    Index,
-    Filter,
-    Meta,
-    Regions,
+pub struct ChecksummedWriter<W: std::io::Write> {
+    inner: W,
+    hasher: xxhash_rust::xxh3::Xxh3Default,
 }
 
-impl From<BlockType> for u8 {
-    fn from(val: BlockType) -> Self {
-        match val {
-            BlockType::Data => 0,
-            BlockType::Index => 1,
-            BlockType::Filter => 2,
-            BlockType::Meta => 3,
-            BlockType::Regions => 4,
+impl<W: std::io::Write> ChecksummedWriter<W> {
+    pub fn new(writer: W) -> Self {
+        Self {
+            inner: writer,
+            hasher: xxhash_rust::xxh3::Xxh3Default::new(),
         }
+    }
+
+    pub fn checksum(&self) -> Checksum {
+        Checksum::from_raw(self.hasher.digest128())
     }
 }
 
-impl TryFrom<u8> for BlockType {
-    type Error = DecodeError;
+impl<W: std::io::Write> std::io::Write for ChecksummedWriter<W> {
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Data),
-            1 => Ok(Self::Index),
-            2 => Ok(Self::Filter),
-            3 => Ok(Self::Meta),
-            4 => Ok(Self::Regions),
-            _ => Err(DecodeError::InvalidTag(("BlockType", value))),
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.hasher.update(buf);
+        self.inner.write(buf)
+    }
+}
+
+struct ChecksummedReader<R: std::io::Read> {
+    inner: R,
+    hasher: xxhash_rust::xxh3::Xxh3Default,
+}
+
+impl<R: std::io::Read> ChecksummedReader<R> {
+    pub fn new(reader: R) -> Self {
+        Self {
+            inner: reader,
+            hasher: xxhash_rust::xxh3::Xxh3Default::new(),
         }
+    }
+
+    pub fn checksum(&self) -> Checksum {
+        Checksum::from_raw(self.hasher.digest128())
+    }
+
+    /// Optionally expose the inner reader if needed
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
+}
+
+impl<R: std::io::Read> std::io::Read for ChecksummedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+
+        #[allow(clippy::indexing_slicing)]
+        self.hasher.update(&buf[..n]);
+
+        Ok(n)
     }
 }
 
@@ -66,31 +93,44 @@ impl Header {
         MAGIC_BYTES.len()
             // Block type
             + std::mem::size_of::<BlockType>()
-            // Checksum
+            // Data checksum
             + std::mem::size_of::<Checksum>()
             // On-disk size
             + std::mem::size_of::<u32>()
             // Uncompressed data length
             + std::mem::size_of::<u32>()
+            // Checksum
+            + std::mem::size_of::<u16>()
     }
 }
 
 impl Encode for Header {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        // Write header
-        writer.write_all(&MAGIC_BYTES)?;
+    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), EncodeError> {
+        use byteorder::LE;
 
-        // Write block type
-        writer.write_u8(self.block_type.into())?;
+        let checksum = {
+            let mut writer = ChecksummedWriter::new(&mut writer);
 
-        // Write checksum
-        writer.write_u128::<LittleEndian>(*self.checksum)?;
+            // Write header
+            writer.write_all(&MAGIC_BYTES)?;
 
-        // Write on-disk size length
-        writer.write_u32::<LittleEndian>(self.data_length)?;
+            // Write block type
+            writer.write_u8(self.block_type.into())?;
 
-        // Write uncompressed data length
-        writer.write_u32::<LittleEndian>(self.uncompressed_length)?;
+            // Write data checksum
+            writer.write_u128::<LE>(*self.checksum)?;
+
+            // Write on-disk size length
+            writer.write_u32::<LE>(self.data_length)?;
+
+            // Write uncompressed data length
+            writer.write_u32::<LE>(self.uncompressed_length)?;
+
+            writer.checksum()
+        };
+
+        // Write 2-byte checksum
+        writer.write_u16::<LE>(*checksum as u16)?;
 
         Ok(())
     }
@@ -98,26 +138,47 @@ impl Encode for Header {
 
 impl Decode for Header {
     fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+        use byteorder::LE;
+
+        let mut protected_reader = ChecksummedReader::new(reader);
+
         // Check header
         let mut magic = [0u8; MAGIC_BYTES.len()];
-        reader.read_exact(&mut magic)?;
+        protected_reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
             return Err(DecodeError::InvalidHeader("Block"));
         }
 
         // Read block type
-        let block_type = reader.read_u8()?;
+        let block_type = protected_reader.read_u8()?;
         let block_type = BlockType::try_from(block_type)?;
 
-        // Read checksum
-        let checksum = reader.read_u128::<LittleEndian>()?;
+        // Read data checksum
+        let checksum = protected_reader.read_u128::<LE>()?;
 
         // Read data length
-        let data_length = reader.read_u32::<LittleEndian>()?;
+        let data_length = protected_reader.read_u32::<LE>()?;
 
         // Read data length
-        let uncompressed_length = reader.read_u32::<LittleEndian>()?;
+        let uncompressed_length = protected_reader.read_u32::<LE>()?;
+
+        // Get header checksum
+        let got_checksum = *protected_reader.checksum() as u16;
+        let got_checksum = Checksum::from_raw(u128::from(got_checksum));
+
+        let reader = protected_reader.into_inner();
+
+        // Read & check checksum
+        let header_checksum: u128 = reader.read_u16::<LE>()?.into();
+        let header_checksum = Checksum::from_raw(header_checksum);
+
+        if header_checksum != got_checksum {
+            return Err(DecodeError::ChecksumMismatch {
+                got: got_checksum,
+                expected: header_checksum,
+            });
+        }
 
         Ok(Self {
             block_type,
@@ -148,5 +209,27 @@ mod tests {
         assert_eq!(header, Header::decode_from(&mut &bytes[..])?);
 
         Ok(())
+    }
+
+    #[test]
+    #[allow(clippy::indexing_slicing)]
+    fn block_header_detect_corruption() {
+        let header = Header {
+            block_type: BlockType::Data,
+            checksum: Checksum::from_raw(5),
+            data_length: 252_356,
+            uncompressed_length: 124_124_124,
+        };
+
+        let mut bytes = header.encode_into_vec();
+        bytes[5] += 1; // mutate block type enum tag
+
+        assert!(
+            matches!(
+                Header::decode_from(&mut &bytes[..]),
+                Err(crate::DecodeError::ChecksumMismatch { .. }),
+            ),
+            "did not detect header corruption",
+        );
     }
 }

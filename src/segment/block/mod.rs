@@ -10,12 +10,14 @@ pub mod hash_index;
 mod header;
 mod offset;
 mod trailer;
+mod r#type;
 
 pub use checksum::Checksum;
 pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
-pub use header::{BlockType, Header};
+pub use header::Header;
 pub use offset::BlockOffset;
+pub use r#type::BlockType;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
 use crate::{
