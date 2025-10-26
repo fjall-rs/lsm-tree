@@ -27,7 +27,7 @@ fn fast_block_index(c: &mut Criterion) {
 }
 
 fn standard_filter_construction(c: &mut Criterion) {
-    use lsm_tree::segment::filter::standard_bloom::Builder;
+    use lsm_tree::table::filter::standard_bloom::Builder;
 
     let mut rng = rand::rng();
 
@@ -55,7 +55,7 @@ fn standard_filter_construction(c: &mut Criterion) {
 }
 
 fn blocked_filter_construction(c: &mut Criterion) {
-    use lsm_tree::segment::filter::blocked_bloom::Builder;
+    use lsm_tree::table::filter::blocked_bloom::Builder;
 
     let mut rng = rand::rng();
 
@@ -83,7 +83,7 @@ fn blocked_filter_construction(c: &mut Criterion) {
 }
 
 fn standard_filter_contains(c: &mut Criterion) {
-    use lsm_tree::segment::filter::standard_bloom::Builder;
+    use lsm_tree::table::filter::standard_bloom::Builder;
 
     let keys = (0..100_000u128)
         .map(|x| x.to_be_bytes().to_vec())
@@ -111,7 +111,7 @@ fn standard_filter_contains(c: &mut Criterion) {
             |b| {
                 b.iter(|| {
                     use rand::seq::IndexedRandom;
-                    use lsm_tree::segment::filter::standard_bloom::StandardBloomFilterReader as Reader;
+                    use lsm_tree::table::filter::standard_bloom::StandardBloomFilterReader as Reader;
 
                     // NOTE: To make the costs more realistic, we
                     // pretend we are reading the filter straight from the block
@@ -127,7 +127,7 @@ fn standard_filter_contains(c: &mut Criterion) {
 }
 
 fn blocked_filter_contains(c: &mut Criterion) {
-    use lsm_tree::segment::filter::blocked_bloom::Builder;
+    use lsm_tree::table::filter::blocked_bloom::Builder;
 
     let keys = (0..100_000u128)
         .map(|x| x.to_be_bytes().to_vec())
@@ -155,7 +155,7 @@ fn blocked_filter_contains(c: &mut Criterion) {
             |b| {
                 b.iter(|| {
                     use rand::seq::IndexedRandom;
-                    use lsm_tree::segment::filter::blocked_bloom::BlockedBloomFilterReader as Reader;
+                    use lsm_tree::table::filter::blocked_bloom::BlockedBloomFilterReader as Reader;
 
                     // NOTE: To make the costs more realistic, we
                     // pretend we are reading the filter straight from the block

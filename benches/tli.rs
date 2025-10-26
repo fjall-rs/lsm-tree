@@ -1,11 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::segment::{
+use lsm_tree::table::{
     block::offset::BlockOffset, block_index::KeyedBlockIndex, value_block::CachePolicy,
 };
 use rand::Rng;
 
 fn tli_find_item(c: &mut Criterion) {
-    use lsm_tree::segment::block_index::{
+    use lsm_tree::table::block_index::{
         block_handle::KeyedBlockHandle, top_level::TopLevelIndex,
     };
 
