@@ -423,7 +423,7 @@ impl Segment {
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
 
-        log::debug!("Recovering segment from file {}", file_path.display());
+        log::debug!("Recovering table from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
@@ -467,7 +467,7 @@ impl Segment {
                 descriptor_table: descriptor_table.clone(),
                 handle: regions.tli,
                 path: file_path.clone(),
-                segment_id: (tree_id, metadata.id).into(),
+                table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),

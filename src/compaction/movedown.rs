@@ -30,7 +30,7 @@ impl CompactionStrategy for Strategy {
             .collect();
 
         Choice::Move(Input {
-            segment_ids: table_ids,
+            table_ids,
             dest_level: self.1,
             canonical_level: self.1,
             target_size: u64::MAX,

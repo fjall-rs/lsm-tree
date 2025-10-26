@@ -38,8 +38,8 @@ pub struct MultiWriter {
 
     results: Vec<(TableId, Checksum)>,
 
-    segment_id_generator: Arc<AtomicU64>,
-    current_segment_id: u64,
+    table_id_generator: Arc<AtomicU64>,
+    current_table_id: u64,
 
     pub writer: Writer,
 
@@ -54,17 +54,17 @@ pub struct MultiWriter {
 }
 
 impl MultiWriter {
-    /// Sets up a new `MultiWriter` at the given segments folder
+    /// Sets up a new `MultiWriter` at the given tables folder
     pub fn new(
         base_path: PathBuf,
-        segment_id_generator: Arc<AtomicU64>,
+        table_id_generator: Arc<AtomicU64>,
         target_size: u64,
     ) -> crate::Result<Self> {
-        let current_segment_id =
-            segment_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let current_table_id =
+            table_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        let path = base_path.join(current_segment_id.to_string());
-        let writer = Writer::new(path, current_segment_id)?;
+        let path = base_path.join(current_table_id.to_string());
+        let writer = Writer::new(path, current_table_id)?;
 
         Ok(Self {
             base_path,
@@ -79,8 +79,8 @@ impl MultiWriter {
 
             target_size,
             results: Vec::with_capacity(10),
-            segment_id_generator,
-            current_segment_id,
+            table_id_generator,
+            current_table_id,
             writer,
 
             data_block_compression: CompressionType::None,
@@ -190,22 +190,22 @@ impl MultiWriter {
         self
     }
 
-    fn get_next_segment_id(&mut self) -> u64 {
-        self.current_segment_id = self
-            .segment_id_generator
+    fn get_next_table_id(&mut self) -> u64 {
+        self.current_table_id = self
+            .table_id_generator
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        self.current_segment_id
+        self.current_table_id
     }
 
-    /// Flushes the current writer, stores its metadata, and sets up a new writer for the next segment
+    /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
-        log::debug!("Rotating segment writer");
+        log::debug!("Rotating table writer");
 
-        let new_segment_id = self.get_next_segment_id();
-        let path = self.base_path.join(new_segment_id.to_string());
+        let new_table_id = self.get_next_table_id();
+        let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_segment_id)?
+        let mut new_writer = Writer::new(path, new_table_id)?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)
@@ -234,8 +234,8 @@ impl MultiWriter {
         }
         self.linked_blobs.clear();
 
-        if let Some((segment_id, checksum)) = old_writer.finish()? {
-            self.results.push((segment_id, checksum));
+        if let Some((table_id, checksum)) = old_writer.finish()? {
+            self.results.push((table_id, checksum));
         }
 
         Ok(())

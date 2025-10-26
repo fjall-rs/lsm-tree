@@ -48,7 +48,7 @@ impl CompactionStrategy for Strategy {
             let last_level_idx = cfg.level_count - 1;
 
             Choice::Merge(CompactionInput {
-                segment_ids: table_ids,
+                table_ids,
                 dest_level: last_level_idx,
                 canonical_level: last_level_idx,
                 target_size: self.target_size,

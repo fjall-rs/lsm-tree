@@ -39,7 +39,7 @@ pub(super) fn prepare_table_writer(
 
     log::debug!(
         "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
-        payload.segment_ids,
+        payload.table_ids,
         payload.dest_level,
         payload.canonical_level,
         payload.target_size,
@@ -48,7 +48,7 @@ pub(super) fn prepare_table_writer(
 
     let mut table_writer = MultiWriter::new(
         table_base_folder,
-        opts.segment_id_generator.clone(),
+        opts.table_id_generator.clone(),
         payload.target_size,
     )?;
 
@@ -272,7 +272,7 @@ impl CompactionFlavour for RelocatingCompaction {
             super_version,
             |current| {
                 Ok(current.with_merge(
-                    &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+                    &payload.table_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
                     payload.dest_level as usize,
                     if blob_frag_map_diff.is_empty() {
@@ -394,7 +394,7 @@ impl CompactionFlavour for StandardCompaction {
             super_version,
             |current| {
                 Ok(current.with_merge(
-                    &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+                    &payload.table_ids.iter().copied().collect::<Vec<_>>(),
                     &created_segments,
                     payload.dest_level as usize,
                     if blob_frag_map.is_empty() {

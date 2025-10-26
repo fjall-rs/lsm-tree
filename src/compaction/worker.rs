@@ -34,7 +34,7 @@ pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalVa
 pub struct Options {
     pub tree_id: TreeId,
 
-    pub segment_id_generator: Arc<AtomicU64>, // TODO: change segment_id_generator to be SequenceNumberCounter
+    pub table_id_generator: Arc<AtomicU64>, // TODO: change to be SequenceNumberCounter
 
     pub blob_file_id_generator: SequenceNumberCounter,
 
@@ -63,7 +63,7 @@ impl Options {
     pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
         Self {
             tree_id: tree.id,
-            segment_id_generator: tree.table_id_counter.clone(),
+            table_id_generator: tree.table_id_counter.clone(),
             blob_file_id_generator: tree.blob_file_id_generator.clone(),
             config: tree.config.clone(),
             super_version: tree.super_version.clone(),
@@ -99,9 +99,9 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => merge_segments(compaction_state, super_version, opts, &payload),
-        Choice::Move(payload) => move_segments(compaction_state, super_version, opts, &payload),
-        Choice::Drop(payload) => drop_segments(
+        Choice::Merge(payload) => merge_tables(compaction_state, super_version, opts, &payload),
+        Choice::Move(payload) => move_tables(compaction_state, super_version, opts, &payload),
+        Choice::Drop(payload) => drop_tables(
             compaction_state,
             super_version,
             opts,
@@ -175,7 +175,7 @@ fn create_compaction_stream<'a>(
     })
 }
 
-fn move_segments(
+fn move_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
@@ -188,7 +188,7 @@ fn move_segments(
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
-        .should_decline_compaction(payload.segment_ids.iter().copied())
+        .should_decline_compaction(payload.table_ids.iter().copied())
     {
         log::warn!(
         "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
@@ -197,7 +197,7 @@ fn move_segments(
         return Ok(());
     }
 
-    let table_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
+    let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
     compaction_state.upgrade_version(
         &mut super_version,
@@ -305,12 +305,12 @@ fn hidden_guard(
 
         compaction_state
             .hidden_set_mut()
-            .show(payload.segment_ids.iter().copied());
+            .show(payload.table_ids.iter().copied());
     })
 }
 
 #[allow(clippy::too_many_lines)]
-fn merge_segments(
+fn merge_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
@@ -324,7 +324,7 @@ fn merge_segments(
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
-        .should_decline_compaction(payload.segment_ids.iter().copied())
+        .should_decline_compaction(payload.table_ids.iter().copied())
     {
         log::warn!(
             "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
@@ -333,8 +333,8 @@ fn merge_segments(
         return Ok(());
     }
 
-    let Some(segments) = payload
-        .segment_ids
+    let Some(tables) = payload
+        .table_ids
         .iter()
         .map(|&id| super_version.version.get_segment(id).cloned())
         .collect::<Option<Vec<_>>>()
@@ -350,7 +350,7 @@ fn merge_segments(
 
     let Some(mut merge_iter) = create_compaction_stream(
         &super_version.version,
-        &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+        &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
     )?
     else {
@@ -380,12 +380,12 @@ fn merge_segments(
             merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
 
             let blob_files_to_rewrite =
-                pick_blob_files_to_rewrite(&payload.segment_ids, current_version, blob_opts)?;
+                pick_blob_files_to_rewrite(&payload.table_ids, current_version, blob_opts)?;
 
             if blob_files_to_rewrite.is_empty() {
                 log::debug!("No blob relocation needed");
 
-                Box::new(StandardCompaction::new(table_writer, segments))
+                Box::new(StandardCompaction::new(table_writer, tables))
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
                 log::debug!(
@@ -410,7 +410,7 @@ fn merge_segments(
                 )?
                 .use_passthrough_compression(blob_opts.compression);
 
-                let inner = StandardCompaction::new(table_writer, segments);
+                let inner = StandardCompaction::new(table_writer, tables);
 
                 Box::new(RelocatingCompaction::new(
                     inner,
@@ -420,7 +420,7 @@ fn merge_segments(
                 ))
             }
         }
-        None => Box::new(StandardCompaction::new(table_writer, segments)),
+        None => Box::new(StandardCompaction::new(table_writer, tables)),
     };
 
     log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
@@ -430,7 +430,7 @@ fn merge_segments(
     {
         compaction_state
             .hidden_set_mut()
-            .hide(payload.segment_ids.iter().copied());
+            .hide(payload.table_ids.iter().copied());
     }
 
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
@@ -475,12 +475,12 @@ fn merge_segments(
 
             compaction_state
                 .hidden_set_mut()
-                .show(payload.segment_ids.iter().copied());
+                .show(payload.table_ids.iter().copied());
         })?;
 
     compaction_state
         .hidden_set_mut()
-        .show(payload.segment_ids.iter().copied());
+        .show(payload.table_ids.iter().copied());
 
     compaction_state
         .maintenance(opts.eviction_seqno)
@@ -496,7 +496,7 @@ fn merge_segments(
     Ok(())
 }
 
-fn drop_segments(
+fn drop_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
@@ -573,7 +573,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn compaction_drop_segments() -> crate::Result<()> {
+    fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
         let tree = crate::Config::new(folder).open()?;

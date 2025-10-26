@@ -17,7 +17,7 @@ use crate::Metrics;
 ///
 /// The index is loaded on demand.
 pub struct VolatileBlockIndex {
-    pub(crate) segment_id: GlobalTableId,
+    pub(crate) table_id: GlobalTableId,
     pub(crate) path: PathBuf,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
@@ -60,7 +60,7 @@ impl Iter {
     fn new(index: &VolatileBlockIndex) -> Self {
         Self {
             inner: None,
-            segment_id: index.segment_id,
+            segment_id: index.table_id,
             path: index.path.clone(),
             descriptor_table: index.descriptor_table.clone(),
             cache: index.cache.clone(),

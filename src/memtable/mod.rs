@@ -13,7 +13,7 @@ use std::sync::atomic::AtomicU64;
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
-/// When the Memtable exceeds some size, it should be flushed to a disk segment.
+/// When the Memtable exceeds some size, it should be flushed to a table.
 #[derive(Default)]
 pub struct Memtable {
     /// The actual content, stored in a lock-free skiplist.

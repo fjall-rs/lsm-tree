@@ -364,7 +364,7 @@ impl CompactionStrategy for Strategy {
             segment_ids.extend(&target_level_overlapping_segment_ids);
 
             let choice = CompactionInput {
-                segment_ids,
+                table_ids: segment_ids,
                 dest_level: canonical_l1_idx as u8,
                 canonical_level: 1,
                 target_size: u64::from(self.target_size),
@@ -412,7 +412,7 @@ impl CompactionStrategy for Strategy {
         };
 
         let choice = CompactionInput {
-            segment_ids,
+            table_ids: segment_ids,
             dest_level: next_level_index,
             canonical_level: next_level_index - (level_shift as u8),
             target_size: u64::from(self.target_size),

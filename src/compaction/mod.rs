@@ -41,7 +41,7 @@ pub use pulldown::Strategy as PullDown;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
     /// Tables to compact
-    pub segment_ids: HashSet<TableId>,
+    pub table_ids: HashSet<TableId>,
 
     /// Level to put the created tables into
     pub dest_level: u8,
