@@ -19,7 +19,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Config, Memtable, TableId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
+    Config, Memtable, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
@@ -376,9 +376,9 @@ impl AbstractTree for BlobTree {
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
-        use crate::{file::SEGMENTS_FOLDER, segment::Writer as SegmentWriter};
+        use crate::{file::TABLES_FOLDER, segment::Writer as SegmentWriter};
 
-        let table_folder = self.index.config.path.join(SEGMENTS_FOLDER);
+        let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
         log::debug!("Flushing memtable & performing key-value separation");
         log::debug!("=> to table in {}", table_folder.display());

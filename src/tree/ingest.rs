@@ -28,7 +28,7 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a Tree) -> crate::Result<Self> {
-        let folder = tree.config.path.join(crate::file::SEGMENTS_FOLDER);
+        let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
         log::debug!("Ingesting into disk segments in {}", folder.display());
 
         // TODO: 3.0.0 look at tree configuration

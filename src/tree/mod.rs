@@ -21,8 +21,8 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, Version, VersionId},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, TableId, SeqNo,
-    SequenceNumberCounter, TreeType, UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SeqNo, SequenceNumberCounter, TableId,
+    TreeType, UserKey, UserValue, ValueType,
 };
 use inner::{MemtableId, TreeId, TreeInner};
 use std::{
@@ -337,12 +337,12 @@ impl AbstractTree for Tree {
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
-        use crate::{compaction::stream::CompactionStream, file::SEGMENTS_FOLDER, segment::Writer};
+        use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, segment::Writer};
         use std::time::Instant;
 
         let start = Instant::now();
 
-        let folder = self.config.path.join(SEGMENTS_FOLDER);
+        let folder = self.config.path.join(TABLES_FOLDER);
         let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
@@ -945,7 +945,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, MANIFEST_FILE, SEGMENTS_FOLDER};
+        use crate::file::{fsync_directory, MANIFEST_FILE, TABLES_FOLDER};
         use std::fs::create_dir_all;
 
         let path = config.path.clone();
@@ -956,7 +956,7 @@ impl Tree {
         let manifest_path = path.join(MANIFEST_FILE);
         assert!(!manifest_path.try_exists()?);
 
-        let table_folder_path = path.join(SEGMENTS_FOLDER);
+        let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
         // Create manifest
@@ -993,7 +993,7 @@ impl Tree {
         descriptor_table: &Arc<DescriptorTable>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
-        use crate::{file::fsync_directory, file::SEGMENTS_FOLDER, TableId};
+        use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
 
         let tree_path = tree_path.as_ref();
 
@@ -1036,7 +1036,7 @@ impl Tree {
 
         let mut tables = vec![];
 
-        let table_base_folder = tree_path.join(SEGMENTS_FOLDER);
+        let table_base_folder = tree_path.join(TABLES_FOLDER);
 
         if !table_base_folder.try_exists()? {
             std::fs::create_dir_all(&table_base_folder)?;

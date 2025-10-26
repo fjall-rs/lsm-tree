@@ -8,7 +8,7 @@ use std::{fs::File, io::Write, path::Path};
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const MANIFEST_FILE: &str = "manifest";
-pub const SEGMENTS_FOLDER: &str = "tables";
+pub const TABLES_FOLDER: &str = "tables";
 pub const BLOBS_FOLDER: &str = "blobs";
 
 /// Reads bytes from a file using `pread`.

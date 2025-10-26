@@ -7,7 +7,7 @@ use crate::coding::{Decode, Encode};
 use crate::compaction::state::CompactionState;
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
-use crate::file::SEGMENTS_FOLDER;
+use crate::file::TABLES_FOLDER;
 use crate::segment::multi_writer::MultiWriter;
 use crate::tree::inner::SuperVersion;
 use crate::version::Version;
@@ -19,7 +19,7 @@ pub(super) fn prepare_table_writer(
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<MultiWriter> {
-    let table_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let table_base_folder = opts.config.path.join(TABLES_FOLDER);
 
     let dst_lvl = payload.canonical_level.into();
 
