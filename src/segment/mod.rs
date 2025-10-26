@@ -33,6 +33,7 @@ use crate::{
     segment::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
+        filter::block::FilterBlock,
         regions::ParsedRegions,
         writer::LinkedFile,
     },
@@ -153,7 +154,7 @@ impl Segment {
     pub fn pinned_filter_size(&self) -> usize {
         self.pinned_filter_block
             .as_ref()
-            .map(Block::size)
+            .map(FilterBlock::size)
             .unwrap_or_default()
     }
 
@@ -216,7 +217,6 @@ impl Segment {
         seqno: SeqNo,
         key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
-        use filter::standard_bloom::StandardBloomFilterReader;
         #[cfg(feature = "metrics")]
         use std::sync::atomic::Ordering::Relaxed;
 
@@ -238,6 +238,7 @@ impl Segment {
                     BlockType::Filter,
                     CompressionType::None, // NOTE: We never write a filter block with compression
                 )?;
+                let block = FilterBlock::new(block);
 
                 Some(Cow::Owned(block))
             } else {
@@ -251,6 +252,7 @@ impl Segment {
                 BlockType::Filter,
                 CompressionType::None, // NOTE: We never write a filter block with compression
             )?;
+            let block = FilterBlock::new(block);
 
             Some(Cow::Owned(block))
         } else {
@@ -258,12 +260,10 @@ impl Segment {
         };
 
         if let Some(filter_block) = filter_block {
-            let filter = StandardBloomFilterReader::new(&filter_block.data)?;
-
             #[cfg(feature = "metrics")]
             self.metrics.filter_queries.fetch_add(1, Relaxed);
 
-            if !filter.contains_hash(key_hash) {
+            if !filter_block.maybe_contains_hash(key_hash)? {
                 #[cfg(feature = "metrics")]
                 self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
 
@@ -491,7 +491,7 @@ impl Segment {
                         "Loading and pinning filter block, with filter_ptr={filter_handle:?}"
                     );
 
-                    Block::from_file(
+                    let block = Block::from_file(
                         &file,
                         filter_handle,
                         crate::CompressionType::None, // NOTE: We never write a filter block with compression
@@ -505,7 +505,9 @@ impl Segment {
                                 block.header.block_type.into(),
                             ))))
                         }
-                    })
+                    })?;
+
+                    Ok::<_, crate::Error>(FilterBlock::new(block))
                 })
                 .transpose()?
         } else {
@@ -540,6 +542,7 @@ impl Segment {
         })))
     }
 
+    #[must_use]
     pub fn checksum(&self) -> Checksum {
         self.0.checksum
     }
@@ -555,25 +558,25 @@ impl Segment {
         self.metadata.key_range.contains_key(key)
     }
 
-    /// Checks if a key range is (partially or fully) contained in this segment.
+    /// Checks if a key range is (partially or fully) contained in this table.
     pub(crate) fn check_key_range_overlap(&self, bounds: &(Bound<&[u8]>, Bound<&[u8]>)) -> bool {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
-    /// Returns the highest sequence number in the segment.
+    /// Returns the highest sequence number in the table.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1
     }
 
-    /// Returns the number of tombstone markers in the `Segment`.
+    /// Returns the number of tombstone markers in the `Table`.
     #[must_use]
     #[doc(hidden)]
     pub fn tombstone_count(&self) -> u64 {
         self.metadata.tombstone_count
     }
 
-    /// Returns the number of weak (single delete) tombstones in the `Segment`.
+    /// Returns the number of weak (single delete) tombstones in the `Table`.
     #[must_use]
     #[doc(hidden)]
     pub fn weak_tombstone_count(&self) -> u64 {
@@ -587,7 +590,7 @@ impl Segment {
         self.metadata.weak_tombstone_reclaimable
     }
 
-    /// Returns the ratio of tombstone markers in the `Segment`.
+    /// Returns the ratio of tombstone markers in the `Table`.
     #[must_use]
     #[doc(hidden)]
     pub fn tombstone_ratio(&self) -> f32 {

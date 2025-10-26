@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 pub mod bit_array;
+pub mod block;
 pub mod blocked_bloom;
 pub mod standard_bloom;
 

@@ -5,10 +5,13 @@
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions, Block};
+use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
-    cache::Cache, descriptor_table::DescriptorTable, segment::IndexBlock, tree::inner::TreeId,
-    GlobalSegmentId,
+    cache::Cache,
+    descriptor_table::DescriptorTable,
+    segment::{filter::block::FilterBlock, IndexBlock},
+    tree::inner::TreeId,
+    Checksum, GlobalSegmentId,
 };
 use std::{
     path::PathBuf,
@@ -44,7 +47,7 @@ pub struct Inner {
     pub(super) pinned_filter_index: Option<IndexBlock>,
 
     /// Pinned AMQ filter
-    pub pinned_filter_block: Option<Block>,
+    pub pinned_filter_block: Option<FilterBlock>,
 
     pub is_deleted: AtomicBool,
 
