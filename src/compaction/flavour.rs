@@ -8,7 +8,7 @@ use crate::compaction::state::CompactionState;
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
-use crate::segment::multi_writer::MultiWriter;
+use crate::table::multi_writer::MultiWriter;
 use crate::tree::inner::SuperVersion;
 use crate::version::Version;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
@@ -72,7 +72,7 @@ pub(super) fn prepare_table_writer(
         .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
             use crate::config::FilterPolicyEntry::{Bloom, None};
-            use crate::segment::filter::BloomConstructionPolicy;
+            use crate::table::filter::BloomConstructionPolicy;
 
             if is_last_level && opts.config.expect_point_read_hits {
                 BloomConstructionPolicy::BitsPerKey(0.0)

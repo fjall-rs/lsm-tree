@@ -4,7 +4,7 @@
 
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
+    iter_guard::IterGuardImpl, table::Segment, tree::inner::MemtableId, version::Version,
     vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
     SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
 };

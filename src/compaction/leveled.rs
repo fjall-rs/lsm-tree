@@ -6,7 +6,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
-    segment::Segment,
+    table::Segment,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     version::{run::Ranged, Run, Version},
     HashSet, KeyRange, TableId,

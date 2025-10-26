@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, Encode},
-    segment::{Block, DataBlock},
+    table::{Block, DataBlock},
     CompressionType, InternalValue, KeyRange, SeqNo, Slice,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -88,7 +88,7 @@ impl Metadata {
         Block::write_into(
             writer,
             &buf,
-            crate::segment::block::BlockType::Meta,
+            crate::table::block::BlockType::Meta,
             CompressionType::None,
         )?;
 

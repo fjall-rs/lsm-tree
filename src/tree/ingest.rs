@@ -4,7 +4,7 @@
 
 use super::Tree;
 use crate::{
-    compaction::MoveDown, segment::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey,
+    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey,
     UserValue,
 };
 use std::{path::PathBuf, sync::Arc};

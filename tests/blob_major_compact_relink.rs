@@ -27,7 +27,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
-            Some(vec![lsm_tree::segment::writer::LinkedFile {
+            Some(vec![lsm_tree::table::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
                 on_disk_bytes: big_value.len() as u64,
@@ -47,7 +47,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
         assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
-            Some(vec![lsm_tree::segment::writer::LinkedFile {
+            Some(vec![lsm_tree::table::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
                 on_disk_bytes: big_value.len() as u64,

@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::segment::block::Header;
-use crate::segment::{Block, BlockOffset};
+use crate::table::block::Header;
+use crate::table::{Block, BlockOffset};
 use crate::{GlobalTableId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};

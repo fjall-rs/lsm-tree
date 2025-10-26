@@ -201,7 +201,7 @@ mod path;
 pub mod range;
 
 #[doc(hidden)]
-pub mod segment;
+pub mod table;
 
 mod seqno;
 mod slice;
@@ -236,8 +236,8 @@ pub use {
     blob_tree::handle::BlobIndirection,
     key_range::KeyRange,
     merge::BoxedIterator,
-    segment::{block::Checksum, GlobalTableId, Segment, TableId},
     slice::Builder,
+    table::{block::Checksum, GlobalTableId, Segment, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,

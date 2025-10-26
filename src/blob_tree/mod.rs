@@ -14,7 +14,7 @@ use crate::{
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
-    segment::Segment,
+    table::Segment,
     tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
@@ -376,7 +376,7 @@ impl AbstractTree for BlobTree {
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
-        use crate::{file::TABLES_FOLDER, segment::Writer as SegmentWriter};
+        use crate::{file::TABLES_FOLDER, table::Writer as SegmentWriter};
 
         let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
@@ -390,7 +390,7 @@ impl AbstractTree for BlobTree {
                 .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
                 .use_bloom_policy({
                     use crate::config::FilterPolicyEntry::{Bloom, None};
-                    use crate::segment::filter::BloomConstructionPolicy;
+                    use crate::table::filter::BloomConstructionPolicy;
 
                     match self.index.config.filter_policy.get(0) {
                         Bloom(policy) => policy,

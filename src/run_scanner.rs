@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{segment::Scanner, version::Run, InternalValue, Segment};
+use crate::{table::Scanner, version::Run, InternalValue, Segment};
 use std::sync::Arc;
 
 /// Scans through a disjoint run

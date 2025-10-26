@@ -15,7 +15,7 @@ use crate::{
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
-    segment::Segment,
+    table::Segment,
     slice::Slice,
     tree::inner::SuperVersion,
     value::InternalValue,
@@ -336,7 +336,7 @@ impl AbstractTree for Tree {
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
-        use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, segment::Writer};
+        use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, table::Writer};
         use std::time::Instant;
 
         let start = Instant::now();
@@ -373,7 +373,7 @@ impl AbstractTree for Tree {
             .use_data_block_hash_ratio(data_block_hash_ratio)
             .use_bloom_policy({
                 use crate::config::FilterPolicyEntry::{Bloom, None};
-                use crate::segment::filter::BloomConstructionPolicy;
+                use crate::table::filter::BloomConstructionPolicy;
 
                 match self.config.filter_policy.get(0) {
                     Bloom(policy) => policy,
@@ -673,7 +673,7 @@ impl Tree {
 
     pub(crate) fn consume_writer(
         &self,
-        writer: crate::segment::Writer,
+        writer: crate::table::Writer,
     ) -> crate::Result<Option<Segment>> {
         let table_file_path = writer.path.clone();
 
@@ -738,7 +738,7 @@ impl Tree {
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::segment::filter::standard_bloom::Builder::get_hash(key);
+        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
         for level in super_version.version.iter_levels() {
             for run in level.iter() {
