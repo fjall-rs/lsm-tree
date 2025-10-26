@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::meta::Metadata;
-use crate::{time::unix_timestamp, vlog::BlobFileId, CompressionType, KeyRange, SeqNo, UserKey};
+use crate::{
+    time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType, KeyRange, SeqNo, UserKey,
+};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
     io::Write,
@@ -199,7 +201,7 @@ impl Writer {
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<()> {
+    pub(crate) fn finish(mut self) -> crate::Result<(Metadata, Checksum)> {
         self.writer.start("meta")?;
 
         // Write metadata
@@ -220,8 +222,8 @@ impl Writer {
         };
         metadata.encode_into(&mut self.writer)?;
 
-        self.writer.finish()?;
+        let checksum = self.writer.finish()?;
 
-        Ok(())
+        Ok((metadata, checksum.into()))
     }
 }

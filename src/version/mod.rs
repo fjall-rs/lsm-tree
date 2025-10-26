@@ -155,7 +155,8 @@ pub struct VersionInner {
     // LSM-tree
     //
     /// Blob files for large values (value log)
-    pub(crate) blob_files: Arc<BlobFileList>,
+    #[doc(hidden)]
+    pub blob_files: Arc<BlobFileList>,
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
@@ -641,6 +642,8 @@ impl Version {
 
         for file in self.blob_files.iter() {
             writer.write_u64::<LittleEndian>(file.id())?;
+            writer.write_u8(0)?; // Checksum type, 0 = XXH3
+            writer.write_u128::<LittleEndian>(*file.0.checksum)?;
         }
 
         writer.start("blob_gc_stats")?;

@@ -17,7 +17,7 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 pub struct Recovery {
     pub curr_version_id: VersionId,
     pub segment_ids: Vec<Vec<Vec<(SegmentId, Checksum)>>>,
-    pub blob_file_ids: Vec<BlobFileId>,
+    pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
@@ -87,7 +87,20 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
 
         for _ in 0..blob_file_count {
             let id = reader.read_u64::<LittleEndian>()?;
-            blob_file_ids.push(id);
+
+            let checksum_type = reader.read_u8()?;
+
+            if checksum_type != 0 {
+                return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                    "ChecksumType",
+                    checksum_type,
+                ))));
+            }
+
+            let checksum = reader.read_u128::<LittleEndian>()?;
+            let checksum = Checksum::from_raw(checksum);
+
+            blob_file_ids.push((id, checksum));
         }
 
         blob_file_ids

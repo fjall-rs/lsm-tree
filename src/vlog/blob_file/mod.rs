@@ -9,10 +9,10 @@ pub mod reader;
 pub mod scanner;
 pub mod writer;
 
-use crate::{blob_tree::FragmentationMap, vlog::BlobFileId};
+use crate::{blob_tree::FragmentationMap, vlog::BlobFileId, Checksum};
 pub use meta::Metadata;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
 
@@ -30,6 +30,8 @@ pub struct Inner {
 
     /// Whether this blob file is deleted (logically)
     pub is_deleted: AtomicBool,
+
+    pub checksum: Checksum,
 }
 
 impl Drop for Inner {
@@ -81,6 +83,18 @@ impl BlobFile {
     #[must_use]
     pub fn id(&self) -> BlobFileId {
         self.0.id
+    }
+
+    /// Returns the full blob file checksum.
+    #[must_use]
+    pub fn checksum(&self) -> Checksum {
+        self.0.checksum
+    }
+
+    /// Returns the blob file path.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.0.path
     }
 
     /// Returns the number of items in the blob file.
