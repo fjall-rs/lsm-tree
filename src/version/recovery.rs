@@ -16,7 +16,7 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 
 pub struct Recovery {
     pub curr_version_id: VersionId,
-    pub segment_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
+    pub table_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
@@ -117,7 +117,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
 
     Ok(Recovery {
         curr_version_id,
-        segment_ids: levels,
+        table_ids: levels,
         blob_file_ids,
         gc_stats,
     })

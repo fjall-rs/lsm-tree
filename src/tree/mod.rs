@@ -99,7 +99,7 @@ impl AbstractTree for Tree {
         }
 
         // Now look in tables... this may involve disk I/O
-        self.get_internal_entry_from_segments(&version_lock, key, seqno)
+        self.get_internal_entry_from_tables(&version_lock, key, seqno)
     }
 
     fn current_version(&self) -> Version {
@@ -109,18 +109,17 @@ impl AbstractTree for Tree {
     fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>> {
         log::debug!("Flushing active memtable");
 
-        let Some((segment_id, yanked_memtable)) = self.rotate_memtable() else {
+        let Some((table_id, yanked_memtable)) = self.rotate_memtable() else {
             return Ok(None);
         };
 
-        let Some((segment, _)) =
-            self.flush_memtable(segment_id, &yanked_memtable, seqno_threshold)?
+        let Some((table, _)) = self.flush_memtable(table_id, &yanked_memtable, seqno_threshold)?
         else {
             return Ok(None);
         };
-        self.register_tables(std::slice::from_ref(&segment), None, None, seqno_threshold)?;
+        self.register_tables(std::slice::from_ref(&table), None, None, seqno_threshold)?;
 
-        Ok(Some(segment))
+        Ok(Some(table))
     }
 
     #[cfg(feature = "metrics")]
@@ -518,11 +517,11 @@ impl AbstractTree for Tree {
     }
 
     fn table_count(&self) -> usize {
-        self.current_version().segment_count()
+        self.current_version().table_count()
     }
 
     fn level_table_count(&self, idx: usize) -> Option<usize> {
-        self.current_version().level(idx).map(|x| x.segment_count())
+        self.current_version().level(idx).map(|x| x.table_count())
     }
 
     #[allow(clippy::significant_drop_tightening)]
@@ -704,7 +703,7 @@ impl Tree {
         Ok(Some(created_table))
     }
 
-    /// Returns `true` if there are some segments that are being compacted.
+    /// Returns `true` if there are some tables that are being compacted.
     #[doc(hidden)]
     #[must_use]
     pub fn is_compacting(&self) -> bool {
@@ -731,7 +730,7 @@ impl Tree {
         None
     }
 
-    fn get_internal_entry_from_segments(
+    fn get_internal_entry_from_tables(
         &self,
         super_version: &SuperVersion,
         key: &[u8],
@@ -743,10 +742,10 @@ impl Tree {
 
         for level in super_version.version.iter_levels() {
             for run in level.iter() {
-                // NOTE: Based on benchmarking, binary search is only worth it with ~4 segments
+                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
                 if run.len() >= 4 {
-                    if let Some(segment) = run.get_for_key(key) {
-                        if let Some(item) = segment.get(key, seqno, key_hash)? {
+                    if let Some(table) = run.get_for_key(key) {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
                     }
@@ -876,7 +875,7 @@ impl Tree {
             .insert(value)
     }
 
-    /// Recovers previous state, by loading the level manifest and segments.
+    /// Recovers previous state, by loading the level manifest, tables and blob files.
     ///
     /// # Errors
     ///
@@ -914,7 +913,7 @@ impl Tree {
             &metrics,
         )?;
 
-        let highest_segment_id = version
+        let highest_table_id = version
             .iter_tables()
             .map(Segment::id)
             .max()
@@ -924,7 +923,7 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
-            table_id_counter: Arc::new(AtomicU64::new(highest_segment_id + 1)),
+            table_id_counter: Arc::new(AtomicU64::new(highest_table_id + 1)),
             blob_file_id_generator: SequenceNumberCounter::default(),
             super_version: Arc::new(RwLock::new(SuperVersion {
                 active_memtable: Arc::default(),
@@ -1003,7 +1002,7 @@ impl Tree {
             let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum)> =
                 crate::HashMap::default();
 
-            for (level_idx, table_ids) in recovery.segment_ids.iter().enumerate() {
+            for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
                     for &(table_id, checksum) in run {
                         // NOTE: We know there are always less than 256 levels

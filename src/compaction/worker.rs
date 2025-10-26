@@ -227,7 +227,7 @@ fn pick_blob_files_to_rewrite(
     let linked_blob_files = picked_tables
         .iter()
         .map(|&id| {
-            current_version.get_segment(id).unwrap_or_else(|| {
+            current_version.get_table(id).unwrap_or_else(|| {
                 panic!("Table {id} should exist");
             })
         })
@@ -336,7 +336,7 @@ fn merge_tables(
     let Some(tables) = payload
         .table_ids
         .iter()
-        .map(|&id| super_version.version.get_segment(id).cloned())
+        .map(|&id| super_version.version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -520,7 +520,7 @@ fn drop_tables(
 
     let Some(tables) = ids_to_drop
         .iter()
-        .map(|&id| super_version.version.get_segment(id).cloned())
+        .map(|&id| super_version.version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(

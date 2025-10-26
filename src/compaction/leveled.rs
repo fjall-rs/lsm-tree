@@ -270,8 +270,8 @@ impl CompactionStrategy for Strategy {
             let first_level = version.l0();
 
             // TODO: use run_count instead? but be careful because of version free list GC thingy
-            if first_level.segment_count() >= usize::from(self.l0_threshold) {
-                let ratio = (first_level.segment_count() as f64) / f64::from(self.l0_threshold);
+            if first_level.table_count() >= usize::from(self.l0_threshold) {
+                let ratio = (first_level.table_count() as f64) / f64::from(self.l0_threshold);
                 scores[0] = (ratio, 0);
             }
 

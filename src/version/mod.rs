@@ -50,7 +50,7 @@ impl<T: Ranged> GenericLevel<T> {
         Self { runs }
     }
 
-    pub fn segment_count(&self) -> usize {
+    pub fn table_count(&self) -> usize {
         self.iter().map(|x| x.len()).sum()
     }
 
@@ -205,8 +205,8 @@ impl Version {
         self.level(idx).is_some_and(|level| {
             level
                 .iter()
-                .flat_map(|run: &Arc<Run<Segment>>| run.iter())
-                .any(|segment| hidden_set.is_hidden(segment.id()))
+                .flat_map(|run| run.iter())
+                .any(|table| hidden_set.is_hidden(table.id()))
         })
     }
 
@@ -231,7 +231,7 @@ impl Version {
         blob_files: &[BlobFile],
     ) -> crate::Result<Self> {
         let version_levels = recovery
-            .segment_ids
+            .table_ids
             .iter()
             .map(|level| {
                 let level_runs = level
@@ -293,8 +293,8 @@ impl Version {
     }
 
     /// Returns the number of tables in all levels.
-    pub fn segment_count(&self) -> usize {
-        self.iter_levels().map(|x| x.segment_count()).sum()
+    pub fn table_count(&self) -> usize {
+        self.iter_levels().map(|x| x.table_count()).sum()
     }
 
     pub fn blob_file_count(&self) -> usize {
@@ -309,7 +309,7 @@ impl Version {
             .flat_map(|x| x.iter())
     }
 
-    pub(crate) fn get_segment(&self, id: TableId) -> Option<&Segment> {
+    pub(crate) fn get_table(&self, id: TableId) -> Option<&Segment> {
         self.iter_tables().find(|x| x.metadata.id == id)
     }
 
