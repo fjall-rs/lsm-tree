@@ -135,7 +135,7 @@ impl Cache {
     #[doc(hidden)]
     #[must_use]
     pub fn get_block(&self, id: GlobalTableId, offset: BlockOffset) -> Option<Block> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into();
 
         Some(match self.data.get(&key)? {
             Item::Block(block) => block,
@@ -146,7 +146,7 @@ impl Cache {
     #[doc(hidden)]
     pub fn insert_block(&self, id: GlobalTableId, offset: BlockOffset, block: Block) {
         self.data.insert(
-            (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
+            (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into(),
             Item::Block(block),
         );
     }

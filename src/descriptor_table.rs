@@ -43,23 +43,23 @@ impl DescriptorTable {
 
     #[must_use]
     pub fn access_for_table(&self, id: &GlobalTableId) -> Option<Arc<File>> {
-        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.segment_id());
+        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }
 
     pub fn insert_for_table(&self, id: GlobalTableId, item: Item) {
-        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.segment_id());
+        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
         self.inner.insert(key, item);
     }
 
     #[must_use]
     pub fn access_for_blob_file(&self, id: &GlobalTableId) -> Option<Arc<File>> {
-        let key = CacheKey(TAG_BLOB, id.tree_id(), id.segment_id());
+        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }
 
     pub fn insert_for_blob_file(&self, id: GlobalTableId, item: Item) {
-        let key = CacheKey(TAG_BLOB, id.tree_id(), id.segment_id());
+        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.insert(key, item);
     }
 }

@@ -17,7 +17,7 @@ impl GlobalTableId {
     }
 
     #[must_use]
-    pub fn segment_id(&self) -> TableId {
+    pub fn table_id(&self) -> TableId {
         self.1
     }
 }
