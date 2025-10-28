@@ -83,8 +83,8 @@ impl AbstractTree for Tree {
         self.id
     }
 
+    #[allow(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        #[allow(clippy::significant_drop_tightening)]
         let version_lock = self.super_version.read().expect("lock is poisoned");
 
         if let Some(entry) = version_lock.active_memtable.get(key, seqno) {
@@ -93,13 +93,13 @@ impl AbstractTree for Tree {
 
         // Now look in sealed memtables
         if let Some(entry) =
-            self.get_internal_entry_from_sealed_memtables(&version_lock, key, seqno)
+            Self::get_internal_entry_from_sealed_memtables(&version_lock, key, seqno)
         {
             return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        self.get_internal_entry_from_tables(&version_lock, key, seqno)
+        Self::get_internal_entry_from_tables(&version_lock, key, seqno)
     }
 
     fn current_version(&self) -> Version {
@@ -217,7 +217,7 @@ impl AbstractTree for Tree {
             if let Some(last_key) = &last_key {
                 assert!(
                     key > last_key,
-                    "next key in bulk ingest was not greater than last key",
+                    "next key in bulk ingest was not greater than last key, last: {last_key:?}, next: {key:?}",
                 );
             }
             last_key = Some(key.clone());
@@ -385,6 +385,7 @@ impl AbstractTree for Tree {
         Ok(result.map(|table| (table, None)))
     }
 
+    #[allow(clippy::significant_drop_tightening)]
     fn register_tables(
         &self,
         tables: &[Table],
@@ -476,6 +477,7 @@ impl AbstractTree for Tree {
         crate::TreeType::Standard
     }
 
+    #[allow(clippy::significant_drop_tightening)]
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
         let mut version_lock = self.super_version.write().expect("lock is poisoned");
 
@@ -536,6 +538,7 @@ impl AbstractTree for Tree {
             .sum()
     }
 
+    #[allow(clippy::significant_drop_tightening)]
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         let version = self.super_version.read().expect("lock is poisoned");
 
@@ -699,7 +702,6 @@ impl Tree {
     }
 
     fn get_internal_entry_from_sealed_memtables(
-        &self,
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
@@ -714,7 +716,6 @@ impl Tree {
     }
 
     fn get_internal_entry_from_tables(
-        &self,
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
