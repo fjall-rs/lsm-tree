@@ -130,7 +130,7 @@ pub struct Strategy {
     /// Default = 64 MiB
     ///
     /// Same as `target_file_size_base` in `RocksDB`.
-    pub target_size: u32,
+    pub target_size: u64,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
@@ -162,7 +162,7 @@ impl Strategy {
 
     /// Calculates the size of L1.
     fn level_base_size(&self) -> u64 {
-        u64::from(self.target_size) * u64::from(self.l0_threshold)
+        self.target_size * u64::from(self.l0_threshold)
     }
 
     /// Calculates the level target size.
@@ -205,6 +205,36 @@ impl Strategy {
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
         "LeveledCompaction"
+    }
+
+    fn get_config(&self) -> Vec<crate::KvPair> {
+        vec![
+            (
+                crate::UserKey::from("leveled_l0_threshold"),
+                crate::UserValue::from(self.l0_threshold.to_le_bytes()),
+            ),
+            (
+                crate::UserKey::from("leveled_target_size"),
+                crate::UserValue::from(self.target_size.to_le_bytes()),
+            ),
+            (
+                crate::UserKey::from("leveled_level_ratio_policy"),
+                crate::UserValue::from({
+                    use byteorder::{LittleEndian, WriteBytesExt};
+
+                    let mut v = vec![];
+
+                    v.write_u8(self.level_ratio_policy.len() as u8)
+                        .expect("cannot fail");
+
+                    for &f in &self.level_ratio_policy {
+                        v.write_f32::<LittleEndian>(f).expect("cannot fail");
+                    }
+
+                    v
+                }),
+            ),
+        ]
     }
 
     #[allow(clippy::too_many_lines)]
@@ -364,7 +394,7 @@ impl CompactionStrategy for Strategy {
                 table_ids,
                 dest_level: canonical_l1_idx as u8,
                 canonical_level: 1,
-                target_size: u64::from(self.target_size),
+                target_size: self.target_size,
             };
 
             /* eprintln!(
@@ -403,7 +433,7 @@ impl CompactionStrategy for Strategy {
             next_level.first_run().map(std::ops::Deref::deref),
             state.hidden_set(),
             overshoot_bytes,
-            u64::from(self.target_size),
+            self.target_size,
         ) else {
             return Choice::DoNothing;
         };
@@ -412,7 +442,7 @@ impl CompactionStrategy for Strategy {
             table_ids,
             dest_level: next_level_index,
             canonical_level: next_level_index - (level_shift as u8),
-            target_size: u64::from(self.target_size),
+            target_size: self.target_size,
         };
 
         /* eprintln!(

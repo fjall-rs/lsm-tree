@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{compaction::state::CompactionState, config::Config, version::Version, HashSet};
+use crate::{
+    compaction::state::CompactionState, config::Config, version::Version, HashSet, KvPair,
+};
 
 /// FIFO-style compaction
 ///
@@ -42,6 +44,27 @@ impl Strategy {
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
         "FifoCompaction"
+    }
+
+    fn get_config(&self) -> Vec<KvPair> {
+        vec![
+            (
+                crate::UserKey::from("fifo_limit"),
+                crate::UserValue::from(self.limit.to_le_bytes()),
+            ),
+            (
+                crate::UserKey::from("fifo_ttl"),
+                crate::UserValue::from(if self.ttl_seconds.is_some() {
+                    [1u8]
+                } else {
+                    [0u8]
+                }),
+            ),
+            (
+                crate::UserKey::from("fifo_ttl_seconds"),
+                crate::UserValue::from(self.ttl_seconds.map(u64::to_le_bytes).unwrap_or_default()),
+            ),
+        ]
     }
 
     // TODO: 3.0.0 TTL

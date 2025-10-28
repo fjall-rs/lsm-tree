@@ -22,7 +22,7 @@ pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
 use crate::{
-    compaction::state::CompactionState, config::Config, version::Version, HashSet, TableId,
+    compaction::state::CompactionState, config::Config, version::Version, HashSet, KvPair, TableId,
 };
 
 /// Alias for `Leveled`
@@ -84,6 +84,11 @@ pub trait CompactionStrategy {
     // TODO: could be : Display instead
     /// Gets the compaction strategy name.
     fn get_name(&self) -> &'static str;
+
+    #[doc(hidden)]
+    fn get_config(&self) -> Vec<KvPair> {
+        vec![]
+    }
 
     /// Decides on what to do based on the current state of the LSM-tree's levels
     fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice;

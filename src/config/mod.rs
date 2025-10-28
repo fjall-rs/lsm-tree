@@ -65,6 +65,7 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 #[derive(Clone, Debug, PartialEq)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
+    #[doc(hidden)]
     pub compression: CompressionType,
 
     /// Blob file target size in bytes
@@ -75,9 +76,11 @@ pub struct KvSeparationOptions {
     #[doc(hidden)]
     pub separation_threshold: u32,
 
-    pub(crate) staleness_threshold: f32,
+    #[doc(hidden)]
+    pub staleness_threshold: f32,
 
-    pub(crate) age_cutoff: f32,
+    #[doc(hidden)]
+    pub age_cutoff: f32,
 }
 
 impl Default for KvSeparationOptions {
@@ -199,6 +202,12 @@ pub struct Config {
     /// Whether to pin filter blocks
     pub filter_block_pinning_policy: PinningPolicy,
 
+    /// Whether to pin top level index of partitioned index
+    pub top_level_index_block_pinning_policy: PinningPolicy,
+
+    /// Whether to pin top level index of partitioned filter
+    pub top_level_filter_block_pinning_policy: PinningPolicy,
+
     /// Data block hash ratio
     pub data_block_hash_ratio_policy: HashRatioPolicy,
 
@@ -207,6 +216,12 @@ pub struct Config {
 
     /// Whether to partition filter blocks
     pub filter_block_partitioning_policy: PartioningPolicy,
+
+    /// Partition size when using partitioned indexes
+    pub index_block_partition_size_policy: BlockSizePolicy,
+
+    /// Partition size when using partitioned filters
+    pub filter_block_partition_size_policy: BlockSizePolicy,
 
     /// If `true`, the last level will not build filters, reducing the filter size of a database
     /// by ~90% typically
@@ -240,8 +255,14 @@ impl Default for Config {
             index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
 
+            top_level_index_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
+            top_level_filter_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
+
             index_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
             filter_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
+
+            index_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
+            filter_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
 
             data_block_compression_policy: CompressionPolicy::default(),
             index_block_compression_policy: CompressionPolicy::all(CompressionType::None),
