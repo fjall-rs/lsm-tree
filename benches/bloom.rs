@@ -154,8 +154,8 @@ fn blocked_filter_contains(c: &mut Criterion) {
             ),
             |b| {
                 b.iter(|| {
-                    use rand::seq::IndexedRandom;
                     use lsm_tree::table::filter::blocked_bloom::BlockedBloomFilterReader as Reader;
+                    use rand::seq::IndexedRandom;
 
                     // NOTE: To make the costs more realistic, we
                     // pretend we are reading the filter straight from the block

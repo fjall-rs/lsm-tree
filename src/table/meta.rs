@@ -3,9 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
-use crate::{
-    coding::Decode, table::block::BlockType, CompressionType, KeyRange, TableId, SeqNo,
-};
+use crate::{coding::Decode, table::block::BlockType, CompressionType, KeyRange, SeqNo, TableId};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 

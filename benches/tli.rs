@@ -5,9 +5,7 @@ use lsm_tree::table::{
 use rand::Rng;
 
 fn tli_find_item(c: &mut Criterion) {
-    use lsm_tree::table::block_index::{
-        block_handle::KeyedBlockHandle, top_level::TopLevelIndex,
-    };
+    use lsm_tree::table::block_index::{block_handle::KeyedBlockHandle, top_level::TopLevelIndex};
 
     let mut group = c.benchmark_group("TLI find item");
 
