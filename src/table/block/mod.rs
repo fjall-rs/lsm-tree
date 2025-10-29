@@ -118,7 +118,7 @@ impl Block {
         };
 
         debug_assert_eq!(header.uncompressed_length, {
-            #[allow(clippy::expect_used, clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             {
                 data.len() as u32
             }

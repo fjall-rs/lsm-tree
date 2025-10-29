@@ -341,8 +341,7 @@ impl AbstractTree for BlobTree {
             let vptr = BlobIndirection::decode_from(&mut cursor)?;
             vptr.size
         } else {
-            // NOTE: Values are u32 length max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             {
                 item.value.len() as u32
             }

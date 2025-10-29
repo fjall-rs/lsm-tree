@@ -159,7 +159,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
         let memtable = Memtable::default();
 

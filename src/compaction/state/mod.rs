@@ -148,7 +148,7 @@ impl CompactionState {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use crate::AbstractTree;
     use test_log::test;

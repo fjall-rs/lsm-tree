@@ -91,8 +91,10 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
-                    // NOTE: We just asserted, the peeked value is an error
-                    #[allow(clippy::expect_used)]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we just asserted, the peeked value is an error"
+                    )]
                     return Some(Err(self
                         .inner
                         .next()
@@ -183,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_expired_callback_1() -> crate::Result<()> {
         #[derive(Default)]
         struct MyCallback {
@@ -227,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     #[ignore = "wip"]
     fn compaction_stream_seqno_zeroing_1() -> crate::Result<()> {
         #[rustfmt::skip]
@@ -250,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_queue_weak_tombstones() {
         #[rustfmt::skip]
         let vec = stream![
@@ -270,7 +272,7 @@ mod tests {
 
     /// GC should not evict tombstones, unless they are covered up
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -301,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_old_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -346,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_tombstone_overwrite_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -367,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -392,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -417,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict() {
         #[rustfmt::skip]
         let vec = stream![
@@ -434,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict_next_value() -> crate::Result<()> {
         #[rustfmt::skip]
         let mut vec = stream![
@@ -464,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -494,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
