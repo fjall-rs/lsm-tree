@@ -87,7 +87,6 @@ impl DoubleEndedIterator for BlockIndexIterImpl {
 /// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
 /// In the diagram above, searching for 'J' yields the block starting with 'G'.
 /// 'J' must be in that block, because the next block starts with 'M').
-#[allow(clippy::module_name_repetitions)]
 pub enum BlockIndexImpl {
     Full(FullBlockIndex),
     VolatileFull(VolatileBlockIndex),

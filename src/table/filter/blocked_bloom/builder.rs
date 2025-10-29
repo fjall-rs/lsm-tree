@@ -12,7 +12,6 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
 pub struct Builder {
     /// Raw bytes exposed as bit array
     inner: BitArrayBuilder,
@@ -24,7 +23,6 @@ pub struct Builder {
     pub(crate) num_blocks: usize,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Builder {
     // NOTE: We write into a Vec<u8>, so no I/O error can happen
     #[allow(clippy::expect_used)]

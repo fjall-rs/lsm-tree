@@ -18,7 +18,6 @@ use varint_rs::{VarintReader, VarintWriter};
 
 /// Points to a block on file
 #[derive(Copy, Clone, Debug, Default, Eq)]
-#[allow(clippy::module_name_repetitions)]
 pub struct BlockHandle {
     /// Position of block in file
     offset: BlockOffset,
@@ -87,7 +86,6 @@ impl Decode for BlockHandle {
 
 /// Points to a block on file
 #[derive(Clone, Debug, Eq)]
-#[allow(clippy::module_name_repetitions)]
 pub struct KeyedBlockHandle {
     /// Key of last item in block
     end_key: UserKey,

@@ -43,7 +43,6 @@ pub struct SuperVersion {
     pub(crate) version: Version,
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,

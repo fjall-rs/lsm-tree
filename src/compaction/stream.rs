@@ -18,7 +18,6 @@ pub trait ExpiredKvCallback {
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
-#[allow(clippy::module_name_repetitions)]
 pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
     /// KV stream
     inner: Peekable<I>,

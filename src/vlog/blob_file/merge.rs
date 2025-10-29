@@ -37,7 +37,6 @@ impl Ord for IteratorValue {
 }
 
 /// Interleaves multiple blob file readers into a single, sorted stream
-#[allow(clippy::module_name_repetitions)]
 pub struct MergeScanner {
     readers: Vec<BlobFileScanner>,
     heap: IntervalHeap<IteratorValue>,

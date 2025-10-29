@@ -62,7 +62,6 @@ use crate::metrics::Metrics;
 // TODO: in Leveled compaction, compact tables that live very long and have
 // many versions (possibly unnecessary space usage of old, stale versions)
 
-#[allow(clippy::module_name_repetitions)]
 pub type TableInner = Inner;
 
 /// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk

@@ -55,8 +55,10 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             self.compression,
         )?;
 
-        // NOTE: We know that blocks never even approach u32 size
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "blocks never even approach u32 size"
+        )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         log::trace!(
