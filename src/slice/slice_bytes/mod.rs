@@ -32,7 +32,7 @@ impl Slice {
         // SAFETY: we just allocated `len` bytes, and `read_exact` will fail if
         // it doesn't fill the buffer, subsequently dropping the uninitialized
         // BytesMut object
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "see safety")]
         unsafe {
             builder.set_len(len);
         }

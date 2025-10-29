@@ -164,7 +164,7 @@ impl<T> MaybePeeked<T> {
         let Self::Peeked(peeked) = self else {
             // SAFETY: it cannot be `Unpeeked` because that case has been just replaced with
             // `Peeked`, and we only have two possible states.
-            #[allow(unsafe_code)]
+            #[expect(unsafe_code, reason = "see safety")]
             unsafe {
                 unreachable_unchecked()
             }

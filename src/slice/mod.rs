@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     fn slice_with_size() {
         assert_eq!(
             &*unsafe {

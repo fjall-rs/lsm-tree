@@ -21,7 +21,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     //
     // Additionally, generally, block loads furthermore do a checksum check which
     // would likely catch the buffer being wrong somehow
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "see safety")]
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
     {
