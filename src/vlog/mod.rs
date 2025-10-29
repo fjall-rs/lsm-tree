@@ -76,9 +76,11 @@ pub fn recover_blob_files(
                 let reader = sfa::Reader::new(&blob_file_path)?;
                 let toc = reader.toc();
 
-                // NOTE: Nothing we can do - something has gone horribly wrong
-                #[allow(clippy::expect_used)]
-                let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+                let metadata_section = toc.section(b"meta")
+                .ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_| {
+                    log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
+                })?;
 
                 let file = std::fs::File::open(&blob_file_path)?;
                 let metadata_slice = crate::file::read_exact(
@@ -102,7 +104,7 @@ pub fn recover_blob_files(
                 log::debug!("Recovered {idx}/{cnt} blob files");
             }
         } else {
-            orphaned_blob_files.push(blob_file_path.to_path_buf());
+            orphaned_blob_files.push(blob_file_path.clone());
         }
     }
 

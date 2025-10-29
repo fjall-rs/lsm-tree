@@ -25,7 +25,7 @@ const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>()
 /// ## Format
 ///
 /// \[restart_interval\] \[binary_index_offset\] \[binary_index_len\] \[hash_index_offset\] \[hash_index_len\] \[item_count\]
-#[allow(clippy::doc_markdown)]
+#[expect(clippy::doc_markdown)]
 pub struct Trailer<'a> {
     block: &'a Block,
 }
@@ -64,7 +64,7 @@ impl<'a> Trailer<'a> {
 
         // SAFETY: We know that a block always has a trailer, so the
         // `block_size - TRAILER_SIZE` cannot go out of bounds
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "see safety")]
         unsafe {
             self.block.data.get_unchecked(start..)
         }

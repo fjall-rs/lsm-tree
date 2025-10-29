@@ -5,6 +5,8 @@
 use crate::InternalValue;
 use std::collections::VecDeque;
 
+// TODO: remove?
+
 /// Reads through a disjoint, sorted set of readers
 pub struct MultiReader<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     readers: VecDeque<I>,
@@ -48,7 +50,6 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -81,7 +82,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
@@ -107,7 +108,7 @@ mod tests {
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
@@ -133,7 +134,7 @@ mod tests {
             assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 

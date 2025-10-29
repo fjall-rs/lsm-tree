@@ -100,12 +100,10 @@ impl<T: Ranged> Run<T> {
 
     /// Returns the run's key range.
     pub fn aggregate_key_range(&self) -> KeyRange {
-        // NOTE: Run invariant
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "by definition, runs are never empty")]
         let lo = self.first().expect("run should never be empty");
 
-        // NOTE: Run invariant
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "by definition, runs are never empty")]
         let hi = self.last().expect("run should never be empty");
 
         KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
@@ -172,7 +170,7 @@ impl<T: Ranged> Run<T> {
         }
 
         // NOTE: We check for level length above
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         let truncated_level = &level[lo..];
 
         let hi = match key_range.end_bound() {
@@ -208,7 +206,7 @@ impl<T: Ranged> Run<T> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use test_log::test;

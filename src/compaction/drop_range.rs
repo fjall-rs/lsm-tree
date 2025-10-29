@@ -62,7 +62,6 @@ pub struct Strategy {
 impl Strategy {
     /// Configures a new `DropRange` compaction strategy.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(bounds: OwnedBounds) -> Self {
         Self { bounds }
     }

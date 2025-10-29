@@ -3,7 +3,7 @@ use crate::table::filter::standard_bloom::Builder as BloomBuilder;
 use tempfile::tempdir;
 use test_log::test;
 
-#[allow(
+#[expect(
     clippy::too_many_lines,
     clippy::cognitive_complexity,
     clippy::cast_possible_truncation,
@@ -258,7 +258,7 @@ fn test_with_table(
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_point_read() -> crate::Result<()> {
     let items = [crate::InternalValue::from_components(
         b"abc",
@@ -300,7 +300,7 @@ fn table_point_read() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_range_exclusive_bounds() -> crate::Result<()> {
     use std::ops::Bound::{Excluded, Included};
 
@@ -407,7 +407,7 @@ fn table_point_read_mvcc_block_boundary() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_scan() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -433,7 +433,7 @@ fn table_scan() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_iter_simple() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -458,7 +458,7 @@ fn table_iter_simple() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_range_simple() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -494,7 +494,7 @@ fn table_range_simple() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_range_ping_pong() -> crate::Result<()> {
     let items = (0u64..10)
         .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, crate::ValueType::Value))
@@ -534,7 +534,7 @@ fn table_range_ping_pong() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_range_multiple_data_blocks() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
@@ -580,7 +580,7 @@ fn table_range_multiple_data_blocks() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),

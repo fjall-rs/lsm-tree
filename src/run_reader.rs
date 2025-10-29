@@ -122,7 +122,7 @@ impl DoubleEndedIterator for RunReader {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;

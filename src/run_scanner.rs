@@ -64,7 +64,7 @@ impl Iterator for RunScanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -97,7 +97,7 @@ mod tests {
 
         let level = Arc::new(Run::new(tables));
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let multi_reader = RunScanner::culled(level.clone(), (None, None))?;
 
@@ -117,7 +117,7 @@ mod tests {
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let multi_reader = RunScanner::culled(level, (Some(1), None))?;
 

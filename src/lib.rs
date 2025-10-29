@@ -107,13 +107,6 @@ pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHash
 
 pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 
-#[allow(unused)]
-macro_rules! set {
-    ($($x:expr),+ $(,)?) => {
-        [$($x),+].into_iter().collect::<HashSet<_>>()
-    }
-}
-
 macro_rules! fail_iter {
     ($e:expr) => {
         match $e {

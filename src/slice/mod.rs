@@ -149,7 +149,7 @@ impl PartialOrd<Slice> for &[u8] {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::Slice;
     use std::{fmt::Debug, sync::Arc};
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code)]
     fn slice_with_size() {
         assert_eq!(
             &*unsafe {

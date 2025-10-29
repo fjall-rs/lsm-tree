@@ -21,7 +21,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     //
     // Additionally, generally, block loads furthermore do a checksum check which
     // would likely catch the buffer being wrong somehow
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "see safety")]
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
     {
@@ -65,8 +65,10 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
 
 /// Atomically rewrites a file.
 pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
-    // NOTE: Nothing we can do
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "every file should have a parent directory"
+    )]
     let folder = path.parent().expect("should have a parent");
 
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
@@ -81,8 +83,10 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
         let file = std::fs::File::open(path)?;
         file.sync_all()?;
 
-        // NOTE: Files should always have a parent directory
-        #[allow(clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "files should always have a parent directory"
+        )]
         let folder = path.parent().expect("should have parent folder");
         fsync_directory(folder)?;
     }

@@ -14,7 +14,7 @@ use std::{ops::RangeBounds, sync::Arc};
 pub type RangeItem = crate::Result<KvPair>;
 
 /// Generic Tree API
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
     #[doc(hidden)]

@@ -87,7 +87,7 @@ fn pick_minimal_compaction(
 
                 //  let compaction_bytes = curr_level_size + next_level_size;
 
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(clippy::cast_precision_loss)]
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
                 Some((window, curr_level_pull_in, write_amp))
@@ -138,7 +138,6 @@ pub struct Strategy {
     /// level to the next.
     ///
     /// Default = 10
-    #[allow(clippy::doc_markdown)]
     pub level_ratio_policy: Vec<f32>,
 }
 
@@ -237,12 +236,12 @@ impl CompactionStrategy for Strategy {
         ]
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Find the level that corresponds to L1
-        #[allow(clippy::map_unwrap_or)]
+        #[expect(clippy::map_unwrap_or)]
         let mut canonical_l1_idx = version
             .iter_levels()
             .enumerate()
@@ -282,6 +281,45 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // Trivial move into L1
+        'trivial: {
+            let first_level = version.l0();
+
+            if first_level.run_count() == 1 {
+                if version.level_is_busy(0, state.hidden_set())
+                    || version.level_is_busy(canonical_l1_idx, state.hidden_set())
+                {
+                    break 'trivial;
+                }
+
+                let Some(target_level) = &version.level(canonical_l1_idx) else {
+                    break 'trivial;
+                };
+
+                if target_level.run_count() != 1 {
+                    break 'trivial;
+                }
+
+                let key_range = first_level.aggregate_key_range();
+
+                // Get overlapping tables in next level
+                let get_overlapping = target_level
+                    .iter()
+                    .flat_map(|run| run.get_overlapping(&key_range))
+                    .map(Table::id)
+                    .next();
+
+                if get_overlapping.is_none() && first_level.is_disjoint() {
+                    return Choice::Move(CompactionInput {
+                        table_ids: first_level.list_ids(),
+                        dest_level: canonical_l1_idx as u8,
+                        canonical_level: 1,
+                        target_size: self.target_size,
+                    });
+                }
+            }
+        }
+
         // Scoring
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
@@ -292,8 +330,6 @@ impl CompactionStrategy for Strategy {
 
             // Score first level
 
-            // NOTE: We always have at least one level
-            #[allow(clippy::expect_used)]
             let first_level = version.l0();
 
             // TODO: use run_count instead? but be careful because of version free list GC thingy
@@ -320,7 +356,7 @@ impl CompactionStrategy for Strategy {
                 let target_size = self.level_target_size((idx - level_shift) as u8);
 
                 // NOTE: We check for level length above
-                #[allow(clippy::indexing_slicing)]
+                #[expect(clippy::indexing_slicing)]
                 if level_size > target_size {
                     scores[idx] = (
                         level_size as f64 / target_size as f64,
@@ -340,7 +376,7 @@ impl CompactionStrategy for Strategy {
             // NOTE: Never score Lmax
             //
             // NOTE: We check for level length above
-            #[allow(clippy::indexing_slicing)]
+            #[expect(clippy::indexing_slicing)]
             {
                 scores[6] = (0.0, 0);
             }
@@ -377,7 +413,7 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            let mut table_ids: HashSet<u64> = first_level.list_ids();
+            let mut table_ids = first_level.list_ids();
 
             let key_range = first_level.aggregate_key_range();
 
@@ -412,7 +448,7 @@ impl CompactionStrategy for Strategy {
         // We choose L1+ compaction instead
 
         // NOTE: Level count is 255 max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let curr_level_index = level_idx_with_highest_score as u8;
 
         let next_level_index = curr_level_index + 1;

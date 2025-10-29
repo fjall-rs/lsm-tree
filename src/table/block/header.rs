@@ -65,7 +65,7 @@ impl<R: std::io::Read> std::io::Read for ChecksummedReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let n = self.inner.read(buf)?;
 
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         self.hasher.update(&buf[..n]);
 
         Ok(n)
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::indexing_slicing)]
+    #[expect(clippy::indexing_slicing)]
     fn block_header_detect_corruption() {
         let header = Header {
             block_type: BlockType::Data,

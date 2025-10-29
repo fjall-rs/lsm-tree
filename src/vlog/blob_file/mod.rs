@@ -99,7 +99,7 @@ impl BlobFile {
 
     /// Returns the number of items in the blob file.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.0.meta.item_count
     }

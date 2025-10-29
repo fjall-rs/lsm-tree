@@ -309,7 +309,7 @@ fn hidden_guard(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 fn merge_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,

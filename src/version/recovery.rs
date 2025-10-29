@@ -39,7 +39,10 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     {
         let mut reader = toc
             .section(b"tables")
-            .expect("tables should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("tables section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         let level_count = reader.read_u8()?;
@@ -79,7 +82,10 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let blob_file_ids = {
         let mut reader = toc
             .section(b"blob_files")
-            .expect("blob_files should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("blob_files section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         let blob_file_count = reader.read_u32::<LittleEndian>()?;
@@ -109,7 +115,10 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let gc_stats = {
         let mut reader = toc
             .section(b"blob_gc_stats")
-            .expect("blob_gc_stats should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("blob_gc_stats section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         crate::blob_tree::FragmentationMap::decode_from(&mut reader)?

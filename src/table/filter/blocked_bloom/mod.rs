@@ -69,7 +69,6 @@ impl<'a> BlockedBloomFilterReader<'a> {
 
         let offset = reader.position() as usize;
 
-        #[allow(clippy::indexing_slicing)]
         Ok(Self {
             k,
             num_blocks,

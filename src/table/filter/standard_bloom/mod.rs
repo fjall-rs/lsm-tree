@@ -66,7 +66,7 @@ impl<'a> StandardBloomFilterReader<'a> {
 
         let offset = reader.position() as usize;
 
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         Ok(Self {
             k,
             m,
@@ -74,9 +74,9 @@ impl<'a> StandardBloomFilterReader<'a> {
         })
     }
 
-    #[allow(clippy::len_without_is_empty)]
     /// Size of bloom filter in bytes.
     #[must_use]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.inner.bytes().len()
     }

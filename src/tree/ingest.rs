@@ -37,6 +37,16 @@ impl<'a> Ingestion<'a> {
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
         )?
+        .use_data_block_size(
+            tree.config
+                .data_block_size_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_index_block_size(
+            tree.config
+                .index_block_size_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
         .use_data_block_hash_ratio(
             tree.config
                 .data_block_hash_ratio_policy
@@ -45,6 +55,11 @@ impl<'a> Ingestion<'a> {
         .use_data_block_compression(
             tree.config
                 .data_block_compression_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_index_block_compression(
+            tree.config
+                .index_block_compression_policy
                 .get(INITIAL_CANONICAL_LEVEL),
         );
 

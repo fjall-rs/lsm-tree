@@ -109,8 +109,6 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    // NOTE: don't care
-    #[allow(clippy::type_complexity)]
     let mut range: (Bound<Slice>, Bound<Slice>) = (Unbounded, Unbounded);
     let mut count = 0;
 

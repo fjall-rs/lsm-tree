@@ -117,8 +117,10 @@ impl Memtable {
     /// Inserts an item into the memtable
     #[doc(hidden)]
     pub fn insert(&self, item: InternalValue) -> (u64, u64) {
-        // NOTE: We know keys are limited to 16-bit length + values are limited to 32-bit length
-        #[allow(clippy::cast_possible_truncation, clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "keys are limited to 16-bit length + values are limited to 32-bit length"
+        )]
         let item_size =
             (item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>())
                 .try_into()
@@ -157,7 +159,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
         let memtable = Memtable::default();
 

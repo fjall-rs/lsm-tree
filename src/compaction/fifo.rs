@@ -69,8 +69,6 @@ impl CompactionStrategy for Strategy {
 
     // TODO: 3.0.0 TTL
     fn choose(&self, version: &Version, _config: &Config, state: &CompactionState) -> Choice {
-        // NOTE: We always have at least one level
-        #[allow(clippy::expect_used)]
         let first_level = version.l0();
 
         assert!(first_level.is_disjoint(), "L0 needs to be disjoint");

@@ -152,15 +152,13 @@ impl Encodable<()> for InternalValue {
         writer.write_u8(u8::from(self.key.value_type))?; // 1
         writer.write_u64_varint(self.key.seqno)?; // 2
 
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
         writer.write_u16_varint(self.key.user_key.len() as u16)?; // 3
         writer.write_all(&self.key.user_key)?; // 4
 
         // NOTE: Only write value len + value if we are actually a value
         if !self.is_tombstone() {
-            // NOTE: We know values are limited to 32-bit length
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             writer.write_u32_varint(self.value.len() as u32)?; // 5
             writer.write_all(&self.value)?; // 6
         }
@@ -183,14 +181,12 @@ impl Encodable<()> for InternalValue {
 
         // TODO: maybe we can skip this varint altogether if prefix truncation = false
 
-        // NOTE: We know keys have u16 length max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
         writer.write_u16_varint(shared_len as u16)?; // 3
 
         let rest_len = self.key().len() - shared_len;
 
-        // NOTE: We know keys have u16 length max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
         writer.write_u16_varint(rest_len as u16)?; // 4
 
         // NOTE: We trust the caller
@@ -205,8 +201,7 @@ impl Encodable<()> for InternalValue {
 
         // NOTE: Only write value len + value if we are actually a value
         if !self.is_tombstone() {
-            // NOTE: We know values are limited to 32-bit length
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             writer.write_u32_varint(self.value.len() as u32)?; // 6
             writer.write_all(&self.value)?; // 7
         }
@@ -246,7 +241,7 @@ impl ParsedItem<InternalValue> for DataBlockParsedItem {
 
     fn materialize(&self, bytes: &Slice) -> InternalValue {
         // NOTE: We consider the prefix and key slice indexes to be trustworthy
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         let key = if let Some(prefix) = &self.prefix {
             let prefix_key = &bytes[prefix.0..prefix.1];
             let rest_key = &bytes[self.key.0..self.key.1];
@@ -425,7 +420,7 @@ impl DataBlock {
     }
 
     #[must_use]
-    #[allow(clippy::iter_without_into_iter)]
+    #[expect(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Iter<'_> {
         Iter::new(
             &self.inner.data,
@@ -451,7 +446,7 @@ impl DataBlock {
 
     /// Returns the number of items in the block.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
     }
@@ -504,7 +499,7 @@ impl DataBlock {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use crate::{
         table::{
@@ -882,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -919,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_2() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -968,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_3() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -1017,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_3_dense() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),

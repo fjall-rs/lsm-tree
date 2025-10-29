@@ -42,8 +42,7 @@ impl IterGuard for Guard {
     }
 
     fn size(self) -> crate::Result<u32> {
-        // NOTE: We know LSM-tree values are 32 bits in length max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         self.into_inner().map(|(_, v)| v.len() as u32)
     }
 
@@ -83,7 +82,7 @@ impl AbstractTree for Tree {
         self.id
     }
 
-    #[allow(clippy::significant_drop_tightening)]
+    #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
         let version_lock = self.super_version.read().expect("lock is poisoned");
 
@@ -279,8 +278,7 @@ impl AbstractTree for Tree {
     }
 
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
-        // NOTE: We know that values are u32 max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
@@ -385,7 +383,7 @@ impl AbstractTree for Tree {
         Ok(result.map(|table| (table, None)))
     }
 
-    #[allow(clippy::significant_drop_tightening)]
+    #[expect(clippy::significant_drop_tightening)]
     fn register_tables(
         &self,
         tables: &[Table],
@@ -477,7 +475,7 @@ impl AbstractTree for Tree {
         crate::TreeType::Standard
     }
 
-    #[allow(clippy::significant_drop_tightening)]
+    #[expect(clippy::significant_drop_tightening)]
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
         let mut version_lock = self.super_version.write().expect("lock is poisoned");
 
@@ -509,7 +507,7 @@ impl AbstractTree for Tree {
         self.current_version().level(idx).map(|x| x.table_count())
     }
 
-    #[allow(clippy::significant_drop_tightening)]
+    #[expect(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
         let version = self.super_version.read().expect("lock is poisoned");
 
@@ -538,7 +536,7 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    #[allow(clippy::significant_drop_tightening)]
+    #[expect(clippy::significant_drop_tightening)]
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         let version = self.super_version.read().expect("lock is poisoned");
 

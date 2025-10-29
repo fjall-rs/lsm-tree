@@ -13,7 +13,6 @@ pub fn secondary_hash(h1: u64) -> u64 {
 }
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
 pub struct Builder {
     /// Raw bytes exposed as bit array
     inner: BitArrayBuilder,
@@ -25,10 +24,11 @@ pub struct Builder {
     pub(super) k: usize,
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl Builder {
-    // NOTE: We write into a Vec<u8>, so no I/O error can happen
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "we write into a Vec<u8>, so no I/O error can happen"
+    )]
     #[must_use]
     pub fn build(&self) -> Vec<u8> {
         let mut v = vec![];
@@ -118,8 +118,10 @@ impl Builder {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
-            // NOTE: Even for a large table, filters tend to be pretty small, definitely less than 4 GiB
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "filters tend to be pretty small, definitely less than 4 GiB, even for large tables"
+            )]
             self.inner.enable_bit(idx as usize);
 
             h1 = h1.wrapping_add(h2);

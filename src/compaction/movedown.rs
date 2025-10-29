@@ -13,7 +13,6 @@ impl CompactionStrategy for Strategy {
         "MoveDownCompaction"
     }
 
-    #[allow(clippy::expect_used)]
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         if version.level_is_busy(usize::from(self.0), state.hidden_set()) {
             return Choice::DoNothing;

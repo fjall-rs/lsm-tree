@@ -15,7 +15,6 @@ pub struct Strategy {
 impl Strategy {
     /// Configures a new `Major` compaction strategy.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {
         Self { target_size }
     }
