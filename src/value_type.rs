@@ -4,7 +4,6 @@
 
 /// Value type (regular value or tombstone)
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
 #[cfg_attr(test, derive(strum::EnumIter))]
 pub enum ValueType {
     /// Existing value

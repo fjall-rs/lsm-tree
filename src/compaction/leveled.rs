@@ -87,7 +87,7 @@ fn pick_minimal_compaction(
 
                 //  let compaction_bytes = curr_level_size + next_level_size;
 
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(clippy::cast_precision_loss)]
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
                 Some((window, curr_level_pull_in, write_amp))
@@ -138,7 +138,6 @@ pub struct Strategy {
     /// level to the next.
     ///
     /// Default = 10
-    #[allow(clippy::doc_markdown)]
     pub level_ratio_policy: Vec<f32>,
 }
 
@@ -237,12 +236,12 @@ impl CompactionStrategy for Strategy {
         ]
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Find the level that corresponds to L1
-        #[allow(clippy::map_unwrap_or)]
+        #[expect(clippy::map_unwrap_or)]
         let mut canonical_l1_idx = version
             .iter_levels()
             .enumerate()
@@ -284,8 +283,6 @@ impl CompactionStrategy for Strategy {
 
         // Trivial move into L1
         'trivial: {
-            // NOTE: We always have at least one level
-            #[allow(clippy::expect_used)]
             let first_level = version.l0();
 
             if first_level.run_count() == 1 {
@@ -333,8 +330,6 @@ impl CompactionStrategy for Strategy {
 
             // Score first level
 
-            // NOTE: We always have at least one level
-            #[allow(clippy::expect_used)]
             let first_level = version.l0();
 
             // TODO: use run_count instead? but be careful because of version free list GC thingy
@@ -361,7 +356,7 @@ impl CompactionStrategy for Strategy {
                 let target_size = self.level_target_size((idx - level_shift) as u8);
 
                 // NOTE: We check for level length above
-                #[allow(clippy::indexing_slicing)]
+                #[expect(clippy::indexing_slicing)]
                 if level_size > target_size {
                     scores[idx] = (
                         level_size as f64 / target_size as f64,
@@ -381,7 +376,7 @@ impl CompactionStrategy for Strategy {
             // NOTE: Never score Lmax
             //
             // NOTE: We check for level length above
-            #[allow(clippy::indexing_slicing)]
+            #[expect(clippy::indexing_slicing)]
             {
                 scores[6] = (0.0, 0);
             }
@@ -453,7 +448,7 @@ impl CompactionStrategy for Strategy {
         // We choose L1+ compaction instead
 
         // NOTE: Level count is 255 max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let curr_level_index = level_idx_with_highest_score as u8;
 
         let next_level_index = curr_level_index + 1;

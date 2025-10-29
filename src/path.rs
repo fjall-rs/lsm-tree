@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 
-#[allow(clippy::module_name_repetitions)]
 pub fn absolute_path(path: &Path) -> PathBuf {
     // Not sure if this can even fail realistically
     #[expect(clippy::expect_used, reason = "not much we can do about it")]

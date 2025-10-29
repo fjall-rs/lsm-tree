@@ -7,7 +7,6 @@ use crate::tree::inner::TreeId;
 pub type TableId = u64;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[allow(clippy::module_name_repetitions)]
 pub struct GlobalTableId(TreeId, TableId);
 
 impl GlobalTableId {

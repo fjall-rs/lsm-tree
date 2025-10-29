@@ -15,7 +15,6 @@ impl CompactionStrategy for Strategy {
         "PullDownCompaction"
     }
 
-    #[allow(clippy::expect_used)]
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         todo!()
     }

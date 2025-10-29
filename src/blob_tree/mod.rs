@@ -42,8 +42,7 @@ impl IterGuard for Guard<'_> {
             let mut cursor = Cursor::new(kv.value);
             Ok(BlobIndirection::decode_from(&mut cursor)?.size)
         } else {
-            // NOTE: We know that values are u32 max length
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 max length")]
             Ok(kv.value.len() as u32)
         }
     }
