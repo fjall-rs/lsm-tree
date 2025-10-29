@@ -54,8 +54,8 @@ impl<'a> Reader<'a> {
         let _seqno = reader.read_u64::<LittleEndian>()?;
         let key_len = reader.read_u16::<LittleEndian>()?;
 
-        // NOTE: Used in feature flagged branch
-        let _real_val_len = reader.read_u32::<LittleEndian>()? as usize;
+        #[expect(unused, reason = "only used in feature flagged branch")]
+        let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
