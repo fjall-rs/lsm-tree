@@ -33,7 +33,7 @@ impl PartitionedIndexWriter {
             buffer_size: 0,
             index_block_count: 0,
 
-            block_size: 4_096, // TODO: 3.0.0 allow to set this
+            block_size: 4_096, // TODO: allow to set this
             compression: CompressionType::None,
 
             tli_handles: Vec::new(),
