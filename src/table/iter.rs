@@ -20,7 +20,7 @@ use crate::metrics::Metrics;
 
 type InnerIter<'a> = DataBlockIter<'a>;
 
-enum Bound {
+pub enum Bound {
     Included(UserKey),
     Excluded(UserKey),
 }
@@ -36,19 +36,19 @@ self_cell!(
 );
 
 impl OwnedDataBlockIter {
-    pub fn seek_lower_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_lower_inclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek(needle /* TODO: , seqno */))
     }
 
-    pub fn seek_upper_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_upper_inclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_upper(needle /* TODO: , seqno */))
     }
 
-    fn seek_lower_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_lower_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_exclusive(needle /* TODO: , seqno */))
     }
 
-    fn seek_upper_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_upper_exclusive(needle /* TODO: , seqno */))
     }
 
@@ -149,20 +149,12 @@ impl Iter {
         }
     }
 
-    pub fn set_lower_bound(&mut self, key: UserKey) {
-        self.range.0 = Some(Bound::Included(key));
+    pub fn set_lower_bound(&mut self, bound: Bound) {
+        self.range.0 = Some(bound);
     }
 
-    pub fn set_upper_bound(&mut self, key: UserKey) {
-        self.range.1 = Some(Bound::Included(key));
-    }
-
-    pub fn set_lower_bound_exclusive(&mut self, key: UserKey) {
-        self.range.0 = Some(Bound::Excluded(key));
-    }
-
-    pub fn set_upper_bound_exclusive(&mut self, key: UserKey) {
-        self.range.1 = Some(Bound::Excluded(key));
+    pub fn set_upper_bound(&mut self, bound: Bound) {
+        self.range.1 = Some(bound);
     }
 }
 

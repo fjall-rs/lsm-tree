@@ -300,7 +300,6 @@ fn table_point_read() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_range_exclusive_bounds() -> crate::Result<()> {
     use std::ops::Bound::{Excluded, Included};
 
@@ -373,7 +372,7 @@ fn table_range_exclusive_bounds() -> crate::Result<()> {
 }
 
 #[test]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 fn table_point_read_mvcc_block_boundary() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"a", b"5", 5, crate::ValueType::Value),

@@ -368,14 +368,14 @@ impl Table {
         );
 
         match range.start_bound() {
-            Bound::Included(key) => iter.set_lower_bound(key.clone()),
-            Bound::Excluded(key) => iter.set_lower_bound_exclusive(key.clone()),
+            Bound::Included(key) => iter.set_lower_bound(iter::Bound::Included(key.clone())),
+            Bound::Excluded(key) => iter.set_lower_bound(iter::Bound::Excluded(key.clone())),
             Bound::Unbounded => {}
         }
 
         match range.end_bound() {
-            Bound::Included(key) => iter.set_upper_bound(key.clone()),
-            Bound::Excluded(key) => iter.set_upper_bound_exclusive(key.clone()),
+            Bound::Included(key) => iter.set_upper_bound(iter::Bound::Included(key.clone())),
+            Bound::Excluded(key) => iter.set_upper_bound(iter::Bound::Excluded(key.clone())),
             Bound::Unbounded => {}
         }
 
