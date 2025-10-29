@@ -48,10 +48,10 @@ pub struct CompactionState {
     /// Path of tree folder.
     folder: PathBuf,
 
-    /// Set of segment IDs that are masked.
+    /// Set of table IDs that are masked.
     ///
-    /// While consuming segments (because of compaction) they will not appear in the list of segments
-    /// as to not cause conflicts between multiple compaction threads (compacting the same segments).
+    /// While consuming tables (because of compaction) they will not appear in the list of tables
+    /// as to not cause conflicts between multiple compaction threads (compacting the same tables).
     hidden_set: HiddenSet,
 
     /// Holds onto versions until they are safe to drop.
@@ -148,7 +148,7 @@ impl CompactionState {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use crate::AbstractTree;
     use test_log::test;
@@ -170,12 +170,12 @@ mod tests {
 
         tree.major_compact(u64::MAX, 3)?;
 
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
 
         tree.insert("a", "a", 3);
         tree.flush_active_memtable(0)?;
 
-        let segment_count_before_major_compact = tree.segment_count();
+        let table_count_before_major_compact = tree.table_count();
 
         let crate::AnyTree::Standard(tree) = tree else {
             unreachable!();
@@ -199,7 +199,7 @@ mod tests {
             .hidden_set()
             .is_empty());
 
-        assert_eq!(segment_count_before_major_compact, tree.segment_count());
+        assert_eq!(table_count_before_major_compact, tree.table_count());
 
         Ok(())
     }

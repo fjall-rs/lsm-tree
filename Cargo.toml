@@ -2,9 +2,9 @@
 name = "lsm-tree"
 description = "A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs)"
 license = "MIT OR Apache-2.0"
-version = "3.0.0-pre.1"
+version = "3.0.0-pre.3"
 edition = "2021"
-rust-version = "1.87.0"
+rust-version = "1.89.0"
 readme = "README.md"
 include = ["src/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md"]
 repository = "https://github.com/fjall-rs/lsm-tree"
@@ -38,7 +38,7 @@ self_cell = "1.2.0"
 tempfile = "3.20.0"
 varint-rs = "2.2.0"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-sfa = "~0.0.2"
+sfa = "~0.0.3"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

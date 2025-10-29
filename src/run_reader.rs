@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{segment::CachePolicy, version::Run, BoxedIterator, InternalValue, Segment, UserKey};
+use crate::{version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
@@ -10,48 +10,43 @@ use std::{
 
 /// Reads through a disjoint run
 pub struct RunReader {
-    run: Arc<Run<Segment>>,
+    run: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
     hi_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
-    cache_policy: CachePolicy,
 }
 
 impl RunReader {
     #[must_use]
     pub fn new<R: RangeBounds<UserKey> + Clone + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
-        cache_policy: CachePolicy,
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
 
         let (lo, hi) = run.range_overlap_indexes(&range)?;
 
-        Some(Self::culled(run, range, (Some(lo), Some(hi)), cache_policy))
+        Some(Self::culled(run, range, (Some(lo), Some(hi))))
     }
 
     #[must_use]
     pub fn culled<R: RangeBounds<UserKey> + Clone + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
-        cache_policy: CachePolicy,
     ) -> Self {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
 
         // TODO: lazily init readers?
-        let lo_segment = run.deref().get(lo).expect("should exist");
-        let lo_reader = lo_segment.range(range.clone())/* .cache_policy(cache_policy) */;
+        let lo_table = run.deref().get(lo).expect("should exist");
+        let lo_reader = lo_table.range(range.clone());
 
         // TODO: lazily init readers?
         let hi_reader = if hi > lo {
-            let hi_segment = run.deref().get(hi).expect("should exist");
-            Some(
-                hi_segment.range(range), /* .cache_policy(cache_policy) */
-            )
+            let hi_table = run.deref().get(hi).expect("should exist");
+            Some(hi_table.range(range))
         } else {
             None
         };
@@ -62,7 +57,6 @@ impl RunReader {
             hi,
             lo_reader: Some(Box::new(lo_reader)),
             hi_reader: hi_reader.map(|x| Box::new(x) as BoxedIterator),
-            cache_policy,
         }
     }
 }
@@ -84,7 +78,7 @@ impl Iterator for RunReader {
                 if self.lo < self.hi {
                     self.lo_reader = Some(Box::new(
                         self.run.get(self.lo).expect("should exist").iter(),
-                    ) /* .cache_policy(self.cache_policy) */);
+                    ));
                 }
             } else if let Some(hi_reader) = &mut self.hi_reader {
                 // NOTE: We reached the hi marker, so consume from it instead
@@ -113,7 +107,7 @@ impl DoubleEndedIterator for RunReader {
                 if self.lo < self.hi {
                     self.hi_reader = Some(Box::new(
                         self.run.get(self.hi).expect("should exist").iter(),
-                    ) /* .cache_policy(self.cache_policy) */);
+                    ));
                 }
             } else if let Some(lo_reader) = &mut self.lo_reader {
                 // NOTE: We reached the lo marker, so consume from it instead
@@ -128,7 +122,7 @@ impl DoubleEndedIterator for RunReader {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -153,28 +147,23 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
-        assert!(RunReader::new(
-            level.clone(),
-            UserKey::from("y")..=UserKey::from("z"),
-            CachePolicy::Read
-        )
-        .is_none());
+        assert!(RunReader::new(level.clone(), UserKey::from("y")..=UserKey::from("z"),).is_none());
 
-        assert!(RunReader::new(level, UserKey::from("y").., CachePolicy::Read).is_none());
+        assert!(RunReader::new(level, UserKey::from("y")..).is_none());
 
         Ok(())
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
@@ -193,16 +182,16 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
+            let multi_reader = RunReader::new(level.clone(), ..).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -221,7 +210,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
+            let multi_reader = RunReader::new(level.clone(), ..).unwrap();
 
             let mut iter = multi_reader.rev().flatten();
 
@@ -240,7 +229,7 @@ mod tests {
         }
 
         {
-            let multi_reader = RunReader::new(level.clone(), .., CachePolicy::Read).unwrap();
+            let multi_reader = RunReader::new(level.clone(), ..).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -259,8 +248,7 @@ mod tests {
         }
 
         {
-            let multi_reader =
-                RunReader::new(level.clone(), UserKey::from("g").., CachePolicy::Read).unwrap();
+            let multi_reader = RunReader::new(level.clone(), UserKey::from("g")..).unwrap();
 
             let mut iter = multi_reader.flatten();
 
@@ -273,8 +261,7 @@ mod tests {
         }
 
         {
-            let multi_reader =
-                RunReader::new(level, UserKey::from("g").., CachePolicy::Read).unwrap();
+            let multi_reader = RunReader::new(level, UserKey::from("g")..).unwrap();
 
             let mut iter = multi_reader.flatten().rev();
 

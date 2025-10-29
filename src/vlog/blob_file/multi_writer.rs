@@ -120,6 +120,7 @@ impl MultiWriter {
     ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
+            let path = writer.path.clone();
 
             log::debug!(
                 "Created blob file #{blob_file_id:?} ({} items, {} userdata bytes)",
@@ -127,38 +128,27 @@ impl MultiWriter {
                 writer.uncompressed_bytes,
             );
 
+            let (metadata, checksum) = writer.finish()?;
+
             let blob_file = BlobFile(Arc::new(BlobFileInner {
+                checksum,
+                path,
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
-                path: writer.path.clone(),
                 meta: Metadata {
                     created_at: crate::time::unix_timestamp().as_nanos(),
-                    item_count: writer.item_count,
-                    total_compressed_bytes: writer.written_blob_bytes,
-                    total_uncompressed_bytes: writer.uncompressed_bytes,
+                    item_count: metadata.item_count,
+                    total_compressed_bytes: metadata.total_compressed_bytes,
+                    total_uncompressed_bytes: metadata.total_uncompressed_bytes,
+                    key_range: metadata.key_range.clone(),
 
-                    // NOTE: We are checking for 0 items above
-                    // so first and last key need to exist
-                    #[allow(clippy::expect_used)]
-                    key_range: crate::KeyRange::new((
-                        writer
-                            .first_key
-                            .clone()
-                            .expect("should have written at least 1 item"),
-                        writer
-                            .last_key
-                            .clone()
-                            .expect("should have written at least 1 item"),
-                    )),
                     compression: if passthrough_compression == CompressionType::None {
-                        writer.compression
+                        metadata.compression
                     } else {
                         passthrough_compression
                     },
                 },
             }));
-
-            writer.finish()?;
 
             Ok(Some(blob_file))
         } else {
@@ -220,11 +210,8 @@ impl MultiWriter {
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
-        if self.active_writer.item_count > 0 {
-            let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
-            self.results.extend(blob_file);
-        }
-
+        let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
+        self.results.extend(blob_file);
         Ok(self.results)
     }
 }

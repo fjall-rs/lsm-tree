@@ -11,7 +11,7 @@ use crate::{compaction::state::CompactionState, version::Version, Config};
 
 /// Size-tiered compaction strategy (STCS)
 ///
-/// If a level reaches a threshold, it is merged into a larger segment to the next level.
+/// If a level reaches a threshold, it is merged into a larger table to the next level.
 ///
 /// STCS suffers from high read and temporary doubled space amplification, but has good write amplification.
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct Strategy {
     /// level to the next
     ///
     /// A level target size is: base_size * level_ratio.pow(#level + 1)
-    #[allow(clippy::doc_markdown)]
+    #[expect(clippy::doc_markdown)]
     pub level_ratio: u8,
 }
 

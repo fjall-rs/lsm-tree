@@ -2,9 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::segment::block::Header;
-use crate::segment::{Block, BlockOffset};
-use crate::{GlobalSegmentId, UserValue};
+use crate::table::block::Header;
+use crate::table::{Block, BlockOffset};
+use crate::{GlobalTableId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
 
@@ -27,8 +27,8 @@ impl Equivalent<CacheKey> for (u8, u64, u64, u64) {
 }
 
 impl From<(u8, u64, u64, u64)> for CacheKey {
-    fn from((tag, root_id, segment_id, offset): (u8, u64, u64, u64)) -> Self {
-        Self(tag, root_id, segment_id, offset)
+    fn from((tag, root_id, table_id, offset): (u8, u64, u64, u64)) -> Self {
+        Self(tag, root_id, table_id, offset)
     }
 }
 
@@ -85,8 +85,7 @@ impl Cache {
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
-        // NOTE: Nothing we can do if it fails
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "nothing we can do if it fails")]
         let opts = quick_cache::OptionsBuilder::new()
             .weight_capacity(bytes)
             .hot_allocation(0.9)
@@ -94,11 +93,10 @@ impl Cache {
             .build()
             .expect("cache options should be valid");
 
-        #[allow(clippy::default_trait_access)]
         let quick_cache = QuickCache::with_options(
             opts,
             BlockWeighter,
-            Default::default(),
+            rustc_hash::FxBuildHasher,
             DefaultLifecycle::default(),
         );
 
@@ -134,8 +132,8 @@ impl Cache {
 
     #[doc(hidden)]
     #[must_use]
-    pub fn get_block(&self, id: GlobalSegmentId, offset: BlockOffset) -> Option<Block> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+    pub fn get_block(&self, id: GlobalTableId, offset: BlockOffset) -> Option<Block> {
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into();
 
         Some(match self.data.get(&key)? {
             Item::Block(block) => block,
@@ -144,9 +142,9 @@ impl Cache {
     }
 
     #[doc(hidden)]
-    pub fn insert_block(&self, id: GlobalSegmentId, offset: BlockOffset, block: Block) {
+    pub fn insert_block(&self, id: GlobalTableId, offset: BlockOffset, block: Block) {
         self.data.insert(
-            (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
+            (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into(),
             Item::Block(block),
         );
     }

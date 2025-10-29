@@ -4,7 +4,7 @@
 
 use crate::{
     coding::{Decode, Encode},
-    segment::{Block, DataBlock},
+    table::{Block, DataBlock},
     CompressionType, InternalValue, KeyRange, SeqNo, Slice,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -65,14 +65,14 @@ impl Metadata {
 
         #[rustfmt::skip]
         let meta_items = [
-            meta("#checksum_type", b"xxh3"),
-            meta("#compression", &self.compression.encode_into_vec()),
-            meta("#created_at", &self.created_at.to_le_bytes()),
-            meta("#file_size", &self.total_compressed_bytes.to_le_bytes()),
-            meta("#item_count", &self.item_count.to_le_bytes()),
-            meta("#key#max", self.key_range.min()),
-            meta("#key#min", self.key_range.max()),
-            meta("#uncompressed_size", &self.total_uncompressed_bytes.to_le_bytes()),
+            meta("checksum_type", b"xxh3"),
+            meta("compression", &self.compression.encode_into_vec()),
+            meta("created_at", &self.created_at.to_le_bytes()),
+            meta("file_size", &self.total_compressed_bytes.to_le_bytes()),
+            meta("item_count", &self.item_count.to_le_bytes()),
+            meta("key#max", self.key_range.min()),
+            meta("key#min", self.key_range.max()),
+            meta("uncompressed_size", &self.total_uncompressed_bytes.to_le_bytes()),
         ];
 
         // NOTE: Just to make sure the items are definitely sorted
@@ -88,7 +88,7 @@ impl Metadata {
         Block::write_into(
             writer,
             &buf,
-            crate::segment::block::BlockType::Meta,
+            crate::table::block::BlockType::Meta,
             CompressionType::None,
         )?;
 
@@ -112,14 +112,14 @@ impl Metadata {
         let block = Block::from_reader(reader, CompressionType::None)?;
         let block = DataBlock::new(block);
 
-        let created_at = read_u128!(block, b"#created_at");
-        let item_count = read_u64!(block, b"#item_count");
-        let file_size = read_u64!(block, b"#file_size");
-        let total_uncompressed_bytes = read_u64!(block, b"#uncompressed_size");
+        let created_at = read_u128!(block, b"created_at");
+        let item_count = read_u64!(block, b"item_count");
+        let file_size = read_u64!(block, b"file_size");
+        let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size");
 
         let compression = {
             let bytes = block
-                .point_read(b"#compression", SeqNo::MAX)
+                .point_read(b"compression", SeqNo::MAX)
                 .expect("size should exist");
 
             let mut bytes = &bytes.value[..];
@@ -128,11 +128,11 @@ impl Metadata {
 
         let key_range = KeyRange::new((
             block
-                .point_read(b"#key#min", SeqNo::MAX)
+                .point_read(b"key#min", SeqNo::MAX)
                 .expect("key min should exist")
                 .value,
             block
-                .point_read(b"#key#max", SeqNo::MAX)
+                .point_read(b"key#max", SeqNo::MAX)
                 .expect("key max should exist")
                 .value,
         ));

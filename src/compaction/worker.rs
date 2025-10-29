@@ -18,7 +18,7 @@ use crate::{
     tree::inner::{SuperVersion, TreeId},
     version::Version,
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
-    BlobFile, Config, HashSet, InternalValue, SegmentId, SeqNo, SequenceNumberCounter,
+    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, TableId,
 };
 use std::{
     sync::{atomic::AtomicU64, Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
@@ -34,7 +34,7 @@ pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalVa
 pub struct Options {
     pub tree_id: TreeId,
 
-    pub segment_id_generator: Arc<AtomicU64>, // TODO: change segment_id_generator to be SequenceNumberCounter
+    pub table_id_generator: Arc<AtomicU64>, // TODO: change to be SequenceNumberCounter
 
     pub blob_file_id_generator: SequenceNumberCounter,
 
@@ -63,7 +63,7 @@ impl Options {
     pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
         Self {
             tree_id: tree.id,
-            segment_id_generator: tree.segment_id_counter.clone(),
+            table_id_generator: tree.table_id_counter.clone(),
             blob_file_id_generator: tree.blob_file_id_generator.clone(),
             config: tree.config.clone(),
             super_version: tree.super_version.clone(),
@@ -99,9 +99,9 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => merge_segments(compaction_state, super_version, opts, &payload),
-        Choice::Move(payload) => move_segments(compaction_state, super_version, opts, &payload),
-        Choice::Drop(payload) => drop_segments(
+        Choice::Merge(payload) => merge_tables(compaction_state, super_version, opts, &payload),
+        Choice::Move(payload) => move_tables(compaction_state, super_version, opts, &payload),
+        Choice::Drop(payload) => drop_tables(
             compaction_state,
             super_version,
             opts,
@@ -116,7 +116,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
 
 fn create_compaction_stream<'a>(
     version: &Version,
-    to_compact: &[SegmentId],
+    to_compact: &[TableId],
     eviction_seqno: SeqNo,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
     let mut readers: Vec<CompactionReader<'_>> = vec![];
@@ -133,7 +133,7 @@ fn create_compaction_stream<'a>(
             let Some(lo) = run
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.id()))
+                .filter(|(_, table)| to_compact.contains(&table.id()))
                 .min_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -143,7 +143,7 @@ fn create_compaction_stream<'a>(
             let Some(hi) = run
                 .iter()
                 .enumerate()
-                .filter(|(_, segment)| to_compact.contains(&segment.id()))
+                .filter(|(_, table)| to_compact.contains(&table.id()))
                 .max_by(|(a, _), (b, _)| a.cmp(b))
                 .map(|(idx, _)| idx)
             else {
@@ -157,13 +157,13 @@ fn create_compaction_stream<'a>(
 
             found += hi - lo + 1;
         } else {
-            for segment in level
+            for table in level
                 .iter()
                 .flat_map(|x| x.iter())
                 .filter(|x| to_compact.contains(&x.metadata.id))
             {
                 found += 1;
-                readers.push(Box::new(segment.scan()?));
+                readers.push(Box::new(table.scan()?));
             }
         }
     }
@@ -175,7 +175,7 @@ fn create_compaction_stream<'a>(
     })
 }
 
-fn move_segments(
+fn move_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
@@ -188,20 +188,20 @@ fn move_segments(
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
-        .should_decline_compaction(payload.segment_ids.iter().copied())
+        .should_decline_compaction(payload.table_ids.iter().copied())
     {
         log::warn!(
-        "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+        "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
         opts.strategy.get_name(),
     );
         return Ok(());
     }
 
-    let segment_ids = payload.segment_ids.iter().copied().collect::<Vec<_>>();
+    let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
     compaction_state.upgrade_version(
         &mut super_version,
-        |current| Ok(current.with_moved(&segment_ids, payload.dest_level as usize)),
+        |current| Ok(current.with_moved(&table_ids, payload.dest_level as usize)),
         opts.eviction_seqno,
     )?;
 
@@ -213,25 +213,25 @@ fn move_segments(
     Ok(())
 }
 
-// TODO: 3.0.0 unit test
+// TODO: 3.0.0 unit test(s)
 /// Picks blob files to rewrite (defragment)
 fn pick_blob_files_to_rewrite(
-    picked_tables: &HashSet<SegmentId>,
+    picked_tables: &HashSet<TableId>,
     current_version: &Version,
     blob_opts: &crate::KvSeparationOptions,
 ) -> crate::Result<Vec<BlobFile>> {
-    use crate::Segment;
+    use crate::Table;
 
     // We start off by getting all the blob files that are referenced by the tables
     // that we want to compact.
     let linked_blob_files = picked_tables
         .iter()
         .map(|&id| {
-            current_version.get_segment(id).unwrap_or_else(|| {
-                panic!("table {id} should exist");
+            current_version.get_table(id).unwrap_or_else(|| {
+                panic!("Table {id} should exist");
             })
         })
-        .map(Segment::list_blob_file_references)
+        .map(Table::list_blob_file_references)
         .collect::<Result<Vec<_>, _>>()?;
 
     // Then we filter all blob files that are not fragmented or old enough.
@@ -244,7 +244,7 @@ fn pick_blob_files_to_rewrite(
                 .blob_files
                 .get(blob_file_ref.blob_file_id)
                 .unwrap_or_else(|| {
-                    panic!("blob file {} should exist", blob_file_ref.blob_file_id);
+                    panic!("Blob file {} should exist", blob_file_ref.blob_file_id);
                 })
         })
         .filter(|blob_file| {
@@ -269,7 +269,7 @@ fn pick_blob_files_to_rewrite(
     // IMPORTANT: Additionally, we also have to check if any other tables reference any of our candidate blob files.
     // We have to *not* include blob files that are referenced by other tables, because otherwise those
     // blob references would point into nothing (becoming dangling).
-    for table in current_version.iter_segments() {
+    for table in current_version.iter_tables() {
         if picked_tables.contains(&table.id()) {
             continue;
         }
@@ -305,12 +305,12 @@ fn hidden_guard(
 
         compaction_state
             .hidden_set_mut()
-            .show(payload.segment_ids.iter().copied());
+            .show(payload.table_ids.iter().copied());
     })
 }
 
-#[allow(clippy::too_many_lines)]
-fn merge_segments(
+#[expect(clippy::too_many_lines)]
+fn merge_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
@@ -324,23 +324,23 @@ fn merge_segments(
     // Fail-safe for buggy compaction strategies
     if compaction_state
         .hidden_set()
-        .should_decline_compaction(payload.segment_ids.iter().copied())
+        .should_decline_compaction(payload.table_ids.iter().copied())
     {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+            "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
     }
 
-    let Some(segments) = payload
-        .segment_ids
+    let Some(tables) = payload
+        .table_ids
         .iter()
-        .map(|&id| super_version.version.get_segment(id).cloned())
+        .map(|&id| super_version.version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
-            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -350,12 +350,12 @@ fn merge_segments(
 
     let Some(mut merge_iter) = create_compaction_stream(
         &super_version.version,
-        &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+        &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.eviction_seqno,
     )?
     else {
         log::warn!(
-            "Compaction task tried to compact segments that do not exist, declining to run it"
+            "Compaction task tried to compact tables that do not exist, declining to run it"
         );
         return Ok(());
     };
@@ -380,12 +380,12 @@ fn merge_segments(
             merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
 
             let blob_files_to_rewrite =
-                pick_blob_files_to_rewrite(&payload.segment_ids, current_version, blob_opts)?;
+                pick_blob_files_to_rewrite(&payload.table_ids, current_version, blob_opts)?;
 
             if blob_files_to_rewrite.is_empty() {
                 log::debug!("No blob relocation needed");
 
-                Box::new(StandardCompaction::new(table_writer, segments))
+                Box::new(StandardCompaction::new(table_writer, tables))
                     as Box<dyn super::flavour::CompactionFlavour>
             } else {
                 log::debug!(
@@ -410,7 +410,7 @@ fn merge_segments(
                 )?
                 .use_passthrough_compression(blob_opts.compression);
 
-                let inner = StandardCompaction::new(table_writer, segments);
+                let inner = StandardCompaction::new(table_writer, tables);
 
                 Box::new(RelocatingCompaction::new(
                     inner,
@@ -420,7 +420,7 @@ fn merge_segments(
                 ))
             }
         }
-        None => Box::new(StandardCompaction::new(table_writer, segments)),
+        None => Box::new(StandardCompaction::new(table_writer, tables)),
     };
 
     log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
@@ -430,7 +430,7 @@ fn merge_segments(
     {
         compaction_state
             .hidden_set_mut()
-            .hide(payload.segment_ids.iter().copied());
+            .hide(payload.table_ids.iter().copied());
     }
 
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
@@ -475,12 +475,12 @@ fn merge_segments(
 
             compaction_state
                 .hidden_set_mut()
-                .show(payload.segment_ids.iter().copied());
+                .show(payload.table_ids.iter().copied());
         })?;
 
     compaction_state
         .hidden_set_mut()
-        .show(payload.segment_ids.iter().copied());
+        .show(payload.table_ids.iter().copied());
 
     compaction_state
         .maintenance(opts.eviction_seqno)
@@ -496,11 +496,11 @@ fn merge_segments(
     Ok(())
 }
 
-fn drop_segments(
+fn drop_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
     super_version: RwLockReadGuard<'_, SuperVersion>,
     opts: &Options,
-    ids_to_drop: &[SegmentId],
+    ids_to_drop: &[TableId],
 ) -> crate::Result<()> {
     drop(super_version);
 
@@ -512,19 +512,19 @@ fn drop_segments(
         .should_decline_compaction(ids_to_drop.iter().copied())
     {
         log::warn!(
-            "Compaction task created by {:?} contained hidden segments, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
+            "Compaction task created by {:?} contained hidden tables, declining to run it - please report this at https://github.com/fjall-rs/lsm-tree/issues/new?template=bug_report.md",
             opts.strategy.get_name(),
         );
         return Ok(());
     }
 
-    let Some(segments) = ids_to_drop
+    let Some(tables) = ids_to_drop
         .iter()
-        .map(|&id| super_version.version.get_segment(id).cloned())
+        .map(|&id| super_version.version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
-            "Compaction task created by {:?} contained segments not referenced in the level manifest",
+            "Compaction task created by {:?} contained tables not referenced in the level manifest",
             opts.strategy.get_name(),
         );
         return Ok(());
@@ -534,8 +534,8 @@ fn drop_segments(
 
     let mut dropped_blob_files = vec![];
 
-    // IMPORTANT: Write the manifest with the removed segments first
-    // Otherwise the segment files are deleted, but are still referenced!
+    // IMPORTANT: Write the manifest with the removed tables first
+    // Otherwise the table files are deleted, but are still referenced!
     compaction_state.upgrade_version(
         &mut super_version,
         |current| current.with_dropped(ids_to_drop, &mut dropped_blob_files),
@@ -543,10 +543,10 @@ fn drop_segments(
     )?;
 
     // NOTE: If the application were to crash >here< it's fine
-    // The segments are not referenced anymore, and will be
+    // The tables are not referenced anymore, and will be
     // cleaned up upon recovery
-    for segment in segments {
-        segment.mark_as_deleted();
+    for table in tables {
+        table.mark_as_deleted();
     }
 
     for blob_file in dropped_blob_files {
@@ -561,7 +561,7 @@ fn drop_segments(
     drop(super_version);
     drop(compaction_state);
 
-    log::trace!("Dropped {} segments", ids_to_drop.len());
+    log::trace!("Dropped {} tables", ids_to_drop.len());
 
     Ok(())
 }
@@ -573,7 +573,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn compaction_drop_segments() -> crate::Result<()> {
+    fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
         let tree = crate::Config::new(folder).open()?;
@@ -589,7 +589,7 @@ mod tests {
 
         tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
-        assert_eq!(0, tree.segment_count());
+        assert_eq!(0, tree.table_count());
 
         Ok(())
     }

@@ -27,7 +27,7 @@ pub enum Error {
     /// Invalid or unparsable data format version
     InvalidVersion(FormatVersion),
 
-    /// Some required segments could not be recovered from disk
+    /// Some required files could not be recovered from disk
     Unrecoverable,
 
     /// Checksum mismatch

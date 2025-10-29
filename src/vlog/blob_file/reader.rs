@@ -54,8 +54,7 @@ impl<'a> Reader<'a> {
         let _seqno = reader.read_u64::<LittleEndian>()?;
         let key_len = reader.read_u16::<LittleEndian>()?;
 
-        // NOTE: Used in feature flagged branch
-        #[allow(unused)]
+        #[expect(unused, reason = "only used in feature flagged branch")]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
         let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
@@ -105,7 +104,7 @@ impl<'a> Reader<'a> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::SequenceNumberCounter;

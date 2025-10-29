@@ -7,24 +7,23 @@ use crate::coding::{Decode, Encode};
 use crate::compaction::state::CompactionState;
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
-use crate::file::SEGMENTS_FOLDER;
-use crate::segment::multi_writer::MultiWriter;
+use crate::file::TABLES_FOLDER;
+use crate::table::multi_writer::MultiWriter;
 use crate::tree::inner::SuperVersion;
 use crate::version::Version;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
-use crate::{BlobFile, HashSet, InternalValue, Segment};
+use crate::{BlobFile, HashSet, InternalValue, Table};
 
 pub(super) fn prepare_table_writer(
     version: &Version,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<MultiWriter> {
-    let segments_base_folder = opts.config.path.join(SEGMENTS_FOLDER);
+    let table_base_folder = opts.config.path.join(TABLES_FOLDER);
 
     let dst_lvl = payload.canonical_level.into();
 
     let data_block_size = opts.config.data_block_size_policy.get(dst_lvl);
-    let index_block_size = opts.config.index_block_size_policy.get(dst_lvl);
 
     let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(dst_lvl);
     let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(dst_lvl);
@@ -34,35 +33,45 @@ pub(super) fn prepare_table_writer(
 
     let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
 
-    let table_writer = MultiWriter::new(
-        segments_base_folder,
-        opts.segment_id_generator.clone(),
-        payload.target_size,
-    )?;
-
-    let last_level = (version.level_count() - 1) as u8;
-    let is_last_level = payload.dest_level == last_level;
+    let index_partitioning = opts.config.index_block_partitioning_policy.get(dst_lvl);
+    let filter_partitioning = opts.config.filter_block_partitioning_policy.get(dst_lvl);
 
     log::debug!(
-        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
-        payload.segment_ids,
+        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
+        payload.table_ids,
         payload.dest_level,
         payload.canonical_level,
         payload.target_size,
         opts.eviction_seqno,
     );
 
+    let mut table_writer = MultiWriter::new(
+        table_base_folder,
+        opts.table_id_generator.clone(),
+        payload.target_size,
+        payload.dest_level,
+    )?;
+
+    if index_partitioning {
+        table_writer = table_writer.use_partitioned_index();
+    }
+    if filter_partitioning {
+        table_writer = table_writer.use_partitioned_filter();
+    }
+
+    let last_level = (version.level_count() - 1) as u8;
+    let is_last_level = payload.dest_level == last_level;
+
     Ok(table_writer
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
         .use_data_block_compression(data_block_compression)
         .use_data_block_size(data_block_size)
-        .use_index_block_size(index_block_size)
         .use_data_block_hash_ratio(data_block_hash_ratio)
         .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
             use crate::config::FilterPolicyEntry::{Bloom, None};
-            use crate::segment::filter::BloomConstructionPolicy;
+            use crate::table::filter::BloomConstructionPolicy;
 
             if is_last_level && opts.config.expect_point_read_hits {
                 BloomConstructionPolicy::BitsPerKey(0.0)
@@ -79,7 +88,7 @@ pub(super) fn prepare_table_writer(
         }))
 }
 
-// TODO: 3.0.0 find a good name
+// TODO: find a better name
 pub(super) trait CompactionFlavour {
     fn write(&mut self, item: InternalValue) -> crate::Result<()>;
 
@@ -262,7 +271,7 @@ impl CompactionFlavour for RelocatingCompaction {
             super_version,
             |current| {
                 Ok(current.with_merge(
-                    &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
+                    &payload.table_ids.iter().copied().collect::<Vec<_>>(),
                     &created_tables,
                     payload.dest_level as usize,
                     if blob_frag_map_diff.is_empty() {
@@ -299,11 +308,11 @@ impl CompactionFlavour for RelocatingCompaction {
 pub struct StandardCompaction {
     start: Instant,
     table_writer: MultiWriter,
-    tables_to_rewrite: Vec<Segment>,
+    tables_to_rewrite: Vec<Table>,
 }
 
 impl StandardCompaction {
-    pub fn new(table_writer: MultiWriter, tables_to_rewrite: Vec<Segment>) -> Self {
+    pub fn new(table_writer: MultiWriter, tables_to_rewrite: Vec<Table>) -> Self {
         Self {
             start: Instant::now(),
             table_writer,
@@ -311,19 +320,19 @@ impl StandardCompaction {
         }
     }
 
-    fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Segment>> {
-        let segments_base_folder = self.table_writer.base_path.clone();
+    fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Table>> {
+        let table_base_folder = self.table_writer.base_path.clone();
 
         let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
         let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
 
-        let writer_results = self.table_writer.finish()?;
-
-        let created_segments = writer_results
+        self.table_writer
+            .finish()?
             .into_iter()
-            .map(|segment_id| -> crate::Result<Segment> {
-                Segment::recover(
-                    segments_base_folder.join(segment_id.to_string()),
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    table_base_folder.join(table_id.to_string()),
+                    checksum,
                     opts.tree_id,
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),
@@ -333,9 +342,7 @@ impl StandardCompaction {
                     opts.metrics.clone(),
                 )
             })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        Ok(created_segments)
+            .collect::<crate::Result<Vec<_>>>()
     }
 }
 
@@ -372,7 +379,7 @@ impl CompactionFlavour for StandardCompaction {
 
         let table_ids_to_delete = std::mem::take(&mut self.tables_to_rewrite);
 
-        let created_segments = self.consume_writer(opts, dst_lvl)?;
+        let created_tables = self.consume_writer(opts, dst_lvl)?;
 
         let mut blob_files_to_drop = Vec::default();
 
@@ -386,8 +393,8 @@ impl CompactionFlavour for StandardCompaction {
             super_version,
             |current| {
                 Ok(current.with_merge(
-                    &payload.segment_ids.iter().copied().collect::<Vec<_>>(),
-                    &created_segments,
+                    &payload.table_ids.iter().copied().collect::<Vec<_>>(),
+                    &created_tables,
                     payload.dest_level as usize,
                     if blob_frag_map.is_empty() {
                         None

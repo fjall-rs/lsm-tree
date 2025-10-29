@@ -6,8 +6,8 @@ use crate::{key::InternalKey, Slice, ValueType};
 
 /// User defined key
 pub type UserKey = Slice;
+
 /// User defined data (blob of bytes)
-#[allow(clippy::module_name_repetitions)]
 pub type UserValue = Slice;
 
 /// Sequence number - a monotonically increasing counter
@@ -22,7 +22,6 @@ pub type UserValue = Slice;
 pub type SeqNo = u64;
 
 /// Internal representation of KV pairs
-#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Eq)]
 pub struct InternalValue {
     /// Internal key

@@ -16,6 +16,9 @@ pub use hash_ratio::HashRatioPolicy;
 pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
+/// Partioning policy for indexes and filters
+pub type PartioningPolicy = PinningPolicy;
+
 use crate::{
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
     DescriptorTable, Tree,
@@ -62,9 +65,10 @@ const DEFAULT_FILE_FOLDER: &str = ".lsm.data";
 #[derive(Clone, Debug, PartialEq)]
 pub struct KvSeparationOptions {
     /// What type of compression is used for blobs
+    #[doc(hidden)]
     pub compression: CompressionType,
 
-    /// Blob file (value log segment) target size in bytes
+    /// Blob file target size in bytes
     #[doc(hidden)]
     pub file_target_size: u64,
 
@@ -72,9 +76,11 @@ pub struct KvSeparationOptions {
     #[doc(hidden)]
     pub separation_threshold: u32,
 
-    pub(crate) staleness_threshold: f32,
+    #[doc(hidden)]
+    pub staleness_threshold: f32,
 
-    pub(crate) age_cutoff: f32,
+    #[doc(hidden)]
+    pub age_cutoff: f32,
 }
 
 impl Default for KvSeparationOptions {
@@ -187,17 +193,32 @@ pub struct Config {
     /// Block size of data blocks
     pub data_block_size_policy: BlockSizePolicy,
 
-    /// Block size of index blocks
-    pub index_block_size_policy: BlockSizePolicy,
-
     /// Whether to pin index blocks
     pub index_block_pinning_policy: PinningPolicy,
 
     /// Whether to pin filter blocks
     pub filter_block_pinning_policy: PinningPolicy,
 
+    /// Whether to pin top level index of partitioned index
+    pub top_level_index_block_pinning_policy: PinningPolicy,
+
+    /// Whether to pin top level index of partitioned filter
+    pub top_level_filter_block_pinning_policy: PinningPolicy,
+
     /// Data block hash ratio
     pub data_block_hash_ratio_policy: HashRatioPolicy,
+
+    /// Whether to partition index blocks
+    pub index_block_partitioning_policy: PartioningPolicy,
+
+    /// Whether to partition filter blocks
+    pub filter_block_partitioning_policy: PartioningPolicy,
+
+    /// Partition size when using partitioned indexes
+    pub index_block_partition_size_policy: BlockSizePolicy,
+
+    /// Partition size when using partitioned filters
+    pub filter_block_partition_size_policy: BlockSizePolicy,
 
     /// If `true`, the last level will not build filters, reducing the filter size of a database
     /// by ~90% typically
@@ -226,10 +247,18 @@ impl Default for Config {
             level_count: DEFAULT_LEVEL_COUNT,
 
             data_block_size_policy: BlockSizePolicy::default(),
-            index_block_size_policy: BlockSizePolicy::default(),
 
             index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
+
+            top_level_index_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
+            top_level_filter_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
+
+            index_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
+            filter_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
+
+            index_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
+            filter_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
 
             data_block_compression_policy: CompressionPolicy::default(),
             index_block_compression_policy: CompressionPolicy::all(CompressionType::None),
@@ -280,6 +309,20 @@ impl Config {
     #[must_use]
     pub fn expect_point_read_hits(mut self, b: bool) -> Self {
         self.expect_point_read_hits = b;
+        self
+    }
+
+    /// Sets the partitioning policy for filter blocks.
+    #[must_use]
+    pub fn filter_block_partitioning_policy(mut self, policy: PinningPolicy) -> Self {
+        self.filter_block_partitioning_policy = policy;
+        self
+    }
+
+    /// Sets the partitioning policy for index blocks.
+    #[must_use]
+    pub fn index_block_partitioning_policy(mut self, policy: PinningPolicy) -> Self {
+        self.index_block_partitioning_policy = policy;
         self
     }
 
@@ -367,14 +410,6 @@ impl Config {
         self.data_block_size_policy = policy;
         self
     }
-
-    // TODO: 3.0.0 does nothing until we have partitioned indexes
-    // /// Sets the index block size policy.
-    // #[must_use]
-    // pub fn index_block_size_policy(mut self, policy: BlockSizePolicy) -> Self {
-    //     self.index_block_size_policy = policy;
-    //     self
-    // }
 
     /// Sets the hash ratio policy for data blocks.
     ///

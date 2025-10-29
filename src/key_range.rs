@@ -164,13 +164,11 @@ impl Encode for KeyRange {
         let min = self.min();
         let max = self.max();
 
-        // NOTE: Max key size = u16
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "max key size = u16")]
         writer.write_u16::<LittleEndian>(min.len() as u16)?;
         writer.write_all(min)?;
 
-        // NOTE: Max key size = u16
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "max key size = u16")]
         writer.write_u16::<LittleEndian>(max.len() as u16)?;
         writer.write_all(max)?;
 

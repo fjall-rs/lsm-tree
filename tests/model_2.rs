@@ -19,24 +19,24 @@ fn model_2() -> Result<()> {
     tree.insert("a", value, 3);
     tree.flush_active_memtable(0)?;
     tree.compact(compaction.clone(), 0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     tree.insert("b", value, 4);
     tree.flush_active_memtable(0)?;
     tree.compact(compaction.clone(), 0)?;
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
     tree.insert("a", value, 5);
     tree.flush_active_memtable(0)?;
     tree.compact(compaction.clone(), 0)?;
-    assert_eq!(3, tree.segment_count());
+    assert_eq!(3, tree.table_count());
     assert_eq!(3, tree.blob_file_count());
 
     tree.drop_range::<&[u8], _>(..)?;
 
-    assert_eq!(0, tree.segment_count());
+    assert_eq!(0, tree.table_count());
     assert_eq!(0, tree.blob_file_count());
 
     Ok(())

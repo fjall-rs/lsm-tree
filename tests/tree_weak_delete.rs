@@ -41,7 +41,7 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     Ok(())
@@ -57,13 +57,13 @@ fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     tree.remove_weak("a", 1);
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
     assert_eq!(0, tree.len(SeqNo::MAX, None)?);
 
     Ok(())
@@ -83,7 +83,7 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     Ok(())
@@ -99,13 +99,13 @@ fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
     tree.insert("a", "old", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
 
     tree.remove_weak("a", 1);
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     Ok(())

@@ -22,7 +22,7 @@ pub use leveled::Strategy as Leveled;
 pub use tiered::Strategy as SizeTiered;
 
 use crate::{
-    compaction::state::CompactionState, config::Config, version::Version, HashSet, SegmentId,
+    compaction::state::CompactionState, config::Config, version::Version, HashSet, KvPair, TableId,
 };
 
 /// Alias for `Leveled`
@@ -36,23 +36,23 @@ pub use pulldown::Strategy as PullDown;
 
 /// Input for compactor.
 ///
-/// The compaction strategy chooses which segments to compact and how.
+/// The compaction strategy chooses which tables to compact and how.
 /// That information is given to the compactor.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Input {
-    /// Segments to compact
-    pub segment_ids: HashSet<SegmentId>,
+    /// Tables to compact
+    pub table_ids: HashSet<TableId>,
 
-    /// Level to put the created segments into
+    /// Level to put the created tables into
     pub dest_level: u8,
 
-    /// The logical level the segments are part of
+    /// The logical level the tables are part of
     pub canonical_level: u8,
 
-    /// Segment target size
+    /// Table target size
     ///
-    /// If a segment compaction reaches the level, a new segment is started.
-    /// This results in a sorted "run" of segments
+    /// If a table merge reaches the size threshold, a new table is started.
+    /// This results in a sorted "run" of tables.
     pub target_size: u64,
 }
 
@@ -62,28 +62,33 @@ pub enum Choice {
     /// Just do nothing.
     DoNothing,
 
-    /// Moves segments into another level without rewriting.
+    /// Moves tables into another level without rewriting.
     Move(Input),
 
-    /// Compacts some segments into a new level.
+    /// Compacts some tables into a new level.
     Merge(Input),
 
-    /// Delete segments without doing compaction.
+    /// Delete tables without doing compaction.
     ///
     /// This may be used by a compaction strategy that wants to delete old data
     /// without having to compact it away, like [`fifo::Strategy`].
-    Drop(HashSet<SegmentId>),
+    Drop(HashSet<TableId>),
 }
 
 /// Trait for a compaction strategy
 ///
 /// The strategy receives the levels of the LSM-tree as argument
 /// and emits a choice on what to do.
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 pub trait CompactionStrategy {
     // TODO: could be : Display instead
     /// Gets the compaction strategy name.
     fn get_name(&self) -> &'static str;
+
+    #[doc(hidden)]
+    fn get_config(&self) -> Vec<KvPair> {
+        vec![]
+    }
 
     /// Decides on what to do based on the current state of the LSM-tree's levels
     fn choose(&self, version: &Version, config: &Config, state: &CompactionState) -> Choice;

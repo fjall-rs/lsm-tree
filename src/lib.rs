@@ -19,10 +19,10 @@
 //! on disk and perform fast lookup queries.
 //! Instead of updating a disk-based data structure in-place,
 //! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
-//! Data is then flushed to disk segments when the write buffer reaches some threshold.
+//! Data is then flushed to disk-resident table files when the write buffer reaches some threshold.
 //!
-//! Amassing many segments on disk will degrade read performance and waste disk space, so segments
-//! can be periodically merged into larger segments in a process called `Compaction`.
+//! Amassing many tables on disk will degrade read performance and waste disk space, so tables
+//! can be periodically merged into larger tables in a process called `Compaction`.
 //! Different compaction strategies have different advantages and drawbacks, and should be chosen based
 //! on the workload characteristics.
 //!
@@ -70,8 +70,8 @@
 //! // Note, this flushes synchronously, which may not be desired
 //! tree.flush_active_memtable(0)?;
 //!
-//! // When some disk segments have amassed, use compaction
-//! // to reduce the number of disk segments
+//! // When some tables have amassed, use compaction
+//! // to reduce the number of tables
 //!
 //! // Choose compaction strategy based on workload
 //! use lsm_tree::compaction::Leveled;
@@ -106,13 +106,6 @@
 pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
 pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
-
-#[allow(unused)]
-macro_rules! set {
-    ($($x:expr),+ $(,)?) => {
-        [$($x),+].into_iter().collect::<HashSet<_>>()
-    }
-}
 
 macro_rules! fail_iter {
     ($e:expr) => {
@@ -182,7 +175,7 @@ mod manifest;
 mod memtable;
 
 #[doc(hidden)]
-mod descriptor_table;
+pub mod descriptor_table;
 
 #[doc(hidden)]
 pub mod merge;
@@ -201,7 +194,7 @@ mod path;
 pub mod range;
 
 #[doc(hidden)]
-pub mod segment;
+pub mod table;
 
 mod seqno;
 mod slice;
@@ -236,7 +229,8 @@ pub use {
     blob_tree::handle::BlobIndirection,
     key_range::KeyRange,
     merge::BoxedIterator,
-    segment::{block::Checksum, GlobalSegmentId, Segment, SegmentId},
+    slice::Builder,
+    table::{block::Checksum, GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,

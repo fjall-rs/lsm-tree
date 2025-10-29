@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
     coding::Encode,
-    segment::{
+    table::{
         block::{header::Header as BlockHeader, offset::BlockOffset, ItemSize},
         meta::CompressionType,
         value_block::ValueBlock,

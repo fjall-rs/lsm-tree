@@ -6,29 +6,29 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
-    segment::Segment,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
+    table::Table,
     version::{run::Ranged, Run, Version},
-    HashSet, KeyRange, SegmentId,
+    HashSet, KeyRange, TableId,
 };
 
-pub fn aggregate_run_key_range(segments: &[Segment]) -> KeyRange {
-    let lo = segments.first().expect("run should never be empty");
-    let hi = segments.last().expect("run should never be empty");
+pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+    let lo = tables.first().expect("run should never be empty");
+    let hi = tables.last().expect("run should never be empty");
     KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }
 
 /// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
-    curr_run: &Run<Segment>,
-    next_run: Option<&Run<Segment>>,
+    curr_run: &Run<Table>,
+    next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
     overshoot: u64,
-    segment_base_size: u64,
-) -> Option<(HashSet<SegmentId>, bool)> {
+    table_base_size: u64,
+) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
     if let Some(window) = curr_run.shrinking_windows().find(|window| {
-        if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+        if hidden_set.is_blocked(window.iter().map(Table::id)) {
             // IMPORTANT: Compaction is blocked because of other
             // on-going compaction
             return false;
@@ -43,7 +43,7 @@ fn pick_minimal_compaction(
 
         next_run.get_overlapping(&key_range).is_empty()
     }) {
-        let ids = window.iter().map(Segment::id).collect();
+        let ids = window.iter().map(Table::id).collect();
         return Some((ids, true));
     }
 
@@ -52,15 +52,15 @@ fn pick_minimal_compaction(
         next_run
             .growing_windows()
             .take_while(|window| {
-                // Cap at 50x segments per compaction for now
+                // Cap at 50x tables per compaction for now
                 //
                 // At this point, all compactions are too large anyway
                 // so we can escape early
-                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
-                next_level_size <= (50 * segment_base_size)
+                let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
+                next_level_size <= (50 * table_base_size)
             })
             .filter_map(|window| {
-                if hidden_set.is_blocked(window.iter().map(Segment::id)) {
+                if hidden_set.is_blocked(window.iter().map(Table::id)) {
                     // IMPORTANT: Compaction is blocked because of other
                     // on-going compaction
                     return None;
@@ -68,29 +68,26 @@ fn pick_minimal_compaction(
 
                 let key_range = aggregate_run_key_range(window);
 
-                // Pull in all contained segments in current level into compaction
+                // Pull in all contained tables in current level into compaction
                 let curr_level_pull_in = curr_run.get_contained(&key_range);
 
-                let curr_level_size = curr_level_pull_in
-                    .iter()
-                    .map(Segment::file_size)
-                    .sum::<u64>();
+                let curr_level_size = curr_level_pull_in.iter().map(Table::file_size).sum::<u64>();
 
                 // if curr_level_size < overshoot {
                 //     return None;
                 // }
 
-                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Segment::id)) {
+                if hidden_set.is_blocked(curr_level_pull_in.iter().map(Table::id)) {
                     // IMPORTANT: Compaction is blocked because of other
                     // on-going compaction
                     return None;
                 }
 
-                let next_level_size = window.iter().map(Segment::file_size).sum::<u64>();
+                let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
 
                 //  let compaction_bytes = curr_level_size + next_level_size;
 
-                #[allow(clippy::cast_precision_loss)]
+                #[expect(clippy::cast_precision_loss)]
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
                 Some((window, curr_level_pull_in, write_amp))
@@ -98,8 +95,8 @@ fn pick_minimal_compaction(
             // Find the compaction with the smallest write amplification factor
             .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(window, curr_level_pull_in, _)| {
-                let mut ids: HashSet<_> = window.iter().map(Segment::id).collect();
-                ids.extend(curr_level_pull_in.iter().map(Segment::id));
+                let mut ids: HashSet<_> = window.iter().map(Table::id).collect();
+                ids.extend(curr_level_pull_in.iter().map(Table::id));
                 (ids, false)
             })
     } else {
@@ -109,9 +106,9 @@ fn pick_minimal_compaction(
 
 /// Levelled compaction strategy (LCS)
 ///
-/// When a level reaches some threshold size, parts of it are merged into overlapping segments in the next level.
+/// When a level reaches some threshold size, parts of it are merged into overlapping tables in the next level.
 ///
-/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` segments.
+/// Each level Ln for n >= 2 can have up to `level_base_size * ratio^(n - 1)` tables.
 ///
 /// LCS suffers from comparatively high write amplification, but has decent read amplification and great space amplification (~1.1x).
 ///
@@ -120,7 +117,7 @@ fn pick_minimal_compaction(
 /// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
 #[derive(Clone)]
 pub struct Strategy {
-    /// When the number of segments in L0 reaches this threshold,
+    /// When the number of tables in L0 reaches this threshold,
     /// they are merged into L1.
     ///
     /// Default = 4
@@ -128,23 +125,20 @@ pub struct Strategy {
     /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
     pub l0_threshold: u8,
 
-    /// The target segment size as disk (possibly compressed).
+    /// The target table size as disk (possibly compressed).
     ///
     /// Default = 64 MiB
     ///
     /// Same as `target_file_size_base` in `RocksDB`.
-    pub target_size: u32,
+    pub target_size: u64,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
     /// This is the exponential growth of the from one.
-    /// level to the next
-    ///
-    /// A level target size is: max_memtable_size * level_ratio.pow(#level + 1).
+    /// level to the next.
     ///
     /// Default = 10
-    #[allow(clippy::doc_markdown)]
-    pub level_ratio: u8,
+    pub level_ratio_policy: Vec<f32>,
 }
 
 impl Default for Strategy {
@@ -152,12 +146,24 @@ impl Default for Strategy {
         Self {
             l0_threshold: 4,
             target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
-            level_ratio: 10,
+            level_ratio_policy: vec![10.0],
         }
     }
 }
 
 impl Strategy {
+    /// Sets the growth ratio between levels.
+    #[must_use]
+    pub fn with_level_ratio_policy(mut self, policy: Vec<f32>) -> Self {
+        self.level_ratio_policy = policy;
+        self
+    }
+
+    /// Calculates the size of L1.
+    fn level_base_size(&self) -> u64 {
+        self.target_size * u64::from(self.l0_threshold)
+    }
+
     /// Calculates the level target size.
     ///
     /// L1 = `level_base_size`
@@ -173,13 +179,25 @@ impl Strategy {
             "level_target_size does not apply to L0",
         );
 
-        let power = (self.level_ratio as usize).pow(u32::from(canonical_level_idx) - 1) as u64;
+        if canonical_level_idx == 1 {
+            // u64::from(self.target_size)
+            self.level_base_size()
+        } else {
+            let mut size = self.level_base_size() as f32;
 
-        power * self.level_base_size()
-    }
+            // NOTE: Minus 2 because |{L0, L1}|
+            for idx in 0..=(canonical_level_idx - 2) {
+                let ratio = self
+                    .level_ratio_policy
+                    .get(usize::from(idx))
+                    .copied()
+                    .unwrap_or_else(|| self.level_ratio_policy.last().copied().unwrap_or(10.0));
 
-    fn level_base_size(&self) -> u64 {
-        u64::from(self.target_size) * u64::from(self.l0_threshold)
+                size *= ratio;
+            }
+
+            size as u64
+        }
     }
 }
 
@@ -188,12 +206,42 @@ impl CompactionStrategy for Strategy {
         "LeveledCompaction"
     }
 
-    #[allow(clippy::too_many_lines)]
+    fn get_config(&self) -> Vec<crate::KvPair> {
+        vec![
+            (
+                crate::UserKey::from("leveled_l0_threshold"),
+                crate::UserValue::from(self.l0_threshold.to_le_bytes()),
+            ),
+            (
+                crate::UserKey::from("leveled_target_size"),
+                crate::UserValue::from(self.target_size.to_le_bytes()),
+            ),
+            (
+                crate::UserKey::from("leveled_level_ratio_policy"),
+                crate::UserValue::from({
+                    use byteorder::{LittleEndian, WriteBytesExt};
+
+                    let mut v = vec![];
+
+                    v.write_u8(self.level_ratio_policy.len() as u8)
+                        .expect("cannot fail");
+
+                    for &f in &self.level_ratio_policy {
+                        v.write_f32::<LittleEndian>(f).expect("cannot fail");
+                    }
+
+                    v
+                }),
+            ),
+        ]
+    }
+
+    #[expect(clippy::too_many_lines)]
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Find the level that corresponds to L1
-        #[allow(clippy::map_unwrap_or)]
+        #[expect(clippy::map_unwrap_or)]
         let mut canonical_l1_idx = version
             .iter_levels()
             .enumerate()
@@ -218,7 +266,7 @@ impl CompactionStrategy for Strategy {
                         // NOTE: Take bytes that are already being compacted into account,
                         // otherwise we may be overcompensating
                         .filter(|x| !state.hidden_set().is_hidden(x.id()))
-                        .map(Segment::file_size)
+                        .map(Table::file_size)
                         .sum::<u64>();
 
                     let target_size = self.level_target_size((idx - level_shift) as u8);
@@ -233,23 +281,60 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // Trivial move into L1
+        'trivial: {
+            let first_level = version.l0();
+
+            if first_level.run_count() == 1 {
+                if version.level_is_busy(0, state.hidden_set())
+                    || version.level_is_busy(canonical_l1_idx, state.hidden_set())
+                {
+                    break 'trivial;
+                }
+
+                let Some(target_level) = &version.level(canonical_l1_idx) else {
+                    break 'trivial;
+                };
+
+                if target_level.run_count() != 1 {
+                    break 'trivial;
+                }
+
+                let key_range = first_level.aggregate_key_range();
+
+                // Get overlapping tables in next level
+                let get_overlapping = target_level
+                    .iter()
+                    .flat_map(|run| run.get_overlapping(&key_range))
+                    .map(Table::id)
+                    .next();
+
+                if get_overlapping.is_none() && first_level.is_disjoint() {
+                    return Choice::Move(CompactionInput {
+                        table_ids: first_level.list_ids(),
+                        dest_level: canonical_l1_idx as u8,
+                        canonical_level: 1,
+                        target_size: self.target_size,
+                    });
+                }
+            }
+        }
+
         // Scoring
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
         {
-            // TODO(weak-tombstone-rewrite): incorporate `Segment::weak_tombstone_count` and
-            // `Segment::weak_tombstone_reclaimable` when computing level scores so rewrite
-            // decisions can prioritize segments that would free the most reclaimable values.
+            // TODO(weak-tombstone-rewrite): incorporate `Table::weak_tombstone_count` and
+            // `Table::weak_tombstone_reclaimable` when computing level scores so rewrite
+            // decisions can prioritize tables that would free the most reclaimable values.
 
             // Score first level
 
-            // NOTE: We always have at least one level
-            #[allow(clippy::expect_used)]
             let first_level = version.l0();
 
             // TODO: use run_count instead? but be careful because of version free list GC thingy
-            if first_level.segment_count() >= usize::from(self.l0_threshold) {
-                let ratio = (first_level.segment_count() as f64) / f64::from(self.l0_threshold);
+            if first_level.table_count() >= usize::from(self.l0_threshold) {
+                let ratio = (first_level.table_count() as f64) / f64::from(self.l0_threshold);
                 scores[0] = (ratio, 0);
             }
 
@@ -265,13 +350,13 @@ impl CompactionStrategy for Strategy {
                     // NOTE: Take bytes that are already being compacted into account,
                     // otherwise we may be overcompensating
                     .filter(|x| !state.hidden_set().is_hidden(x.id()))
-                    .map(Segment::file_size)
+                    .map(Table::file_size)
                     .sum::<u64>();
 
                 let target_size = self.level_target_size((idx - level_shift) as u8);
 
                 // NOTE: We check for level length above
-                #[allow(clippy::indexing_slicing)]
+                #[expect(clippy::indexing_slicing)]
                 if level_size > target_size {
                     scores[idx] = (
                         level_size as f64 / target_size as f64,
@@ -291,7 +376,7 @@ impl CompactionStrategy for Strategy {
             // NOTE: Never score Lmax
             //
             // NOTE: We check for level length above
-            #[allow(clippy::indexing_slicing)]
+            #[expect(clippy::indexing_slicing)]
             {
                 scores[6] = (0.0, 0);
             }
@@ -328,33 +413,33 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            let mut segment_ids: HashSet<u64> = first_level.list_ids();
+            let mut table_ids = first_level.list_ids();
 
             let key_range = first_level.aggregate_key_range();
 
-            // Get overlapping segments in next level
-            let target_level_overlapping_segment_ids: Vec<_> = target_level
+            // Get overlapping tables in next level
+            let target_level_overlapping_table_ids: Vec<_> = target_level
                 .iter()
                 .flat_map(|run| run.get_overlapping(&key_range))
-                .map(Segment::id)
+                .map(Table::id)
                 .collect();
 
-            segment_ids.extend(&target_level_overlapping_segment_ids);
+            table_ids.extend(&target_level_overlapping_table_ids);
 
             let choice = CompactionInput {
-                segment_ids,
+                table_ids,
                 dest_level: canonical_l1_idx as u8,
                 canonical_level: 1,
-                target_size: u64::from(self.target_size),
+                target_size: self.target_size,
             };
 
             /* eprintln!(
-                "merge {} segments, L0->L1: {:?}",
+                "merge {} tables, L0->L1: {:?}",
                 choice.segment_ids.len(),
                 choice.segment_ids,
             ); */
 
-            if target_level_overlapping_segment_ids.is_empty() && first_level.is_disjoint() {
+            if target_level_overlapping_table_ids.is_empty() && first_level.is_disjoint() {
                 return Choice::Move(choice);
             }
             return Choice::Merge(choice);
@@ -363,7 +448,7 @@ impl CompactionStrategy for Strategy {
         // We choose L1+ compaction instead
 
         // NOTE: Level count is 255 max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let curr_level_index = level_idx_with_highest_score as u8;
 
         let next_level_index = curr_level_index + 1;
@@ -379,25 +464,25 @@ impl CompactionStrategy for Strategy {
         debug_assert!(level.is_disjoint(), "level should be disjoint");
         debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
 
-        let Some((segment_ids, can_trivial_move)) = pick_minimal_compaction(
+        let Some((table_ids, can_trivial_move)) = pick_minimal_compaction(
             level.first_run().expect("should have exactly one run"),
             next_level.first_run().map(std::ops::Deref::deref),
             state.hidden_set(),
             overshoot_bytes,
-            u64::from(self.target_size),
+            self.target_size,
         ) else {
             return Choice::DoNothing;
         };
 
         let choice = CompactionInput {
-            segment_ids,
+            table_ids,
             dest_level: next_level_index,
             canonical_level: next_level_index - (level_shift as u8),
-            target_size: u64::from(self.target_size),
+            target_size: self.target_size,
         };
 
         /* eprintln!(
-            "{} {} segments, L{}->L{next_level_index}: {:?}",
+            "{} {} tables, L{}->L{next_level_index}: {:?}",
             if can_trivial_move { "move" } else { "merge" },
             choice.segment_ids.len(),
             next_level_index - 1,

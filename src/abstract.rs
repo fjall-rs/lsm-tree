@@ -4,9 +4,9 @@
 
 use crate::{
     blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, segment::Segment, tree::inner::MemtableId, version::Version,
-    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SegmentId,
-    SeqNo, SequenceNumberCounter, Tree, TreeId, UserKey, UserValue,
+    iter_guard::IterGuardImpl, table::Table, tree::inner::MemtableId, version::Version,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
+    SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
 use std::{ops::RangeBounds, sync::Arc};
@@ -14,11 +14,11 @@ use std::{ops::RangeBounds, sync::Arc};
 pub type RangeItem = crate::Result<KvPair>;
 
 /// Generic Tree API
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 #[enum_dispatch]
 pub trait AbstractTree {
     #[doc(hidden)]
-    fn next_table_id(&self) -> SegmentId;
+    fn next_table_id(&self) -> TableId;
 
     #[doc(hidden)]
     fn id(&self) -> TreeId;
@@ -29,18 +29,18 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn current_version(&self) -> Version;
 
-    /// Synchronously flushes the active memtable to a disk segment.
+    /// Synchronously flushes the active memtable to a table.
     ///
     /// The function may not return a result, if, during concurrent workloads, the memtable
     /// ends up being empty before the flush is set up.
     ///
-    /// The result will contain the [`Segment`].
+    /// The result will contain the [`Table`].
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Segment>>;
+    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>>;
 
     /// Returns an iterator that scans through the entire tree.
     ///
@@ -105,7 +105,7 @@ pub trait AbstractTree {
 
     // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
 
-    /// Drops segments that are fully contained in a given range.
+    /// Drops tables that are fully contained in a given range.
     ///
     /// Accepts any `RangeBounds`, including unbounded or exclusive endpoints.
     /// If the normalized lower bound is greater than the upper bound, the
@@ -146,10 +146,10 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
-    /// Synchronously flushes a memtable to a disk segment.
+    /// Synchronously flushes a memtable to a table.
     ///
-    /// This method will not make the segment immediately available,
-    /// use [`AbstractTree::register_segments`] for that.
+    /// This method will not make the table immediately available,
+    /// use [`AbstractTree::register_tables`] for that.
     ///
     /// # Errors
     ///
@@ -157,19 +157,19 @@ pub trait AbstractTree {
     #[warn(clippy::type_complexity)]
     fn flush_memtable(
         &self,
-        segment_id: SegmentId, // TODO: remove?
+        table_id: TableId, // TODO: remove?
         memtable: &Arc<Memtable>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>>;
+    ) -> crate::Result<Option<(Table, Option<BlobFile>)>>;
 
-    /// Atomically registers flushed disk segments into the tree, removing their associated sealed memtables.
+    /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn register_segments(
+    fn register_tables(
         &self,
-        segments: &[Segment],
+        tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
@@ -203,8 +203,8 @@ pub trait AbstractTree {
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 
-    /// Returns the next segment's ID.
-    fn get_next_segment_id(&self) -> SegmentId;
+    /// Returns the next table's ID.
+    fn get_next_table_id(&self) -> TableId;
 
     /// Returns the tree config.
     fn tree_config(&self) -> &Config;
@@ -212,8 +212,8 @@ pub trait AbstractTree {
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
         let memtable_seqno = self.get_highest_memtable_seqno();
-        let segment_seqno = self.get_highest_persisted_seqno();
-        memtable_seqno.max(segment_seqno)
+        let table_seqno = self.get_highest_persisted_seqno();
+        memtable_seqno.max(table_seqno)
     }
 
     /// Returns the approximate size of the active memtable in bytes.
@@ -227,13 +227,13 @@ pub trait AbstractTree {
     /// Seals the active memtable, and returns a reference to it.
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
 
-    /// Returns the number of disk segments currently in the tree.
-    fn segment_count(&self) -> usize;
+    /// Returns the number of tables currently in the tree.
+    fn table_count(&self) -> usize;
 
-    /// Returns the number of segments in `levels[idx]`.
+    /// Returns the number of tables in `levels[idx]`.
     ///
     /// Returns `None` if the level does not exist (if idx >= 7).
-    fn level_segment_count(&self, idx: usize) -> Option<usize>;
+    fn level_table_count(&self, idx: usize) -> Option<usize>;
 
     /// Returns the number of disjoint runs in L0.
     ///

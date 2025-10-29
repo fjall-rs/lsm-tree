@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub use crate::segment::filter::BloomConstructionPolicy;
+pub use crate::table::filter::BloomConstructionPolicy;
 
 /// Filter policy entry
 ///

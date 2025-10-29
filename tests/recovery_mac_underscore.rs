@@ -9,16 +9,16 @@ fn recovery_mac_underscore_file() -> lsm_tree::Result<()> {
         let tree = Config::new(&folder).open()?;
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
     }
 
-    let ds_store = folder.join("segments").join("._0");
+    let ds_store = folder.join("tables").join("._0");
     std::fs::File::create(&ds_store)?;
     assert!(ds_store.try_exists()?);
 
     {
         let tree = Config::new(&folder).open()?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
     }
     assert!(ds_store.try_exists()?);
 

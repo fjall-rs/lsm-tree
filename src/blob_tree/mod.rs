@@ -14,12 +14,12 @@ use crate::{
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
-    segment::Segment,
+    table::Table,
     tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Config, Memtable, SegmentId, SeqNo, SequenceNumberCounter, UserKey, UserValue,
+    Config, Memtable, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
@@ -42,8 +42,7 @@ impl IterGuard for Guard<'_> {
             let mut cursor = Cursor::new(kv.value);
             Ok(BlobIndirection::decode_from(&mut cursor)?.size)
         } else {
-            // NOTE: We know that values are u32 max length
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 max length")]
             Ok(kv.value.len() as u32)
         }
     }
@@ -130,7 +129,7 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
-    fn next_table_id(&self) -> SegmentId {
+    fn next_table_id(&self) -> TableId {
         self.index.next_table_id()
     }
 
@@ -146,24 +145,24 @@ impl AbstractTree for BlobTree {
         self.index.current_version()
     }
 
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Segment>> {
-        let Some((segment_id, yanked_memtable)) = self.index.rotate_memtable() else {
+    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Table>> {
+        let Some((table_id, yanked_memtable)) = self.index.rotate_memtable() else {
             return Ok(None);
         };
 
-        let Some((segment, blob_file)) =
-            self.flush_memtable(segment_id, &yanked_memtable, eviction_seqno)?
+        let Some((table, blob_file)) =
+            self.flush_memtable(table_id, &yanked_memtable, eviction_seqno)?
         else {
             return Ok(None);
         };
-        self.register_segments(
-            std::slice::from_ref(&segment),
+        self.register_tables(
+            std::slice::from_ref(&table),
             blob_file.as_ref().map(std::slice::from_ref),
             None,
             eviction_seqno,
         )?;
 
-        Ok(Some(segment))
+        Ok(Some(table))
     }
 
     #[cfg(feature = "metrics")]
@@ -342,8 +341,7 @@ impl AbstractTree for BlobTree {
             let vptr = BlobIndirection::decode_from(&mut cursor)?;
             vptr.size
         } else {
-            // NOTE: Values are u32 length max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             {
                 item.value.len() as u32
             }
@@ -372,25 +370,25 @@ impl AbstractTree for BlobTree {
 
     fn flush_memtable(
         &self,
-        segment_id: SegmentId,
+        table_id: TableId,
         memtable: &Arc<Memtable>,
         eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<(Segment, Option<BlobFile>)>> {
-        use crate::{file::SEGMENTS_FOLDER, segment::Writer as SegmentWriter};
+    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
+        use crate::{file::TABLES_FOLDER, table::Writer as TableWriter};
 
-        let lsm_segment_folder = self.index.config.path.join(SEGMENTS_FOLDER);
+        let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
         log::debug!("Flushing memtable & performing key-value separation");
-        log::debug!("=> to LSM table in {}", lsm_segment_folder.display());
+        log::debug!("=> to table in {}", table_folder.display());
         log::debug!("=> to blob file at {}", self.blobs_folder.display());
 
-        let mut segment_writer =
-            SegmentWriter::new(lsm_segment_folder.join(segment_id.to_string()), segment_id)?
+        let mut table_writer =
+            TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
                 // TODO: apply other policies
                 .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
                 .use_bloom_policy({
                     use crate::config::FilterPolicyEntry::{Bloom, None};
-                    use crate::segment::filter::BloomConstructionPolicy;
+                    use crate::table::filter::BloomConstructionPolicy;
 
                     match self.index.config.filter_policy.get(0) {
                         Bloom(policy) => policy,
@@ -416,6 +414,7 @@ impl AbstractTree for BlobTree {
         let compaction_stream = CompactionStream::new(iter, eviction_seqno);
 
         let mut blob_bytes_referenced = 0;
+        let mut blob_on_disk_bytes_referenced = 0;
         let mut blobs_referenced_count = 0;
 
         let separation_threshold = self
@@ -432,14 +431,13 @@ impl AbstractTree for BlobTree {
             if item.is_tombstone() {
                 // NOTE: Still need to add tombstone to index tree
                 // But no blob to blob writer
-                segment_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
+                table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
                 continue;
             }
 
             let value = item.value;
 
-            // NOTE: Values are 32-bit max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             let value_size = value.len() as u32;
 
             if value_size >= separation_threshold {
@@ -456,7 +454,7 @@ impl AbstractTree for BlobTree {
                     size: value_size,
                 };
 
-                segment_writer.write({
+                table_writer.write({
                     let mut vptr =
                         InternalValue::new(item.key.clone(), indirection.encode_into_vec());
                     vptr.key.value_type = crate::ValueType::Indirection;
@@ -464,9 +462,10 @@ impl AbstractTree for BlobTree {
                 })?;
 
                 blob_bytes_referenced += u64::from(value_size);
+                blob_on_disk_bytes_referenced += u64::from(on_disk_size);
                 blobs_referenced_count += 1;
             } else {
-                segment_writer.write(InternalValue::new(item.key, value))?;
+                table_writer.write(InternalValue::new(item.key, value))?;
             }
         }
 
@@ -475,32 +474,33 @@ impl AbstractTree for BlobTree {
         assert!(blob_files.len() <= 1);
         let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree segment {segment_id}");
+        log::trace!("Creating LSM-tree table {table_id}");
 
         if blob_bytes_referenced > 0 {
             if let Some(blob_file) = &blob_file {
-                segment_writer.link_blob_file(
+                table_writer.link_blob_file(
                     blob_file.id(),
-                    blob_bytes_referenced,
                     blobs_referenced_count,
+                    blob_bytes_referenced,
+                    blob_on_disk_bytes_referenced,
                 );
             }
         }
 
-        let segment = self.index.consume_writer(segment_writer)?;
+        let table = self.index.consume_writer(table_writer)?;
 
-        Ok(segment.map(|segment| (segment, blob_file)))
+        Ok(table.map(|table| (table, blob_file)))
     }
 
-    fn register_segments(
+    fn register_tables(
         &self,
-        segments: &[Segment],
+        tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         self.index
-            .register_segments(segments, blob_files, frag_map, seqno_threshold)
+            .register_tables(tables, blob_files, frag_map, seqno_threshold)
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
@@ -519,8 +519,8 @@ impl AbstractTree for BlobTree {
         self.index.compact(strategy, seqno_threshold)
     }
 
-    fn get_next_segment_id(&self) -> SegmentId {
-        self.index.get_next_segment_id()
+    fn get_next_table_id(&self) -> TableId {
+        self.index.get_next_table_id()
     }
 
     fn tree_config(&self) -> &Config {
@@ -543,12 +543,12 @@ impl AbstractTree for BlobTree {
         self.index.rotate_memtable()
     }
 
-    fn segment_count(&self) -> usize {
-        self.index.segment_count()
+    fn table_count(&self) -> usize {
+        self.index.table_count()
     }
 
-    fn level_segment_count(&self, idx: usize) -> Option<usize> {
-        self.index.level_segment_count(idx)
+    fn level_table_count(&self, idx: usize) -> Option<usize> {
+        self.index.level_table_count(idx)
     }
 
     fn approximate_len(&self) -> usize {
@@ -575,8 +575,7 @@ impl AbstractTree for BlobTree {
 
     fn disk_space(&self) -> u64 {
         let version = self.current_version();
-        let vlog = crate::vlog::Accessor::new(&version.blob_files);
-        self.index.disk_space() + vlog.disk_space()
+        self.index.disk_space() + version.blob_files.on_disk_size()
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {

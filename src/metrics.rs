@@ -41,7 +41,10 @@ pub struct Metrics {
     pub(crate) io_skipped_by_filter: AtomicUsize,
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "metrics can accept precision loss"
+)]
 impl Metrics {
     /// Number of data blocks that were accessed.
     pub fn data_block_loads(&self) -> usize {
