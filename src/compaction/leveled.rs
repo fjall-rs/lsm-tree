@@ -282,6 +282,47 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // Trivial move into L1
+        'trivial: {
+            // NOTE: We always have at least one level
+            #[allow(clippy::expect_used)]
+            let first_level = version.l0();
+
+            if first_level.run_count() == 1 {
+                if version.level_is_busy(0, state.hidden_set())
+                    || version.level_is_busy(canonical_l1_idx, state.hidden_set())
+                {
+                    break 'trivial;
+                }
+
+                let Some(target_level) = &version.level(canonical_l1_idx) else {
+                    break 'trivial;
+                };
+
+                if target_level.run_count() != 1 {
+                    break 'trivial;
+                }
+
+                let key_range = first_level.aggregate_key_range();
+
+                // Get overlapping tables in next level
+                let get_overlapping = target_level
+                    .iter()
+                    .flat_map(|run| run.get_overlapping(&key_range))
+                    .map(Table::id)
+                    .next();
+
+                if get_overlapping.is_none() && first_level.is_disjoint() {
+                    return Choice::Move(CompactionInput {
+                        table_ids: first_level.list_ids(),
+                        dest_level: canonical_l1_idx as u8,
+                        canonical_level: 1,
+                        target_size: self.target_size,
+                    });
+                }
+            }
+        }
+
         // Scoring
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 
@@ -377,7 +418,7 @@ impl CompactionStrategy for Strategy {
                 return Choice::DoNothing;
             };
 
-            let mut table_ids: HashSet<u64> = first_level.list_ids();
+            let mut table_ids = first_level.list_ids();
 
             let key_range = first_level.aggregate_key_range();
 
