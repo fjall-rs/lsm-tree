@@ -85,7 +85,7 @@ impl ParsedMeta {
 
         let block = DataBlock::new(block);
 
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         {
             let table_version = block
                 .point_read(b"v#table_version", SeqNo::MAX)

@@ -123,11 +123,11 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
 
     {
         // SAFETY: We checked for max_pfx_len
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "see safety")]
         let prefix = unsafe { prefix.get_unchecked(0..max_pfx_len) };
 
         // SAFETY: We checked for max_pfx_len
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "see safety")]
         let needle = unsafe { needle.get_unchecked(0..max_pfx_len) };
 
         match prefix.cmp(needle) {
@@ -146,7 +146,7 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
 
     // SAFETY: We know that the prefix is definitely not longer than the needle
     // so we can safely truncate
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "see safety")]
     let needle = unsafe { needle.get_unchecked(max_pfx_len..) };
     suffix.cmp(needle)
 }

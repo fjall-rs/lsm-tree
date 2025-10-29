@@ -193,7 +193,7 @@ impl Iterator for Iter {
 
             // Load the next data block referenced by the index handle.  We try the shared block
             // cache first to avoid hitting the filesystem, and fall back to `load_block` on miss.
-            #[allow(clippy::single_match_else)]
+            #[expect(clippy::single_match_else)]
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {
@@ -292,7 +292,7 @@ impl DoubleEndedIterator for Iter {
 
             // Retrieve the next data block from the cache (or disk on miss) so the high-side reader
             // can serve entries in reverse order.
-            #[allow(clippy::single_match_else)]
+            #[expect(clippy::single_match_else)]
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {

@@ -78,15 +78,19 @@ impl crate::coding::Encode for FragmentationMap {
     fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::EncodeError> {
         use byteorder::{WriteBytesExt, LE};
 
-        // NOTE: We know there are always less than 4 billion blob files
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "there are always less than 4 billion blob files"
+        )]
         writer.write_u32::<LE>(self.len() as u32)?;
 
         for (blob_file_id, item) in self.iter() {
             writer.write_u64::<LE>(*blob_file_id)?;
 
-            // NOTE: We know there are always less than 4 billion blobs in a blob file
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are always less than 4 billion blobs in a blob file"
+            )]
             writer.write_u32::<LE>(item.len as u32)?;
 
             writer.write_u64::<LE>(item.bytes)?;
@@ -112,8 +116,10 @@ impl crate::coding::Decode for FragmentationMap {
         for _ in 0..len {
             let id = reader.read_u64::<LE>()?;
 
-            // NOTE: We know there are always less than 4 billion blobs in a blob file
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are always less than 4 billion blobs in a blob file"
+            )]
             let len = reader.read_u32::<LE>()? as usize;
 
             let bytes = reader.read_u64::<LE>()?;

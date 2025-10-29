@@ -211,7 +211,7 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
-        #[allow(clippy::explicit_counter_loop)]
+        #[expect(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
@@ -985,8 +985,10 @@ impl Tree {
             for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
                     for &(table_id, checksum) in run {
-                        // NOTE: We know there are always less than 256 levels
-                        #[allow(clippy::expect_used)]
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "there are always less than 256 levels"
+                        )]
                         result.insert(
                             table_id,
                             (

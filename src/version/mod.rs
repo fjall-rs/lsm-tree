@@ -609,20 +609,26 @@ impl Version {
         writer.start("tables")?;
 
         // Level count
-        // NOTE: We know there are always less than 256 levels
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "there are always less than 256 levels"
+        )]
         writer.write_u8(self.level_count() as u8)?;
 
         for level in self.iter_levels() {
             // Run count
-            // NOTE: We know there are always less than 256 runs
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are always less than 256 runs"
+            )]
             writer.write_u8(level.len() as u8)?;
 
             for run in level.iter() {
                 // Table count
-                // NOTE: We know there are always less than 4 billion tables in a run
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "there are always less than 4 billion tables in a run"
+                )]
                 writer.write_u32::<LittleEndian>(run.len() as u32)?;
 
                 // Tables
@@ -637,8 +643,10 @@ impl Version {
         writer.start("blob_files")?;
 
         // Blob file count
-        // NOTE: We know there are always less than 4 billion blob files
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "there are always less than 4 billion blob files"
+        )]
         writer.write_u32::<LittleEndian>(self.blob_files.len() as u32)?;
 
         for file in self.blob_files.iter() {

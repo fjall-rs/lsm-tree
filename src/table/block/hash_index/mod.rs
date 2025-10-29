@@ -27,13 +27,16 @@ pub use reader::Reader;
 pub(crate) const MARKER_FREE: u8 = u8::MAX - 1; // 254
 pub(crate) const MARKER_CONFLICT: u8 = u8::MAX; // 255
 
-// NOTE: We know the hash index has a bucket count <= u32
-#[allow(clippy::cast_possible_truncation)]
 /// Calculates the bucket index for the given key.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the hash index has a bucket count <= u32"
+)]
 fn calculate_bucket_position(key: &[u8], bucket_count: u32) -> usize {
     use crate::hash::hash64;
 
     let hash = hash64(key);
+
     (hash % u64::from(bucket_count)) as usize
 }
 
