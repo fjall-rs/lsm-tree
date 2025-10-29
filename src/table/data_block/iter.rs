@@ -34,8 +34,6 @@ impl<'a> Iter<'a> {
         true
     }
 
-    // TODO: the peek() + next() pattern is a bit unfortunate
-    // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek(&mut self, needle: &[u8]) -> bool {
         // Find the restart interval whose head key is the last one strictly below `needle`.
         // The decoder then performs a linear scan within that interval; we stop as soon as we
@@ -73,8 +71,6 @@ impl<'a> Iter<'a> {
         }
     }
 
-    // TODO: the peek_back() + next_back() pattern is a bit unfortunate
-    // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
         // Reverse-bound seek: position the high scanner at the first restart whose head key is
         // ≤ needle, then walk backwards inside the interval until we find a key ≤ needle.
