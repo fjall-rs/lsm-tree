@@ -66,8 +66,9 @@ pub struct Iter {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
 
-    #[allow(clippy::struct_field_names)]
+    #[expect(clippy::struct_field_names)]
     index_iter: BlockIndexIterImpl,
+
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,

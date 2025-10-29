@@ -155,10 +155,10 @@ mod tests {
             let mut counters = std::collections::HashMap::new();
 
             $(
-                #[allow(clippy::string_lit_as_bytes)]
+                #[expect(clippy::string_lit_as_bytes)]
                 let key = $key.as_bytes();
 
-                #[allow(clippy::string_lit_as_bytes)]
+                #[expect(clippy::string_lit_as_bytes)]
                 let sub_key = $sub_key.as_bytes();
 
                 let value_type = match $value_type {

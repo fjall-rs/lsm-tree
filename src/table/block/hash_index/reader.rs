@@ -15,8 +15,10 @@ impl<'a> Reader<'a> {
         let len = len as usize;
         let end = offset + len;
 
-        // NOTE: We consider the caller to be trustworthy
-        #[warn(clippy::indexing_slicing)]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "we consider the caller to be trustworthy"
+        )]
         Self(&bytes[offset..end])
     }
 
@@ -26,18 +28,22 @@ impl<'a> Reader<'a> {
         self.0.len()
     }
 
-    // NOTE: Only used in metrics, so no need to be hyper-optimized
-    #[allow(clippy::naive_bytecount)]
     /// Returns the number of empty slots in the hash index.
     #[must_use]
+    #[expect(
+        clippy::naive_bytecount,
+        reason = "only used in metrics, so no need to be hyper-optimized"
+    )]
     pub fn free_count(&self) -> usize {
         self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
     }
 
-    // NOTE: Only used in metrics, so no need to be hyper-optimized
     /// Returns the number of conflict markers in the hash index.
     #[must_use]
-    #[allow(clippy::naive_bytecount)]
+    #[expect(
+        clippy::naive_bytecount,
+        reason = "only used in metrics, so no need to be hyper-optimized"
+    )]
     pub fn conflict_count(&self) -> usize {
         self.0
             .iter()

@@ -137,7 +137,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
     /// Returns the number of items in the block.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(self.block).item_count()
     }

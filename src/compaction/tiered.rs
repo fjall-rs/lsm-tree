@@ -25,7 +25,7 @@ pub struct Strategy {
     /// level to the next
     ///
     /// A level target size is: base_size * level_ratio.pow(#level + 1)
-    #[allow(clippy::doc_markdown)]
+    #[expect(clippy::doc_markdown)]
     pub level_ratio: u8,
 }
 

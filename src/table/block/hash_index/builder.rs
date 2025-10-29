@@ -37,10 +37,12 @@ impl Builder {
         }
     }
 
-    // NOTE: We know the hash index has a bucket count <= u8
-    #[allow(clippy::cast_possible_truncation)]
     /// Returns the number of buckets.
     #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "we know the hash index has a bucket count <= u8"
+    )]
     pub fn bucket_count(&self) -> u32 {
         self.0.len() as u32
     }
