@@ -403,6 +403,10 @@ impl Writer {
                     "data_block_count",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
                 ),
+                meta(
+                    "data_block_hash_ratio",
+                    &self.data_block_hash_ratio.to_le_bytes(),
+                ),
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
                 meta("filter_hash_type", b"xxh3"),
                 meta("id", &self.table_id.to_le_bytes()),
@@ -451,7 +455,6 @@ impl Writer {
                     "weak_tombstone_reclaimable",
                     &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
                 ),
-                // TODO: hash ratio etc
             ];
 
             // NOTE: Just to make sure the items are definitely sorted
