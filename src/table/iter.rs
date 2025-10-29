@@ -36,20 +36,34 @@ self_cell!(
 );
 
 impl OwnedDataBlockIter {
-    pub fn seek_lower(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    pub fn seek_lower_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek(needle /* TODO: , seqno */))
     }
 
-    pub fn seek_upper(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    pub fn seek_upper_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_upper(needle /* TODO: , seqno */))
     }
 
-    pub fn seek_lower_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_lower_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_exclusive(needle /* TODO: , seqno */))
     }
 
-    pub fn seek_upper_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+    fn seek_upper_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_upper_exclusive(needle /* TODO: , seqno */))
+    }
+
+    pub fn seek_lower_bound(&mut self, bound: &Bound, seqno: SeqNo) -> bool {
+        match bound {
+            Bound::Included(key) => self.seek_lower_inclusive(key, seqno),
+            Bound::Excluded(key) => self.seek_lower_exclusive(key, seqno),
+        }
+    }
+
+    pub fn seek_upper_bound(&mut self, bound: &Bound, seqno: SeqNo) -> bool {
+        match bound {
+            Bound::Included(key) => self.seek_upper_inclusive(key, seqno),
+            Bound::Excluded(key) => self.seek_upper_exclusive(key, seqno),
+        }
     }
 }
 
@@ -244,16 +258,10 @@ impl Iterator for Iter {
             // bound, then clamp the iterator on the high side. This guarantees iteration stays in
             // [low, high] with exact control over inclusivity/exclusivity.
             if let Some(bound) = &self.range.0 {
-                match bound {
-                    Bound::Excluded(key) => reader.seek_lower_exclusive(key, SeqNo::MAX),
-                    Bound::Included(key) => reader.seek_lower(key, SeqNo::MAX),
-                };
+                reader.seek_lower_bound(bound, SeqNo::MAX);
             }
             if let Some(bound) = &self.range.1 {
-                match bound {
-                    Bound::Excluded(key) => reader.seek_upper_exclusive(key, SeqNo::MAX),
-                    Bound::Included(key) => reader.seek_upper(key, SeqNo::MAX),
-                };
+                reader.seek_upper_bound(bound, SeqNo::MAX);
             }
 
             let item = reader.next();
@@ -356,16 +364,10 @@ impl DoubleEndedIterator for Iter {
             // the upper bound, then apply the low-side seek to avoid stepping below the lower
             // bound during reverse traversal.
             if let Some(bound) = &self.range.1 {
-                match bound {
-                    Bound::Excluded(key) => reader.seek_upper_exclusive(key, SeqNo::MAX),
-                    Bound::Included(key) => reader.seek_upper(key, SeqNo::MAX),
-                };
+                reader.seek_upper_bound(bound, SeqNo::MAX);
             }
             if let Some(bound) = &self.range.0 {
-                match bound {
-                    Bound::Excluded(key) => reader.seek_lower_exclusive(key, SeqNo::MAX),
-                    Bound::Included(key) => reader.seek_lower(key, SeqNo::MAX),
-                };
+                reader.seek_lower_bound(bound, SeqNo::MAX);
             }
 
             let item = reader.next_back();
