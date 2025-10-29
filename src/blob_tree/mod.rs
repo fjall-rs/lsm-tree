@@ -436,8 +436,7 @@ impl AbstractTree for BlobTree {
 
             let value = item.value;
 
-            // NOTE: Values are 32-bit max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
             let value_size = value.len() as u32;
 
             if value_size >= separation_threshold {

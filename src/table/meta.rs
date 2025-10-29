@@ -72,7 +72,7 @@ macro_rules! read_u64 {
 }
 
 impl ParsedMeta {
-    #[allow(clippy::expect_used, clippy::too_many_lines)]
+    #[expect(clippy::expect_used, clippy::too_many_lines)]
     pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
         let block = Block::from_file(file, *handle, CompressionType::None)?;
 

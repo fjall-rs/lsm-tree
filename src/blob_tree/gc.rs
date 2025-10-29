@@ -153,7 +153,7 @@ impl ExpiredKvCallback for FragmentationMap {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_gc_count_drops() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = &[

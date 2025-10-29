@@ -123,7 +123,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn merge_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let a = vec![
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     #[ignore = "maybe not needed"]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn merge_dup() -> crate::Result<()> {
         #[rustfmt::skip]
         let a = vec![

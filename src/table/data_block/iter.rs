@@ -119,7 +119,7 @@ impl DoubleEndedIterator for Iter<'_> {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use crate::{
         table::{

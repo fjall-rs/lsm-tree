@@ -156,8 +156,7 @@ impl TreeIter {
                         // Do nothing
                     }
                     1 => {
-                        // NOTE: We checked for length
-                        #[allow(clippy::expect_used)]
+                        #[expect(clippy::expect_used, reason = "we checked for length")]
                         let table = run.first().expect("should exist");
 
                         if table.check_key_range_overlap(&(

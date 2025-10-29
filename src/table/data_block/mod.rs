@@ -877,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_1() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -914,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_2() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -963,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_3() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
@@ -1012,7 +1012,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn data_block_point_read_mvcc_latest_fuzz_3_dense() -> crate::Result<()> {
         let items = [
             InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
