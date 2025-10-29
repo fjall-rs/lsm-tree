@@ -49,7 +49,6 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    #[allow(clippy::explicit_counter_loop)]
     for _ in 0u64..version_count {
         tree.insert(key, format!("abc{version_count}").as_bytes(), seqno.next());
     }

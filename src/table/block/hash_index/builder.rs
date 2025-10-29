@@ -57,14 +57,14 @@ impl Builder {
         let bucket_pos = calculate_bucket_position(key, self.bucket_count());
 
         // SAFETY: We use modulo in `calculate_bucket_position`
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code, reason = "see safety")]
         let curr_marker = unsafe { *self.0.get_unchecked(bucket_pos) };
 
         match curr_marker {
             MARKER_CONFLICT => false,
             MARKER_FREE => {
                 // SAFETY: We previously asserted that the slot exists
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code, reason = "see safety")]
                 unsafe {
                     *self.0.get_unchecked_mut(bucket_pos) = binary_index_pos;
                 }
@@ -72,15 +72,15 @@ impl Builder {
                 true
             }
             x if x == binary_index_pos => {
-                // NOTE: If different keys map to the same bucket, we can keep
+                // If different keys map to the same bucket, we can keep
                 // the mapping
                 true
             }
             _ => {
-                // NOTE: Mark as conflicted
+                // Mark as conflicted
 
                 // SAFETY: We previously asserted that the slot exists
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code, reason = "see safety")]
                 unsafe {
                     *self.0.get_unchecked_mut(bucket_pos) = MARKER_CONFLICT;
                 }

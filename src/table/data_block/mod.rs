@@ -425,7 +425,7 @@ impl DataBlock {
     }
 
     #[must_use]
-    #[allow(clippy::iter_without_into_iter)]
+    #[expect(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Iter<'_> {
         Iter::new(
             &self.inner.data,
@@ -451,7 +451,7 @@ impl DataBlock {
 
     /// Returns the number of items in the block.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
     }

@@ -140,11 +140,8 @@ impl MultiWriter {
                     item_count: metadata.item_count,
                     total_compressed_bytes: metadata.total_compressed_bytes,
                     total_uncompressed_bytes: metadata.total_uncompressed_bytes,
-
-                    // NOTE: We are checking for 0 items above
-                    // so first and last key need to exist
-                    #[allow(clippy::expect_used)]
                     key_range: metadata.key_range.clone(),
+
                     compression: if passthrough_compression == CompressionType::None {
                         metadata.compression
                     } else {

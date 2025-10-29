@@ -32,8 +32,7 @@ impl<'a> BitArrayReader<'a> {
     pub fn get(&self, idx: usize) -> bool {
         let byte_idx = idx / 8;
 
-        // NOTE: We trust the caller
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "we trust the caller")]
         let byte = self.0.get(byte_idx).expect("should be in bounds");
 
         let bit_idx = idx % 8;

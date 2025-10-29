@@ -84,7 +84,6 @@ impl Iterator for Scanner {
 
         let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
 
-        #[allow(unused)]
         let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
 
         let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());

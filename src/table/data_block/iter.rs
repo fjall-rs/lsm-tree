@@ -1312,13 +1312,7 @@ mod tests {
                 > 0,
         );
 
-        assert_eq!(
-            {
-                #[allow(clippy::suspicious_map)]
-                data_block.iter().count()
-            },
-            items.len(),
-        );
+        assert_eq!(data_block.iter().count(), items.len());
 
         Ok(())
     }
@@ -1368,13 +1362,7 @@ mod tests {
                 > 0,
         );
 
-        assert_eq!(
-            {
-                #[allow(clippy::suspicious_map)]
-                data_block.iter().count()
-            },
-            items.len(),
-        );
+        assert_eq!(data_block.iter().count(), items.len());
 
         Ok(())
     }
