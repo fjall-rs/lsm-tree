@@ -85,8 +85,7 @@ impl Cache {
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
-        // NOTE: Nothing we can do if it fails
-        #[allow(clippy::expect_used)]
+        #[allow(clippy::expect_used, reason = "nothing we can do if it fails")]
         let opts = quick_cache::OptionsBuilder::new()
             .weight_capacity(bytes)
             .hot_allocation(0.9)
