@@ -24,12 +24,11 @@ impl DescriptorTable {
     pub fn new(capacity: usize) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
-        #[allow(clippy::default_trait_access)]
         let quick_cache = QuickCache::with(
             1_000,
             capacity as u64,
             UnitWeighter,
-            Default::default(),
+            rustc_hash::FxBuildHasher,
             DefaultLifecycle::default(),
         );
 

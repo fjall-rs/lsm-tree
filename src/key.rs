@@ -6,7 +6,6 @@ use crate::{SeqNo, UserKey, ValueType};
 use std::cmp::Reverse;
 
 #[derive(Clone, Eq)]
-#[allow(clippy::module_name_repetitions)]
 pub struct InternalKey {
     pub user_key: UserKey,
     pub seqno: SeqNo,

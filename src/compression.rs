@@ -8,7 +8,6 @@ use std::io::{Read, Write};
 
 /// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
     /// No compression
     ///

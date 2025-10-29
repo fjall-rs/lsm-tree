@@ -62,8 +62,10 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
             let prev = match self.inner.peek_back() {
                 Some(Ok(prev)) => prev,
                 Some(Err(_)) => {
-                    // NOTE: We just asserted, the peeked value is an error
-                    #[allow(clippy::expect_used)]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we just asserted, the peeked value is an error"
+                    )]
                     return Some(Err(self
                         .inner
                         .next_back()
@@ -122,7 +124,7 @@ mod tests {
         };
     }
 
-    // NOTE: Tests that the iterator emit the same stuff forwards and backwards, just in reverse
+    /// Tests that the iterator emit the same stuff forwards and backwards, just in reverse
     macro_rules! test_reverse {
         ($v:expr) => {
             let iter = Box::new($v.iter().cloned().map(Ok));
