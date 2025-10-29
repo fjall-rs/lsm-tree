@@ -21,7 +21,6 @@ pub struct MultiWriter {
     data_block_hash_ratio: f32,
 
     data_block_size: u32,
-    index_block_size: u32,
 
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
@@ -71,7 +70,6 @@ impl MultiWriter {
             data_block_hash_ratio: 0.0,
 
             data_block_size: 4_096,
-            index_block_size: 4_096,
 
             data_block_restart_interval: 16,
             index_block_restart_interval: 1,
@@ -158,17 +156,6 @@ impl MultiWriter {
     }
 
     #[must_use]
-    pub(crate) fn use_index_block_size(mut self, size: u32) -> Self {
-        assert!(
-            size <= 4 * 1_024 * 1_024,
-            "index block size must be <= 4 MiB",
-        );
-        self.index_block_size = size;
-        self.writer = self.writer.use_index_block_size(size);
-        self
-    }
-
-    #[must_use]
     pub fn use_data_block_compression(mut self, compression: CompressionType) -> Self {
         self.data_block_compression = compression;
         self.writer = self.writer.use_data_block_compression(compression);
@@ -208,7 +195,6 @@ impl MultiWriter {
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)
-            .use_index_block_size(self.index_block_size)
             .use_data_block_restart_interval(self.data_block_restart_interval)
             .use_index_block_restart_interval(self.index_block_restart_interval)
             .use_bloom_policy(self.bloom_policy)

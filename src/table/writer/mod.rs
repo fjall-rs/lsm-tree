@@ -39,7 +39,6 @@ pub struct Writer {
     index_block_restart_interval: u8,
 
     data_block_size: u32,
-    index_block_size: u32, // TODO: 3.0.0 implement partitioned index
 
     data_block_hash_ratio: f32,
 
@@ -101,7 +100,6 @@ impl Writer {
             data_block_hash_ratio: 0.0,
 
             data_block_size: 4_096,
-            index_block_size: 4_096,
 
             data_block_compression: CompressionType::None,
             index_block_compression: CompressionType::None,
@@ -183,16 +181,6 @@ impl Writer {
             "data block size must be <= 4 MiB",
         );
         self.data_block_size = size;
-        self
-    }
-
-    #[must_use]
-    pub fn use_index_block_size(mut self, size: u32) -> Self {
-        assert!(
-            size <= 4 * 1_024 * 1_024,
-            "index block size must be <= 4 MiB",
-        );
-        self.index_block_size = size;
         self
     }
 
