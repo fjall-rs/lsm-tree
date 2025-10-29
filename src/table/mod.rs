@@ -357,8 +357,6 @@ impl Table {
         &self,
         range: R,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
-        use crate::fallible_clipping_iter::FallibleClippingIter;
-
         let index_iter = self.block_index.iter();
 
         let mut iter = Iter::new(
@@ -373,20 +371,18 @@ impl Table {
         );
 
         match range.start_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_lower_bound(key.clone());
-            }
+            Bound::Included(key) => iter.set_lower_bound(key.clone()),
+            Bound::Excluded(key) => iter.set_lower_bound_exclusive(key.clone()),
             Bound::Unbounded => {}
         }
 
         match range.end_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_upper_bound(key.clone());
-            }
+            Bound::Included(key) => iter.set_upper_bound(key.clone()),
+            Bound::Excluded(key) => iter.set_upper_bound_exclusive(key.clone()),
             Bound::Unbounded => {}
         }
 
-        FallibleClippingIter::new(iter, range)
+        iter
     }
 
     fn read_tli(

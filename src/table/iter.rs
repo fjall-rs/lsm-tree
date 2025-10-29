@@ -20,6 +20,12 @@ use crate::metrics::Metrics;
 
 type InnerIter<'a> = DataBlockIter<'a>;
 
+enum Bound {
+    Included(UserKey),
+    Excluded(UserKey),
+}
+type Bounds = (Option<Bound>, Option<Bound>);
+
 self_cell!(
     pub struct OwnedDataBlockIter {
         owner: DataBlock,
@@ -36,6 +42,14 @@ impl OwnedDataBlockIter {
 
     pub fn seek_upper(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.with_dependent_mut(|_, m| m.seek_upper(needle /* TODO: , seqno */))
+    }
+
+    pub fn seek_lower_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_exclusive(needle /* TODO: , seqno */))
+    }
+
+    pub fn seek_upper_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_upper_exclusive(needle /* TODO: , seqno */))
     }
 }
 
@@ -80,7 +94,7 @@ pub struct Iter {
     hi_offset: BlockOffset,
     hi_data_block: Option<OwnedDataBlockIter>,
 
-    range: (Option<UserKey>, Option<UserKey>),
+    range: Bounds,
 
     #[cfg(feature = "metrics")]
     metrics: Arc<Metrics>,
@@ -121,11 +135,19 @@ impl Iter {
     }
 
     pub fn set_lower_bound(&mut self, key: UserKey) {
-        self.range.0 = Some(key);
+        self.range.0 = Some(Bound::Included(key));
     }
 
     pub fn set_upper_bound(&mut self, key: UserKey) {
-        self.range.1 = Some(key);
+        self.range.1 = Some(Bound::Included(key));
+    }
+
+    pub fn set_lower_bound_exclusive(&mut self, key: UserKey) {
+        self.range.0 = Some(Bound::Excluded(key));
+    }
+
+    pub fn set_upper_bound_exclusive(&mut self, key: UserKey) {
+        self.range.1 = Some(Bound::Excluded(key));
     }
 }
 
@@ -142,22 +164,27 @@ impl Iterator for Iter {
         }
 
         if !self.index_initialized {
-            // The index iterator is lazy-initialized on the first call so that the constructor does
-            // not eagerly seek.  This is important because range bounds might be configured *after*
-            // `Iter::new`, and we only want to pay the seek cost if iteration actually happens.
+            // Lazily initialize the index iterator here (not in `new`) so callers can set bounds
+            // before we incur any seek or I/O cost. Bounds exclusivity is enforced at the data-
+            // block level; index seeks only narrow the span of blocks to touch.
             let mut ok = true;
 
-            if let Some(key) = &self.range.0 {
+            if let Some(bound) = &self.range.0 {
                 // Seek to the first block whose end key is ≥ lower bound.
                 // If this fails we can immediately conclude the range is empty.
+                let key = match bound {
+                    Bound::Included(k) | Bound::Excluded(k) => k,
+                };
                 ok = self.index_iter.seek_lower(key);
             }
 
             if ok {
-                if let Some(key) = &self.range.1 {
-                    // Narrow the iterator further by skipping any blocks strictly above the upper
-                    // bound.
-                    // Again, a miss means the range is empty.
+                // Apply an upper-bound seek to cap the block span, but keep exact high-key
+                // handling inside the data block so exclusivity is respected precisely.
+                if let Some(bound) = &self.range.1 {
+                    let key = match bound {
+                        Bound::Included(k) | Bound::Excluded(k) => k,
+                    };
                     ok = self.index_iter.seek_upper(key);
                 }
             }
@@ -213,14 +240,20 @@ impl Iterator for Iter {
 
             let mut reader = create_data_block_reader(block);
 
-            if let Some(key) = &self.range.0 {
-                // Each block is self-contained, so we have to apply range bounds again to discard
-                // entries that precede the requested lower key.
-                reader.seek_lower(key, SeqNo::MAX);
+            // Forward path: seek the low side first to avoid returning entries below the lower
+            // bound, then clamp the iterator on the high side. This guarantees iteration stays in
+            // [low, high] with exact control over inclusivity/exclusivity.
+            if let Some(bound) = &self.range.0 {
+                match bound {
+                    Bound::Excluded(key) => reader.seek_lower_exclusive(key, SeqNo::MAX),
+                    Bound::Included(key) => reader.seek_lower(key, SeqNo::MAX),
+                };
             }
-            if let Some(key) = &self.range.1 {
-                // Ditto for the upper bound: advance the block-local iterator to the right spot.
-                reader.seek_upper(key, SeqNo::MAX);
+            if let Some(bound) = &self.range.1 {
+                match bound {
+                    Bound::Excluded(key) => reader.seek_upper_exclusive(key, SeqNo::MAX),
+                    Bound::Included(key) => reader.seek_upper(key, SeqNo::MAX),
+                };
             }
 
             let item = reader.next();
@@ -248,16 +281,23 @@ impl DoubleEndedIterator for Iter {
         }
 
         if !self.index_initialized {
-            // As in `next`, set up the index iterator lazily so that callers can configure range
-            // bounds before we spend time seeking or loading blocks.
+            // Mirror forward iteration: initialize lazily so bounds can be applied up-front. The
+            // index only restricts which blocks we consider; tight bound enforcement happens in
+            // the data block readers below.
             let mut ok = true;
 
-            if let Some(key) = &self.range.0 {
+            if let Some(bound) = &self.range.0 {
+                let key = match bound {
+                    Bound::Included(k) | Bound::Excluded(k) => k,
+                };
                 ok = self.index_iter.seek_lower(key);
             }
 
             if ok {
-                if let Some(key) = &self.range.1 {
+                if let Some(bound) = &self.range.1 {
+                    let key = match bound {
+                        Bound::Included(k) | Bound::Excluded(k) => k,
+                    };
                     ok = self.index_iter.seek_upper(key);
                 }
             }
@@ -312,15 +352,20 @@ impl DoubleEndedIterator for Iter {
 
             let mut reader = create_data_block_reader(block);
 
-            if let Some(key) = &self.range.1 {
-                // Reverse iteration needs to clamp the upper bound first so that `next_back` only
-                // sees entries ≤ the requested high key.
-                reader.seek_upper(key, SeqNo::MAX);
+            // Reverse path: clamp the high side first so `next_back` never yields an entry above
+            // the upper bound, then apply the low-side seek to avoid stepping below the lower
+            // bound during reverse traversal.
+            if let Some(bound) = &self.range.1 {
+                match bound {
+                    Bound::Excluded(key) => reader.seek_upper_exclusive(key, SeqNo::MAX),
+                    Bound::Included(key) => reader.seek_upper(key, SeqNo::MAX),
+                };
             }
-            if let Some(key) = &self.range.0 {
-                // Apply the lower bound as well so that we never step past the low key when
-                // iterating backwards through the block.
-                reader.seek_lower(key, SeqNo::MAX);
+            if let Some(bound) = &self.range.0 {
+                match bound {
+                    Bound::Excluded(key) => reader.seek_lower_exclusive(key, SeqNo::MAX),
+                    Bound::Included(key) => reader.seek_lower(key, SeqNo::MAX),
+                };
             }
 
             let item = reader.next_back();

@@ -163,8 +163,6 @@ mod double_ended_peekable;
 
 mod error;
 
-pub(crate) mod fallible_clipping_iter;
-
 #[doc(hidden)]
 pub mod file;
 

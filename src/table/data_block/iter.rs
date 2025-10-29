@@ -37,6 +37,9 @@ impl<'a> Iter<'a> {
     // TODO: the peek() + next() pattern is a bit unfortunate
     // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek(&mut self, needle: &[u8]) -> bool {
+        // Find the restart interval whose head key is the last one strictly below `needle`.
+        // The decoder then performs a linear scan within that interval; we stop as soon as we
+        // reach a key ≥ needle. This minimizes parsing work while preserving correctness.
         if !self
             .decoder
             .inner_mut()
@@ -73,6 +76,8 @@ impl<'a> Iter<'a> {
     // TODO: the peek_back() + next_back() pattern is a bit unfortunate
     // TODO: maybe just seek the decoder, and then let the caller handle the linear search...
     pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
+        // Reverse-bound seek: position the high scanner at the first restart whose head key is
+        // ≤ needle, then walk backwards inside the interval until we find a key ≤ needle.
         if !self
             .decoder
             .inner_mut()
@@ -97,6 +102,71 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Greater => {
                     // Continue
 
+                    self.decoder.next_back().expect("should exist");
+                }
+            }
+        }
+    }
+
+    pub fn seek_exclusive(&mut self, needle: &[u8]) -> bool {
+        // Exclusive lower bound: identical to `seek`, except we must not yield entries equal to
+        // `needle`. We therefore keep consuming while keys compare equal and only stop once we
+        // observe a strictly greater key.
+        if !self
+            .decoder
+            .inner_mut()
+            .seek(|head_key| head_key < needle, false)
+        {
+            return false;
+        }
+
+        loop {
+            let Some(item) = self.decoder.peek() else {
+                return false;
+            };
+
+            match item.compare_key(needle, self.bytes) {
+                std::cmp::Ordering::Greater => {
+                    return true;
+                }
+                std::cmp::Ordering::Equal => {
+                    // Consume all items equal to the needle to enforce strictness
+                    self.decoder.next().expect("should exist");
+                    continue;
+                }
+                std::cmp::Ordering::Less => {
+                    self.decoder.next().expect("should exist");
+                }
+            }
+        }
+    }
+
+    pub fn seek_upper_exclusive(&mut self, needle: &[u8]) -> bool {
+        // Exclusive upper bound: mirror of `seek_upper`. We must not include entries equal to
+        // `needle`, so we consume equals from the high end until we see a strictly smaller key.
+        if !self
+            .decoder
+            .inner_mut()
+            .seek_upper(|head_key| head_key <= needle, false)
+        {
+            return false;
+        }
+
+        loop {
+            let Some(item) = self.decoder.peek_back() else {
+                return false;
+            };
+
+            match item.compare_key(needle, self.bytes) {
+                std::cmp::Ordering::Less => {
+                    return true;
+                }
+                std::cmp::Ordering::Equal => {
+                    // Consume all items equal to the needle from the high end
+                    self.decoder.next_back().expect("should exist");
+                    continue;
+                }
+                std::cmp::Ordering::Greater => {
                     self.decoder.next_back().expect("should exist");
                 }
             }
