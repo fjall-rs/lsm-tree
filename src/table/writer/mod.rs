@@ -388,72 +388,69 @@ impl Writer {
             }
 
             let meta_items = [
-                meta("#checksum_type", b"xxh3"),
+                meta("checksum_type", b"xxh3"),
                 meta(
-                    "#compression#data",
+                    "compression#data",
                     &self.data_block_compression.encode_into_vec(),
                 ),
                 meta(
-                    "#compression#index",
+                    "compression#index",
                     &self.index_block_compression.encode_into_vec(),
                 ),
-                meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
+                meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
+                meta("created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
-                    "#data_block_count",
+                    "data_block_count",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
                 ),
-                meta("#file_size", &self.meta.file_pos.to_le_bytes()),
-                meta("#filter_hash_type", b"xxh3"),
-                meta("#id", &self.table_id.to_le_bytes()),
+                meta("file_size", &self.meta.file_pos.to_le_bytes()),
+                meta("filter_hash_type", b"xxh3"),
+                meta("id", &self.table_id.to_le_bytes()),
                 meta(
-                    "#index_block_count",
+                    "index_block_count",
                     &(index_block_count as u64).to_le_bytes(),
                 ),
-                meta("#initial_level", &self.initial_level.to_le_bytes()),
-                meta("#item_count", &(self.meta.item_count as u64).to_le_bytes()),
+                meta("initial_level", &self.initial_level.to_le_bytes()),
+                meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
-                    "#key#max",
+                    "key#max",
                     // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
-                    "#key#min",
+                    "key#min",
                     // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
-                meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
-                meta("#prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta("#prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
+                meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta(
-                    "#restart_interval#data",
+                    "restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),
                 ),
                 meta(
-                    "#restart_interval#index",
+                    "restart_interval#index",
                     &self.index_block_restart_interval.to_le_bytes(),
                 ),
-                meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
-                meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
+                meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("table_version", &[3u8]),
                 meta(
-                    "#tombstone_count",
+                    "tombstone_count",
                     &(self.meta.tombstone_count as u64).to_le_bytes(),
                 ),
+                meta("user_data_size", &self.meta.uncompressed_size.to_le_bytes()),
                 meta(
-                    "#user_data_size",
-                    &self.meta.uncompressed_size.to_le_bytes(),
-                ),
-                meta(
-                    "#weak_tombstone_count",
+                    "weak_tombstone_count",
                     &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
                 ),
                 meta(
-                    "#weak_tombstone_reclaimable",
+                    "weak_tombstone_reclaimable",
                     &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
                 ),
-                meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("v#table_version", &[3u8]),
                 // TODO: hash ratio etc
             ];
 
