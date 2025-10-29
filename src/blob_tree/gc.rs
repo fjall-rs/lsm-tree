@@ -118,17 +118,9 @@ impl crate::coding::Decode for FragmentationMap {
 
         for _ in 0..len {
             let id = reader.read_u64::<LE>()?;
-
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "there are always less than 4 billion blobs in a blob file"
-            )]
             let len = reader.read_u32::<LE>()? as usize;
-
             let bytes = reader.read_u64::<LE>()?;
-
             let on_disk_bytes = reader.read_u64::<LE>()?;
-
             map.insert(id, FragmentationEntry::new(len, bytes, on_disk_bytes));
         }
 
