@@ -13,7 +13,6 @@ use std::{
 use varint_rs::{VarintReader, VarintWriter};
 
 /// A value handle points into the value log
-#[allow(clippy::module_name_repetitions)]
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ValueHandle {
     /// Blob file ID

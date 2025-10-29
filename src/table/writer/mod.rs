@@ -53,15 +53,15 @@ pub struct Writer {
     block_buffer: Vec<u8>,
 
     /// File writer
-    #[allow(clippy::struct_field_names)]
+    #[expect(clippy::struct_field_names)]
     file_writer: sfa::Writer,
 
     /// Writer of index blocks
-    #[allow(clippy::struct_field_names)]
+    #[expect(clippy::struct_field_names)]
     index_writer: Box<dyn BlockIndexWriter<BufWriter<File>>>,
 
     /// Writer of filter
-    #[allow(clippy::struct_field_names)]
+    #[expect(clippy::struct_field_names)]
     filter_writer: Box<dyn FilterWriter<BufWriter<File>>>,
 
     /// Buffer of KVs
@@ -307,8 +307,10 @@ impl Writer {
 
         self.meta.uncompressed_size += u64::from(header.uncompressed_length);
 
-        // NOTE: Block header is a couple of bytes only, so cast is fine
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "block header is a couple of bytes only, so cast is fine"
+        )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         self.index_writer
@@ -329,12 +331,10 @@ impl Writer {
 
         // Set last key
         self.meta.last_key = Some(
-            // NOTE: Expect is fine, because the chunk is not empty
-            //
-            // Also, we are allowed to remove the last item
+            // NOTE: We are allowed to remove the last item
             // to get ownership of it, because the chunk is cleared after
             // this anyway
-            #[allow(clippy::expect_used)]
+            #[expect(clippy::expect_used, reason = "chunk is not empty")]
             self.chunk
                 .pop()
                 .expect("chunk should not be empty")
@@ -349,8 +349,8 @@ impl Writer {
         Ok(())
     }
 
-    // TODO: 3.0.0 split meta writing into new function
-    #[allow(clippy::too_many_lines)]
+    // TODO: split meta writing into new function
+    #[expect(clippy::too_many_lines)]
     /// Finishes the table, making sure all data is written durably
     pub fn finish(mut self) -> crate::Result<Option<(TableId, Checksum)>> {
         self.spill_block()?;
@@ -372,8 +372,10 @@ impl Writer {
 
             self.file_writer.start("linked_blob_files")?;
 
-            // NOTE: We know that there are never 4 billion blob files linked to a single table
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are never 4 billion blob files linked to a single table"
+            )]
             self.file_writer
                 .write_u32::<LE>(self.linked_blob_files.len() as u32)?;
 
