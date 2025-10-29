@@ -102,7 +102,7 @@ pub fn recover_blob_files(
                 log::debug!("Recovered {idx}/{cnt} blob files");
             }
         } else {
-            orphaned_blob_files.push(blob_file_path.to_path_buf());
+            orphaned_blob_files.push(blob_file_path.clone());
         }
     }
 

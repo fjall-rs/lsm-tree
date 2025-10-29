@@ -192,6 +192,6 @@ impl<T> MaybePeeked<T> {
     }
 
     const fn is_unpeeked(&self) -> bool {
-        matches!(self, MaybePeeked::Unpeeked)
+        matches!(self, Self::Unpeeked)
     }
 }

@@ -190,7 +190,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         }
 
         while left < right {
-            let mid = (left + right) / 2;
+            let mid = usize::midpoint(left, right);
 
             let offset = binary_index.get(mid);
 
@@ -243,7 +243,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         }
 
         while left < right {
-            let mid = (left + right) / 2;
+            let mid = usize::midpoint(left, right);
 
             let offset = binary_index.get(mid);
 
@@ -315,7 +315,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     /// Seeks the upper bound using the given predicate.
     ///
     /// Returns `false` if the key does not possible exist.
-    pub fn seek_upper(&mut self, mut pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
+    pub fn seek_upper(&mut self, pred: impl Fn(&[u8]) -> bool, second_partition: bool) -> bool {
         let result = if second_partition {
             self.partition_point_2(&pred)
         } else {
