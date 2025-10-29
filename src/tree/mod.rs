@@ -326,7 +326,6 @@ impl AbstractTree for Tree {
         let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
-        let index_block_size = self.config.index_block_size_policy.get(0);
 
         let data_block_restart_interval = self.config.data_block_restart_interval_policy.get(0);
         let index_block_restart_interval = self.config.index_block_restart_interval_policy.get(0);
@@ -340,7 +339,7 @@ impl AbstractTree for Tree {
         let filter_partioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             table_file_path.display(),
         );
 
@@ -350,7 +349,6 @@ impl AbstractTree for Tree {
             .use_data_block_compression(data_block_compression)
             .use_index_block_compression(index_block_compression)
             .use_data_block_size(data_block_size)
-            .use_index_block_size(index_block_size)
             .use_data_block_hash_ratio(data_block_hash_ratio)
             .use_bloom_policy({
                 use crate::config::FilterPolicyEntry::{Bloom, None};

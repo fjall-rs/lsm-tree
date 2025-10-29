@@ -24,7 +24,6 @@ pub(super) fn prepare_table_writer(
     let dst_lvl = payload.canonical_level.into();
 
     let data_block_size = opts.config.data_block_size_policy.get(dst_lvl);
-    let index_block_size = opts.config.index_block_size_policy.get(dst_lvl);
 
     let data_block_restart_interval = opts.config.data_block_restart_interval_policy.get(dst_lvl);
     let index_block_restart_interval = opts.config.index_block_restart_interval_policy.get(dst_lvl);
@@ -34,11 +33,11 @@ pub(super) fn prepare_table_writer(
 
     let data_block_hash_ratio = opts.config.data_block_hash_ratio_policy.get(dst_lvl);
 
-    let index_partioning = opts.config.index_block_partitioning_policy.get(dst_lvl);
-    let filter_partioning = opts.config.filter_block_partitioning_policy.get(dst_lvl);
+    let index_partitioning = opts.config.index_block_partitioning_policy.get(dst_lvl);
+    let filter_partitioning = opts.config.filter_block_partitioning_policy.get(dst_lvl);
 
     log::debug!(
-        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
+        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
         payload.table_ids,
         payload.dest_level,
         payload.canonical_level,
@@ -52,10 +51,10 @@ pub(super) fn prepare_table_writer(
         payload.target_size,
     )?;
 
-    if index_partioning {
+    if index_partitioning {
         table_writer = table_writer.use_partitioned_index();
     }
-    if filter_partioning {
+    if filter_partitioning {
         table_writer = table_writer.use_partitioned_filter();
     }
 
@@ -67,7 +66,6 @@ pub(super) fn prepare_table_writer(
         .use_index_block_restart_interval(index_block_restart_interval)
         .use_data_block_compression(data_block_compression)
         .use_data_block_size(data_block_size)
-        .use_index_block_size(index_block_size)
         .use_data_block_hash_ratio(data_block_hash_ratio)
         .use_index_block_compression(index_block_compression)
         .use_bloom_policy({
@@ -89,7 +87,7 @@ pub(super) fn prepare_table_writer(
         }))
 }
 
-// TODO: 3.0.0 find a good name
+// TODO: find a better name
 pub(super) trait CompactionFlavour {
     fn write(&mut self, item: InternalValue) -> crate::Result<()>;
 
