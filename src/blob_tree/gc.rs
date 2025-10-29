@@ -7,14 +7,16 @@ use crate::{
     version::BlobFileList, vlog::BlobFileId,
 };
 
+/// Tracks fragmentation information in a blob file
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FragmentationEntry {
     /// Number of unreferenced (garbage) blobs
     pub(crate) len: usize,
 
-    /// Unreferenced (garbage) blob bytes that could be freed
+    /// Unreferenced (garbage) blob bytes that could be freed (compressed)
     pub(crate) bytes: u64,
 
+    /// Unreferenced (garbage) blob bytes that could be freed from disk
     pub(crate) on_disk_bytes: u64,
 }
 
@@ -29,6 +31,7 @@ impl FragmentationEntry {
     }
 }
 
+/// Tracks fragmentation information in a value log (list of blob files)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FragmentationMap(crate::HashMap<BlobFileId, FragmentationEntry>);
 
@@ -52,14 +55,13 @@ impl FragmentationMap {
         self.0.values().map(|x| x.bytes).sum()
     }
 
-    // TODO: 3.0.0 unit test
+    // TODO: TEST: unit test
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.
     pub fn prune(&mut self, value_log: &BlobFileList) {
         self.0.retain(|&k, _| value_log.contains_key(k));
     }
 
-    // TODO: 3.0.0 unit test
     pub fn merge_into(self, other: &mut Self) {
         for (blob_file_id, diff) in self.0 {
             other
@@ -68,6 +70,7 @@ impl FragmentationMap {
                 .and_modify(|counter| {
                     counter.bytes += diff.bytes;
                     counter.len += diff.len;
+                    counter.on_disk_bytes += diff.on_disk_bytes;
                 })
                 .or_insert(diff);
         }
@@ -78,15 +81,19 @@ impl crate::coding::Encode for FragmentationMap {
     fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::EncodeError> {
         use byteorder::{WriteBytesExt, LE};
 
-        // NOTE: We know there are always less than 4 billion blob files
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "there are always less than 4 billion blob files"
+        )]
         writer.write_u32::<LE>(self.len() as u32)?;
 
         for (blob_file_id, item) in self.iter() {
             writer.write_u64::<LE>(*blob_file_id)?;
 
-            // NOTE: We know there are always less than 4 billion blobs in a blob file
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are always less than 4 billion blobs in a blob file"
+            )]
             writer.write_u32::<LE>(item.len as u32)?;
 
             writer.write_u64::<LE>(item.bytes)?;
@@ -112,8 +119,10 @@ impl crate::coding::Decode for FragmentationMap {
         for _ in 0..len {
             let id = reader.read_u64::<LE>()?;
 
-            // NOTE: We know there are always less than 4 billion blobs in a blob file
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "there are always less than 4 billion blobs in a blob file"
+            )]
             let len = reader.read_u32::<LE>()? as usize;
 
             let bytes = reader.read_u64::<LE>()?;
@@ -165,6 +174,59 @@ mod tests {
     };
     use std::collections::HashMap;
     use test_log::test;
+
+    #[test]
+    fn frag_map_merge_into() {
+        let mut map = FragmentationMap(HashMap::default());
+        map.0.insert(
+            0,
+            FragmentationEntry {
+                len: 1,
+                bytes: 1_000,
+                on_disk_bytes: 500,
+            },
+        );
+        map.0.insert(
+            1,
+            FragmentationEntry {
+                len: 2,
+                bytes: 2_000,
+                on_disk_bytes: 1_000,
+            },
+        );
+
+        // test merge_into
+        let mut diff = FragmentationMap(HashMap::default());
+        diff.0.insert(
+            0,
+            FragmentationEntry {
+                len: 3,
+                bytes: 3_000,
+                on_disk_bytes: 1_500,
+            },
+        );
+        diff.0.insert(
+            3,
+            FragmentationEntry {
+                len: 4,
+                bytes: 4_000,
+                on_disk_bytes: 2_000,
+            },
+        );
+
+        diff.merge_into(&mut map);
+
+        assert_eq!(map.0.len(), 3);
+        assert_eq!(map.0[&0].len, 4);
+        assert_eq!(map.0[&0].bytes, 4_000);
+        assert_eq!(map.0[&0].on_disk_bytes, 2_000);
+        assert_eq!(map.0[&1].len, 2);
+        assert_eq!(map.0[&1].bytes, 2_000);
+        assert_eq!(map.0[&1].on_disk_bytes, 1_000);
+        assert_eq!(map.0[&3].len, 4);
+        assert_eq!(map.0[&3].bytes, 4_000);
+        assert_eq!(map.0[&3].on_disk_bytes, 2_000);
+    }
 
     #[test]
     fn frag_map_roundtrip() {

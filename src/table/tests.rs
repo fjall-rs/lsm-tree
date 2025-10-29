@@ -19,7 +19,7 @@ fn test_with_table(
     let file = dir.path().join("table");
 
     {
-        let mut writer = Writer::new(file.clone(), 0)?;
+        let mut writer = Writer::new(file.clone(), 0, 0)?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -139,7 +139,7 @@ fn test_with_table(
     std::fs::remove_file(&file)?;
 
     {
-        let mut writer = Writer::new(file.clone(), 0)?.use_partitioned_index();
+        let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);

@@ -137,7 +137,7 @@ impl Block {
 
         let header = Header::decode_from(&mut &buf[..])?;
 
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
         if checksum != header.checksum {
             log::error!(
@@ -168,7 +168,7 @@ impl Block {
             CompressionType::Lz4 => {
                 // NOTE: We know that a header always exists and data is never empty
                 // So the slice is fine
-                #[allow(clippy::indexing_slicing)]
+                #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
                 #[warn(unsafe_code)]

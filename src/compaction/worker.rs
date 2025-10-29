@@ -213,7 +213,7 @@ fn move_tables(
     Ok(())
 }
 
-// TODO: 3.0.0 unit test
+// TODO: 3.0.0 unit test(s)
 /// Picks blob files to rewrite (defragment)
 fn pick_blob_files_to_rewrite(
     picked_tables: &HashSet<TableId>,

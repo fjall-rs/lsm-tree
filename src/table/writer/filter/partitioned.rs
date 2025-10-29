@@ -106,7 +106,7 @@ impl PartitionedFilterWriter {
             file_writer,
             &bytes,
             crate::table::block::BlockType::Index,
-            CompressionType::None, // TODO: 3.0.0 TLI Index Compression
+            self.compression,
         )?;
 
         #[expect(

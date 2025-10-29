@@ -45,13 +45,16 @@ impl<'a> Trailer<'a> {
     pub fn item_count(&self) -> usize {
         let reader = self.as_slice();
 
-        // NOTE: We now that the item count is the the end and is a u32
-        #[allow(clippy::indexing_slicing)]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the item_count is at the end and is a u32"
+        )]
         let reader = &mut &reader[(TRAILER_SIZE - std::mem::size_of::<u32>())..];
 
-        // NOTE: We know the trailer offset is valid, and the trailer has a fixed size
-        // so the next item must be the item count
-        #[allow(clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "the trailer offset is valid, and the trailer has a fixed size so the next item must be the item count"
+        )]
         {
             reader
                 .read_u32::<LittleEndian>()
@@ -74,8 +77,10 @@ impl<'a> Trailer<'a> {
         // IMPORTANT: Terminator marker
         encoder.writer.write_u8(TRAILER_START_MARKER)?;
 
-        // NOTE: We know that data blocks will never even approach 4 GB in size
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "data blocks will never even approach 4 GB in size"
+        )]
         let binary_index_offset = encoder.writer.len() as u32;
 
         // Write binary index
@@ -94,7 +99,7 @@ impl<'a> Trailer<'a> {
             && binary_index_len <= MAX_POINTERS_FOR_HASH_INDEX
         {
             // NOTE: We know that data blocks will never even approach 4 GB in size
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             {
                 hash_index_offset = encoder.writer.len() as u32;
             }
@@ -112,8 +117,10 @@ impl<'a> Trailer<'a> {
 
         encoder.writer.write_u8(binary_index_step_size)?;
 
-        // NOTE: Even with a dense index, there can't be more index pointers than items
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "even with a dense index, there can't be more index pointers than items"
+        )]
         encoder
             .writer
             .write_u32::<LittleEndian>(binary_index_len as u32)?;
@@ -142,8 +149,10 @@ impl<'a> Trailer<'a> {
         encoder.writer.write_u8(0)?;
         encoder.writer.write_u32::<LittleEndian>(0)?;
 
-        // NOTE: We know that data blocks will never even approach 4 GB in size, so there can't be that many items either
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "data blocks will never even approach 4 GiB in size, so there can't be that many items either"
+        )]
         encoder
             .writer
             .write_u32::<LittleEndian>(encoder.item_count as u32)?;

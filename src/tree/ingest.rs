@@ -36,15 +36,11 @@ impl<'a> Ingestion<'a> {
             folder.clone(),
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
+            6,
         )?
         .use_data_block_size(
             tree.config
                 .data_block_size_policy
-                .get(INITIAL_CANONICAL_LEVEL),
-        )
-        .use_index_block_size(
-            tree.config
-                .index_block_size_policy
                 .get(INITIAL_CANONICAL_LEVEL),
         )
         .use_data_block_hash_ratio(

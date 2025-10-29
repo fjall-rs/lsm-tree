@@ -33,7 +33,7 @@ impl PartitionedIndexWriter {
             buffer_size: 0,
             index_block_count: 0,
 
-            block_size: 4_096, // TODO: 3.0.0 allow to set this
+            block_size: 4_096, // TODO: allow to set this
             compression: CompressionType::None,
 
             tli_handles: Vec::new(),
@@ -55,16 +55,16 @@ impl PartitionedIndexWriter {
             self.compression,
         )?;
 
-        // NOTE: We know that blocks never even approach u32 size
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "blocks never even approach size of 4 GiB"
+        )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
-        // NOTE: Expect is fine, because the chunk is not empty
-        //
         // Also, we are allowed to remove the last item
         // to get ownership of it, because the chunk is cleared after
         // this anyway
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "chunk is not empty")]
         let last = self
             .data_block_handles
             .pop()
@@ -111,8 +111,10 @@ impl PartitionedIndexWriter {
             self.compression,
         )?;
 
-        // NOTE: We know that blocks never even approach u32 size
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "blocks never even approach 4 GiB in size"
+        )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         debug_assert!(bytes_written > 0, "Top level index should never be empty");
@@ -143,8 +145,10 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
             block_handle.end_key(),
         );
 
-        // NOTE: Truncation is OK, because a key is bound by 65535 bytes, so can never exceed u32s
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "key is u16 max, so we can not exceed u32::MAX"
+        )]
         let block_handle_size =
             (block_handle.end_key().len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 

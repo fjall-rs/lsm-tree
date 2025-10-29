@@ -24,7 +24,7 @@ pub struct BlockHandle {
 
     /// Size of block in bytes
     size: u32,
-} // TODO: 3.0.0 ^---- maybe u64
+}
 
 impl BlockHandle {
     #[must_use]

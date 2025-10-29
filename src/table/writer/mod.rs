@@ -39,7 +39,6 @@ pub struct Writer {
     index_block_restart_interval: u8,
 
     data_block_size: u32,
-    index_block_size: u32, // TODO: 3.0.0 implement partitioned index
 
     data_block_hash_ratio: f32,
 
@@ -81,16 +80,20 @@ pub struct Writer {
     previous_item: Option<(UserKey, ValueType)>,
 
     linked_blob_files: Vec<LinkedFile>,
+
+    initial_level: u8,
 }
 
 impl Writer {
-    pub fn new(path: PathBuf, table_id: TableId) -> crate::Result<Self> {
+    pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
         let mut block_writer = sfa::Writer::from_writer(block_writer);
         block_writer.start("data")?;
 
         Ok(Self {
+            initial_level,
+
             meta: meta::Metadata::default(),
 
             table_id,
@@ -101,7 +104,6 @@ impl Writer {
             data_block_hash_ratio: 0.0,
 
             data_block_size: 4_096,
-            index_block_size: 4_096,
 
             data_block_compression: CompressionType::None,
             index_block_compression: CompressionType::None,
@@ -183,16 +185,6 @@ impl Writer {
             "data block size must be <= 4 MiB",
         );
         self.data_block_size = size;
-        self
-    }
-
-    #[must_use]
-    pub fn use_index_block_size(mut self, size: u32) -> Self {
-        assert!(
-            size <= 4 * 1_024 * 1_024,
-            "index block size must be <= 4 MiB",
-        );
-        self.index_block_size = size;
         self
     }
 
@@ -396,72 +388,73 @@ impl Writer {
             }
 
             let meta_items = [
-                meta("#checksum_type", b"xxh3"),
+                meta("checksum_type", b"xxh3"),
                 meta(
-                    "#compression#data",
+                    "compression#data",
                     &self.data_block_compression.encode_into_vec(),
                 ),
                 meta(
-                    "#compression#index",
+                    "compression#index",
                     &self.index_block_compression.encode_into_vec(),
                 ),
-                meta("#created_at", &unix_timestamp().as_nanos().to_le_bytes()),
+                meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
+                meta("created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
-                    "#data_block_count",
+                    "data_block_count",
                     &(self.meta.data_block_count as u64).to_le_bytes(),
                 ),
-                meta("#file_size", &self.meta.file_pos.to_le_bytes()),
-                meta("#filter_hash_type", b"xxh3"),
-                meta("#id", &self.table_id.to_le_bytes()),
                 meta(
-                    "#index_block_count",
+                    "data_block_hash_ratio",
+                    &self.data_block_hash_ratio.to_le_bytes(),
+                ),
+                meta("file_size", &self.meta.file_pos.to_le_bytes()),
+                meta("filter_hash_type", b"xxh3"),
+                meta("id", &self.table_id.to_le_bytes()),
+                meta(
+                    "index_block_count",
                     &(index_block_count as u64).to_le_bytes(),
                 ),
-                meta("#item_count", &(self.meta.item_count as u64).to_le_bytes()),
+                meta("initial_level", &self.initial_level.to_le_bytes()),
+                meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
-                    "#key#max",
+                    "key#max",
                     // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
-                    "#key#min",
+                    "key#min",
                     // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
                     #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
-                meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
-                meta("#prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
-                meta("#prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
+                meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta(
-                    "#restart_interval#data",
+                    "restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),
                 ),
                 meta(
-                    "#restart_interval#index",
+                    "restart_interval#index",
                     &self.index_block_restart_interval.to_le_bytes(),
                 ),
-                meta("#seqno#max", &self.meta.highest_seqno.to_le_bytes()),
-                meta("#seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
+                meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("table_version", &[3u8]),
                 meta(
-                    "#tombstone_count",
+                    "tombstone_count",
                     &(self.meta.tombstone_count as u64).to_le_bytes(),
                 ),
+                meta("user_data_size", &self.meta.uncompressed_size.to_le_bytes()),
                 meta(
-                    "#user_data_size",
-                    &self.meta.uncompressed_size.to_le_bytes(),
-                ),
-                meta(
-                    "#weak_tombstone_count",
+                    "weak_tombstone_count",
                     &(self.meta.weak_tombstone_count as u64).to_le_bytes(),
                 ),
                 meta(
-                    "#weak_tombstone_reclaimable",
+                    "weak_tombstone_reclaimable",
                     &(self.meta.weak_tombstone_reclaimable_count as u64).to_le_bytes(),
                 ),
-                meta("v#lsmt", env!("CARGO_PKG_VERSION").as_bytes()),
-                meta("v#table_version", &[3u8]),
-                // TODO: hash ratio etc
             ];
 
             // NOTE: Just to make sure the items are definitely sorted

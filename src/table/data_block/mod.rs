@@ -189,8 +189,10 @@ impl Encodable<()> for InternalValue {
         #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
         writer.write_u16_varint(rest_len as u16)?; // 4
 
-        // NOTE: We trust the caller
-        #[allow(clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "the shared len should not be greater than key length"
+        )]
         let truncated_user_key = self
             .key
             .user_key
@@ -474,8 +476,7 @@ impl DataBlock {
         restart_interval: u8,
         hash_index_ratio: f32,
     ) -> crate::Result<()> {
-        // NOTE: We expect a non-empty chunk of items
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "the chunk should not be empty")]
         let first_key = &items
             .first()
             .expect("chunk should not be empty")

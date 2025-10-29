@@ -193,9 +193,6 @@ pub struct Config {
     /// Block size of data blocks
     pub data_block_size_policy: BlockSizePolicy,
 
-    /// Block size of index blocks
-    pub index_block_size_policy: BlockSizePolicy,
-
     /// Whether to pin index blocks
     pub index_block_pinning_policy: PinningPolicy,
 
@@ -250,7 +247,6 @@ impl Default for Config {
             level_count: DEFAULT_LEVEL_COUNT,
 
             data_block_size_policy: BlockSizePolicy::default(),
-            index_block_size_policy: BlockSizePolicy::default(),
 
             index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
             filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
@@ -414,14 +410,6 @@ impl Config {
         self.data_block_size_policy = policy;
         self
     }
-
-    // TODO: 3.0.0 does nothing until we have partitioned indexes
-    // /// Sets the index block size policy.
-    // #[must_use]
-    // pub fn index_block_size_policy(mut self, policy: BlockSizePolicy) -> Self {
-    //     self.index_block_size_policy = policy;
-    //     self
-    // }
 
     /// Sets the hash ratio policy for data blocks.
     ///

@@ -127,8 +127,10 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
             self.restart_count += 1;
 
             if self.restart_interval > 0 {
-                // NOTE: We know that data blocks will never even approach 4 GB in size
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "we consider the caller to be trustworthy"
+                )]
                 self.binary_index_builder.insert(self.writer.len() as u32);
             }
 
@@ -136,18 +138,18 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
 
             self.base_key = item.key();
         } else {
-            // NOTE: We can safely cast to u16, because keys are u16 long max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
             let shared_prefix_len = longest_shared_prefix_length(self.base_key, item.key());
-
             item.encode_truncated_into(&mut *self.writer, &mut self.state, shared_prefix_len)?;
         }
 
         let restart_idx = self.restart_count - 1;
 
         if self.hash_index_builder.bucket_count() > 0 && restart_idx < MAX_POINTERS_FOR_HASH_INDEX {
-            // NOTE: The max binary index is bound to u8 by conditional
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "max binary index is bound to u8 by MAX_POINTERS_FOR_HASH_INDEX"
+            )]
             self.hash_index_builder.set(item.key(), restart_idx as u8);
         }
 

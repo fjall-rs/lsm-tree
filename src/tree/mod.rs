@@ -211,7 +211,7 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
-        #[allow(clippy::explicit_counter_loop)]
+        #[expect(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
@@ -326,7 +326,6 @@ impl AbstractTree for Tree {
         let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
-        let index_block_size = self.config.index_block_size_policy.get(0);
 
         let data_block_restart_interval = self.config.data_block_restart_interval_policy.get(0);
         let index_block_restart_interval = self.config.index_block_restart_interval_policy.get(0);
@@ -340,17 +339,16 @@ impl AbstractTree for Tree {
         let filter_partioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, index_block_size={index_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
             table_file_path.display(),
         );
 
-        let mut table_writer = Writer::new(table_file_path, table_id)?
+        let mut table_writer = Writer::new(table_file_path, table_id, 0)?
             .use_data_block_restart_interval(data_block_restart_interval)
             .use_index_block_restart_interval(index_block_restart_interval)
             .use_data_block_compression(data_block_compression)
             .use_index_block_compression(index_block_compression)
             .use_data_block_size(data_block_size)
-            .use_index_block_size(index_block_size)
             .use_data_block_hash_ratio(data_block_hash_ratio)
             .use_bloom_policy({
                 use crate::config::FilterPolicyEntry::{Bloom, None};
@@ -987,8 +985,10 @@ impl Tree {
             for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
                     for &(table_id, checksum) in run {
-                        // NOTE: We know there are always less than 256 levels
-                        #[allow(clippy::expect_used)]
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "there are always less than 256 levels"
+                        )]
                         result.insert(
                             table_id,
                             (
