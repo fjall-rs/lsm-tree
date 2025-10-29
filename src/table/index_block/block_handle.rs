@@ -173,6 +173,7 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
         // TODO: maybe move these behind the key
         self.inner.encode_into(writer)?; // 2, 3
 
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
         writer.write_u16_varint(self.end_key.len() as u16)?; // 4
         writer.write_all(&self.end_key)?; // 5
 
@@ -196,12 +197,12 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
         writer.write_u32_varint(self.size())?; // 2
 
         // TODO: maybe we can skip this varint altogether if prefix truncation = false
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
         writer.write_u16_varint(shared_len as u16)?; // 3
 
-        // NOTE: We can safely cast to u16, because keys are u16 long max
-        #[allow(clippy::cast_possible_truncation)]
         let rest_len = self.end_key.len() - shared_len;
 
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
         writer.write_u16_varint(rest_len as u16)?; // 4
 
         let truncated_user_key = self.end_key.get(shared_len..).expect("should be in bounds");

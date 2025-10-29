@@ -421,13 +421,13 @@ impl Writer {
                 meta(
                     "#key#max",
                     // NOTE: At the beginning we check that we have written at least 1 item, so last_key must exist
-                    #[allow(clippy::expect_used)]
+                    #[expect(clippy::expect_used)]
                     self.meta.last_key.as_ref().expect("should exist"),
                 ),
                 meta(
                     "#key#min",
                     // NOTE: At the beginning we check that we have written at least 1 item, so first_key must exist
-                    #[allow(clippy::expect_used)]
+                    #[expect(clippy::expect_used)]
                     self.meta.first_key.as_ref().expect("should exist"),
                 ),
                 meta("#key_count", &(self.meta.key_count as u64).to_le_bytes()),
@@ -490,8 +490,10 @@ impl Writer {
 
         // IMPORTANT: fsync folder on Unix
 
-        // NOTE: If there's no parent folder, something has gone horribly wrong
-        #[allow(clippy::expect_used)]
+        #[expect(
+            clippy::expect_used,
+            reason = "if there's no parent folder, something has gone horribly wrong"
+        )]
         fsync_directory(self.path.parent().expect("should have folder"))?;
 
         log::debug!(

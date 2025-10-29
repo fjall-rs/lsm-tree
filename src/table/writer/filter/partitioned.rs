@@ -109,8 +109,10 @@ impl PartitionedFilterWriter {
             CompressionType::None, // TODO: 3.0.0 TLI Index Compression
         )?;
 
-        // NOTE: We know that blocks never even approach u32 size
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "blocks never even approach u32 size"
+        )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
         debug_assert!(bytes_written > 0, "Top level index should never be empty");

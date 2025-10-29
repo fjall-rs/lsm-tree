@@ -77,13 +77,13 @@ impl IndexBlock {
 
     /// Returns the number of items in the block.
     #[must_use]
-    #[allow(clippy::len_without_is_empty)]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         Trailer::new(&self.inner).item_count()
     }
 
     #[must_use]
-    #[allow(clippy::iter_without_into_iter)]
+    #[expect(clippy::iter_without_into_iter)]
     pub fn iter(&self) -> Iter<'_> {
         Iter::new(Decoder::<KeyedBlockHandle, IndexBlockParsedItem>::new(
             &self.inner,
@@ -108,8 +108,7 @@ impl IndexBlock {
         items: &[KeyedBlockHandle],
         // restart_interval: u8, // TODO: support prefix truncation + delta encoding
     ) -> crate::Result<()> {
-        // NOTE: We expect a non-empty chunk of items
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
