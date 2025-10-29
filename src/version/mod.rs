@@ -198,7 +198,7 @@ impl Version {
     }
 
     pub fn l0(&self) -> &Level {
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         self.levels.first().expect("L0 should exist")
     }
 
@@ -671,7 +671,7 @@ impl Version {
                 write!(f, "  ")?;
 
                 if run.len() >= 30 {
-                    #[allow(clippy::indexing_slicing)]
+                    #[expect(clippy::indexing_slicing)]
                     for table in run.iter().take(2) {
                         let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);
@@ -685,7 +685,7 @@ impl Version {
                     }
                     write!(f, " . . . ")?;
 
-                    #[allow(clippy::indexing_slicing)]
+                    #[expect(clippy::indexing_slicing)]
                     for table in run.iter().rev().take(2).rev() {
                         let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);

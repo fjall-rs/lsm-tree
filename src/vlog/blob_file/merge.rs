@@ -50,8 +50,7 @@ impl MergeScanner {
     }
 
     fn advance_reader(&mut self, idx: usize) -> crate::Result<()> {
-        // NOTE: We trust the caller
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing, reason = "we trust the caller")]
         let reader = &mut self.readers[idx];
 
         if let Some(value) = reader.next() {
@@ -95,7 +94,7 @@ impl Iterator for MergeScanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::super::scanner::Scanner;
     use super::*;

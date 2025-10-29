@@ -127,7 +127,7 @@ impl Iterator for Scanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{vlog::blob_file::writer::Writer as BlobFileWriter, Slice};

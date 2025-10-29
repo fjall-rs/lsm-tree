@@ -42,8 +42,7 @@ impl IterGuard for Guard {
     }
 
     fn size(self) -> crate::Result<u32> {
-        // NOTE: We know LSM-tree values are 32 bits in length max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         self.into_inner().map(|(_, v)| v.len() as u32)
     }
 
@@ -279,8 +278,7 @@ impl AbstractTree for Tree {
     }
 
     fn size_of<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<u32>> {
-        // NOTE: We know that values are u32 max
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 

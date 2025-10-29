@@ -338,7 +338,6 @@ impl Table {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
         self.range(..)
@@ -350,7 +349,6 @@ impl Table {
     ///
     /// Will return `Err` if an IO error occurs.
     #[must_use]
-    #[allow(clippy::iter_without_into_iter)]
     #[doc(hidden)]
     pub fn range<R: RangeBounds<UserKey>>(
         &self,

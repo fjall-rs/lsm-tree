@@ -206,7 +206,7 @@ impl<T: Ranged> Run<T> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use test_log::test;

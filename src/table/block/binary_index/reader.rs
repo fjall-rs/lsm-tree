@@ -43,8 +43,4 @@ impl<'a> Reader<'a> {
             unwrap!(bytes.read_u32::<LittleEndian>()) as usize
         }
     }
-
-    pub(crate) fn get_last(&self) -> usize {
-        self.get(self.len() - 1)
-    }
 }
