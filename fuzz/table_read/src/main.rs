@@ -120,7 +120,7 @@ fn main() {
         let file = dir.path().join("table_fuzz");
 
         {
-            let mut writer = lsm_tree::segment::Writer::new(file.clone(), 0)
+            let mut writer = lsm_tree::table::Writer::new(file.clone(), 0)
                 .unwrap()
                 .use_data_block_restart_interval(restart_interval)
                 .use_data_block_size(data_block_size)
@@ -141,7 +141,7 @@ fn main() {
             let _trailer = writer.finish().unwrap();
         }
 
-        let table = lsm_tree::Segment::recover(
+        let table = lsm_tree::table::recover(
             file,
             0,
             Arc::new(lsm_tree::Cache::with_capacity_bytes(0)),
@@ -201,7 +201,7 @@ fn main() {
             // eprintln!("needle: {:?}", needle.key);
 
             let key_hash =
-                lsm_tree::segment::filter::standard_bloom::Builder::get_hash(&needle.key.user_key);
+                lsm_tree::table::filter::standard_bloom::Builder::get_hash(&needle.key.user_key);
 
             assert_eq!(
                 Some(needle.clone()),
