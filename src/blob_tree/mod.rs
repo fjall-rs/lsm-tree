@@ -382,18 +382,19 @@ impl AbstractTree for BlobTree {
         log::debug!("=> to table in {}", table_folder.display());
         log::debug!("=> to blob file at {}", self.blobs_folder.display());
 
-        let mut table_writer = TableWriter::new(table_folder.join(table_id.to_string()), table_id)?
-            // TODO: apply other policies
-            .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
-            .use_bloom_policy({
-                use crate::config::FilterPolicyEntry::{Bloom, None};
-                use crate::table::filter::BloomConstructionPolicy;
+        let mut table_writer =
+            TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
+                // TODO: apply other policies
+                .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
+                .use_bloom_policy({
+                    use crate::config::FilterPolicyEntry::{Bloom, None};
+                    use crate::table::filter::BloomConstructionPolicy;
 
-                match self.index.config.filter_policy.get(0) {
-                    Bloom(policy) => policy,
-                    None => BloomConstructionPolicy::BitsPerKey(0.0),
-                }
-            });
+                    match self.index.config.filter_policy.get(0) {
+                        Bloom(policy) => policy,
+                        None => BloomConstructionPolicy::BitsPerKey(0.0),
+                    }
+                });
 
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_generator.clone(),

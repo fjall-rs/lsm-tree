@@ -49,6 +49,7 @@ pub(super) fn prepare_table_writer(
         table_base_folder,
         opts.table_id_generator.clone(),
         payload.target_size,
+        payload.dest_level,
     )?;
 
     if index_partitioning {

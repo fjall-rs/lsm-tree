@@ -49,6 +49,9 @@ pub struct MultiWriter {
     current_key: Option<UserKey>,
 
     linked_blobs: HashMap<BlobFileId, LinkedFile>,
+
+    /// Level the tables are written to
+    initial_level: u8,
 }
 
 impl MultiWriter {
@@ -57,14 +60,17 @@ impl MultiWriter {
         base_path: PathBuf,
         table_id_generator: Arc<AtomicU64>,
         target_size: u64,
+        initial_level: u8,
     ) -> crate::Result<Self> {
         let current_table_id =
             table_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         let path = base_path.join(current_table_id.to_string());
-        let writer = Writer::new(path, current_table_id)?;
+        let writer = Writer::new(path, current_table_id, initial_level)?;
 
         Ok(Self {
+            initial_level,
+
             base_path,
 
             data_block_hash_ratio: 0.0,
@@ -191,7 +197,7 @@ impl MultiWriter {
         let new_table_id = self.get_next_table_id();
         let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_table_id)?
+        let mut new_writer = Writer::new(path, new_table_id, self.initial_level)?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)

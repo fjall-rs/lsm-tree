@@ -80,16 +80,20 @@ pub struct Writer {
     previous_item: Option<(UserKey, ValueType)>,
 
     linked_blob_files: Vec<LinkedFile>,
+
+    initial_level: u8,
 }
 
 impl Writer {
-    pub fn new(path: PathBuf, table_id: TableId) -> crate::Result<Self> {
+    pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
         let block_writer = File::create_new(&path)?;
         let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
         let mut block_writer = sfa::Writer::from_writer(block_writer);
         block_writer.start("data")?;
 
         Ok(Self {
+            initial_level,
+
             meta: meta::Metadata::default(),
 
             table_id,
@@ -405,6 +409,7 @@ impl Writer {
                     "#index_block_count",
                     &(index_block_count as u64).to_le_bytes(),
                 ),
+                meta("#initial_level", &self.initial_level.to_le_bytes()),
                 meta("#item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
                     "#key#max",

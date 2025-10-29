@@ -343,7 +343,7 @@ impl AbstractTree for Tree {
             table_file_path.display(),
         );
 
-        let mut table_writer = Writer::new(table_file_path, table_id)?
+        let mut table_writer = Writer::new(table_file_path, table_id, 0)?
             .use_data_block_restart_interval(data_block_restart_interval)
             .use_index_block_restart_interval(index_block_restart_interval)
             .use_data_block_compression(data_block_compression)
