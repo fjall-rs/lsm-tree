@@ -98,11 +98,17 @@ impl std::fmt::Debug for Table {
 
 impl Table {
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
-        Ok(self
+        if let Some(v) = self.0.cached_blob_bytes.get() {
+            return Ok(*v);
+        }
+
+        let sum = self
             .list_blob_file_references()?
-            .iter()
             .map(|bf| bf.iter().map(|f| f.on_disk_bytes).sum::<u64>())
-            .sum::<u64>())
+            .unwrap_or_default();
+
+        let _ = self.0.cached_blob_bytes.set(sum);
+        Ok(sum)
     }
 
     pub fn list_blob_file_references(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
@@ -532,6 +538,7 @@ impl Table {
 
             #[cfg(feature = "metrics")]
             metrics,
+            cached_blob_bytes: std::sync::OnceLock::new(),
         })))
     }
 
