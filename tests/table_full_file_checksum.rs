@@ -18,7 +18,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
 
-        let expected_checksum = *table.checksum();
+        let expected_checksum = table.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -32,7 +32,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
 
-        let expected_checksum = *table.checksum();
+        let expected_checksum = table.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -59,7 +59,7 @@ fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
 
-        let expected_checksum = *table.checksum();
+        let expected_checksum = table.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -83,7 +83,7 @@ fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
             f.sync_all()?;
         }
 
-        let expected_checksum = *table.checksum();
+        let expected_checksum = table.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(&*table.path)?);
         assert_ne!(
             real_checksum, expected_checksum,

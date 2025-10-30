@@ -635,7 +635,7 @@ impl Version {
                 for table in run.iter() {
                     writer.write_u64::<LittleEndian>(table.id())?;
                     writer.write_u8(0)?; // Checksum type, 0 = XXH3
-                    writer.write_u128::<LittleEndian>(*table.checksum())?;
+                    writer.write_u128::<LittleEndian>(table.checksum().into_u128())?;
                 }
             }
         }
@@ -652,7 +652,7 @@ impl Version {
         for file in self.blob_files.iter() {
             writer.write_u64::<LittleEndian>(file.id())?;
             writer.write_u8(0)?; // Checksum type, 0 = XXH3
-            writer.write_u128::<LittleEndian>(*file.0.checksum)?;
+            writer.write_u128::<LittleEndian>(file.0.checksum.into_u128())?;
         }
 
         writer.start("blob_gc_stats")?;

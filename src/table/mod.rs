@@ -20,7 +20,7 @@ pub mod writer;
 #[cfg(test)]
 mod tests;
 
-pub use block::{Block, BlockOffset, Checksum};
+pub use block::{Block, BlockOffset};
 pub use data_block::DataBlock;
 pub use id::{GlobalTableId, TableId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
@@ -37,7 +37,7 @@ use crate::{
         regions::ParsedRegions,
         writer::LinkedFile,
     },
-    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
+    Checksum, CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use inner::Inner;

@@ -100,8 +100,6 @@
 // #![cfg_attr(feature = "bytes", deny(unsafe_code))]
 // #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
 
-// TODO: 3.0.0 use checksum type impl from sfa as well
-
 #[doc(hidden)]
 pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
@@ -116,18 +114,9 @@ macro_rules! fail_iter {
     };
 }
 
-// TODO: investigate perf
 macro_rules! unwrap {
     ($x:expr) => {{
-        #[cfg(not(feature = "use_unsafe"))]
-        {
-            $x.expect("should read")
-        }
-
-        #[cfg(feature = "use_unsafe")]
-        {
-            unsafe { $x.unwrap_unchecked() }
-        }
+        $x.expect("should read")
     }};
 }
 
@@ -142,6 +131,8 @@ pub mod blob_tree;
 
 #[doc(hidden)]
 mod cache;
+
+mod checksum;
 
 #[doc(hidden)]
 pub mod coding;
@@ -225,10 +216,11 @@ pub type KvPair = (UserKey, UserValue);
 #[doc(hidden)]
 pub use {
     blob_tree::handle::BlobIndirection,
+    checksum::Checksum,
     key_range::KeyRange,
     merge::BoxedIterator,
     slice::Builder,
-    table::{block::Checksum, GlobalTableId, Table, TableId},
+    table::{GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,

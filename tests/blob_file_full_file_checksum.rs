@@ -20,7 +20,7 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
 
-        let expected_checksum = *blob_file.checksum();
+        let expected_checksum = blob_file.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(blob_file.path())?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -34,7 +34,7 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
 
-        let expected_checksum = *blob_file.checksum();
+        let expected_checksum = blob_file.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(blob_file.path())?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -63,7 +63,7 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
 
-        let expected_checksum = *blob_file.checksum();
+        let expected_checksum = blob_file.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(blob_file.path())?);
         assert_eq!(
             real_checksum, expected_checksum,
@@ -89,7 +89,7 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
             f.sync_all()?;
         }
 
-        let expected_checksum = *blob_file.checksum();
+        let expected_checksum = blob_file.checksum().into_u128();
         let real_checksum = xxh3_128(&std::fs::read(blob_file.path())?);
         assert_ne!(
             real_checksum, expected_checksum,

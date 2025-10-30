@@ -118,7 +118,7 @@ impl Encode for Header {
             writer.write_u8(self.block_type.into())?;
 
             // Write data checksum
-            writer.write_u128::<LE>(*self.checksum)?;
+            writer.write_u128::<LE>(self.checksum.into_u128())?;
 
             // Write on-disk size length
             writer.write_u32::<LE>(self.data_length)?;
@@ -130,7 +130,7 @@ impl Encode for Header {
         };
 
         // Write 2-byte checksum
-        writer.write_u16::<LE>(*checksum as u16)?;
+        writer.write_u16::<LE>(checksum.into_u128() as u16)?;
 
         Ok(())
     }
@@ -164,7 +164,7 @@ impl Decode for Header {
         let uncompressed_length = protected_reader.read_u32::<LE>()?;
 
         // Get header checksum
-        let got_checksum = *protected_reader.checksum() as u16;
+        let got_checksum = protected_reader.checksum().into_u128() as u16;
         let got_checksum = Checksum::from_raw(u128::from(got_checksum));
 
         let reader = protected_reader.into_inner();
