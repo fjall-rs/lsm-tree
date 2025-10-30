@@ -15,7 +15,7 @@ use crate::{
 };
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
 pub struct Inner {
@@ -55,6 +55,10 @@ pub struct Inner {
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,
+
+    /// Cached sum of referenced blob file bytes for this table.
+    /// Lazily computed on first access to avoid repeated I/O in compaction decisions.
+    pub(crate) cached_blob_bytes: OnceLock<u64>,
 }
 
 impl Drop for Inner {

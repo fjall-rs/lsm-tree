@@ -88,36 +88,36 @@ impl CompactionStrategy for Strategy {
 
         let mut ids_to_drop: HashSet<_> = HashSet::default();
 
-        if let Some(ttl_seconds) = self.ttl_seconds {
-            if ttl_seconds > 0 {
-                // TTL is specified in seconds; convert to nanoseconds to compare against table metadata.
-                // We drop entire tables that were created before the TTL cutoff.
-                let now_ns: u128 = unix_timestamp().as_nanos();
-                let ttl_ns: u128 = (ttl_seconds as u128) * 1_000_000_000u128;
-                let cutoff = now_ns.saturating_sub(ttl_ns);
+        // Compute TTL cutoff once and perform a single pass to mark expired tables and
+        // accumulate their sizes. Also collect non-expired tables for possible size-based drops.
+        let ttl_cutoff = match self.ttl_seconds {
+            Some(s) if s > 0 => Some(
+                unix_timestamp()
+                    .as_nanos()
+                    .saturating_sub((s as u128) * 1_000_000_000u128),
+            ),
+            _ => None,
+        };
 
-                for table in first_level.iter().flat_map(|run| run.iter()) {
-                    if u128::from(table.metadata.created_at) <= cutoff {
-                        ids_to_drop.insert(table.id());
-                    }
-                }
-            }
-        }
+        let mut ttl_dropped_bytes = 0u64;
+        let mut alive = Vec::new();
 
-        // Subtract the (table + blob) bytes of TTL-selected tables to see if we're still over the limit.
-        let mut size_after_ttl = db_size;
-        if !ids_to_drop.is_empty() {
-            for table in version
-                .l0()
-                .iter()
-                .flat_map(|run| run.iter())
-                .filter(|t| ids_to_drop.contains(&t.id()))
-            {
+        for table in first_level.iter().flat_map(|run| run.iter()) {
+            let expired =
+                ttl_cutoff.is_some_and(|cutoff| u128::from(table.metadata.created_at) <= cutoff);
+
+            if expired {
+                ids_to_drop.insert(table.id());
                 let linked_blob_file_bytes = table.referenced_blob_bytes().unwrap_or_default();
-                size_after_ttl =
-                    size_after_ttl.saturating_sub(table.file_size() + linked_blob_file_bytes);
+                ttl_dropped_bytes =
+                    ttl_dropped_bytes.saturating_add(table.file_size() + linked_blob_file_bytes);
+            } else {
+                alive.push(table);
             }
         }
+
+        // Subtract TTL-selected bytes to see if we're still over the limit.
+        let size_after_ttl = db_size.saturating_sub(ttl_dropped_bytes);
 
         // If we still exceed the limit, drop additional oldest tables until within the limit.
         if size_after_ttl > self.limit {
@@ -125,14 +125,12 @@ impl CompactionStrategy for Strategy {
 
             let mut collected_bytes = 0u64;
 
-            // Iterate oldest-first per run to enforce FIFO semantics deterministically.
-            for table in first_level.iter().flat_map(|run| run.iter().rev()) {
+            // Oldest-first list by creation time from the non-expired set.
+            alive.sort_by_key(|t| t.metadata.created_at);
+
+            for table in alive {
                 if collected_bytes >= overshoot {
                     break;
-                }
-
-                if ids_to_drop.contains(&table.id()) {
-                    continue;
                 }
 
                 ids_to_drop.insert(table.id());
