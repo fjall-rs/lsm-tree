@@ -7,10 +7,7 @@ fn tree_load_v2() -> lsm_tree::Result<()> {
 
     let result = Config::new(folder).open();
 
-    matches!(
-        result,
-        Err(lsm_tree::Error::InvalidVersion(lsm_tree::FormatVersion::V2))
-    );
+    matches!(result, Err(lsm_tree::Error::InvalidVersion(2)));
 
     Ok(())
 }
@@ -21,10 +18,7 @@ fn tree_load_v2_corrupt() -> lsm_tree::Result<()> {
 
     let result = Config::new(folder).open();
 
-    matches!(
-        result,
-        Err(lsm_tree::Error::InvalidVersion(lsm_tree::FormatVersion::V2))
-    );
+    matches!(result, Err(lsm_tree::Error::InvalidVersion(2)));
 
     Ok(())
 }
