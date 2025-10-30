@@ -190,20 +190,9 @@ impl AbstractTree for Tree {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
-        // // TODO: 3.0.0 ... hmmmm
-        // let global_lock = self.super_version.write().expect("lock is poisoned");
-
         let seqno = seqno_generator.next();
 
         // TODO: allow ingestion always, by flushing memtable
-        // assert!(
-        //     global_lock.active_memtable.is_empty(),
-        //     "can only perform bulk ingestion with empty memtable(s)",
-        // );
-        // assert!(
-        //     global_lock.sealed_memtables.len() == 0,
-        //     "can only perform bulk ingestion with empty memtable(s)",
-        // );
 
         let mut writer = Ingestion::new(self)?.with_seqno(seqno);
 

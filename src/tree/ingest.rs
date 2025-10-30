@@ -4,7 +4,8 @@
 
 use super::Tree;
 use crate::{
-    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey, UserValue,
+    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, BlobIndirection, SeqNo,
+    UserKey, UserValue,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -16,7 +17,7 @@ pub const INITIAL_CANONICAL_LEVEL: usize = 1;
 pub struct Ingestion<'a> {
     folder: PathBuf,
     tree: &'a Tree,
-    writer: MultiWriter,
+    pub(crate) writer: MultiWriter,
     seqno: SeqNo,
 }
 
@@ -72,6 +73,30 @@ impl<'a> Ingestion<'a> {
     pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
         self.seqno = seqno;
         self
+    }
+
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub(crate) fn write_indirection(
+        &mut self,
+        key: UserKey,
+        indirection: BlobIndirection,
+    ) -> crate::Result<()> {
+        use crate::coding::Encode;
+
+        self.writer.write(crate::InternalValue::from_components(
+            key,
+            indirection.encode_into_vec(),
+            self.seqno,
+            crate::ValueType::Indirection,
+        ))?;
+
+        self.writer.register_blob(indirection);
+
+        Ok(())
     }
 
     /// Writes a key-value pair.

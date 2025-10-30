@@ -243,72 +243,117 @@ impl AbstractTree for BlobTree {
         seqno_generator: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        use crate::tree::ingest::Ingestion;
+        use crate::{compaction::MoveDown, tree::ingest::Ingestion};
         use std::time::Instant;
 
-        // TODO: take curr seqno for ingest, HOWEVER
-        // TODO: we need to take the next seqno AFTER locking the memtable
+        let seqno = seqno_generator.next();
 
-        todo!();
+        let blob_file_size = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist")
+            .file_target_size;
 
-        // // NOTE: Lock active memtable so nothing else can be going on while we are bulk loading
-        // let lock = self.lock_active_memtable();
-        // assert!(
-        //     lock.is_empty(),
-        //     "can only perform bulk_ingest on empty trees",
-        // );
+        let mut table_writer = Ingestion::new(&self.index)?.with_seqno(seqno);
+        let mut blob_writer = BlobFileWriter::new(
+            self.index.0.blob_file_id_generator.clone(),
+            blob_file_size,
+            self.index.config.path.join(BLOBS_FOLDER),
+        )?
+        .use_compression(
+            self.index
+                .config
+                .kv_separation_opts
+                .as_ref()
+                .expect("blob options should exist")
+                .compression,
+        );
 
-        // let mut segment_writer = Ingestion::new(&self.index)?.with_seqno(seqno);
-        // let mut blob_writer = self.blobs.get_writer()?;
+        let start = Instant::now();
+        let mut count = 0;
+        let mut last_key = None;
 
-        // let start = Instant::now();
-        // let mut count = 0;
-        // let mut last_key = None;
+        let separation_threshold = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist")
+            .separation_threshold;
 
-        // for (key, value) in iter {
-        //     if let Some(last_key) = &last_key {
-        //         assert!(
-        //             key > last_key,
-        //             "next key in bulk ingest was not greater than last key",
-        //         );
-        //     }
-        //     last_key = Some(key.clone());
+        for (key, value) in iter {
+            if let Some(last_key) = &last_key {
+                assert!(
+                    key > last_key,
+                    "next key in bulk ingest was not greater than last key",
+                );
+            }
+            last_key = Some(key.clone());
 
-        //     // NOTE: Values are 32-bit max
-        //     #[allow(clippy::cast_possible_truncation)]
-        //     let value_size = value.len() as u32;
+            // NOTE: Values are 32-bit max
+            #[allow(clippy::cast_possible_truncation)]
+            let value_size = value.len() as u32;
 
-        //     if value_size >= self.index.config.blob_file_separation_threshold {
-        //         let vhandle = blob_writer.get_next_value_handle();
+            if value_size >= separation_threshold {
+                let offset = blob_writer.offset();
+                let blob_file_id = blob_writer.blob_file_id();
+                let on_disk_size = blob_writer.write(&key, seqno, &value)?;
 
-        //         let indirection = MaybeInlineValue::Indirect {
-        //             vhandle,
-        //             size: value_size,
-        //         };
-        //         // TODO: use Slice::with_size
-        //         let mut serialized_indirection = vec![];
-        //         indirection.encode_into(&mut serialized_indirection)?;
+                let indirection = BlobIndirection {
+                    vhandle: ValueHandle {
+                        blob_file_id,
+                        offset,
+                        on_disk_size,
+                    },
+                    size: value_size,
+                };
 
-        //         segment_writer.write(key.clone(), serialized_indirection.into())?;
+                table_writer.write_indirection(key, indirection)?;
+            } else {
+                table_writer.write(key, value)?;
+            }
 
-        //         blob_writer.write(&key, value)?;
-        //     } else {
-        //         // TODO: use Slice::with_size
-        //         let direct = MaybeInlineValue::Inline(value);
-        //         let serialized_direct = direct.encode_into_vec();
-        //         segment_writer.write(key, serialized_direct.into())?;
-        //     }
+            count += 1;
+        }
 
-        //     count += 1;
-        // }
+        let blob_files = blob_writer.finish()?;
+        let results = table_writer.writer.finish()?;
 
-        // // TODO: add to manifest + unit test
-        // // self.blobs.register_writer(blob_writer)?;
-        // // segment_writer.finish()?;
+        let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.index.config.filter_block_pinning_policy.get(0);
 
-        // TODO: increaes visible seqno
+        let created_tables = results
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    self.index
+                        .config
+                        .path
+                        .join(crate::file::TABLES_FOLDER)
+                        .join(table_id.to_string()),
+                    checksum,
+                    self.index.id,
+                    self.index.config.cache.clone(),
+                    self.index.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.index.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
 
-        // log::info!("Ingested {count} items in {:?}", start.elapsed());
+        self.register_tables(&created_tables, Some(&blob_files), None, 0)?;
+
+        let last_level_idx = self.index.config.level_count - 1;
+
+        self.compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;
+
+        visible_seqno.fetch_max(seqno + 1);
+
+        log::info!("Ingested {count} items in {:?}", start.elapsed());
 
         Ok(())
     }
@@ -398,7 +443,7 @@ impl AbstractTree for BlobTree {
 
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_generator.clone(),
-            u64::MAX, // TODO: actually use target size? but be sure to link to table correctly
+            u64::MAX,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
         .use_compression(
