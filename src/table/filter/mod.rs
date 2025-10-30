@@ -65,10 +65,7 @@ impl TryFrom<u8> for FilterType {
         match value {
             0 => Ok(Self::StandardBloom),
             1 => Ok(Self::BlockedBloom),
-            _ => Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                "FilterType",
-                value,
-            )))),
+            _ => Err(crate::Error::InvalidTag(("FilterType", value))),
         }
     }
 }

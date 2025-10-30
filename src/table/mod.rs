@@ -398,10 +398,10 @@ impl Table {
         let block = Block::from_file(file, regions.tli, compression)?;
 
         if block.header.block_type != BlockType::Index {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+            return Err(crate::Error::InvalidTag((
                 "BlockType",
                 block.header.block_type.into(),
-            ))));
+            )));
         }
 
         Ok(IndexBlock::new(block))
@@ -499,10 +499,10 @@ impl Table {
                         if block.header.block_type == BlockType::Filter {
                             Ok(block)
                         } else {
-                            Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                            Err(crate::Error::InvalidTag((
                                 "BlockType",
                                 block.header.block_type.into(),
-                            ))))
+                            )))
                         }
                     })?;
 

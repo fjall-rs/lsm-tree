@@ -79,10 +79,10 @@ pub fn load_block(
     let block = Block::from_file(&fd, *handle, compression)?;
 
     if block.header.block_type != block_type {
-        return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+        return Err(crate::Error::InvalidTag((
             "BlockType",
             block.header.block_type.into(),
-        ))));
+        )));
     }
 
     #[cfg(feature = "metrics")]

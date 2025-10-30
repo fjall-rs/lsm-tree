@@ -103,9 +103,7 @@ impl Metadata {
         reader.read_exact(&mut magic)?;
 
         if magic != METADATA_HEADER_MAGIC {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
-                "BlobFileMeta",
-            )));
+            return Err(crate::Error::InvalidHeader("BlobFileMeta"));
         }
 
         // TODO: Block::from_slice

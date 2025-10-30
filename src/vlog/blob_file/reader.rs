@@ -44,9 +44,7 @@ impl<'a> Reader<'a> {
         reader.read_exact(&mut magic)?;
 
         if magic != BLOB_HEADER_MAGIC {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
-                "Blob",
-            )));
+            return Err(crate::Error::InvalidHeader("Blob"));
         }
 
         let expected_checksum = reader.read_u128::<LittleEndian>()?;

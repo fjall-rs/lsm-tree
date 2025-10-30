@@ -106,7 +106,7 @@ impl crate::coding::Encode for FragmentationMap {
 }
 
 impl crate::coding::Decode for FragmentationMap {
-    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::DecodeError>
+    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::Error>
     where
         Self: Sized,
     {

@@ -4,7 +4,6 @@
 
 use super::writer::BLOB_HEADER_MAGIC;
 use crate::{
-    coding::DecodeError,
     vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
     Checksum, SeqNo, UserKey, UserValue,
 };
@@ -73,9 +72,7 @@ impl Iterator for Scanner {
             }
 
             if buf != BLOB_HEADER_MAGIC {
-                return Some(Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                    "Blob",
-                ))));
+                return Some(Err(crate::Error::InvalidHeader("Blob")));
             }
         }
 

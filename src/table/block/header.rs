@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::Checksum;
-use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::coding::{Decode, Encode, EncodeError};
 use crate::file::MAGIC_BYTES;
 use crate::table::block::BlockType;
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -137,7 +137,7 @@ impl Encode for Header {
 }
 
 impl Decode for Header {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
         use byteorder::LE;
 
         let mut protected_reader = ChecksummedReader::new(reader);
@@ -147,7 +147,7 @@ impl Decode for Header {
         protected_reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DecodeError::InvalidHeader("Block"));
+            return Err(crate::Error::InvalidHeader("Block"));
         }
 
         // Read block type
@@ -174,7 +174,7 @@ impl Decode for Header {
         let header_checksum = Checksum::from_raw(header_checksum);
 
         if header_checksum != got_checksum {
-            return Err(DecodeError::ChecksumMismatch {
+            return Err(crate::Error::ChecksumMismatch {
                 got: got_checksum,
                 expected: header_checksum,
             });
@@ -227,7 +227,7 @@ mod tests {
         assert!(
             matches!(
                 Header::decode_from(&mut &bytes[..]),
-                Err(crate::DecodeError::ChecksumMismatch { .. }),
+                Err(crate::Error::ChecksumMismatch { .. }),
             ),
             "did not detect header corruption",
         );

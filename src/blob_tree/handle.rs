@@ -1,7 +1,7 @@
 use crate::{
     coding::{Decode, Encode},
     vlog::ValueHandle,
-    DecodeError, EncodeError,
+    EncodeError,
 };
 use std::io::{Read, Write};
 use varint_rs::{VarintReader, VarintWriter};
@@ -27,7 +27,7 @@ impl Encode for BlobIndirection {
 }
 
 impl Decode for BlobIndirection {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
         let vhandle = ValueHandle::decode_from(reader)?;
         let size = reader.read_u32_varint()?;
         Ok(Self { vhandle, size })

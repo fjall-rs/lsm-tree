@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
+    coding::{Decode, Encode, EncodeError},
     vlog::BlobFileId,
 };
 use std::{
@@ -35,7 +35,7 @@ impl Encode for ValueHandle {
 }
 
 impl Decode for ValueHandle {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
         let offset = reader.read_u64_varint()?;
         let blob_file_id = reader.read_u64_varint()?;
         let on_disk_size = reader.read_u32_varint()?;

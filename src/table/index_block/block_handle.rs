@@ -4,7 +4,7 @@
 
 use crate::UserKey;
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
+    coding::{Decode, Encode, EncodeError},
     table::{
         block::{BlockOffset, Decodable, Encodable, TRAILER_START_MARKER},
         index_block::IndexBlockParsedItem,
@@ -70,7 +70,7 @@ impl Encode for BlockHandle {
 }
 
 impl Decode for BlockHandle {
-    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, DecodeError>
+    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::Error>
     where
         Self: Sized,
     {

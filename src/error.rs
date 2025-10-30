@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{DecodeError, EncodeError},
-    format_version::FormatVersion,
-    Checksum, CompressionType,
-};
+use crate::{coding::EncodeError, format_version::FormatVersion, Checksum, CompressionType};
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
@@ -17,9 +13,6 @@ pub enum Error {
 
     /// Serialization failed
     Encode(EncodeError),
-
-    /// Deserialization failed
-    Decode(DecodeError),
 
     /// Decompression failed
     Decompress(CompressionType),
@@ -38,6 +31,18 @@ pub enum Error {
         /// Checksum that was saved in block header
         expected: Checksum,
     },
+
+    /// Invalid enum tag
+    InvalidTag((&'static str, u8)),
+
+    /// Invalid block trailer
+    InvalidTrailer,
+
+    /// Invalid block header
+    InvalidHeader(&'static str),
+
+    /// UTF-8 error
+    Utf8(std::str::Utf8Error),
 }
 
 impl std::fmt::Display for Error {
@@ -51,11 +56,7 @@ impl std::error::Error for Error {
         match self {
             Self::Io(e) => Some(e),
             Self::Encode(e) => Some(e),
-            Self::Decode(e) => Some(e),
-            Self::Decompress(_)
-            | Self::InvalidVersion(_)
-            | Self::Unrecoverable
-            | Self::ChecksumMismatch { .. } => None,
+            _ => None,
         }
     }
 }
@@ -96,12 +97,6 @@ impl From<std::io::Error> for Error {
 impl From<EncodeError> for Error {
     fn from(value: EncodeError) -> Self {
         Self::Encode(value)
-    }
-}
-
-impl From<DecodeError> for Error {
-    fn from(value: DecodeError) -> Self {
-        Self::Decode(value)
     }
 }
 
