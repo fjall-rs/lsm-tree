@@ -1,8 +1,6 @@
 use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
 use test_log::test;
 
-// TODO: 3.0.0 check that decompressed value size is used (enable compression)
-
 #[test]
 fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
