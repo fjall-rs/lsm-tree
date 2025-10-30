@@ -154,9 +154,10 @@ mod tests {
     use test_log::test;
 
     #[test]
+    #[expect(clippy::unwrap_used)]
     fn test_blob_file_meta_roundtrip() {
         let meta = Metadata {
-            created_at: 1234567890,
+            created_at: 1_234_567_890,
             compression: CompressionType::None,
             item_count: 100,
             total_compressed_bytes: 1024,
