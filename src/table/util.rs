@@ -3,11 +3,20 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, GlobalTableId};
-use crate::{table::block::BlockType, Cache, CompressionType, DescriptorTable};
+use crate::{
+    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
+    KeyRange, Table,
+};
 use std::{path::Path, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
+
+pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+    let lo = tables.first().expect("run should never be empty");
+    let hi = tables.last().expect("run should never be empty");
+    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
+}
 
 /// [start, end] slice indexes
 #[derive(Debug)]

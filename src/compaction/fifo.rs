@@ -8,6 +8,9 @@ use crate::{
     HashSet, KvPair,
 };
 
+#[doc(hidden)]
+pub const NAME: &str = "FifoCompaction";
+
 /// FIFO-style compaction
 ///
 /// Limits the tree size to roughly `limit` bytes, deleting the oldest table(s)
@@ -44,7 +47,7 @@ impl Strategy {
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "FifoCompaction"
+        NAME
     }
 
     fn get_config(&self) -> Vec<KvPair> {
@@ -94,7 +97,7 @@ impl CompactionStrategy for Strategy {
             Some(s) if s > 0 => Some(
                 unix_timestamp()
                     .as_nanos()
-                    .saturating_sub((s as u128) * 1_000_000_000u128),
+                    .saturating_sub(u128::from(s) * 1_000_000_000u128),
             ),
             _ => None,
         };
@@ -152,7 +155,7 @@ impl CompactionStrategy for Strategy {
 #[cfg(test)]
 mod tests {
     use super::Strategy;
-    use crate::{compaction::CompactionStrategy, AbstractTree, Config, KvSeparationOptions};
+    use crate::{AbstractTree, Config, KvSeparationOptions};
     use std::sync::Arc;
 
     #[test]
@@ -173,8 +176,8 @@ mod tests {
         let tree = Config::new(dir.path()).open()?;
 
         for i in 0..4u8 {
-            tree.insert([b'k', i].as_slice(), "v", i as u64);
-            tree.flush_active_memtable(i as u64)?;
+            tree.insert([b'k', i].as_slice(), "v", u64::from(i));
+            tree.flush_active_memtable(u64::from(i))?;
         }
 
         let before = tree.table_count();
@@ -191,8 +194,8 @@ mod tests {
         let tree = Config::new(dir.path()).open()?;
 
         for i in 0..4u8 {
-            tree.insert([b'k', i].as_slice(), "v", i as u64);
-            tree.flush_active_memtable(i as u64)?;
+            tree.insert([b'k', i].as_slice(), "v", u64::from(i));
+            tree.flush_active_memtable(u64::from(i))?;
         }
 
         let before = tree.table_count();
@@ -212,8 +215,8 @@ mod tests {
             .open()?;
 
         for i in 0..3u8 {
-            tree.insert([b'k', i].as_slice(), "$", i as u64);
-            tree.flush_active_memtable(i as u64)?;
+            tree.insert([b'k', i].as_slice(), "$", u64::from(i));
+            tree.flush_active_memtable(u64::from(i))?;
         }
 
         let before = tree.table_count();
