@@ -300,6 +300,78 @@ fn table_point_read() -> crate::Result<()> {
 }
 
 #[test]
+fn table_range_exclusive_bounds() -> crate::Result<()> {
+    use std::ops::Bound::{Excluded, Included};
+
+    let items = [
+        crate::InternalValue::from_components(b"a", b"v", 0, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"b", b"v", 0, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"c", b"v", 0, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"d", b"v", 0, crate::ValueType::Value),
+        crate::InternalValue::from_components(b"e", b"v", 0, crate::ValueType::Value),
+    ];
+
+    test_with_table(
+        &items,
+        |table| {
+            let res = table
+                .range((Excluded(UserKey::from("b")), Included(UserKey::from("d"))))
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                items.iter().skip(2).take(2).cloned().collect::<Vec<_>>(),
+                &*res,
+            );
+
+            let res = table
+                .range((Excluded(UserKey::from("b")), Included(UserKey::from("d"))))
+                .rev()
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(2)
+                    .take(2)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*res,
+            );
+
+            let res = table
+                .range((Excluded(UserKey::from("b")), Excluded(UserKey::from("d"))))
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                items.iter().skip(2).take(1).cloned().collect::<Vec<_>>(),
+                &*res,
+            );
+
+            let res = table
+                .range((Excluded(UserKey::from("b")), Excluded(UserKey::from("d"))))
+                .rev()
+                .flatten()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                items
+                    .iter()
+                    .skip(2)
+                    .take(1)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &*res,
+            );
+
+            Ok(())
+        },
+        None,
+        Some(|x: Writer| x.use_data_block_size(1)),
+    )
+}
+
+#[test]
 #[expect(clippy::unwrap_used)]
 fn table_point_read_mvcc_block_boundary() -> crate::Result<()> {
     let items = [
