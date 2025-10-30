@@ -154,7 +154,7 @@ impl ExpiredKvCallback for FragmentationMap {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used)]
+#[expect(clippy::expect_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use crate::{
