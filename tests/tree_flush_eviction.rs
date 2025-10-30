@@ -41,7 +41,6 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
@@ -66,7 +65,6 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
