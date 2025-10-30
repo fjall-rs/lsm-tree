@@ -630,6 +630,7 @@ impl Tree {
 
         // Check for old version
         if config.path.join("version").try_exists()? {
+            log::error!("It looks like you are trying to open a V1 database - the database needs a manual migration, however a migration tool is not provided, as V1 is extremely outdated.");
             return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
@@ -862,6 +863,12 @@ impl Tree {
         };
 
         if manifest.version != FormatVersion::V3 {
+            if manifest.version == FormatVersion::V2 {
+                log::error!("It looks like you are trying to open a V2 database - the database needs a manual migration, a tool is available at <TODO: 3.0.0 LINK>.");
+            }
+            if manifest.version as u8 > 3 {
+                log::error!("It looks like you are trying to open a database from the future. Are you a time traveller?");
+            }
             return Err(crate::Error::InvalidVersion(manifest.version.into()));
         }
 
