@@ -78,7 +78,7 @@ impl FragmentationMap {
 }
 
 impl crate::coding::Encode for FragmentationMap {
-    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::EncodeError> {
+    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         use byteorder::{WriteBytesExt, LE};
 
         #[expect(

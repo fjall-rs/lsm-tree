@@ -1,7 +1,6 @@
 use crate::{
     coding::{Decode, Encode},
     vlog::ValueHandle,
-    EncodeError,
 };
 use std::io::{Read, Write};
 use varint_rs::{VarintReader, VarintWriter};
@@ -19,7 +18,7 @@ impl PartialEq for BlobIndirection {
 }
 
 impl Encode for BlobIndirection {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         self.vhandle.encode_into(writer)?;
         writer.write_u32_varint(self.size)?;
         Ok(())

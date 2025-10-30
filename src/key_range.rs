@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::{Decode, Encode, EncodeError},
+    coding::{Decode, Encode},
     Slice, UserKey,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -160,7 +160,7 @@ impl KeyRange {
 }
 
 impl Encode for KeyRange {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         let min = self.min();
         let max = self.max();
 

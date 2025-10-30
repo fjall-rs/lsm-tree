@@ -230,7 +230,6 @@ pub use {
     any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,
-    coding::EncodeError,
     compression::CompressionType,
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,

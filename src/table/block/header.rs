@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::Checksum;
-use crate::coding::{Decode, Encode, EncodeError};
+use crate::coding::{Decode, Encode};
 use crate::file::MAGIC_BYTES;
 use crate::table::block::BlockType;
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -105,7 +105,7 @@ impl Header {
 }
 
 impl Encode for Header {
-    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), crate::Error> {
         use byteorder::LE;
 
         let checksum = {

@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::coding::{Decode, Encode, EncodeError};
+use crate::coding::{Decode, Encode};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
@@ -23,7 +23,7 @@ pub enum CompressionType {
 }
 
 impl Encode for CompressionType {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         match self {
             Self::None => {
                 writer.write_u8(0)?;

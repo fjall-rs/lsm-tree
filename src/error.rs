@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{coding::EncodeError, format_version::FormatVersion, Checksum, CompressionType};
+use crate::{Checksum, CompressionType};
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
@@ -11,14 +11,11 @@ pub enum Error {
     /// I/O error
     Io(std::io::Error),
 
-    /// Serialization failed
-    Encode(EncodeError),
-
     /// Decompression failed
     Decompress(CompressionType),
 
     /// Invalid or unparsable data format version
-    InvalidVersion(FormatVersion),
+    InvalidVersion(u8),
 
     /// Some required files could not be recovered from disk
     Unrecoverable,
@@ -55,7 +52,6 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
-            Self::Encode(e) => Some(e),
             _ => None,
         }
     }
@@ -91,12 +87,6 @@ impl From<sfa::Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
-    }
-}
-
-impl From<EncodeError> for Error {
-    fn from(value: EncodeError) -> Self {
-        Self::Encode(value)
     }
 }
 

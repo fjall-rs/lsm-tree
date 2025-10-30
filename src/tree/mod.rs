@@ -630,7 +630,7 @@ impl Tree {
 
         // Check for old version
         if config.path.join("version").try_exists()? {
-            return Err(crate::Error::InvalidVersion(FormatVersion::V1));
+            return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
         let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
@@ -862,7 +862,7 @@ impl Tree {
         };
 
         if manifest.version != FormatVersion::V3 {
-            return Err(crate::Error::InvalidVersion(manifest.version));
+            return Err(crate::Error::InvalidVersion(manifest.version.into()));
         }
 
         // IMPORTANT: Restore persisted config
