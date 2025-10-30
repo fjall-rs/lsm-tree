@@ -1,5 +1,4 @@
 use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
-use std::sync::Arc;
 use test_log::test;
 
 #[test]
