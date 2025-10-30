@@ -48,14 +48,13 @@ impl Block {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Header> {
-        #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
-        let data_len = data.len() as u32;
-
         let mut header = Header {
             block_type,
             checksum: Checksum::from_raw(0), // <-- NOTE: Is set later on
             data_length: 0,                  // <-- NOTE: Is set later on
-            uncompressed_length: data_len,
+
+            #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
+            uncompressed_length: data.len() as u32,
         };
 
         let data = match compression {
@@ -64,8 +63,12 @@ impl Block {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => &lz4_flex::compress(data),
         };
-        header.data_length = data_len;
-        header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+
+        #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
+        {
+            header.data_length = data.len() as u32;
+            header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+        }
 
         header.encode_into(&mut writer)?;
         writer.write_all(data)?;
