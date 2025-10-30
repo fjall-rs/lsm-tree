@@ -1,4 +1,4 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, KvSeparationOptions, SeqNo};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -9,7 +9,6 @@ fn table_point_reads() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -33,7 +32,6 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
@@ -51,19 +49,14 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
         assert_eq!(item.key.seqno, 2);
         assert_eq!(&*item.value, b"2");
 
-        // TODO: 3.0.0 test snapshot reads
+        let item = tree.get_internal_entry(&key, 3)?.unwrap();
+        assert_eq!(&*item.value, b"2");
 
-        // let snapshot = tree.snapshot(3);
-        // let item = snapshot.get(key)?.unwrap();
-        // assert_eq!(&*item, b"2");
+        let item = tree.get_internal_entry(&key, 2)?.unwrap();
+        assert_eq!(&*item.value, b"1");
 
-        // let snapshot = tree.snapshot(2);
-        // let item = snapshot.get(key)?.unwrap();
-        // assert_eq!(&*item, b"1");
-
-        // let snapshot = tree.snapshot(1);
-        // let item = snapshot.get(key)?.unwrap();
-        // assert_eq!(&*item, b"0");
+        let item = tree.get_internal_entry(&key, 1)?.unwrap();
+        assert_eq!(&*item.value, b"0");
     }
 
     Ok(())
@@ -75,7 +68,6 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let keys = [0, 1, 2]
@@ -95,35 +87,32 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
         assert_eq!(item.key.seqno, ITEM_COUNT as u64 - 1);
     }
 
-    // TODO: 3.0.0 test snapshot reads
+    for key in &keys {
+        // NOTE: Need to start at seqno=1
+        for seqno in 1..ITEM_COUNT as u64 {
+            let item = tree.get_internal_entry(key, seqno)?.unwrap();
 
-    // for key in &keys {
-    //     // NOTE: Need to start at seqno=1
-    //     for seqno in 1..ITEM_COUNT as u64 {
-    //         let snapshot = tree.snapshot(seqno);
-    //         let item = snapshot.get(key)?.unwrap();
-
-    //         // NOTE: When snapshot is =1, it will read any items with
-    //         // seqno less than 1
-    //         assert_eq!(
-    //             String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
-    //             seqno - 1
-    //         );
-    //     }
-    // }
+            // NOTE: When snapshot is =1, it will read any items with
+            // seqno less than 1
+            assert_eq!(
+                String::from_utf8_lossy(&item.value)
+                    .parse::<SeqNo>()
+                    .unwrap(),
+                seqno - 1
+            );
+        }
+    }
 
     Ok(())
 }
 
 #[test]
-#[ignore]
 fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .with_kv_separation(Some(Default::default()))
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
     let keys = [0, 1, 2]
@@ -146,22 +135,19 @@ fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
         );
     }
 
-    // TODO: 3.0.0 test snapshot reads
+    for key in &keys {
+        // NOTE: Need to start at seqno=1
+        for seqno in 1..ITEM_COUNT as u64 {
+            let value = tree.get(key, seqno)?.unwrap();
 
-    // for key in &keys {
-    //     // NOTE: Need to start at seqno=1
-    //     for seqno in 1..ITEM_COUNT as u64 {
-    //         let snapshot = tree.snapshot(seqno);
-    //         let item = snapshot.get(key)?.unwrap();
-
-    //         // NOTE: When snapshot is =1, it will read any items with
-    //         // seqno less than 1
-    //         assert_eq!(
-    //             String::from_utf8_lossy(&item).parse::<SeqNo>().unwrap(),
-    //             seqno - 1
-    //         );
-    //     }
-    // }
+            // NOTE: When snapshot is =1, it will read any items with
+            // seqno less than 1
+            assert_eq!(
+                String::from_utf8_lossy(&value).parse::<SeqNo>().unwrap(),
+                seqno - 1
+            );
+        }
+    }
 
     Ok(())
 }
