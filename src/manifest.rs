@@ -6,8 +6,6 @@ use crate::{FormatVersion, TreeType};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{io::Write, path::Path};
 
-// TODO: 3.0.0 maybe create a SFA wrapper that checksums all sections?
-
 pub struct Manifest {
     pub(crate) version: FormatVersion,
     pub(crate) tree_type: TreeType,
@@ -66,6 +64,9 @@ impl Manifest {
             let mut reader = section.buf_reader(path)?;
             reader.read_u8()?
         };
+
+        // Currently level count is hard coded to 7
+        assert_eq!(7, level_count, "level count should be 7");
 
         Ok(Self {
             version,

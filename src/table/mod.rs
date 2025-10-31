@@ -291,11 +291,6 @@ impl Table {
         for block_handle in iter {
             let block_handle = block_handle?;
 
-            // // TODO: 3.0.0 can this ever happen...?
-            // if block_handle.end_key() < &key {
-            //     return Ok(None);
-            // }
-
             let block = self.load_data_block(block_handle.as_ref())?;
 
             if let Some(item) = block.point_read(key, seqno) {

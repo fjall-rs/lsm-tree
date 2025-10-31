@@ -1,5 +1,7 @@
 use super::*;
-use crate::table::filter::standard_bloom::Builder as BloomBuilder;
+use crate::{
+    config::BloomConstructionPolicy, table::filter::standard_bloom::Builder as BloomBuilder,
+};
 use tempfile::tempdir;
 use test_log::test;
 
@@ -406,7 +408,6 @@ fn table_point_read_mvcc_block_boundary() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_scan() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -432,7 +433,6 @@ fn table_scan() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_iter_simple() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -457,7 +457,6 @@ fn table_iter_simple() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_range_simple() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"abc", b"asdasdasd", 3, crate::ValueType::Value),
@@ -493,7 +492,6 @@ fn table_range_simple() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_range_ping_pong() -> crate::Result<()> {
     let items = (0u64..10)
         .map(|i| InternalValue::from_components(i.to_be_bytes(), "", 0, crate::ValueType::Value))
@@ -533,7 +531,6 @@ fn table_range_ping_pong() -> crate::Result<()> {
 }
 
 #[test]
-#[expect(clippy::unwrap_used)]
 fn table_range_multiple_data_blocks() -> crate::Result<()> {
     let items = [
         crate::InternalValue::from_components(b"a", b"asdasdasd", 3, crate::ValueType::Value),
@@ -611,5 +608,50 @@ fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
         },
         None,
         Some(|x: Writer| x.use_partitioned_filter()),
+    )
+}
+
+#[test]
+fn table_seqnos() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a", nanoid::nanoid!().as_bytes(), 7, Value),
+        InternalValue::from_components("b", nanoid::nanoid!().as_bytes(), 5, Value),
+        InternalValue::from_components("c", nanoid::nanoid!().as_bytes(), 8, Value),
+        InternalValue::from_components("d", nanoid::nanoid!().as_bytes(), 10, Value),
+    ];
+
+    test_with_table(
+        &items,
+        |table| {
+            assert_eq!(5, table.metadata.seqnos.0);
+            assert_eq!(10, table.metadata.seqnos.1);
+            Ok(())
+        },
+        None,
+        Some(|x| x),
+    )
+}
+
+#[test]
+fn table_zero_bpk() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a", nanoid::nanoid!().as_bytes(), 7, Value),
+        InternalValue::from_components("b", nanoid::nanoid!().as_bytes(), 5, Value),
+        InternalValue::from_components("c", nanoid::nanoid!().as_bytes(), 8, Value),
+        InternalValue::from_components("d", nanoid::nanoid!().as_bytes(), 10, Value),
+    ];
+
+    test_with_table(
+        &items,
+        |table| {
+            assert!(table.regions.filter.is_none());
+            Ok(())
+        },
+        None,
+        Some(|x: Writer| x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))),
     )
 }

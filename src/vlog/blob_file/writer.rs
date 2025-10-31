@@ -172,8 +172,8 @@ impl Writer {
         self.written_blob_bytes += value.len() as u64;
         self.item_count += 1;
 
-        // TODO: 3.0.0 if we store the offset before writing, we can return a vhandle here
-        // TODO: instead of needing to call offset() and blob_file_id() before write()
+        // TODO: if we store the offset before writing, we can return a vhandle here
+        // instead of needing to call offset() and blob_file_id() before write()
 
         #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         Ok(value.len() as u32)

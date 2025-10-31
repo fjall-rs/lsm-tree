@@ -263,9 +263,9 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
     }
 
     fn parse_truncated(
-        reader: &mut Cursor<&[u8]>,
-        offset: usize,
-        base_key_offset: usize,
+        _reader: &mut Cursor<&[u8]>,
+        _offset: usize,
+        _base_key_offset: usize,
     ) -> Option<IndexBlockParsedItem> {
         unimplemented!()
     }
