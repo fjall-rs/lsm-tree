@@ -324,8 +324,8 @@ impl AbstractTree for Tree {
 
         let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
 
-        let index_partioning = self.config.index_block_partitioning_policy.get(0);
-        let filter_partioning = self.config.filter_block_partitioning_policy.get(0);
+        let index_partitioning = self.config.index_block_partitioning_policy.get(0);
+        let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
             "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
@@ -349,10 +349,10 @@ impl AbstractTree for Tree {
                 }
             });
 
-        if index_partioning {
+        if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
         }
-        if filter_partioning {
+        if filter_partitioning {
             table_writer = table_writer.use_partitioned_filter();
         }
 
