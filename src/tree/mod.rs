@@ -28,7 +28,7 @@ use inner::{MemtableId, TreeId, TreeInner};
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 #[cfg(feature = "metrics")]
@@ -73,9 +73,7 @@ impl std::ops::Deref for Tree {
 
 impl AbstractTree for Tree {
     fn next_table_id(&self) -> TableId {
-        self.0
-            .table_id_counter
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.0.table_id_counter.get()
     }
 
     fn id(&self) -> TreeId {
@@ -898,7 +896,7 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
-            table_id_counter: Arc::new(AtomicU64::new(highest_table_id + 1)),
+            table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_generator: SequenceNumberCounter::default(),
             super_version: Arc::new(RwLock::new(SuperVersion {
                 active_memtable: Arc::default(),

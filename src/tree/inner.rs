@@ -49,7 +49,7 @@ pub struct TreeInner {
 
     /// Hands out a unique (monotonically increasing) table ID
     #[doc(hidden)]
-    pub table_id_counter: Arc<AtomicU64>,
+    pub table_id_counter: SequenceNumberCounter,
 
     // This is not really used in the normal tree, but we need it in the blob tree
     /// Hands out a unique (monotonically increasing) blob file ID
@@ -86,7 +86,7 @@ impl TreeInner {
 
         Ok(Self {
             id: get_next_tree_id(),
-            table_id_counter: Arc::new(AtomicU64::default()),
+            table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_generator: SequenceNumberCounter::default(),
             config,
             super_version: Arc::new(RwLock::new(SuperVersion {
@@ -104,8 +104,7 @@ impl TreeInner {
     }
 
     pub fn get_next_table_id(&self) -> TableId {
-        self.table_id_counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        self.table_id_counter.next()
     }
 }
 

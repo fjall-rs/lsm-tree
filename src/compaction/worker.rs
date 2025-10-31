@@ -21,7 +21,7 @@ use crate::{
     BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, TableId,
 };
 use std::{
-    sync::{atomic::AtomicU64, Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
     time::Instant,
 };
 
@@ -34,7 +34,7 @@ pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalVa
 pub struct Options {
     pub tree_id: TreeId,
 
-    pub table_id_generator: Arc<AtomicU64>, // TODO: change to be SequenceNumberCounter
+    pub table_id_generator: SequenceNumberCounter,
 
     pub blob_file_id_generator: SequenceNumberCounter,
 

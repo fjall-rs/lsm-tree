@@ -5,12 +5,9 @@
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
     blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, TableId, UserKey,
+    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicU64, Arc},
-};
+use std::path::PathBuf;
 
 /// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
@@ -36,7 +33,7 @@ pub struct MultiWriter {
 
     results: Vec<(TableId, Checksum)>,
 
-    table_id_generator: Arc<AtomicU64>,
+    table_id_generator: SequenceNumberCounter,
     current_table_id: u64,
 
     pub writer: Writer,
@@ -58,12 +55,11 @@ impl MultiWriter {
     /// Sets up a new `MultiWriter` at the given tables folder
     pub fn new(
         base_path: PathBuf,
-        table_id_generator: Arc<AtomicU64>,
+        table_id_generator: SequenceNumberCounter,
         target_size: u64,
         initial_level: u8,
     ) -> crate::Result<Self> {
-        let current_table_id =
-            table_id_generator.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let current_table_id = table_id_generator.next();
 
         let path = base_path.join(current_table_id.to_string());
         let writer = Writer::new(path, current_table_id, initial_level)?;
@@ -182,19 +178,11 @@ impl MultiWriter {
         self
     }
 
-    fn get_next_table_id(&mut self) -> u64 {
-        self.current_table_id = self
-            .table_id_generator
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        self.current_table_id
-    }
-
     /// Flushes the current writer, stores its metadata, and sets up a new writer for the next table
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating table writer");
 
-        let new_table_id = self.get_next_table_id();
+        let new_table_id = self.table_id_generator.next();
         let path = self.base_path.join(new_table_id.to_string());
 
         let mut new_writer = Writer::new(path, new_table_id, self.initial_level)?
