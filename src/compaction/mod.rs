@@ -83,7 +83,6 @@ pub enum Choice {
 /// and emits a choice on what to do.
 #[expect(clippy::module_name_repetitions)]
 pub trait CompactionStrategy {
-    // TODO: could be : Display instead
     /// Gets the compaction strategy name.
     fn get_name(&self) -> &'static str;
 

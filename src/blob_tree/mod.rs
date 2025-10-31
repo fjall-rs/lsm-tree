@@ -642,9 +642,6 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
-        // TODO: refactor memtable, sealed memtables, manifest lock to be a single lock (SuperVersion kind of)
-        // TODO: then, try to reduce the lock access to 1, because we are accessing it twice (index.get, and then vhandle resolving...)
-
         let Some(item) = self.index.get_internal_entry(key, seqno)? else {
             return Ok(None);
         };
