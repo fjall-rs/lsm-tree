@@ -292,8 +292,7 @@ impl AbstractTree for BlobTree {
             }
             last_key = Some(key.clone());
 
-            // NOTE: Values are 32-bit max
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation, reason = "values are 32-bit max")]
             let value_size = value.len() as u32;
 
             if value_size >= separation_threshold {
