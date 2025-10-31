@@ -12,7 +12,7 @@ use std::{path::Path, sync::Arc};
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-#[must_use] 
+#[must_use]
 pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
     let lo = tables.first().expect("run should never be empty");
     let hi = tables.last().expect("run should never be empty");
