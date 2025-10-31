@@ -19,7 +19,9 @@ impl std::fmt::Display for Checksum {
 }
 
 impl Checksum {
-    pub(crate) fn from_raw(value: u128) -> Self {
+    /// Wraps a checksum value.
+    #[must_use]
+    pub fn from_raw(value: u128) -> Self {
         Self(value)
     }
 
