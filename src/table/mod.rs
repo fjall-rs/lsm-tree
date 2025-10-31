@@ -351,10 +351,10 @@ impl Table {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[doc(hidden)]
-    pub fn range<R: RangeBounds<UserKey>>(
+    pub fn range<R: RangeBounds<UserKey> + Send>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send {
         let index_iter = self.block_index.iter();
 
         let mut iter = Iter::new(

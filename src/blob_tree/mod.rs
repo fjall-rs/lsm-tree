@@ -19,18 +19,19 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Config, Memtable, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
+    Cache, Config, DescriptorTable, Memtable, SeqNo, SequenceNumberCounter, TableId, TreeId,
+    UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
 
-pub struct Guard<'a> {
-    blob_tree: &'a BlobTree,
+pub struct Guard {
+    tree: crate::BlobTree,
     version: Version,
     kv: crate::Result<InternalValue>,
 }
 
-impl IterGuard for Guard<'_> {
+impl IterGuard for Guard {
     fn key(self) -> crate::Result<UserKey> {
         self.kv.map(|kv| kv.key.user_key)
     }
@@ -48,23 +49,37 @@ impl IterGuard for Guard<'_> {
     }
 
     fn into_inner(self) -> crate::Result<(UserKey, UserValue)> {
-        resolve_value_handle(self.blob_tree, &self.version, self.kv?)
+        resolve_value_handle(
+            self.tree.id(),
+            self.tree.blobs_folder.as_path(),
+            &self.tree.index.config.cache,
+            &self.tree.index.config.descriptor_table,
+            &self.version,
+            self.kv?,
+        )
     }
 }
 
-fn resolve_value_handle(tree: &BlobTree, version: &Version, item: InternalValue) -> RangeItem {
+fn resolve_value_handle(
+    tree_id: TreeId,
+    blobs_folder: &std::path::Path,
+    cache: &Arc<Cache>,
+    descriptor_table: &Arc<DescriptorTable>,
+    version: &Version,
+    item: InternalValue,
+) -> RangeItem {
     if item.key.value_type.is_indirection() {
         let mut cursor = Cursor::new(item.value);
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
         match Accessor::new(&version.blob_files).get(
-            tree.id(),
-            &tree.blobs_folder,
+            tree_id,
+            blobs_folder,
             &item.key.user_key,
             &vptr.vhandle,
-            &tree.index.config.cache,
-            &tree.index.config.descriptor_table,
+            cache,
+            descriptor_table,
         ) {
             Ok(Some(v)) => {
                 let k = item.key.user_key;
@@ -97,7 +112,7 @@ pub struct BlobTree {
     #[doc(hidden)]
     pub index: crate::Tree,
 
-    blobs_folder: PathBuf,
+    blobs_folder: Arc<PathBuf>,
 }
 
 impl BlobTree {
@@ -123,7 +138,7 @@ impl BlobTree {
 
         Ok(Self {
             index,
-            blobs_folder,
+            blobs_folder: Arc::new(blobs_folder),
         })
     }
 }
@@ -179,20 +194,20 @@ impl AbstractTree for BlobTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         use crate::range::prefix_to_range;
 
         let range = prefix_to_range(prefix.as_ref());
-
         let version = self.current_version();
+        let tree = self.clone();
 
         Box::new(
             self.index
                 .create_internal_range(&range, seqno, index)
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
-                        blob_tree: self,
-                        version: version.clone(), // TODO: PERF: ugly Arc clone
+                        tree: tree.clone(),
+                        version: version.clone(),
                         kv,
                     })
                 }),
@@ -204,17 +219,17 @@ impl AbstractTree for BlobTree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         let version = self.current_version();
+        let tree = self.clone();
 
-        // TODO: PERF: ugly Arc clone
         Box::new(
             self.index
                 .create_internal_range(&range, seqno, index)
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
-                        blob_tree: self,
-                        version: version.clone(), // TODO: PERF: ugly Arc clone
+                        tree: tree.clone(),
+                        version: version.clone(),
                         kv,
                     })
                 }),
@@ -647,7 +662,14 @@ impl AbstractTree for BlobTree {
         };
 
         let version = self.current_version();
-        let (_, v) = resolve_value_handle(self, &version, item)?;
+        let (_, v) = resolve_value_handle(
+            self.id(),
+            self.blobs_folder.as_path(),
+            &self.index.config.cache,
+            &self.index.config.descriptor_table,
+            &version,
+            item,
+        )?;
 
         Ok(Some(v))
     }

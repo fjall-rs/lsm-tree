@@ -138,7 +138,7 @@ impl AbstractTree for Tree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_prefix(&prefix, seqno, index)
                 .map(|kv| IterGuardImpl::Standard(Guard(kv))),
@@ -150,7 +150,7 @@ impl AbstractTree for Tree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_range(&range, seqno, index)
                 .map(|kv| IterGuardImpl::Standard(Guard(kv))),

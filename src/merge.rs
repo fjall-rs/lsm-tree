@@ -7,7 +7,7 @@ use interval_heap::IntervalHeap as Heap;
 
 type IterItem = crate::Result<InternalValue>;
 
-pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + 'a>;
+pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + Send + 'a>;
 
 #[derive(Eq)]
 struct HeapItem(usize, InternalValue);

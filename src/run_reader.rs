@@ -13,13 +13,13 @@ pub struct RunReader {
     run: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
-    lo_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
-    hi_reader: Option<Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>>>>,
+    lo_reader: Option<BoxedIterator<'static>>,
+    hi_reader: Option<BoxedIterator<'static>>,
 }
 
 impl RunReader {
     #[must_use]
-    pub fn new<R: RangeBounds<UserKey> + Clone + 'static>(
+    pub fn new<R: RangeBounds<UserKey> + Clone + Send + 'static>(
         run: Arc<Run<Table>>,
         range: R,
     ) -> Option<Self> {
@@ -31,7 +31,7 @@ impl RunReader {
     }
 
     #[must_use]
-    pub fn culled<R: RangeBounds<UserKey> + Clone + 'static>(
+    pub fn culled<R: RangeBounds<UserKey> + Clone + Send + 'static>(
         run: Arc<Run<Table>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
