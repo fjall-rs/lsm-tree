@@ -567,7 +567,12 @@ fn drop_tables(
 
 #[cfg(test)]
 mod tests {
-    use crate::AbstractTree;
+    use crate::{
+        compaction::{state::CompactionState, Choice, CompactionStrategy, Input},
+        config::BlockSizePolicy,
+        version::Version,
+        AbstractTree, Config, KvSeparationOptions, TableId,
+    };
     use std::sync::Arc;
     use test_log::test;
 
@@ -589,6 +594,99 @@ mod tests {
         tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
         assert_eq!(0, tree.table_count());
+
+        Ok(())
+    }
+
+    #[test]
+    fn blob_file_picking_simple() -> crate::Result<()> {
+        struct InPlaceStrategy(Vec<TableId>);
+
+        impl CompactionStrategy for InPlaceStrategy {
+            fn get_name(&self) -> &'static str {
+                "InPlaceCompaction"
+            }
+
+            fn choose(&self, _: &Version, _: &Config, _: &CompactionState) -> Choice {
+                Choice::Merge(Input {
+                    table_ids: self.0.iter().copied().collect(),
+                    dest_level: 6,
+                    target_size: 64_000_000,
+                    canonical_level: 6, // We don't really care - this compaction is only used for very specific unit tests
+                })
+            }
+        }
+
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(folder)
+            .data_block_size_policy(BlockSizePolicy::all(1))
+            .with_kv_separation(Some(
+                KvSeparationOptions::default()
+                    .separation_threshold(1)
+                    .age_cutoff(1.0)
+                    .staleness_threshold(0.01)
+                    .compression(crate::CompressionType::None),
+            ))
+            .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.insert("b", "b", 0);
+        tree.insert("c", "c", 0);
+        tree.flush_active_memtable(1_000)?;
+        assert_eq!(1, tree.table_count());
+        assert_eq!(1, tree.blob_file_count());
+
+        tree.major_compact(1, 1_000)?;
+        assert_eq!(3, tree.table_count());
+        assert_eq!(1, tree.blob_file_count());
+        // We now have tables [1, 2, 3] pointing into blob file 0
+
+        tree.drop_range("a"..="a")?;
+        assert_eq!(2, tree.table_count());
+        assert_eq!(1, tree.blob_file_count());
+
+        {
+            assert_eq!(
+                &{
+                    let mut map = crate::HashMap::default();
+                    map.insert(0, crate::blob_tree::FragmentationEntry::new(1, 1, 1));
+                    map
+                },
+                &**tree.current_version().gc_stats(),
+            );
+        }
+
+        // Even though we are compacting table #2, blob file is not rewritten
+        // because table #3 still points into it
+        tree.compact(Arc::new(InPlaceStrategy(vec![2])), 1_000)?;
+        assert_eq!(2, tree.table_count());
+        assert_eq!(1, tree.blob_file_count());
+
+        {
+            assert_eq!(
+                &{
+                    let mut map = crate::HashMap::default();
+                    map.insert(0, crate::blob_tree::FragmentationEntry::new(1, 1, 1));
+                    map
+                },
+                &**tree.current_version().gc_stats(),
+            );
+        }
+
+        // Because tables #3 & #4 both point into the blob file
+        // Only selecting both for compaction will actually rewrite the file
+        tree.compact(Arc::new(InPlaceStrategy(vec![3, 4])), 1_000)?;
+        assert_eq!(1, tree.table_count());
+        assert_eq!(1, tree.blob_file_count());
+
+        // Fragmentation is cleared up because blob file was relocated
+        {
+            assert_eq!(
+                crate::HashMap::default(),
+                **tree.current_version().gc_stats(),
+            );
+        }
 
         Ok(())
     }
