@@ -371,9 +371,6 @@ impl CompactionStrategy for Strategy {
             }
 
             // NOTE: Never score Lmax
-            //
-            // NOTE: We check for level length above
-            #[expect(clippy::indexing_slicing)]
             {
                 scores[6] = (0.0, 0);
             }

@@ -679,7 +679,6 @@ impl Version {
                 write!(f, "  ")?;
 
                 if run.len() >= 30 {
-                    #[expect(clippy::indexing_slicing)]
                     for table in run.iter().take(2) {
                         let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);
@@ -693,7 +692,6 @@ impl Version {
                     }
                     write!(f, " . . . ")?;
 
-                    #[expect(clippy::indexing_slicing)]
                     for table in run.iter().rev().take(2).rev() {
                         let id = table.id();
                         let is_hidden = hidden_set.is_hidden(id);

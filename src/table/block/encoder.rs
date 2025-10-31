@@ -138,7 +138,6 @@ impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> 
 
             self.base_key = item.key();
         } else {
-            #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
             let shared_prefix_len = longest_shared_prefix_length(self.base_key, item.key());
             item.encode_truncated_into(&mut *self.writer, &mut self.state, shared_prefix_len)?;
         }

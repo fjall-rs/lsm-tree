@@ -128,7 +128,6 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Equal => {
                     // Consume all items equal to the needle to enforce strictness
                     self.decoder.next().expect("should exist");
-                    continue;
                 }
                 std::cmp::Ordering::Less => {
                     self.decoder.next().expect("should exist");
@@ -160,7 +159,6 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Equal => {
                     // Consume all items equal to the needle from the high end
                     self.decoder.next_back().expect("should exist");
-                    continue;
                 }
                 std::cmp::Ordering::Greater => {
                     self.decoder.next_back().expect("should exist");

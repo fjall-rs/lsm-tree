@@ -332,7 +332,6 @@ impl DoubleEndedIterator for Iter {
 
             // Retrieve the next data block from the cache (or disk on miss) so the high-side reader
             // can serve entries in reverse order.
-            #[expect(clippy::single_match_else)]
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {

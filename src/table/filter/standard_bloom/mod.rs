@@ -64,7 +64,6 @@ impl<'a> StandardBloomFilterReader<'a> {
 
         let offset = reader.position() as usize;
 
-        #[expect(clippy::indexing_slicing)]
         Ok(Self {
             k,
             m,
