@@ -15,7 +15,7 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
     tree.insert("med", &medium_value, 0);
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(0, tree.blob_file_count());
 
     // Blob writer should have cleaned up blob file because it was empty

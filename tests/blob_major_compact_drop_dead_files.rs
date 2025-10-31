@@ -20,27 +20,27 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
 
         tree.insert("big", &big_value, 0);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         tree.insert("big", &big_value, 1);
         tree.flush_active_memtable(0)?;
-        assert_eq!(2, tree.segment_count());
+        assert_eq!(2, tree.table_count());
         assert_eq!(2, tree.blob_file_count());
 
         tree.insert("big", &big_value, 2);
         tree.flush_active_memtable(0)?;
-        assert_eq!(3, tree.segment_count());
+        assert_eq!(3, tree.table_count());
         assert_eq!(3, tree.blob_file_count());
 
         tree.insert("big", &big_value, 3);
         tree.flush_active_memtable(0)?;
-        assert_eq!(4, tree.segment_count());
+        assert_eq!(4, tree.table_count());
         assert_eq!(4, tree.blob_file_count());
 
         tree.insert("big", &new_big_value, 4);
         tree.flush_active_memtable(0)?;
-        assert_eq!(5, tree.segment_count());
+        assert_eq!(5, tree.table_count());
         assert_eq!(5, tree.blob_file_count());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
@@ -53,7 +53,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         }
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(5, tree.blob_file_count());
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
@@ -77,7 +77,7 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
         }
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         {

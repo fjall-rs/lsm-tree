@@ -12,6 +12,13 @@ enum IndexType {
     TwoLevel,
 }
 
+#[derive(Arbitrary, Eq, PartialEq, Debug, Copy, Clone)]
+enum FilterType {
+    Full,
+    Volatile,
+    Partitioned,
+}
+
 #[derive(Arbitrary, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 enum FuzzyValueType {
     Value,
@@ -77,6 +84,7 @@ fn main() {
         let restart_interval = restart_interval.max(1);
 
         let index_type = IndexType::arbitrary(&mut unstructured).unwrap();
+        let filter_type = FilterType::arbitrary(&mut unstructured).unwrap();
 
         let data_block_size = rng.random_range(1..64_000);
         let index_block_size = rng.random_range(1..64_000);
@@ -112,15 +120,17 @@ fn main() {
         let file = dir.path().join("table_fuzz");
 
         {
-            let mut writer = lsm_tree::segment::Writer::new(file.clone(), 0)
+            let mut writer = lsm_tree::table::Writer::new(file.clone(), 0, 0)
                 .unwrap()
                 .use_data_block_restart_interval(restart_interval)
                 .use_data_block_size(data_block_size)
-                .use_index_block_size(index_block_size)
                 .use_data_block_hash_ratio(hash_ratio);
 
             if index_type == IndexType::TwoLevel {
                 writer = writer.use_partitioned_index();
+            }
+            if filter_type == FilterType::Partitioned {
+                writer = writer.use_partitioned_filter();
             }
 
             for item in items.iter().cloned() {
@@ -130,12 +140,13 @@ fn main() {
             let _trailer = writer.finish().unwrap();
         }
 
-        let table = lsm_tree::Segment::recover(
+        let table = lsm_tree::Table::recover(
             file,
+            lsm_tree::Checksum::from_raw(0),
             0,
             Arc::new(lsm_tree::Cache::with_capacity_bytes(0)),
             Arc::new(lsm_tree::DescriptorTable::new(10)),
-            true,
+            filter_type == FilterType::Full,
             index_type == IndexType::Full,
         )
         .unwrap();
@@ -190,7 +201,7 @@ fn main() {
             // eprintln!("needle: {:?}", needle.key);
 
             let key_hash =
-                lsm_tree::segment::filter::standard_bloom::Builder::get_hash(&needle.key.user_key);
+                lsm_tree::table::filter::standard_bloom::Builder::get_hash(&needle.key.user_key);
 
             assert_eq!(
                 Some(needle.clone()),

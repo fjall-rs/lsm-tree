@@ -2,7 +2,7 @@ use lsm_tree::{AbstractTree, Config};
 use test_log::test;
 
 #[test]
-fn tree_recover_segment_counter() -> lsm_tree::Result<()> {
+fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {

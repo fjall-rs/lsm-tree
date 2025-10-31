@@ -30,10 +30,10 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
     tree.major_compact(1, 0)?;
 
-    assert_eq!(5, tree.segment_count());
+    assert_eq!(5, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
-    for table in tree.current_version().iter_segments() {
+    for table in tree.current_version().iter_tables() {
         assert_eq!(
             1,
             table
@@ -91,15 +91,15 @@ fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
     tree.major_compact(1, 10)?;
 
-    assert_eq!(6, tree.segment_count());
+    assert_eq!(6, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
     tree.major_compact(1, 11)?;
 
-    assert_eq!(6, tree.segment_count());
+    assert_eq!(6, tree.table_count());
     assert_eq!(2, tree.blob_file_count());
 
-    for table in tree.current_version().iter_segments() {
+    for table in tree.current_version().iter_tables() {
         assert_eq!(
             1,
             table

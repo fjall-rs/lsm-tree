@@ -8,7 +8,6 @@ use crate::{InternalValue, UserKey};
 /// Consumes a stream of KVs and emits a new stream according to MVCC and tombstone rules
 ///
 /// This iterator is used for read operations.
-#[allow(clippy::module_name_repetitions)]
 pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     inner: DoubleEndedPeekable<crate::Result<InternalValue>, I>,
 }
@@ -62,8 +61,10 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
             let prev = match self.inner.peek_back() {
                 Some(Ok(prev)) => prev,
                 Some(Err(_)) => {
-                    // NOTE: We just asserted, the peeked value is an error
-                    #[allow(clippy::expect_used)]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we just asserted, the peeked value is an error"
+                    )]
                     return Some(Err(self
                         .inner
                         .next_back()
@@ -83,7 +84,7 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 }
 
 #[cfg(test)]
-#[allow(clippy::string_lit_as_bytes)]
+#[expect(clippy::string_lit_as_bytes)]
 mod tests {
     use super::*;
     use crate::{value::InternalValue, ValueType};
@@ -122,7 +123,7 @@ mod tests {
         };
     }
 
-    // NOTE: Tests that the iterator emit the same stuff forwards and backwards, just in reverse
+    /// Tests that the iterator emit the same stuff forwards and backwards, just in reverse
     macro_rules! test_reverse {
         ($v:expr) => {
             let iter = Box::new($v.iter().cloned().map(Ok));
@@ -139,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue_reverse_almost_gone() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -185,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue_almost_gone_2() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -227,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -270,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue_weak_almost_gone() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -316,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue_weak_almost_gone_2() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -358,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_queue_weak_reverse() -> crate::Result<()> {
         let vec = [
             InternalValue::from_components("a", "a", 0, ValueType::Value),
@@ -401,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -425,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -462,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -486,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_tombstone_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -523,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_weak_tombstone_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -547,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_weak_tombstone_resurrection() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -572,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_weak_tombstone_priority() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -598,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn mvcc_stream_weak_tombstone_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![

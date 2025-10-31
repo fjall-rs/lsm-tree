@@ -2,7 +2,7 @@
 extern crate afl;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
-use lsm_tree::segment::{
+use lsm_tree::table::{
     block::decoder::ParsedItem, block::BlockOffset, Block, IndexBlock, KeyedBlockHandle,
 };
 
@@ -49,11 +49,11 @@ fn main() {
 
                 let index_block = IndexBlock::new(Block {
                     data: bytes.into(),
-                    header: lsm_tree::segment::block::Header {
-                        checksum: lsm_tree::segment::block::Checksum::from_raw(0),
+                    header: lsm_tree::table::block::Header {
+                        checksum: lsm_tree::table::block::Checksum::from_raw(0),
                         data_length: 0,
                         uncompressed_length: 0,
-                        block_type: lsm_tree::segment::block::BlockType::Index,
+                        block_type: lsm_tree::table::block::BlockType::Index,
                     },
                 });
 

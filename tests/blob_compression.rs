@@ -21,7 +21,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     tree.insert("a", &big_value, 0);
     tree.insert("b", b"smol", 0);
     tree.flush_active_memtable(0)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     {
@@ -34,7 +34,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
 
     tree.remove("b", 1);
     tree.flush_active_memtable(0)?;
-    assert_eq!(2, tree.segment_count());
+    assert_eq!(2, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     {
@@ -45,7 +45,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     }
 
     tree.major_compact(u64::MAX, 1_000)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     {
@@ -72,7 +72,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     }
 
     tree.major_compact(u64::MAX, 1_000)?;
-    assert_eq!(1, tree.segment_count());
+    assert_eq!(1, tree.table_count());
     assert_eq!(1, tree.blob_file_count());
 
     {

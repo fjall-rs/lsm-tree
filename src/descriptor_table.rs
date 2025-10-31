@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::GlobalSegmentId;
+use crate::GlobalTableId;
 use quick_cache::{sync::Cache as QuickCache, UnitWeighter};
 use std::{fs::File, sync::Arc};
 
@@ -24,12 +24,11 @@ impl DescriptorTable {
     pub fn new(capacity: usize) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
-        #[allow(clippy::default_trait_access)]
         let quick_cache = QuickCache::with(
             1_000,
             capacity as u64,
             UnitWeighter,
-            Default::default(),
+            rustc_hash::FxBuildHasher,
             DefaultLifecycle::default(),
         );
 
@@ -42,24 +41,24 @@ impl DescriptorTable {
     }
 
     #[must_use]
-    pub fn access_for_table(&self, id: &GlobalSegmentId) -> Option<Arc<File>> {
-        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.segment_id());
+    pub fn access_for_table(&self, id: &GlobalTableId) -> Option<Arc<File>> {
+        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }
 
-    pub fn insert_for_table(&self, id: GlobalSegmentId, item: Item) {
-        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.segment_id());
+    pub fn insert_for_table(&self, id: GlobalTableId, item: Item) {
+        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
         self.inner.insert(key, item);
     }
 
     #[must_use]
-    pub fn access_for_blob_file(&self, id: &GlobalSegmentId) -> Option<Arc<File>> {
-        let key = CacheKey(TAG_BLOB, id.tree_id(), id.segment_id());
+    pub fn access_for_blob_file(&self, id: &GlobalTableId) -> Option<Arc<File>> {
+        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.get(&key)
     }
 
-    pub fn insert_for_blob_file(&self, id: GlobalSegmentId, item: Item) {
-        let key = CacheKey(TAG_BLOB, id.tree_id(), id.segment_id());
+    pub fn insert_for_blob_file(&self, id: GlobalTableId, item: Item) {
+        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.insert(key, item);
     }
 }

@@ -3,7 +3,11 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy};
-use crate::{compaction::state::CompactionState, version::Version, Config};
+use crate::{
+    compaction::{state::CompactionState, Input},
+    version::Version,
+    Config,
+};
 
 /// Pulls down and merges a level into the destination level.
 ///
@@ -15,8 +19,24 @@ impl CompactionStrategy for Strategy {
         "PullDownCompaction"
     }
 
-    #[allow(clippy::expect_used)]
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
-        todo!()
+    #[expect(clippy::expect_used)]
+    fn choose(&self, version: &Version, _: &Config, _: &CompactionState) -> Choice {
+        let level = version
+            .level(usize::from(self.0))
+            .expect("source level should exist");
+
+        let next_level = version
+            .level(usize::from(self.1))
+            .expect("destination level should exist");
+
+        let mut table_ids = level.list_ids();
+        table_ids.extend(next_level.list_ids());
+
+        Choice::Merge(Input {
+            table_ids,
+            dest_level: self.1,
+            target_size: 64_000_000,
+            canonical_level: 6, // We don't really care - this compaction is only used for very specific unit tests
+        })
     }
 }

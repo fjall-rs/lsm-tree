@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{version::Run, BoxedIterator, InternalValue, Segment, UserKey};
+use crate::{version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
@@ -10,7 +10,7 @@ use std::{
 
 /// Reads through a disjoint run
 pub struct RunReader {
-    run: Arc<Run<Segment>>,
+    run: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<BoxedIterator<'static>>,
@@ -20,7 +20,7 @@ pub struct RunReader {
 impl RunReader {
     #[must_use]
     pub fn new<R: RangeBounds<UserKey> + Clone + Send + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
@@ -32,7 +32,7 @@ impl RunReader {
 
     #[must_use]
     pub fn culled<R: RangeBounds<UserKey> + Clone + Send + 'static>(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> Self {
@@ -40,13 +40,13 @@ impl RunReader {
         let hi = hi.unwrap_or(run.len() - 1);
 
         // TODO: lazily init readers?
-        let lo_segment = run.deref().get(lo).expect("should exist");
-        let lo_reader = lo_segment.range(range.clone());
+        let lo_table = run.deref().get(lo).expect("should exist");
+        let lo_reader = lo_table.range(range.clone());
 
         // TODO: lazily init readers?
         let hi_reader = if hi > lo {
-            let hi_segment = run.deref().get(hi).expect("should exist");
-            Some(hi_segment.range(range))
+            let hi_table = run.deref().get(hi).expect("should exist");
+            Some(hi_table.range(range))
         } else {
             None
         };
@@ -122,7 +122,7 @@ impl DoubleEndedIterator for RunReader {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -147,13 +147,13 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         assert!(RunReader::new(level.clone(), UserKey::from("y")..=UserKey::from("z"),).is_none());
 
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
         let tree = crate::Config::new(&tempdir).open()?;
@@ -182,13 +182,13 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
         {
             let multi_reader = RunReader::new(level.clone(), ..).unwrap();

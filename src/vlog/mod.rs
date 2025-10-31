@@ -12,7 +12,10 @@ pub use {
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
-use crate::vlog::blob_file::{Inner as BlobFileInner, Metadata};
+use crate::{
+    vlog::blob_file::{Inner as BlobFileInner, Metadata},
+    Checksum,
+};
 use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
@@ -20,7 +23,7 @@ use std::{
 
 pub fn recover_blob_files(
     folder: &Path,
-    ids: &[BlobFileId],
+    ids: &[(BlobFileId, Checksum)],
 ) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
     if !folder.try_exists()? {
         return Ok((vec![], vec![]));
@@ -66,16 +69,18 @@ pub fn recover_blob_files(
         let blob_file_path = dirent.path();
         assert!(!blob_file_path.is_dir());
 
-        if ids.contains(&blob_file_id) {
+        if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
             log::trace!("Recovering blob file #{blob_file_id:?}");
 
             let meta = {
                 let reader = sfa::Reader::new(&blob_file_path)?;
                 let toc = reader.toc();
 
-                // NOTE: Nothing we can do - something has gone horribly wrong
-                #[allow(clippy::expect_used)]
-                let metadata_section = toc.section(b"meta").expect("metadata section should exist");
+                let metadata_section = toc.section(b"meta")
+                .ok_or(crate::Error::Unrecoverable)
+                .inspect_err(|_| {
+                    log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
+                })?;
 
                 let file = std::fs::File::open(&blob_file_path)?;
                 let metadata_slice = crate::file::read_exact(
@@ -92,13 +97,14 @@ pub fn recover_blob_files(
                 path: blob_file_path,
                 meta,
                 is_deleted: AtomicBool::new(false),
+                checksum,
             })));
 
             if idx % progress_mod == 0 {
                 log::debug!("Recovered {idx}/{cnt} blob files");
             }
         } else {
-            orphaned_blob_files.push(blob_file_path.to_path_buf());
+            orphaned_blob_files.push(blob_file_path.clone());
         }
     }
 

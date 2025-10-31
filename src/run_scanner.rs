@@ -2,14 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{segment::Scanner, version::Run, InternalValue, Segment};
+use crate::{table::Scanner, version::Run, InternalValue, Table};
 use std::sync::Arc;
 
 /// Scans through a disjoint run
 ///
-/// Optimized for compaction, by using a `SegmentScanner` instead of `SegmentReader`.
+/// Optimized for compaction, by using a `TableScanner` instead of `TableReader`.
 pub struct RunScanner {
-    segments: Arc<Run<Segment>>,
+    tables: Arc<Run<Table>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
@@ -17,18 +17,18 @@ pub struct RunScanner {
 
 impl RunScanner {
     pub fn culled(
-        run: Arc<Run<Segment>>,
+        run: Arc<Run<Table>>,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> crate::Result<Self> {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
 
-        let lo_segment = run.get(lo).expect("should exist");
+        let lo_table = run.get(lo).expect("should exist");
 
-        let lo_reader = lo_segment.scan()?;
+        let lo_reader = lo_table.scan()?;
 
         Ok(Self {
-            segments: run,
+            tables: run,
             lo,
             hi,
             lo_reader: Some(lo_reader),
@@ -52,7 +52,7 @@ impl Iterator for RunScanner {
 
                 if self.lo <= self.hi {
                     let scanner =
-                        fail_iter!(self.segments.get(self.lo).expect("should exist").scan());
+                        fail_iter!(self.tables.get(self.lo).expect("should exist").scan());
 
                     self.lo_reader = Some(scanner);
                 }
@@ -64,7 +64,7 @@ impl Iterator for RunScanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, Slice};
@@ -89,15 +89,15 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
+        let tables = tree
             .current_version()
-            .iter_segments()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(segments));
+        let level = Arc::new(Run::new(tables));
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let multi_reader = RunScanner::culled(level.clone(), (None, None))?;
 
@@ -117,7 +117,7 @@ mod tests {
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let multi_reader = RunScanner::culled(level, (Some(1), None))?;
 

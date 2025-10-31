@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, SegmentId};
+use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, TableId};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
@@ -16,12 +16,12 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 
 pub struct Recovery {
     pub curr_version_id: VersionId,
-    pub segment_ids: Vec<Vec<Vec<SegmentId>>>,
-    pub blob_file_ids: Vec<BlobFileId>,
+    pub table_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
+    pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
-pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
+pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let curr_version_id = get_current_version(folder)?;
     let version_file_path = folder.join(format!("v{curr_version_id}"));
 
@@ -39,7 +39,10 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
     {
         let mut reader = toc
             .section(b"tables")
-            .expect("tables should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("tables section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         let level_count = reader.read_u8()?;
@@ -50,11 +53,20 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
 
             for _ in 0..run_count {
                 let mut run = vec![];
-                let segment_count = reader.read_u32::<LittleEndian>()?;
+                let table_count = reader.read_u32::<LittleEndian>()?;
 
-                for _ in 0..segment_count {
+                for _ in 0..table_count {
                     let id = reader.read_u64::<LittleEndian>()?;
-                    run.push(id);
+                    let checksum_type = reader.read_u8()?;
+
+                    if checksum_type != 0 {
+                        return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+                    }
+
+                    let checksum = reader.read_u128::<LittleEndian>()?;
+                    let checksum = Checksum::from_raw(checksum);
+
+                    run.push((id, checksum));
                 }
 
                 level.push(run);
@@ -67,7 +79,10 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
     let blob_file_ids = {
         let mut reader = toc
             .section(b"blob_files")
-            .expect("blob_files should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("blob_files section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         let blob_file_count = reader.read_u32::<LittleEndian>()?;
@@ -75,7 +90,17 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
 
         for _ in 0..blob_file_count {
             let id = reader.read_u64::<LittleEndian>()?;
-            blob_file_ids.push(id);
+
+            let checksum_type = reader.read_u8()?;
+
+            if checksum_type != 0 {
+                return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
+            }
+
+            let checksum = reader.read_u128::<LittleEndian>()?;
+            let checksum = Checksum::from_raw(checksum);
+
+            blob_file_ids.push((id, checksum));
         }
 
         blob_file_ids
@@ -84,7 +109,10 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
     let gc_stats = {
         let mut reader = toc
             .section(b"blob_gc_stats")
-            .expect("blob_gc_stats should exist")
+            .ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_| {
+                    log::error!("blob_gc_stats section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
             .buf_reader(&version_file_path)?;
 
         crate::blob_tree::FragmentationMap::decode_from(&mut reader)?
@@ -92,7 +120,7 @@ pub fn recover_ids(folder: &Path) -> crate::Result<Recovery> {
 
     Ok(Recovery {
         curr_version_id,
-        segment_ids: levels,
+        table_ids: levels,
         blob_file_ids,
         gc_stats,
     })

@@ -2,14 +2,9 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{DecodeError, EncodeError},
-    FormatVersion, TreeType,
-};
+use crate::{FormatVersion, TreeType};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{io::Write, path::Path};
-
-// TODO: 3.0.0 maybe create a SFA wrapper that checksums all sections?
 
 pub struct Manifest {
     pub(crate) version: FormatVersion,
@@ -18,7 +13,7 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), EncodeError> {
+    pub fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
         writer.start("format_version")?;
         writer.write_u8(self.version.into())?;
 
@@ -36,7 +31,7 @@ impl Manifest {
 }
 
 impl Manifest {
-    pub fn decode_from(path: &Path, reader: &sfa::Reader) -> Result<Self, DecodeError> {
+    pub fn decode_from(path: &Path, reader: &sfa::Reader) -> Result<Self, crate::Error> {
         let toc = reader.toc();
 
         let version = {
@@ -46,7 +41,7 @@ impl Manifest {
 
             let mut reader = section.buf_reader(path)?;
             let version = reader.read_u8()?;
-            FormatVersion::try_from(version).map_err(|()| DecodeError::InvalidVersion)?
+            FormatVersion::try_from(version).map_err(|()| crate::Error::InvalidVersion(version))?
         };
 
         let tree_type = {
@@ -58,7 +53,7 @@ impl Manifest {
             let tree_type = reader.read_u8()?;
             tree_type
                 .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("TreeType", tree_type)))?
+                .map_err(|()| crate::Error::InvalidTag(("TreeType", tree_type)))?
         };
 
         let level_count = {
@@ -69,6 +64,9 @@ impl Manifest {
             let mut reader = section.buf_reader(path)?;
             reader.read_u8()?
         };
+
+        // Currently level count is hard coded to 7
+        assert_eq!(7, level_count, "level count should be 7");
 
         Ok(Self {
             version,

@@ -5,7 +5,7 @@
 use crate::{
     version::BlobFileList,
     vlog::{blob_file::reader::Reader, ValueHandle},
-    Cache, DescriptorTable, GlobalSegmentId, TreeId, UserValue,
+    Cache, DescriptorTable, GlobalTableId, TreeId, UserValue,
 };
 use std::{fs::File, path::Path, sync::Arc};
 
@@ -33,7 +33,7 @@ impl<'a> Accessor<'a> {
             return Ok(None);
         };
 
-        let bf_id = GlobalSegmentId::from((tree_id, blob_file.id()));
+        let bf_id = GlobalTableId::from((tree_id, blob_file.id()));
 
         let cached_fd = descriptor_table.access_for_blob_file(&bf_id);
         let fd_cache_miss = cached_fd.is_none();

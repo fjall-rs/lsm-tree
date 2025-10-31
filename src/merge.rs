@@ -53,10 +53,9 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
         }
     }
 
-    #[allow(clippy::indexing_slicing)]
     fn initialize_lo(&mut self) -> crate::Result<()> {
-        for idx in 0..self.iterators.len() {
-            if let Some(item) = self.iterators[idx].next() {
+        for (idx, it) in self.iterators.iter_mut().enumerate() {
+            if let Some(item) = it.next() {
                 let item = item?;
                 self.heap.push(HeapItem(idx, item));
             }
@@ -67,10 +66,9 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
 }
 
 impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
-    #[allow(clippy::indexing_slicing)]
     fn initialize_hi(&mut self) -> crate::Result<()> {
-        for idx in 0..self.iterators.len() {
-            if let Some(item) = self.iterators[idx].next_back() {
+        for (idx, it) in self.iterators.iter_mut().enumerate() {
+            if let Some(item) = it.next_back() {
                 let item = item?;
                 self.heap.push(HeapItem(idx, item));
             }
@@ -83,7 +81,6 @@ impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
 impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
     type Item = IterItem;
 
-    #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<Self::Item> {
         if !self.initialized_lo {
             fail_iter!(self.initialize_lo());
@@ -91,6 +88,7 @@ impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
 
         let min_item = self.heap.pop_min()?;
 
+        #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[min_item.0].next() {
             let next_item = fail_iter!(next_item);
             self.heap.push(HeapItem(min_item.0, next_item));
@@ -101,7 +99,6 @@ impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
 }
 
 impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> {
-    #[allow(clippy::indexing_slicing)]
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.initialized_hi {
             fail_iter!(self.initialize_hi());
@@ -109,6 +106,7 @@ impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> 
 
         let max_item = self.heap.pop_max()?;
 
+        #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[max_item.0].next_back() {
             let next_item = fail_iter!(next_item);
             self.heap.push(HeapItem(max_item.0, next_item));
@@ -125,7 +123,7 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn merge_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let a = vec![
@@ -153,7 +151,7 @@ mod tests {
 
     #[test]
     #[ignore = "maybe not needed"]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn merge_dup() -> crate::Result<()> {
         #[rustfmt::skip]
         let a = vec![

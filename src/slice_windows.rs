@@ -37,7 +37,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn test_growing_windows() {
         let a = [1, 2, 3, 4, 5];
 
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn test_shrinking_windows() {
         let a = [1, 2, 3, 4, 5];
 

@@ -9,7 +9,7 @@ use crate::{
     stop_signal::StopSignal,
     tree::sealed::SealedMemtables,
     version::Version,
-    SegmentId, SequenceNumberCounter,
+    SequenceNumberCounter, TableId,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 
@@ -23,7 +23,7 @@ pub type TreeId = u64;
 
 /// Unique memtable ID
 ///
-/// Memtable IDs map one-to-one to some segment.
+/// Memtable IDs map one-to-one to some table.
 pub type MemtableId = u64;
 
 /// Hands out a unique (monotonically increasing) tree ID.
@@ -43,14 +43,13 @@ pub struct SuperVersion {
     pub(crate) version: Version,
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
 
     /// Hands out a unique (monotonically increasing) table ID
     #[doc(hidden)]
-    pub segment_id_counter: Arc<AtomicU64>,
+    pub table_id_counter: Arc<AtomicU64>,
 
     // This is not really used in the normal tree, but we need it in the blob tree
     /// Hands out a unique (monotonically increasing) blob file ID
@@ -87,7 +86,7 @@ impl TreeInner {
 
         Ok(Self {
             id: get_next_tree_id(),
-            segment_id_counter: Arc::new(AtomicU64::default()),
+            table_id_counter: Arc::new(AtomicU64::default()),
             blob_file_id_generator: SequenceNumberCounter::default(),
             config,
             super_version: Arc::new(RwLock::new(SuperVersion {
@@ -104,8 +103,8 @@ impl TreeInner {
         })
     }
 
-    pub fn get_next_segment_id(&self) -> SegmentId {
-        self.segment_id_counter
+    pub fn get_next_table_id(&self) -> TableId {
+        self.table_id_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 }

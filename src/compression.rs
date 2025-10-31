@@ -2,13 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::coding::{Decode, Encode};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
 /// Compression algorithm to use
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(clippy::module_name_repetitions)]
 pub enum CompressionType {
     /// No compression
     ///
@@ -24,7 +23,7 @@ pub enum CompressionType {
 }
 
 impl Encode for CompressionType {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         match self {
             Self::None => {
                 writer.write_u8(0)?;
@@ -41,7 +40,7 @@ impl Encode for CompressionType {
 }
 
 impl Decode for CompressionType {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
         let tag = reader.read_u8()?;
 
         match tag {
@@ -50,7 +49,7 @@ impl Decode for CompressionType {
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
 
-            tag => Err(DecodeError::InvalidTag(("CompressionType", tag))),
+            tag => Err(crate::Error::InvalidTag(("CompressionType", tag))),
         }
     }
 }

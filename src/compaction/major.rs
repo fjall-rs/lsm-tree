@@ -4,10 +4,10 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    compaction::state::CompactionState, config::Config, segment::Segment, version::Version, HashSet,
+    compaction::state::CompactionState, config::Config, table::Table, version::Version, HashSet,
 };
 
-/// Compacts all segments into the last level
+/// Compacts all tables into the last level
 pub struct Strategy {
     target_size: u64,
 }
@@ -15,7 +15,6 @@ pub struct Strategy {
 impl Strategy {
     /// Configures a new `Major` compaction strategy.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {
         Self { target_size }
     }
@@ -35,14 +34,12 @@ impl CompactionStrategy for Strategy {
     }
 
     fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
-        let segment_ids: HashSet<_> = version.iter_segments().map(Segment::id).collect();
+        let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock
         // But just as a fail-safe...
-        let some_hidden = segment_ids
-            .iter()
-            .any(|&id| state.hidden_set().is_hidden(id));
+        let some_hidden = table_ids.iter().any(|&id| state.hidden_set().is_hidden(id));
 
         if some_hidden {
             Choice::DoNothing
@@ -50,7 +47,7 @@ impl CompactionStrategy for Strategy {
             let last_level_idx = cfg.level_count - 1;
 
             Choice::Merge(CompactionInput {
-                segment_ids,
+                table_ids,
                 dest_level: last_level_idx,
                 canonical_level: last_level_idx,
                 target_size: self.target_size,

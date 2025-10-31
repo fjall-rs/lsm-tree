@@ -23,18 +23,18 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
         assert_eq!(&*value, big_value);
 
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
-            Some(vec![lsm_tree::segment::writer::LinkedFile {
+            Some(vec![lsm_tree::table::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
                 on_disk_bytes: big_value.len() as u64,
                 len: 1,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .next()
                 .unwrap()
                 .list_blob_file_references()?,
@@ -43,18 +43,18 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
         tree.flush_active_memtable(1)?;
 
         tree.major_compact(64_000_000, 1_000)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
         assert_eq!(
-            Some(vec![lsm_tree::segment::writer::LinkedFile {
+            Some(vec![lsm_tree::table::writer::LinkedFile {
                 blob_file_id: 0,
                 bytes: big_value.len() as u64,
                 on_disk_bytes: big_value.len() as u64,
                 len: 1,
             }]),
             tree.current_version()
-                .iter_segments()
+                .iter_tables()
                 .next()
                 .unwrap()
                 .list_blob_file_references()?,

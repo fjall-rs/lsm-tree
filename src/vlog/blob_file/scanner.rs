@@ -4,7 +4,6 @@
 
 use super::writer::BLOB_HEADER_MAGIC;
 use crate::{
-    coding::DecodeError,
     vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
     Checksum, SeqNo, UserKey, UserValue,
 };
@@ -73,9 +72,7 @@ impl Iterator for Scanner {
             }
 
             if buf != BLOB_HEADER_MAGIC {
-                return Some(Err(crate::Error::Decode(DecodeError::InvalidHeader(
-                    "Blob",
-                ))));
+                return Some(Err(crate::Error::InvalidHeader("Blob")));
             }
         }
 
@@ -84,7 +81,6 @@ impl Iterator for Scanner {
 
         let key_len = fail_iter!(self.inner.read_u16::<LittleEndian>());
 
-        #[allow(unused)]
         let real_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
 
         let on_disk_val_len = fail_iter!(self.inner.read_u32::<LittleEndian>());
@@ -128,7 +124,7 @@ impl Iterator for Scanner {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{vlog::blob_file::writer::Writer as BlobFileWriter, Slice};

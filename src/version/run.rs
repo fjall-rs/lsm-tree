@@ -11,7 +11,7 @@ pub trait Ranged {
 
 /// Item inside a run
 ///
-/// May point to an interval [min, max] of segments in the next run.
+/// May point to an interval [min, max] of tables in the next run.
 pub struct Indexed<T: Ranged> {
     inner: T,
     // cascade_indexes: (u32, u32),
@@ -23,7 +23,7 @@ pub struct Indexed<T: Ranged> {
         let range = &**kr.min()..=&**kr.max();
 
         if let Some((lo, hi)) = next_run.range_indexes(range) {
-            // NOTE: There are never 4+ billion segments in a run
+            // NOTE: There are never 4+ billion tables in a run
             #[allow(clippy::cast_possible_truncation)]
             let interval = (lo as u32, hi as u32);
 
@@ -48,7 +48,7 @@ impl<T: Ranged> std::ops::Deref for Indexed<T> {
     }
 }
 
-/// A disjoint run of disk segments
+/// A disjoint run of tables
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Run<T: Ranged>(Vec<T>);
 
@@ -91,7 +91,7 @@ impl<T: Ranged> Run<T> {
         self.0.remove(idx)
     }
 
-    /// Returns the segment tha'a,t possibly contains the key.
+    /// Returns the table tha'a,t possibly contains the key.
     pub fn get_for_key(&self, key: &[u8]) -> Option<&T> {
         let idx = self.partition_point(|x| x.key_range().max() < &key);
 
@@ -100,18 +100,16 @@ impl<T: Ranged> Run<T> {
 
     /// Returns the run's key range.
     pub fn aggregate_key_range(&self) -> KeyRange {
-        // NOTE: Run invariant
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "by definition, runs are never empty")]
         let lo = self.first().expect("run should never be empty");
 
-        // NOTE: Run invariant
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used, reason = "by definition, runs are never empty")]
         let hi = self.last().expect("run should never be empty");
 
         KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
     }
 
-    /// Returns the sub slice of segments in the run that have
+    /// Returns the sub slice of tables in the run that have
     /// a key range overlapping the input key range.
     pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> &'a [T] {
         let range = key_range.min()..=key_range.max();
@@ -123,7 +121,7 @@ impl<T: Ranged> Run<T> {
         self.get(lo..=hi).unwrap_or_default()
     }
 
-    /// Returns the sub slice of segments of segments in the run that have
+    /// Returns the sub slice of tables of tables in the run that have
     /// a key range fully contained in the input key range.
     pub fn get_contained<'a>(&'a self, key_range: &KeyRange) -> &'a [T] {
         fn trim_slice<T, F>(s: &[T], pred: F) -> &[T]
@@ -150,7 +148,7 @@ impl<T: Ranged> Run<T> {
             .unwrap_or_default()
     }
 
-    /// Returns the indexes of the interval [min, max] of segments that overlap with a given range.
+    /// Returns the indexes of the interval [min, max] of tables that overlap with a given range.
     pub fn range_overlap_indexes<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         key_range: &R,
@@ -172,7 +170,7 @@ impl<T: Ranged> Run<T> {
         }
 
         // NOTE: We check for level length above
-        #[allow(clippy::indexing_slicing)]
+        #[expect(clippy::indexing_slicing)]
         let truncated_level = &level[lo..];
 
         let hi = match key_range.end_bound() {
@@ -208,25 +206,25 @@ impl<T: Ranged> Run<T> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use test_log::test;
 
     #[derive(Clone)]
-    struct FakeSegment {
+    struct FakeTable {
         id: u64,
         key_range: KeyRange,
     }
 
-    impl Ranged for FakeSegment {
+    impl Ranged for FakeTable {
         fn key_range(&self) -> &KeyRange {
             &self.key_range
         }
     }
 
-    fn s(id: u64, min: &str, max: &str) -> FakeSegment {
-        FakeSegment {
+    fn s(id: u64, min: &str, max: &str) -> FakeTable {
+        FakeTable {
             id,
             key_range: KeyRange::new((min.as_bytes().into(), max.as_bytes().into())),
         }
@@ -327,7 +325,7 @@ mod tests {
 
     #[test]
     fn run_range_contained() {
-        use crate::SegmentId;
+        use crate::TableId;
 
         let items = vec![
             s(0, "a", "d"),
@@ -338,7 +336,7 @@ mod tests {
         let run = Run(items);
 
         assert_eq!(
-            &[] as &[SegmentId],
+            &[] as &[TableId],
             &*run
                 .get_contained(&KeyRange::new((b"a".into(), b"a".into())))
                 .iter()

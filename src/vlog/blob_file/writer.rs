@@ -3,7 +3,9 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::meta::Metadata;
-use crate::{time::unix_timestamp, vlog::BlobFileId, CompressionType, KeyRange, SeqNo, UserKey};
+use crate::{
+    time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType, KeyRange, SeqNo, UserKey,
+};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
     io::Write,
@@ -24,7 +26,7 @@ pub struct Writer {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
-    #[allow(clippy::struct_field_names)]
+    #[expect(clippy::struct_field_names)]
     writer: sfa::Writer,
 
     offset: u64,
@@ -141,20 +143,14 @@ impl Writer {
         // Write seqno
         self.writer.write_u64::<LittleEndian>(seqno)?;
 
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 length max")]
         self.writer.write_u16::<LittleEndian>(key.len() as u16)?;
 
         // Write uncompressed value length
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
         self.writer.write_u32::<LittleEndian>(uncompressed_len)?;
 
         // Write compressed (on-disk) value length
-
-        // NOTE: Truncation is okay and actually needed
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         self.writer.write_u32::<LittleEndian>(value.len() as u32)?;
 
         self.writer.write_all(key)?;
@@ -176,11 +172,10 @@ impl Writer {
         self.written_blob_bytes += value.len() as u64;
         self.item_count += 1;
 
-        // TODO: 3.0.0 if we store the offset before writing, we can return a vhandle here
-        // TODO: instead of needing to call offset() and blob_file_id() before write()
+        // TODO: if we store the offset before writing, we can return a vhandle here
+        // instead of needing to call offset() and blob_file_id() before write()
 
-        // NOTE: Truncation is okay
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         Ok(value.len() as u32)
     }
 
@@ -199,7 +194,7 @@ impl Writer {
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<()> {
+    pub(crate) fn finish(mut self) -> crate::Result<(Metadata, Checksum)> {
         self.writer.start("meta")?;
 
         // Write metadata
@@ -220,8 +215,8 @@ impl Writer {
         };
         metadata.encode_into(&mut self.writer)?;
 
-        self.writer.finish()?;
+        let checksum = self.writer.finish()?;
 
-        Ok(())
+        Ok((metadata, checksum.into()))
     }
 }

@@ -16,19 +16,6 @@ impl std::ops::Deref for CompressionPolicy {
     }
 }
 
-// TODO: remove default
-impl Default for CompressionPolicy {
-    fn default() -> Self {
-        #[cfg(feature = "lz4")]
-        let c = Self::new(&[CompressionType::None, CompressionType::Lz4]);
-
-        #[cfg(not(feature = "lz4"))]
-        let c = Self::new(&[CompressionType::None]);
-
-        c
-    }
-}
-
 impl CompressionPolicy {
     pub(crate) fn get(&self, level: usize) -> CompressionType {
         self.0
@@ -42,8 +29,6 @@ impl CompressionPolicy {
     pub fn disabled() -> Self {
         Self::all(CompressionType::None)
     }
-
-    // TODO: accept Vec... Into<Vec<...>>? or owned
 
     /// Uses the same compression in every level.
     #[must_use]
@@ -65,9 +50,10 @@ impl CompressionPolicy {
     /// ]);
     /// ```
     #[must_use]
-    pub fn new(policy: &[CompressionType]) -> Self {
+    pub fn new(policy: impl Into<Vec<CompressionType>>) -> Self {
+        let policy = policy.into();
         assert!(!policy.is_empty(), "compression policy may not be empty");
         assert!(policy.len() <= 255, "compression policy is too large");
-        Self(policy.into())
+        Self(policy)
     }
 }
