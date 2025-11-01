@@ -8,6 +8,7 @@ use crate::{
     merge::Merger,
     mvcc_stream::MvccStream,
     run_reader::RunReader,
+    tree::inner::SuperVersion,
     value::{SeqNo, UserKey},
     version::Version,
     BoxedIterator, InternalValue,
@@ -63,12 +64,8 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 ///
 /// Because of Rust rules, the state is referenced using `self_cell`, see below.
 pub struct IterState {
-    pub(crate) active: Arc<Memtable>,
-    pub(crate) sealed: Vec<Arc<Memtable>>,
+    pub(crate) version: SuperVersion,
     pub(crate) ephemeral: Option<Arc<Memtable>>,
-
-    #[expect(unused, reason = "version is held so tables cannot be unlinked")]
-    pub(crate) version: Version,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -102,7 +99,6 @@ impl TreeIter {
         guard: IterState,
         range: R,
         seqno: SeqNo,
-        version: &Version,
     ) -> Self {
         Self::new(guard, |lock| {
             let lo = match range.start_bound() {
@@ -150,7 +146,12 @@ impl TreeIter {
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
-            for run in version.iter_levels().flat_map(|lvl| lvl.iter()) {
+            for run in lock
+                .version
+                .version
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+            {
                 match run.len() {
                     0 => {
                         // Do nothing
@@ -192,7 +193,7 @@ impl TreeIter {
             }
 
             // Sealed memtables
-            for memtable in &lock.sealed {
+            for (_, memtable) in lock.version.sealed_memtables.iter() {
                 let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
@@ -203,7 +204,7 @@ impl TreeIter {
 
             // Active memtable
             {
-                let iter = lock.active.range(range.clone());
+                let iter = lock.version.active_memtable.range(range.clone());
 
                 iters.push(Box::new(
                     iter.filter(move |item| seqno_filter(item.key.seqno, seqno))

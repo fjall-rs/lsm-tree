@@ -171,7 +171,6 @@ pub trait AbstractTree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
-        seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 
     /// Clears the active memtable atomically.

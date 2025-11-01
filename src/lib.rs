@@ -172,7 +172,7 @@ pub mod merge;
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
 
-mod multi_reader;
+// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;

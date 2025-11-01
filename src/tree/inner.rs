@@ -3,15 +3,19 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::state::{persist_version, CompactionState},
+    compaction::state::CompactionState,
     config::Config,
     memtable::Memtable,
     stop_signal::StopSignal,
     tree::sealed::SealedMemtables,
-    version::Version,
-    SequenceNumberCounter, TableId,
+    version::{persist_version, Version},
+    SeqNo, SequenceNumberCounter, TableId,
 };
-use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
+use std::{
+    collections::VecDeque,
+    path::Path,
+    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -32,6 +36,7 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
+#[derive(Clone)]
 pub struct SuperVersion {
     /// Active memtable that is being written to
     pub(crate) active_memtable: Arc<Memtable>,
@@ -41,6 +46,113 @@ pub struct SuperVersion {
 
     /// Current tree version
     pub(crate) version: Version,
+
+    pub(crate) seqno: SeqNo,
+}
+
+pub struct SuperVersions(VecDeque<SuperVersion>);
+
+impl SuperVersions {
+    pub fn new(version: Version) -> Self {
+        Self(
+            vec![SuperVersion {
+                active_memtable: Arc::default(),
+                sealed_memtables: Arc::default(),
+                version,
+                seqno: 0,
+            }]
+            .into(),
+        )
+    }
+
+    pub fn free_list_len(&self) -> usize {
+        self.0.len().saturating_sub(1)
+    }
+
+    pub(crate) fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+        log::trace!("Running manifest GC with watermark={gc_watermark}");
+
+        // todo!();
+        // TODO: 3.0.0 restore in SuperVersions
+        loop {
+            if self.free_list_len() == 0 {
+                break;
+            }
+
+            let Some(head) = self.0.front() else {
+                break;
+            };
+
+            if head.seqno < gc_watermark {
+                let path = folder.join(format!("v{}", head.version.id()));
+                if path.try_exists()? {
+                    std::fs::remove_file(path)?;
+                }
+                self.0.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        log::trace!("Manifest GC done, version length now {}", self.0.len());
+
+        Ok(())
+    }
+
+    /// Modifies the level manifest atomically.
+    ///
+    /// The function accepts a transition function that receives the current version
+    /// and returns a new version.
+    ///
+    /// The function takes care of persisting the version changes on disk.
+    pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
+        &mut self,
+        tree_path: &Path,
+        f: F,
+        seqno: &SequenceNumberCounter,
+    ) -> crate::Result<()> {
+        // NOTE: Copy-on-write...
+        //
+        // Create a copy of the levels we can operate on
+        // without mutating the current level manifest
+        // If persisting to disk fails, this way the level manifest
+        // is unchanged
+        let mut next_version = f(&self.latest_version())?;
+        next_version.seqno = seqno.next();
+        log::trace!("Next version seqno={}", next_version.seqno);
+
+        persist_version(tree_path, &next_version.version)?;
+        self.append_version(next_version);
+
+        Ok(())
+    }
+
+    pub fn append_version(&mut self, version: SuperVersion) {
+        self.0.push_back(version);
+    }
+
+    pub fn latest_version(&self) -> SuperVersion {
+        self.0
+            .iter()
+            .last()
+            .cloned()
+            .expect("should always have a SuperVersion")
+    }
+
+    pub fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+        self.0
+            .iter()
+            .rev()
+            .find(|version| version.seqno < seqno)
+            .cloned()
+            .expect("should always find a SuperVersion")
+    }
+
+    pub fn append_sealed_memtable(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
+        let mut copy = self.latest_version();
+        copy.sealed_memtables = Arc::new(copy.sealed_memtables.add(id, memtable));
+        self.0.push_back(copy);
+    }
 }
 
 pub struct TreeInner {
@@ -55,7 +167,7 @@ pub struct TreeInner {
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_generator: SequenceNumberCounter,
 
-    pub(crate) super_version: Arc<RwLock<SuperVersion>>,
+    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
 
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
@@ -82,21 +194,15 @@ impl TreeInner {
         let version = Version::new(0);
         persist_version(&config.path, &version)?;
 
-        let path = config.path.clone();
-
         Ok(Self {
             id: get_next_tree_id(),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_generator: SequenceNumberCounter::default(),
             config,
-            super_version: Arc::new(RwLock::new(SuperVersion {
-                active_memtable: Arc::default(),
-                sealed_memtables: Arc::default(),
-                version,
-            })),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
             metrics: Metrics::default().into(),

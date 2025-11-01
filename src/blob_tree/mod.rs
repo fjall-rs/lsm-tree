@@ -174,7 +174,6 @@ impl AbstractTree for BlobTree {
             std::slice::from_ref(&table),
             blob_file.as_ref().map(std::slice::from_ref),
             None,
-            eviction_seqno,
         )?;
 
         Ok(Some(table))
@@ -198,7 +197,7 @@ impl AbstractTree for BlobTree {
         use crate::range::prefix_to_range;
 
         let range = prefix_to_range(prefix.as_ref());
-        let version = self.current_version();
+        let version = self.index.get_version_for_snapshot(seqno).version;
         let tree = self.clone();
 
         Box::new(
@@ -220,7 +219,7 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
-        let version = self.current_version();
+        let version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
         Box::new(
@@ -229,7 +228,7 @@ impl AbstractTree for BlobTree {
                 .map(move |kv| {
                     IterGuardImpl::Blob(Guard {
                         tree: tree.clone(),
-                        version: version.clone(),
+                        version: version.clone().version,
                         kv,
                     })
                 }),
@@ -359,7 +358,7 @@ impl AbstractTree for BlobTree {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.register_tables(&created_tables, Some(&blob_files), None, 0)?;
+        self.register_tables(&created_tables, Some(&blob_files), None)?;
 
         let last_level_idx = self.index.config.level_count - 1;
 
@@ -556,10 +555,8 @@ impl AbstractTree for BlobTree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
-        seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
-        self.index
-            .register_tables(tables, blob_files, frag_map, seqno_threshold)
+        self.index.register_tables(tables, blob_files, frag_map)
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
@@ -661,7 +658,8 @@ impl AbstractTree for BlobTree {
             return Ok(None);
         };
 
-        let version = self.current_version();
+        let version = self.index.get_version_for_snapshot(seqno).version;
+
         let (_, v) = resolve_value_handle(
             self.id(),
             self.blobs_folder.as_path(),

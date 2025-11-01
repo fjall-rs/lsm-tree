@@ -21,7 +21,7 @@ pub type PartioningPolicy = PinningPolicy;
 
 use crate::{
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, Tree,
+    DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -229,13 +229,20 @@ pub struct Config {
 
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
+
+    /// The global sequence number generator
+    ///
+    /// Should be shared between multple trees of a database
+    pub(crate) seqno: SequenceNumberCounter,
 }
 
+// TODO: remove default?
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(DescriptorTable::new(256)),
+            seqno: SequenceNumberCounter::default(),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -286,9 +293,10 @@ impl Default for Config {
 
 impl Config {
     /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(path: P, seqno: SequenceNumberCounter) -> Self {
         Self {
             path: absolute_path(path.as_ref()),
+            seqno,
             ..Default::default()
         }
     }

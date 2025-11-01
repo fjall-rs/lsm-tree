@@ -52,7 +52,7 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AbstractTree, Slice};
+    use crate::{AbstractTree, SequenceNumberCounter, Slice};
     use test_log::test;
 
     // TODO: same test for prefix & ranges
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn table_multi_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(&tempdir).open()?;
+        let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
 
         let ids = [
             ["a", "b", "c"],
