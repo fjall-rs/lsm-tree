@@ -7,12 +7,12 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
-
-    let seqno = SequenceNumberCounter::default();
 
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "", seqno.next());
@@ -43,13 +43,13 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))
         .open()?;
-
-    let seqno = SequenceNumberCounter::default();
 
     for _ in 0..ITEM_COUNT {
         tree.insert("a", "neptune".repeat(10_000), seqno.next());

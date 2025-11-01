@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -6,7 +6,7 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(0, tree.next_table_id());
 
@@ -22,7 +22,7 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(2, tree.next_table_id());
     }

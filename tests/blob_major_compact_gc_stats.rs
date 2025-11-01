@@ -1,4 +1,6 @@
-use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
+use lsm_tree::{
+    blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
@@ -10,7 +12,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path)
+        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
             .with_kv_separation(Some(
                 KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
             ))
@@ -62,7 +64,7 @@ fn blob_tree_major_compact_gc_stats_tombstone() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path)
+        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
             .with_kv_separation(Some(
                 KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
             ))

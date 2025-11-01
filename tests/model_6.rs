@@ -1,7 +1,7 @@
 // Found by model testing
 
 use lsm_tree::{
-    config::BlockSizePolicy, config::CompressionPolicy, AbstractTree, KvSeparationOptions, Result,
+    AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
 };
 use std::sync::Arc;
 use test_log::test;
@@ -13,7 +13,7 @@ fn model_6() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path,SequenceNumberCounter::default())
         .data_block_compression_policy(CompressionPolicy::disabled())
         .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))

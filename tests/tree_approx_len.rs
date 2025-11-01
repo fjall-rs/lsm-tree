@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use tempfile::tempdir;
 use test_log::test;
 
@@ -6,7 +6,7 @@ use test_log::test;
 fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -37,7 +37,7 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
 fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
@@ -70,7 +70,7 @@ fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
 fn tree_approx_len() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -133,7 +133,7 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
 fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     let folder = tempdir()?;
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

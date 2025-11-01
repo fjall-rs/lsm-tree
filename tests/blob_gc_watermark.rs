@@ -12,57 +12,57 @@ use test_log::test;
 fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .with_kv_separation(Some(
             KvSeparationOptions::default()
                 .staleness_threshold(0.01)
-                .age_cutoff(1.0),
+                .age_cutoff(1.0)
+                .separation_threshold(50),
         ))
         .open()?;
-    let seqno = SequenceNumberCounter::default();
 
-    tree.insert("a", "neptune".repeat(10_000), seqno.next());
+    tree.insert("a", "neptune".repeat(50), seqno.next());
 
     let snapshot_seqno = seqno.get();
 
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
-        b"neptune".repeat(10_000),
+        b"neptune".repeat(50),
     );
-    assert_eq!(
-        &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune".repeat(10_000),
-    );
+    assert_eq!(&*tree.get("a", SeqNo::MAX)?.unwrap(), b"neptune".repeat(50),);
 
-    tree.insert("a", "neptune2".repeat(10_000), seqno.next());
+    tree.insert("a", "neptune2".repeat(50), seqno.next());
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
-        b"neptune".repeat(10_000),
+        b"neptune".repeat(50),
     );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune2".repeat(10_000),
+        b"neptune2".repeat(50),
     );
 
-    tree.insert("a", "neptune3".repeat(10_000), seqno.next());
+    tree.insert("a", "neptune3".repeat(50), seqno.next());
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
-        b"neptune".repeat(10_000),
+        b"neptune".repeat(50),
     );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000),
+        b"neptune3".repeat(50),
     );
 
     tree.flush_active_memtable(0)?;
+
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
-        b"neptune".repeat(10_000),
+        b"neptune".repeat(50),
     );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000),
+        b"neptune3".repeat(50),
     );
 
     tree.major_compact(u64::MAX, 0)?;
@@ -80,11 +80,11 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
 
     assert_eq!(
         &*tree.get("a", snapshot_seqno)?.unwrap(),
-        b"neptune".repeat(10_000),
+        b"neptune".repeat(50),
     );
     assert_eq!(
         &*tree.get("a", SeqNo::MAX)?.unwrap(),
-        b"neptune3".repeat(10_000),
+        b"neptune3".repeat(50),
     );
 
     tree.major_compact(u64::MAX, 1_000)?;

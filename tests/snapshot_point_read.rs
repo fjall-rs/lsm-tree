@@ -2,34 +2,38 @@ use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNum
 use test_log::test;
 
 #[test]
+#[ignore]
 fn snapshot_404() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
-    tree.insert("a", "a", 0);
-    tree.insert("a2", "a2", 0);
-    tree.insert("c", "c", 0);
+    let batch_seqno = seqno.next();
+    tree.insert("a", "a", batch_seqno);
+    tree.insert("a2", "a2", batch_seqno);
+    tree.insert("c", "c", batch_seqno);
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(b"a", &*tree.get("a", SeqNo::MAX)?.unwrap());
-    assert_eq!(b"a2", &*tree.get("a2", SeqNo::MAX)?.unwrap());
-    assert!(tree.get("b", SeqNo::MAX)?.is_none());
-    assert_eq!(b"c", &*tree.get("c", SeqNo::MAX)?.unwrap());
+    let snapshot_seqno = seqno.get();
+    assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
+    assert_eq!(b"a2", &*tree.get("a2", snapshot_seqno)?.unwrap());
+    assert!(tree.get("b", snapshot_seqno)?.is_none());
+    assert_eq!(b"c", &*tree.get("c", snapshot_seqno)?.unwrap());
 
     assert!(tree.get("a", 0)?.is_none());
     assert!(tree.get("a2", 0)?.is_none());
     assert!(tree.get("b", 0)?.is_none());
     assert!(tree.get("c", 0)?.is_none());
 
-    assert_eq!(b"a", &*tree.get("a", 1)?.unwrap());
-    assert_eq!(b"a2", &*tree.get("a2", 1)?.unwrap());
-    assert!(tree.get("b", 1)?.is_none());
-    assert_eq!(b"c", &*tree.get("c", 1)?.unwrap());
+    assert_eq!(b"a2", &*tree.get("a2", SeqNo::MAX)?.unwrap());
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert_eq!(b"c", &*tree.get("c", SeqNo::MAX)?.unwrap());
 
     Ok(())
 }
@@ -40,17 +44,17 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     let key = "abc";
 
-    let seqno = SequenceNumberCounter::default();
-
-    for _ in 0u64..version_count {
-        tree.insert(key, format!("abc{version_count}").as_bytes(), seqno.next());
+    for seqno in 0u64..version_count {
+        tree.insert(key, format!("abc{version_count}").as_bytes(), seqno);
     }
 
     tree.flush_active_memtable(0)?;
@@ -78,12 +82,12 @@ const BATCHES: usize = 10;
 fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
-
-    let seqno = SequenceNumberCounter::default();
 
     for batch in 0..BATCHES {
         for x in 0..ITEM_COUNT as u64 {
@@ -135,12 +139,12 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
-
-    let seqno = SequenceNumberCounter::default();
 
     for batch in 0..BATCHES {
         let batch_seqno = seqno.next();

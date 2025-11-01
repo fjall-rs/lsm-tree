@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -7,7 +7,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
@@ -27,7 +27,7 @@ fn table_full_file_checksum() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();
@@ -48,7 +48,7 @@ fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
@@ -68,7 +68,7 @@ fn table_full_file_detect_corruption() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         let version = tree.current_version();
         let table = version.iter_tables().next().unwrap();

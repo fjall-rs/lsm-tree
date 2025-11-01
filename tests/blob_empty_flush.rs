@@ -1,4 +1,4 @@
-use lsm_tree::AbstractTree;
+use lsm_tree::{AbstractTree, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -8,7 +8,7 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
 
     let medium_value = b"a".repeat(500);
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

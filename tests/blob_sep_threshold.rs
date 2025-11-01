@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, KvSeparationOptions, SeqNo};
+use lsm_tree::{AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -6,7 +6,7 @@ fn blob_tree_separation_threshold() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(
             KvSeparationOptions::default().separation_threshold(1_024),
         ))

@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SeqNo};
+use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -6,7 +6,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = Config::new(path).open()?;
+    let tree = Config::new(path, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "123", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -20,7 +20,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
     let (table, _) = tree.flush_memtable(id, &memtable, 0)?.unwrap();
-    tree.register_tables(&[table], None, None, 0)?;
+    tree.register_tables(&[table], None, None)?;
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

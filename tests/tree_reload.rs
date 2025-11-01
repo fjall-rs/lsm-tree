@@ -8,7 +8,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
         assert_eq!(0, tree.table_count());
 
         tree.insert("a", "a", 0);
@@ -19,7 +19,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
         assert_eq!(1, tree.table_count());
         assert!(tree.contains_key("a", SeqNo::MAX)?);
     }
@@ -34,7 +34,7 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
     let large_value = "a".repeat(10_000);
 
     {
-        let tree = Config::new(&folder)
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
             .with_kv_separation(Some(Default::default()))
             .open()?;
 
@@ -48,7 +48,7 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder)
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
             .with_kv_separation(Some(Default::default()))
             .open()?;
 
@@ -64,7 +64,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -79,7 +79,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -96,7 +96,24 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+
+        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .rev()
+                .flat_map(|x| x.key())
+                .count(),
+            0
+        );
+        assert_eq!(tree.tree_type(), TreeType::Standard);
+
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -120,7 +137,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, seqno.clone()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -153,7 +170,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, seqno).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
