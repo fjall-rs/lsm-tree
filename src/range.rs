@@ -8,9 +8,8 @@ use crate::{
     merge::Merger,
     mvcc_stream::MvccStream,
     run_reader::RunReader,
-    tree::inner::SuperVersion,
     value::{SeqNo, UserKey},
-    version::Version,
+    version::SuperVersion,
     BoxedIterator, InternalValue,
 };
 use self_cell::self_cell;

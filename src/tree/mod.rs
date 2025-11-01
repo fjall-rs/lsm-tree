@@ -4,7 +4,7 @@
 
 pub mod ingest;
 pub mod inner;
-mod sealed;
+pub mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
@@ -17,9 +17,8 @@ use crate::{
     memtable::Memtable,
     slice::Slice,
     table::Table,
-    tree::inner::{SuperVersion, SuperVersions},
     value::InternalValue,
-    version::{recovery::recover, Version, VersionId},
+    version::{recovery::recover, SuperVersion, SuperVersions, Version, VersionId},
     vlog::BlobFile,
     AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SeqNo, SequenceNumberCounter, TableId,
     TreeType, UserKey, UserValue, ValueType,
@@ -82,20 +81,22 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        let version_lock = self.version_history.read().expect("lock is poisoned");
-        let version = version_lock.get_version_for_snapshot(seqno);
+        let version_history_lock = self.version_history.read().expect("lock is poisoned");
+        let super_version = version_history_lock.get_version_for_snapshot(seqno);
 
-        if let Some(entry) = version.active_memtable.get(key, seqno) {
+        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in sealed memtables
-        if let Some(entry) = Self::get_internal_entry_from_sealed_memtables(&version, key, seqno) {
+        if let Some(entry) =
+            Self::get_internal_entry_from_sealed_memtables(&super_version, key, seqno)
+        {
             return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        self.get_internal_entry_from_tables(&version.version, key, seqno)
+        self.get_internal_entry_from_tables(&super_version.version, key, seqno)
     }
 
     fn current_version(&self) -> Version {
@@ -475,26 +476,26 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
-        let mut version_lock = self.version_history.write().expect("lock is poisoned");
-        let latest_version = version_lock.latest_version();
+        let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
+        let super_version = version_history_lock.latest_version();
 
-        if latest_version.active_memtable.is_empty() {
+        if super_version.active_memtable.is_empty() {
             return None;
         }
 
-        let yanked_memtable = latest_version.active_memtable;
+        let yanked_memtable = super_version.active_memtable;
         let tmp_memtable_id = self.get_next_table_id();
 
-        let mut copy = version_lock.latest_version();
+        let mut copy = version_history_lock.latest_version();
         copy.seqno = self.config.seqno.next();
         copy.active_memtable = Arc::new(Memtable::default());
         copy.sealed_memtables = Arc::new(
-            latest_version
+            super_version
                 .sealed_memtables
                 .add(tmp_memtable_id, yanked_memtable.clone()),
         );
 
-        version_lock.append_version(copy);
+        version_history_lock.append_version(copy);
 
         log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
 
@@ -511,7 +512,7 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
-        let version = self
+        let super_version = self
             .version_history
             .read()
             .expect("lock is poisoned")
@@ -523,8 +524,8 @@ impl AbstractTree for Tree {
             .map(|x| x.metadata.item_count)
             .sum::<u64>();
 
-        let memtable_count = version.active_memtable.len() as u64;
-        let sealed_count = version
+        let memtable_count = super_version.active_memtable.len() as u64;
+        let sealed_count = super_version
             .sealed_memtables
             .iter()
             .map(|(_, mt)| mt.len())

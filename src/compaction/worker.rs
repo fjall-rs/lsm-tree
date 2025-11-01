@@ -15,8 +15,8 @@ use crate::{
     merge::Merger,
     run_scanner::RunScanner,
     stop_signal::StopSignal,
-    tree::inner::{SuperVersion, SuperVersions, TreeId},
-    version::Version,
+    tree::inner::TreeId,
+    version::{SuperVersions, Version},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
     BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, TableId,
 };
@@ -88,7 +88,7 @@ impl Options {
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
-    let super_version = opts.version_history.read().expect("lock is poisoned");
+    let version_history_lock = opts.version_history.read().expect("lock is poisoned");
 
     let start = Instant::now();
     log::trace!(
@@ -96,7 +96,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         opts.strategy.get_name(),
     );
     let choice = opts.strategy.choose(
-        &super_version.latest_version().version,
+        &version_history_lock.latest_version().version,
         &opts.config,
         &compaction_state,
     );
@@ -104,14 +104,23 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     log::debug!("Compaction choice: {choice:?} in {:?}", start.elapsed());
 
     match choice {
-        Choice::Merge(payload) => merge_tables(compaction_state, super_version, opts, &payload),
-        Choice::Move(payload) => move_tables(compaction_state, super_version, opts, &payload),
-        Choice::Drop(payload) => drop_tables(
-            compaction_state,
-            super_version,
-            opts,
-            &payload.into_iter().collect::<Vec<_>>(),
-        ),
+        Choice::Merge(payload) => {
+            merge_tables(compaction_state, version_history_lock, opts, &payload)
+        }
+        Choice::Move(payload) => {
+            drop(version_history_lock);
+
+            move_tables(compaction_state, opts, &payload)
+        }
+        Choice::Drop(payload) => {
+            drop(version_history_lock);
+
+            drop_tables(
+                compaction_state,
+                opts,
+                &payload.into_iter().collect::<Vec<_>>(),
+            )
+        }
         Choice::DoNothing => {
             log::trace!("Compactor chose to do nothing");
             Ok(())
@@ -182,13 +191,10 @@ fn create_compaction_stream<'a>(
 
 fn move_tables(
     compaction_state: MutexGuard<'_, CompactionState>,
-    super_version: RwLockReadGuard<'_, SuperVersions>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
-    drop(super_version);
-
-    let mut super_version = opts.version_history.write().expect("lock is poisoned");
+    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
     if compaction_state
@@ -204,7 +210,7 @@ fn move_tables(
 
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
-    super_version.upgrade_version(
+    version_history_lock.upgrade_version(
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -218,7 +224,7 @@ fn move_tables(
         &opts.global_seqno,
     )?;
 
-    if let Err(e) = super_version.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
+    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -324,7 +330,7 @@ fn hidden_guard(
 #[expect(clippy::too_many_lines)]
 fn merge_tables(
     mut compaction_state: MutexGuard<'_, CompactionState>,
-    super_version: RwLockReadGuard<'_, SuperVersions>,
+    version_history_lock: RwLockReadGuard<'_, SuperVersions>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
@@ -345,12 +351,12 @@ fn merge_tables(
         return Ok(());
     }
 
-    let current_version = super_version.latest_version();
+    let current_super_version = version_history_lock.latest_version();
 
     let Some(tables) = payload
         .table_ids
         .iter()
-        .map(|&id| current_version.version.get_table(id).cloned())
+        .map(|&id| current_super_version.version.get_table(id).cloned())
         .collect::<Option<Vec<_>>>()
     else {
         log::warn!(
@@ -363,7 +369,7 @@ fn merge_tables(
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
-        &current_version.version,
+        &current_super_version.version,
         &payload.table_ids.iter().copied().collect::<Vec<_>>(),
         opts.mvcc_gc_watermark,
     )?
@@ -384,7 +390,7 @@ fn merge_tables(
     merge_iter = merge_iter.evict_tombstones(is_last_level);
 
     let table_writer =
-        super::flavour::prepare_table_writer(&current_version.version, opts, payload)?;
+        super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
 
     let start = Instant::now();
 
@@ -394,7 +400,7 @@ fn merge_tables(
 
             let blob_files_to_rewrite = pick_blob_files_to_rewrite(
                 &payload.table_ids,
-                &current_version.version,
+                &current_super_version.version,
                 blob_opts,
             )?;
 
@@ -441,7 +447,7 @@ fn merge_tables(
 
     log::trace!("Blob file GC preparation done in {:?}", start.elapsed());
 
-    drop(super_version);
+    drop(version_history_lock);
 
     {
         compaction_state
@@ -470,13 +476,19 @@ fn merge_tables(
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
     log::trace!("Acquiring super version write lock");
-    let mut super_version = opts.version_history.write().expect("lock is poisoned");
+    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
     log::trace!("Acquired super version write lock");
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
     compactor
-        .finish(&mut super_version, opts, payload, dst_lvl, blob_frag_map)
+        .finish(
+            &mut version_history_lock,
+            opts,
+            payload,
+            dst_lvl,
+            blob_frag_map,
+        )
         .inspect_err(|e| {
             // NOTE: We cannot use hidden_guard here because we already locked the compaction state
 
@@ -491,13 +503,13 @@ fn merge_tables(
         .hidden_set_mut()
         .show(payload.table_ids.iter().copied());
 
-    super_version
+    version_history_lock
         .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
         .inspect_err(|e| {
             log::error!("Manifest maintenance failed: {e:?}");
         })?;
 
-    drop(super_version);
+    drop(version_history_lock);
     drop(compaction_state);
 
     log::trace!("Compaction successful");
@@ -507,13 +519,10 @@ fn merge_tables(
 
 fn drop_tables(
     compaction_state: MutexGuard<'_, CompactionState>,
-    super_version: RwLockReadGuard<'_, SuperVersions>,
     opts: &Options,
     ids_to_drop: &[TableId],
 ) -> crate::Result<()> {
-    drop(super_version);
-
-    let mut super_version = opts.version_history.write().expect("lock is poisoned");
+    let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
     if compaction_state
@@ -530,7 +539,7 @@ fn drop_tables(
     let Some(tables) = ids_to_drop
         .iter()
         .map(|&id| {
-            super_version
+            version_history_lock
                 .latest_version()
                 .version
                 .get_table(id)
@@ -551,7 +560,7 @@ fn drop_tables(
 
     // IMPORTANT: Write the manifest with the removed tables first
     // Otherwise the table files are deleted, but are still referenced!
-    super_version.upgrade_version(
+    version_history_lock.upgrade_version(
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -565,12 +574,12 @@ fn drop_tables(
         &opts.global_seqno,
     )?;
 
-    if let Err(e) = super_version.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
+    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
 
-    drop(super_version);
+    drop(version_history_lock);
 
     // NOTE: If the application were to crash >here< it's fine
     // The tables are not referenced anymore, and will be

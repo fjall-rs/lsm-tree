@@ -8,8 +8,7 @@ use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
 use crate::table::multi_writer::MultiWriter;
-use crate::tree::inner::SuperVersions;
-use crate::version::Version;
+use crate::version::{SuperVersions, Version};
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Table};
 
