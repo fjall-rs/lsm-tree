@@ -36,6 +36,7 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
+/// A super version is a point-in-time snapshot of memtables and a [`Version`] (list of disk files)
 #[derive(Clone)]
 pub struct SuperVersion {
     /// Active memtable that is being written to
@@ -72,8 +73,6 @@ impl SuperVersions {
     pub(crate) fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
         log::trace!("Running manifest GC with watermark={gc_watermark}");
 
-        // todo!();
-        // TODO: 3.0.0 restore in SuperVersions
         loop {
             if self.free_list_len() == 0 {
                 break;
