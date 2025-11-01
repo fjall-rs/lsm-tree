@@ -113,6 +113,14 @@ impl SuperVersions {
     }
 
     pub fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+        if seqno == 0 {
+            return self
+                .0
+                .front()
+                .cloned()
+                .expect("should always find a SuperVersion");
+        }
+
         self.0
             .iter()
             .rev()

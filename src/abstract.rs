@@ -271,7 +271,7 @@ pub trait AbstractTree {
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let folder = tempfile::tempdir()?;
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     ///
     /// assert_eq!(tree.len(0, None)?, 0);
     /// tree.insert("1", "abc", 0);
@@ -306,7 +306,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     /// assert!(tree.is_empty(0, None)?);
     ///
     /// tree.insert("a", "abc", 0);
@@ -332,7 +332,7 @@ pub trait AbstractTree {
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
     /// # let folder = tempfile::tempdir()?;
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     ///
     /// tree.insert("1", "abc", 0);
     /// tree.insert("3", "abc", 1);
@@ -368,7 +368,7 @@ pub trait AbstractTree {
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
     /// # let folder = tempfile::tempdir()?;
-    /// # let tree = Config::new(folder).open()?;
+    /// # let tree = Config::new(folder, Default::default()).open()?;
     /// #
     /// tree.insert("1", "abc", 0);
     /// tree.insert("3", "abc", 1);
@@ -402,7 +402,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
     /// let size = tree.size_of("a", 1)?.unwrap_or_default();
@@ -427,7 +427,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
     /// let item = tree.get("a", 1)?;
@@ -449,7 +449,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     /// assert!(!tree.contains_key("a", 0)?);
     ///
     /// tree.insert("a", "abc", 0);
@@ -477,7 +477,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder).open()?;
+    /// let tree = Config::new(folder, Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -503,7 +503,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// # let tree = Config::new(folder).open()?;
+    /// # let tree = Config::new(folder, Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     ///
     /// let item = tree.get("a", 1)?.expect("should have item");
@@ -537,7 +537,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// # let tree = Config::new(folder).open()?;
+    /// # let tree = Config::new(folder, Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     ///
     /// let item = tree.get("a", 1)?.expect("should have item");
