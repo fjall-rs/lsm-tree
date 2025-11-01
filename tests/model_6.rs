@@ -1,5 +1,7 @@
 // Found by model testing
 
+#![cfg_attr(rustfmt, rustfmt_skip)]
+
 use lsm_tree::{
     AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
 };
@@ -8,7 +10,6 @@ use test_log::test;
 
 // Yes this file is very large, it's hard to condense it to a more minimal repro
 #[test]
-#[rustfmt::skip]
 fn model_6() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
