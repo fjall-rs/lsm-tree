@@ -50,9 +50,10 @@ impl std::ops::DerefMut for FragmentationMap {
 }
 
 impl FragmentationMap {
+    /// Returns the number of bytes that could be freed from disk.
     #[must_use]
     pub fn stale_bytes(&self) -> u64 {
-        self.0.values().map(|x| x.bytes).sum()
+        self.0.values().map(|x| x.on_disk_bytes).sum()
     }
 
     // TODO: TEST: unit test
@@ -62,6 +63,10 @@ impl FragmentationMap {
         self.0.retain(|&k, _| value_log.contains_key(k));
     }
 
+    /// Merges a fragmentation map into another.
+    ///
+    /// This is used after a compaction stream is summed up (using the expiration callback), to apply
+    /// the diff to the tree's fragmentation stats.
     pub fn merge_into(self, other: &mut Self) {
         for (blob_file_id, diff) in self.0 {
             other

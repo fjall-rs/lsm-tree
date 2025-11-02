@@ -7,9 +7,9 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::{io::Write, path::Path};
 
 pub struct Manifest {
-    pub(crate) version: FormatVersion,
-    pub(crate) tree_type: TreeType,
-    pub(crate) level_count: u8,
+    pub version: FormatVersion,
+    pub tree_type: TreeType,
+    pub level_count: u8,
 }
 
 impl Manifest {
