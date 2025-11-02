@@ -1,12 +1,15 @@
 #[test_log::test]
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {
-    use lsm_tree::{blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo};
+    use lsm_tree::{
+        blob_tree::FragmentationEntry, AbstractTree, KvSeparationOptions, SeqNo,
+        SequenceNumberCounter,
+    };
 
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(
             KvSeparationOptions::default()
                 .compression(lsm_tree::CompressionType::Lz4)

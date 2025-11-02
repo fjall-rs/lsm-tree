@@ -34,7 +34,7 @@ macro_rules! read_u128 {
 
 pub const METADATA_HEADER_MAGIC: &[u8] = b"META";
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Metadata {
     pub created_at: u128,
 
@@ -70,8 +70,8 @@ impl Metadata {
             meta("created_at", &self.created_at.to_le_bytes()),
             meta("file_size", &self.total_compressed_bytes.to_le_bytes()),
             meta("item_count", &self.item_count.to_le_bytes()),
-            meta("key#max", self.key_range.min()),
-            meta("key#min", self.key_range.max()),
+            meta("key#max", self.key_range.max()),
+            meta("key#min", self.key_range.min()),
             meta("uncompressed_size", &self.total_uncompressed_bytes.to_le_bytes()),
         ];
 
@@ -103,9 +103,7 @@ impl Metadata {
         reader.read_exact(&mut magic)?;
 
         if magic != METADATA_HEADER_MAGIC {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
-                "BlobFileMeta",
-            )));
+            return Err(crate::Error::InvalidHeader("BlobFileMeta"));
         }
 
         // TODO: Block::from_slice
@@ -145,5 +143,31 @@ impl Metadata {
             total_uncompressed_bytes,
             key_range,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn test_blob_file_meta_roundtrip() {
+        let meta = Metadata {
+            created_at: 1_234_567_890,
+            compression: CompressionType::None,
+            item_count: 100,
+            total_compressed_bytes: 1024,
+            total_uncompressed_bytes: 2048,
+            key_range: KeyRange::new((b"a".into(), b"z".into())),
+        };
+
+        let mut buf = Vec::new();
+        meta.encode_into(&mut buf).unwrap();
+        let buf = Slice::from(buf);
+
+        let meta2 = Metadata::from_slice(&buf).unwrap();
+        assert_eq!(meta, meta2);
     }
 }

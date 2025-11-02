@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -6,7 +6,7 @@ use test_log::test;
 fn leveled_trivial_move_into_l1() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
 

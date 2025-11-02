@@ -3,7 +3,6 @@
 // (found in the LICENSE-* files in the repository)
 
 pub(crate) mod binary_index;
-mod checksum;
 pub mod decoder;
 mod encoder;
 pub mod hash_index;
@@ -12,7 +11,6 @@ mod offset;
 mod trailer;
 mod r#type;
 
-pub use checksum::Checksum;
 pub(crate) use decoder::{Decodable, Decoder, ParsedItem};
 pub(crate) use encoder::{Encodable, Encoder};
 pub use header::Header;
@@ -23,7 +21,7 @@ pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 use crate::{
     coding::{Decode, Encode},
     table::BlockHandle,
-    CompressionType, Slice,
+    Checksum, CompressionType, Slice,
 };
 use std::fs::File;
 
@@ -54,6 +52,8 @@ impl Block {
             block_type,
             checksum: Checksum::from_raw(0), // <-- NOTE: Is set later on
             data_length: 0,                  // <-- NOTE: Is set later on
+
+            #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
             uncompressed_length: data.len() as u32,
         };
 
@@ -63,8 +63,12 @@ impl Block {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => &lz4_flex::compress(data),
         };
-        header.data_length = data.len() as u32;
-        header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+
+        #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
+        {
+            header.data_length = data.len() as u32;
+            header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+        }
 
         header.encode_into(&mut writer)?;
         writer.write_all(data)?;
@@ -88,18 +92,14 @@ impl Block {
         let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&raw_data));
-        if checksum != header.checksum {
+
+        checksum.check(header.checksum).inspect_err(|_| {
             log::error!(
                 "Checksum mismatch for <bufreader>, got={}, expected={}",
-                *checksum,
-                *header.checksum,
+                checksum,
+                header.checksum,
             );
-
-            return Err(crate::Error::ChecksumMismatch {
-                got: checksum,
-                expected: header.checksum,
-            });
-        }
+        })?;
 
         let data = match compression {
             CompressionType::None => raw_data,
@@ -139,18 +139,14 @@ impl Block {
 
         #[expect(clippy::indexing_slicing)]
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
-        if checksum != header.checksum {
+
+        checksum.check(header.checksum).inspect_err(|_| {
             log::error!(
                 "Checksum mismatch for block {handle:?}, got={}, expected={}",
-                *checksum,
-                *header.checksum,
+                checksum,
+                header.checksum,
             );
-
-            return Err(crate::Error::ChecksumMismatch {
-                got: checksum,
-                expected: header.checksum,
-            });
-        }
+        })?;
 
         let buf = match compression {
             CompressionType::None => {

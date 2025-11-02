@@ -14,13 +14,6 @@ impl std::ops::Deref for BlockSizePolicy {
     }
 }
 
-// TODO: remove default
-impl Default for BlockSizePolicy {
-    fn default() -> Self {
-        Self::new(&[4 * 1_024])
-    }
-}
-
 impl BlockSizePolicy {
     pub(crate) fn get(&self, level: usize) -> u32 {
         self.0
@@ -28,8 +21,6 @@ impl BlockSizePolicy {
             .copied()
             .unwrap_or_else(|| self.last().copied().expect("policy should not be empty"))
     }
-
-    // TODO: accept Vec... Into<Vec<...>>? or owned
 
     /// Uses the same block size in every level.
     #[must_use]
@@ -39,9 +30,10 @@ impl BlockSizePolicy {
 
     /// Constructs a custom block size policy.
     #[must_use]
-    pub fn new(policy: &[u32]) -> Self {
+    pub fn new(policy: impl Into<Vec<u32>>) -> Self {
+        let policy = policy.into();
         assert!(!policy.is_empty(), "compression policy may not be empty");
         assert!(policy.len() <= 255, "compression policy is too large");
-        Self(policy.into())
+        Self(policy)
     }
 }

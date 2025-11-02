@@ -20,7 +20,6 @@ pub struct Metadata {
     /// Weak tombstone + value pairs that become reclaimable when GC watermark advances
     pub weak_tombstone_reclaimable_count: usize,
 
-    // TODO: 3.0.0 - https://github.com/fjall-rs/lsm-tree/issues/101
     /// Written key count (unique keys)
     pub key_count: usize,
 

@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn blob_tree_guarded_size() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

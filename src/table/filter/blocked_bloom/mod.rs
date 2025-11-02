@@ -45,9 +45,7 @@ impl<'a> BlockedBloomFilterReader<'a> {
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
-                "BloomFilter",
-            )));
+            return Err(crate::Error::InvalidHeader("BloomFilter"));
         }
 
         // NOTE: Filter type

@@ -4,7 +4,7 @@
 
 use crate::UserKey;
 use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
+    coding::{Decode, Encode},
     table::{
         block::{BlockOffset, Decodable, Encodable, TRAILER_START_MARKER},
         index_block::IndexBlockParsedItem,
@@ -62,7 +62,7 @@ impl PartialOrd for BlockHandle {
 }
 
 impl Encode for BlockHandle {
-    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         writer.write_u64_varint(*self.offset)?;
         writer.write_u32_varint(self.size)?;
         Ok(())
@@ -70,7 +70,7 @@ impl Encode for BlockHandle {
 }
 
 impl Decode for BlockHandle {
-    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, DecodeError>
+    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::Error>
     where
         Self: Sized,
     {
@@ -263,9 +263,9 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
     }
 
     fn parse_truncated(
-        reader: &mut Cursor<&[u8]>,
-        offset: usize,
-        base_key_offset: usize,
+        _reader: &mut Cursor<&[u8]>,
+        _offset: usize,
+        _base_key_offset: usize,
     ) -> Option<IndexBlockParsedItem> {
         unimplemented!()
     }

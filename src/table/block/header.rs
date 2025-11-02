@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::Checksum;
-use crate::coding::{Decode, DecodeError, Encode, EncodeError};
+use crate::coding::{Decode, Encode};
 use crate::file::MAGIC_BYTES;
 use crate::table::block::BlockType;
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -105,7 +105,7 @@ impl Header {
 }
 
 impl Encode for Header {
-    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), EncodeError> {
+    fn encode_into<W: Write>(&self, mut writer: &mut W) -> Result<(), crate::Error> {
         use byteorder::LE;
 
         let checksum = {
@@ -118,7 +118,7 @@ impl Encode for Header {
             writer.write_u8(self.block_type.into())?;
 
             // Write data checksum
-            writer.write_u128::<LE>(*self.checksum)?;
+            writer.write_u128::<LE>(self.checksum.into_u128())?;
 
             // Write on-disk size length
             writer.write_u32::<LE>(self.data_length)?;
@@ -130,14 +130,14 @@ impl Encode for Header {
         };
 
         // Write 2-byte checksum
-        writer.write_u16::<LE>(*checksum as u16)?;
+        writer.write_u16::<LE>(checksum.into_u128() as u16)?;
 
         Ok(())
     }
 }
 
 impl Decode for Header {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, DecodeError> {
+    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
         use byteorder::LE;
 
         let mut protected_reader = ChecksummedReader::new(reader);
@@ -147,7 +147,7 @@ impl Decode for Header {
         protected_reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(DecodeError::InvalidHeader("Block"));
+            return Err(crate::Error::InvalidHeader("Block"));
         }
 
         // Read block type
@@ -164,7 +164,7 @@ impl Decode for Header {
         let uncompressed_length = protected_reader.read_u32::<LE>()?;
 
         // Get header checksum
-        let got_checksum = *protected_reader.checksum() as u16;
+        let got_checksum = protected_reader.checksum().into_u128() as u16;
         let got_checksum = Checksum::from_raw(u128::from(got_checksum));
 
         let reader = protected_reader.into_inner();
@@ -174,7 +174,7 @@ impl Decode for Header {
         let header_checksum = Checksum::from_raw(header_checksum);
 
         if header_checksum != got_checksum {
-            return Err(DecodeError::ChecksumMismatch {
+            return Err(crate::Error::ChecksumMismatch {
                 got: got_checksum,
                 expected: header_checksum,
             });
@@ -227,7 +227,7 @@ mod tests {
         assert!(
             matches!(
                 Header::decode_from(&mut &bytes[..]),
-                Err(crate::DecodeError::ChecksumMismatch { .. }),
+                Err(crate::Error::ChecksumMismatch { .. }),
             ),
             "did not detect header corruption",
         );

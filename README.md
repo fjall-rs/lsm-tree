@@ -1,3 +1,7 @@
+<!-- TODO: remove at some point after 3.0.0 -->
+> [!WARNING]
+> This is the 3.x source code - the 2.x source is available at https://github.com/fjall-rs/lsm-tree/tree/2.x.x
+
 <p align="center">
   <img src="/logo.png" height="160">
 </p>
@@ -5,7 +9,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.89.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.91.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.

@@ -77,10 +77,10 @@ impl ParsedMeta {
         let block = Block::from_file(file, *handle, CompressionType::None)?;
 
         if block.header.block_type != BlockType::Meta {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+            return Err(crate::Error::InvalidTag((
                 "BlockType",
                 block.header.block_type.into(),
-            ))));
+            )));
         }
 
         let block = DataBlock::new(block);

@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
@@ -35,7 +35,7 @@ fn tree_guarded_range() -> lsm_tree::Result<()> {
 fn blob_tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

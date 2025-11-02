@@ -41,7 +41,7 @@
 //!
 //! // A tree is a single physical keyspace/index/...
 //! // and supports a BTreeMap-like API
-//! let tree = Config::new(folder).open()?;
+//! let tree = Config::new(folder, Default::default()).open()?;
 //!
 //! // Note compared to the BTreeMap API, operations return a Result<T>
 //! // So you can handle I/O errors if they occur
@@ -100,8 +100,6 @@
 // #![cfg_attr(feature = "bytes", deny(unsafe_code))]
 // #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
 
-// TODO: 3.0.0 use checksum type impl from sfa as well
-
 #[doc(hidden)]
 pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
@@ -116,18 +114,9 @@ macro_rules! fail_iter {
     };
 }
 
-// TODO: investigate perf
 macro_rules! unwrap {
     ($x:expr) => {{
-        #[cfg(not(feature = "use_unsafe"))]
-        {
-            $x.expect("should read")
-        }
-
-        #[cfg(feature = "use_unsafe")]
-        {
-            unsafe { $x.unwrap_unchecked() }
-        }
+        $x.expect("should read")
     }};
 }
 
@@ -143,6 +132,8 @@ pub mod blob_tree;
 #[doc(hidden)]
 mod cache;
 
+mod checksum;
+
 #[doc(hidden)]
 pub mod coding;
 
@@ -155,8 +146,6 @@ pub mod config;
 mod double_ended_peekable;
 
 mod error;
-
-pub(crate) mod fallible_clipping_iter;
 
 #[doc(hidden)]
 pub mod file;
@@ -183,7 +172,7 @@ pub mod merge;
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
 
-mod multi_reader;
+// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;
@@ -227,10 +216,11 @@ pub type KvPair = (UserKey, UserValue);
 #[doc(hidden)]
 pub use {
     blob_tree::handle::BlobIndirection,
+    checksum::Checksum,
     key_range::KeyRange,
     merge::BoxedIterator,
     slice::Builder,
-    table::{block::Checksum, GlobalTableId, Table, TableId},
+    table::{GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,
@@ -240,7 +230,6 @@ pub use {
     any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,
-    coding::{DecodeError, EncodeError},
     compression::CompressionType,
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,

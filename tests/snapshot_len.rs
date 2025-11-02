@@ -7,9 +7,9 @@ const ITEM_COUNT: usize = 100;
 fn snapshot_basic() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).open()?;
-
     let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(&folder, seqno.clone()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();

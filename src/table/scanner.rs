@@ -50,10 +50,10 @@ impl Scanner {
         match block {
             Ok(block) => {
                 if block.header.block_type != BlockType::Data {
-                    return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                    return Err(crate::Error::InvalidTag((
                         "BlockType",
                         block.header.block_type.into(),
-                    ))));
+                    )));
                 }
 
                 Ok(DataBlock::new(block))

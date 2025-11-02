@@ -60,10 +60,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
                     let checksum_type = reader.read_u8()?;
 
                     if checksum_type != 0 {
-                        return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                            "ChecksumType",
-                            checksum_type,
-                        ))));
+                        return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
                     }
 
                     let checksum = reader.read_u128::<LittleEndian>()?;
@@ -97,10 +94,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
             let checksum_type = reader.read_u8()?;
 
             if checksum_type != 0 {
-                return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                    "ChecksumType",
-                    checksum_type,
-                ))));
+                return Err(crate::Error::InvalidTag(("ChecksumType", checksum_type)));
             }
 
             let checksum = reader.read_u128::<LittleEndian>()?;

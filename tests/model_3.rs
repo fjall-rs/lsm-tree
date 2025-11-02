@@ -1,6 +1,6 @@
 // Found by model testing
 
-use lsm_tree::{AbstractTree, KvSeparationOptions, Result};
+use lsm_tree::{AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -9,7 +9,7 @@ fn model_3() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
         .open()?;
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());

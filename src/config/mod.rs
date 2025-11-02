@@ -21,7 +21,7 @@ pub type PartioningPolicy = PinningPolicy;
 
 use crate::{
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, Tree,
+    DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -229,13 +229,20 @@ pub struct Config {
 
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
+
+    /// The global sequence number generator
+    ///
+    /// Should be shared between multple trees of a database
+    pub(crate) seqno: SequenceNumberCounter,
 }
 
+// TODO: remove default?
 impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(DescriptorTable::new(256)),
+            seqno: SequenceNumberCounter::default(),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -246,26 +253,36 @@ impl Default for Config {
 
             level_count: DEFAULT_LEVEL_COUNT,
 
-            data_block_size_policy: BlockSizePolicy::default(),
+            data_block_size_policy: BlockSizePolicy::all(4_096),
 
-            index_block_pinning_policy: PinningPolicy::new(&[true, true, false]),
-            filter_block_pinning_policy: PinningPolicy::new(&[true, false]),
+            index_block_pinning_policy: PinningPolicy::new([true, true, false]),
+            filter_block_pinning_policy: PinningPolicy::new([true, false]),
 
             top_level_index_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
             top_level_filter_block_pinning_policy: PinningPolicy::all(true), // TODO: implement
 
-            index_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
-            filter_block_partitioning_policy: PinningPolicy::new(&[false, false, false, true]),
+            index_block_partitioning_policy: PinningPolicy::new([false, false, false, true]),
+            filter_block_partitioning_policy: PinningPolicy::new([false, false, false, true]),
 
             index_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
             filter_block_partition_size_policy: BlockSizePolicy::all(4_096), // TODO: implement
 
-            data_block_compression_policy: CompressionPolicy::default(),
+            data_block_compression_policy: ({
+                #[cfg(feature = "lz4")]
+                let c = CompressionPolicy::new([CompressionType::None, CompressionType::Lz4]);
+
+                #[cfg(not(feature = "lz4"))]
+                let c = CompressionPolicy::new([CompressionType::None]);
+
+                c
+            }),
             index_block_compression_policy: CompressionPolicy::all(CompressionType::None),
 
             data_block_hash_ratio_policy: HashRatioPolicy::all(0.0),
 
-            filter_policy: FilterPolicy::default(),
+            filter_policy: FilterPolicy::all(FilterPolicyEntry::Bloom(
+                BloomConstructionPolicy::BitsPerKey(10.0),
+            )),
 
             expect_point_read_hits: false,
 
@@ -276,9 +293,10 @@ impl Default for Config {
 
 impl Config {
     /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(path: P, seqno: SequenceNumberCounter) -> Self {
         Self {
             path: absolute_path(path.as_ref()),
+            seqno,
             ..Default::default()
         }
     }

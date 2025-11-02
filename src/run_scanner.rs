@@ -67,13 +67,13 @@ impl Iterator for RunScanner {
 #[expect(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{AbstractTree, Slice};
+    use crate::{AbstractTree, SequenceNumberCounter, Slice};
     use test_log::test;
 
     #[test]
     fn run_scanner_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(&tempdir).open()?;
+        let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
 
         let ids = [
             ["a", "b", "c"],

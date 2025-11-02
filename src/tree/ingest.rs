@@ -4,7 +4,8 @@
 
 use super::Tree;
 use crate::{
-    compaction::MoveDown, table::multi_writer::MultiWriter, AbstractTree, SeqNo, UserKey, UserValue,
+    compaction::MoveDown, config::FilterPolicyEntry, table::multi_writer::MultiWriter,
+    AbstractTree, BlobIndirection, SeqNo, UserKey, UserValue,
 };
 use std::{path::PathBuf, sync::Arc};
 
@@ -16,7 +17,7 @@ pub const INITIAL_CANONICAL_LEVEL: usize = 1;
 pub struct Ingestion<'a> {
     folder: PathBuf,
     tree: &'a Tree,
-    writer: MultiWriter,
+    pub(crate) writer: MultiWriter,
     seqno: SeqNo,
 }
 
@@ -30,14 +31,32 @@ impl<'a> Ingestion<'a> {
         let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
         log::debug!("Ingesting into tables in {}", folder.display());
 
-        // TODO: 3.0.0 look at tree configuration
+        let index_partitioning = tree
+            .config
+            .index_block_partitioning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
+        let filter_partitioning = tree
+            .config
+            .filter_block_partitioning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
         // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
-        let writer = MultiWriter::new(
+        let mut writer = MultiWriter::new(
             folder.clone(),
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             6,
         )?
+        .use_bloom_policy({
+            if let FilterPolicyEntry::Bloom(p) =
+                tree.config.filter_policy.get(INITIAL_CANONICAL_LEVEL)
+            {
+                p
+            } else {
+                crate::config::BloomConstructionPolicy::BitsPerKey(0.0)
+            }
+        })
         .use_data_block_size(
             tree.config
                 .data_block_size_policy
@@ -57,7 +76,24 @@ impl<'a> Ingestion<'a> {
             tree.config
                 .index_block_compression_policy
                 .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_data_block_restart_interval(
+            tree.config
+                .data_block_restart_interval_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_index_block_restart_interval(
+            tree.config
+                .index_block_restart_interval_policy
+                .get(INITIAL_CANONICAL_LEVEL),
         );
+
+        if index_partitioning {
+            writer = writer.use_partitioned_index();
+        }
+        if filter_partitioning {
+            writer = writer.use_partitioned_filter();
+        }
 
         Ok(Self {
             folder,
@@ -72,6 +108,30 @@ impl<'a> Ingestion<'a> {
     pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
         self.seqno = seqno;
         self
+    }
+
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub(crate) fn write_indirection(
+        &mut self,
+        key: UserKey,
+        indirection: BlobIndirection,
+    ) -> crate::Result<()> {
+        use crate::coding::Encode;
+
+        self.writer.write(crate::InternalValue::from_components(
+            key,
+            indirection.encode_into_vec(),
+            self.seqno,
+            crate::ValueType::Indirection,
+        ))?;
+
+        self.writer.register_blob(indirection);
+
+        Ok(())
     }
 
     /// Writes a key-value pair.
@@ -150,7 +210,7 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree.register_tables(&created_tables, None, None, 0)?;
+        self.tree.register_tables(&created_tables, None, None)?;
 
         let last_level_idx = self.tree.config.level_count - 1;
 

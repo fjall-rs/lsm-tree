@@ -34,22 +34,10 @@ impl BlobFileList {
     }
 
     pub fn prune_dead(&mut self, gc_stats: &FragmentationMap) -> Vec<BlobFile> {
-        // TODO: 3.0.0 1.91
-        // copy.extract_if(.., |_, blob_file| blob_file.is_dead(&gc_stats));
-
-        let mut dropped_blob_files = vec![];
-
-        self.0.retain(|_, blob_file| {
-            if blob_file.is_dead(gc_stats) {
-                log::debug!("Dropping blob file: {}", blob_file.id());
-                dropped_blob_files.push(blob_file.clone());
-                false
-            } else {
-                true
-            }
-        });
-
-        dropped_blob_files
+        self.0
+            .extract_if(.., |_, blob_file| blob_file.is_dead(gc_stats))
+            .map(|(_, v)| v)
+            .collect()
     }
 
     pub fn insert(&mut self, key: BlobFileId, value: BlobFile) {

@@ -3,11 +3,21 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, GlobalTableId};
-use crate::{table::block::BlockType, Cache, CompressionType, DescriptorTable};
+use crate::{
+    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
+    KeyRange, Table,
+};
 use std::{path::Path, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
+
+#[must_use]
+pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+    let lo = tables.first().expect("run should never be empty");
+    let hi = tables.last().expect("run should never be empty");
+    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
+}
 
 /// [start, end] slice indexes
 #[derive(Debug)]
@@ -70,10 +80,10 @@ pub fn load_block(
     let block = Block::from_file(&fd, *handle, compression)?;
 
     if block.header.block_type != block_type {
-        return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+        return Err(crate::Error::InvalidTag((
             "BlockType",
             block.header.block_type.into(),
-        ))));
+        )));
     }
 
     #[cfg(feature = "metrics")]

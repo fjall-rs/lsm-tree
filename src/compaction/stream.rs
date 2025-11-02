@@ -252,7 +252,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::unwrap_used)]
     fn compaction_stream_queue_weak_tombstones() {
         #[rustfmt::skip]
         let vec = stream![

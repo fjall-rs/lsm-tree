@@ -20,7 +20,7 @@ pub mod writer;
 #[cfg(test)]
 mod tests;
 
-pub use block::{Block, BlockOffset, Checksum};
+pub use block::{Block, BlockOffset};
 pub use data_block::DataBlock;
 pub use id::{GlobalTableId, TableId};
 pub use index_block::{BlockHandle, IndexBlock, KeyedBlockHandle};
@@ -37,7 +37,7 @@ use crate::{
         regions::ParsedRegions,
         writer::LinkedFile,
     },
-    CompressionType, InternalValue, SeqNo, TreeId, UserKey,
+    Checksum, CompressionType, InternalValue, SeqNo, TreeId, UserKey,
 };
 use block_index::BlockIndexImpl;
 use inner::Inner;
@@ -98,11 +98,17 @@ impl std::fmt::Debug for Table {
 
 impl Table {
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
-        Ok(self
+        if let Some(v) = self.0.cached_blob_bytes.get() {
+            return Ok(*v);
+        }
+
+        let sum = self
             .list_blob_file_references()?
-            .iter()
             .map(|bf| bf.iter().map(|f| f.on_disk_bytes).sum::<u64>())
-            .sum::<u64>())
+            .unwrap_or_default();
+
+        let _ = self.0.cached_blob_bytes.set(sum);
+        Ok(sum)
     }
 
     pub fn list_blob_file_references(&self) -> crate::Result<Option<Vec<LinkedFile>>> {
@@ -285,11 +291,6 @@ impl Table {
         for block_handle in iter {
             let block_handle = block_handle?;
 
-            // // TODO: 3.0.0 can this ever happen...?
-            // if block_handle.end_key() < &key {
-            //     return Ok(None);
-            // }
-
             let block = self.load_data_block(block_handle.as_ref())?;
 
             if let Some(item) = block.point_read(key, seqno) {
@@ -350,12 +351,10 @@ impl Table {
     /// Will return `Err` if an IO error occurs.
     #[must_use]
     #[doc(hidden)]
-    pub fn range<R: RangeBounds<UserKey>>(
+    pub fn range<R: RangeBounds<UserKey> + Send>(
         &self,
         range: R,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> {
-        use crate::fallible_clipping_iter::FallibleClippingIter;
-
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send {
         let index_iter = self.block_index.iter();
 
         let mut iter = Iter::new(
@@ -370,20 +369,18 @@ impl Table {
         );
 
         match range.start_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_lower_bound(key.clone());
-            }
+            Bound::Included(key) => iter.set_lower_bound(iter::Bound::Included(key.clone())),
+            Bound::Excluded(key) => iter.set_lower_bound(iter::Bound::Excluded(key.clone())),
             Bound::Unbounded => {}
         }
 
         match range.end_bound() {
-            Bound::Excluded(key) | Bound::Included(key) => {
-                iter.set_upper_bound(key.clone());
-            }
+            Bound::Included(key) => iter.set_upper_bound(iter::Bound::Included(key.clone())),
+            Bound::Excluded(key) => iter.set_upper_bound(iter::Bound::Excluded(key.clone())),
             Bound::Unbounded => {}
         }
 
-        FallibleClippingIter::new(iter, range)
+        iter
     }
 
     fn read_tli(
@@ -396,10 +393,10 @@ impl Table {
         let block = Block::from_file(file, regions.tli, compression)?;
 
         if block.header.block_type != BlockType::Index {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+            return Err(crate::Error::InvalidTag((
                 "BlockType",
                 block.header.block_type.into(),
-            ))));
+            )));
         }
 
         Ok(IndexBlock::new(block))
@@ -497,10 +494,10 @@ impl Table {
                         if block.header.block_type == BlockType::Filter {
                             Ok(block)
                         } else {
-                            Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
+                            Err(crate::Error::InvalidTag((
                                 "BlockType",
                                 block.header.block_type.into(),
-                            ))))
+                            )))
                         }
                     })?;
 
@@ -536,6 +533,7 @@ impl Table {
 
             #[cfg(feature = "metrics")]
             metrics,
+            cached_blob_bytes: std::sync::OnceLock::new(),
         })))
     }
 

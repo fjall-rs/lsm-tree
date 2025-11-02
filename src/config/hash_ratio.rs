@@ -22,8 +22,6 @@ impl HashRatioPolicy {
             .unwrap_or_else(|| self.last().copied().expect("policy should not be empty"))
     }
 
-    // TODO: accept Vec... Into<Vec<...>>? or owned
-
     /// Uses the same block size in every level.
     #[must_use]
     pub fn all(c: f32) -> Self {
@@ -32,9 +30,10 @@ impl HashRatioPolicy {
 
     /// Constructs a custom block size policy.
     #[must_use]
-    pub fn new(policy: &[f32]) -> Self {
+    pub fn new(policy: impl Into<Vec<f32>>) -> Self {
+        let policy = policy.into();
         assert!(!policy.is_empty(), "compression policy may not be empty");
         assert!(policy.len() <= 255, "compression policy is too large");
-        Self(policy.into())
+        Self(policy)
     }
 }

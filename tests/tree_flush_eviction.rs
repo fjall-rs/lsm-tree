@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, SeqNo};
+use lsm_tree::{AbstractTree, SeqNo, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -7,7 +7,7 @@ fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove_weak("a", 1);
@@ -26,7 +26,7 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove_weak("a", 1);
@@ -41,12 +41,11 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove("a", 1);
@@ -66,12 +65,11 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 }
 
 #[test]
-#[ignore]
 fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove("a", 1);

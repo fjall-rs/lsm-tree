@@ -42,9 +42,7 @@ impl<'a> StandardBloomFilterReader<'a> {
         reader.read_exact(&mut magic)?;
 
         if magic != MAGIC_BYTES {
-            return Err(crate::Error::Decode(crate::DecodeError::InvalidHeader(
-                "BloomFilter",
-            )));
+            return Err(crate::Error::InvalidHeader("BloomFilter"));
         }
 
         // NOTE: Filter type
@@ -66,7 +64,6 @@ impl<'a> StandardBloomFilterReader<'a> {
 
         let offset = reader.position() as usize;
 
-        #[expect(clippy::indexing_slicing)]
         Ok(Self {
             k,
             m,

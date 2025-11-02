@@ -120,7 +120,7 @@ fn main() {
         let data_block = DataBlock::new(Block {
             data: bytes.into(),
             header: lsm_tree::table::block::Header {
-                checksum: lsm_tree::table::Checksum::from_raw(0),
+                checksum: lsm_tree::Checksum::from_raw(0),
                 data_length: 0,
                 uncompressed_length: 0,
                 block_type: lsm_tree::table::block::BlockType::Data,

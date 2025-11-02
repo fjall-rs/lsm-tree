@@ -1,6 +1,6 @@
 // Found by model testing
 
-use lsm_tree::{AbstractTree, Result};
+use lsm_tree::{AbstractTree, Result, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -9,7 +9,7 @@ fn model_1() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
 
     let value = b"hellohello";

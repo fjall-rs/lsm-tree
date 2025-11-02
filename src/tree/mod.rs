@@ -4,7 +4,7 @@
 
 pub mod ingest;
 pub mod inner;
-mod sealed;
+pub mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
@@ -17,9 +17,8 @@ use crate::{
     memtable::Memtable,
     slice::Slice,
     table::Table,
-    tree::inner::SuperVersion,
     value::InternalValue,
-    version::{recovery::recover, Version, VersionId},
+    version::{recovery::recover, SuperVersion, SuperVersions, Version, VersionId},
     vlog::BlobFile,
     AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SeqNo, SequenceNumberCounter, TableId,
     TreeType, UserKey, UserValue, ValueType,
@@ -28,7 +27,7 @@ use inner::{MemtableId, TreeId, TreeInner};
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 #[cfg(feature = "metrics")]
@@ -73,9 +72,7 @@ impl std::ops::Deref for Tree {
 
 impl AbstractTree for Tree {
     fn next_table_id(&self) -> TableId {
-        self.0
-            .table_id_counter
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.0.table_id_counter.get()
     }
 
     fn id(&self) -> TreeId {
@@ -84,25 +81,30 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        let version_lock = self.super_version.read().expect("lock is poisoned");
+        let version_history_lock = self.version_history.read().expect("lock is poisoned");
+        let super_version = version_history_lock.get_version_for_snapshot(seqno);
 
-        if let Some(entry) = version_lock.active_memtable.get(key, seqno) {
+        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in sealed memtables
         if let Some(entry) =
-            Self::get_internal_entry_from_sealed_memtables(&version_lock, key, seqno)
+            Self::get_internal_entry_from_sealed_memtables(&super_version, key, seqno)
         {
             return Ok(ignore_tombstone_value(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&version_lock, key, seqno)
+        self.get_internal_entry_from_tables(&super_version.version, key, seqno)
     }
 
     fn current_version(&self) -> Version {
-        self.super_version.read().expect("poisoned").version.clone()
+        self.version_history
+            .read()
+            .expect("poisoned")
+            .latest_version()
+            .version
     }
 
     fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>> {
@@ -116,7 +118,7 @@ impl AbstractTree for Tree {
         else {
             return Ok(None);
         };
-        self.register_tables(std::slice::from_ref(&table), None, None, seqno_threshold)?;
+        self.register_tables(std::slice::from_ref(&table), None, None)?;
 
         Ok(Some(table))
     }
@@ -127,10 +129,10 @@ impl AbstractTree for Tree {
     }
 
     fn version_free_list_len(&self) -> usize {
-        self.compaction_state
-            .lock()
+        self.version_history
+            .read()
             .expect("lock is poisoned")
-            .version_free_list_len()
+            .free_list_len()
     }
 
     fn prefix<K: AsRef<[u8]>>(
@@ -138,7 +140,7 @@ impl AbstractTree for Tree {
         prefix: K,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_prefix(&prefix, seqno, index)
                 .map(|kv| IterGuardImpl::Standard(Guard(kv))),
@@ -150,7 +152,7 @@ impl AbstractTree for Tree {
         range: R,
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<'_>> + '_> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_range(&range, seqno, index)
                 .map(|kv| IterGuardImpl::Standard(Guard(kv))),
@@ -190,20 +192,9 @@ impl AbstractTree for Tree {
         use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
-        // // TODO: 3.0.0 ... hmmmm
-        // let global_lock = self.super_version.write().expect("lock is poisoned");
-
         let seqno = seqno_generator.next();
 
         // TODO: allow ingestion always, by flushing memtable
-        // assert!(
-        //     global_lock.active_memtable.is_empty(),
-        //     "can only perform bulk ingestion with empty memtable(s)",
-        // );
-        // assert!(
-        //     global_lock.sealed_memtables.len() == 0,
-        //     "can only perform bulk ingestion with empty memtable(s)",
-        // );
 
         let mut writer = Ingestion::new(self)?.with_seqno(seqno);
 
@@ -211,7 +202,6 @@ impl AbstractTree for Tree {
         let mut count = 0;
         let mut last_key = None;
 
-        #[expect(clippy::explicit_counter_loop)]
         for (key, value) in iter {
             if let Some(last_key) = &last_key {
                 assert!(
@@ -304,9 +294,10 @@ impl AbstractTree for Tree {
     }
 
     fn sealed_memtable_count(&self) -> usize {
-        self.super_version
+        self.version_history
             .read()
             .expect("lock is poisoned")
+            .latest_version()
             .sealed_memtables
             .len()
     }
@@ -335,8 +326,8 @@ impl AbstractTree for Tree {
 
         let data_block_hash_ratio = self.config.data_block_hash_ratio_policy.get(0);
 
-        let index_partioning = self.config.index_block_partitioning_policy.get(0);
-        let filter_partioning = self.config.filter_block_partitioning_policy.get(0);
+        let index_partitioning = self.config.index_block_partitioning_policy.get(0);
+        let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
             "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
@@ -360,10 +351,10 @@ impl AbstractTree for Tree {
                 }
             });
 
-        if index_partioning {
+        if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
         }
-        if filter_partioning {
+        if filter_partitioning {
             table_writer = table_writer.use_partitioned_filter();
         }
 
@@ -387,7 +378,6 @@ impl AbstractTree for Tree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
-        seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
@@ -395,42 +385,52 @@ impl AbstractTree for Tree {
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
 
-        let mut compaction_state = self.compaction_state.lock().expect("lock is poisoned");
-        let mut super_version = self.super_version.write().expect("lock is poisoned");
+        let mut _compaction_state = self.compaction_state.lock().expect("lock is poisoned");
+        let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
-        compaction_state.upgrade_version(
-            &mut super_version,
-            |version| {
-                Ok(version.with_new_l0_run(tables, blob_files, frag_map.filter(|x| !x.is_empty())))
+        version_lock.upgrade_version(
+            &self.config.path,
+            |current| {
+                let mut copy = current.clone();
+
+                copy.version = copy.version.with_new_l0_run(
+                    tables,
+                    blob_files,
+                    frag_map.filter(|x| !x.is_empty()),
+                );
+
+                for table in tables {
+                    log::trace!("releasing sealed memtable {}", table.id());
+                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table.id()));
+                }
+
+                Ok(copy)
             },
-            seqno_threshold,
+            &self.config.seqno,
         )?;
-
-        for table in tables {
-            log::trace!("releasing sealed memtable {}", table.id());
-
-            super_version.sealed_memtables =
-                Arc::new(super_version.sealed_memtables.remove(table.id()));
-        }
 
         Ok(())
     }
 
     fn clear_active_memtable(&self) {
-        self.super_version
+        self.version_history
             .write()
             .expect("lock is poisoned")
+            .latest_version()
             .active_memtable = Arc::new(Memtable::default());
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
-        let mut version_lock = self.super_version.write().expect("lock is poisoned");
-        version_lock.active_memtable = Arc::new(memtable);
+        self.version_history
+            .write()
+            .expect("lock is poisoned")
+            .latest_version()
+            .active_memtable = Arc::new(memtable);
     }
 
     fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
-        let mut version_lock = self.super_version.write().expect("lock is poisoned");
-        version_lock.sealed_memtables = Arc::new(version_lock.sealed_memtables.add(id, memtable));
+        let mut version_lock = self.version_history.write().expect("lock is poisoned");
+        version_lock.append_sealed_memtable(id, memtable);
     }
 
     fn compact(
@@ -461,9 +461,10 @@ impl AbstractTree for Tree {
     fn active_memtable_size(&self) -> u64 {
         use std::sync::atomic::Ordering::Acquire;
 
-        self.super_version
+        self.version_history
             .read()
             .expect("lock is poisoned")
+            .latest_version()
             .active_memtable
             .approximate_size
             .load(Acquire)
@@ -475,22 +476,26 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
-        let mut version_lock = self.super_version.write().expect("lock is poisoned");
+        let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
+        let super_version = version_history_lock.latest_version();
 
-        if version_lock.active_memtable.is_empty() {
+        if super_version.active_memtable.is_empty() {
             return None;
         }
 
-        let yanked_memtable = std::mem::take(&mut version_lock.active_memtable);
-        let yanked_memtable = yanked_memtable;
-
+        let yanked_memtable = super_version.active_memtable;
         let tmp_memtable_id = self.get_next_table_id();
 
-        version_lock.sealed_memtables = Arc::new(
-            version_lock
+        let mut copy = version_history_lock.latest_version();
+        copy.seqno = self.config.seqno.next();
+        copy.active_memtable = Arc::new(Memtable::default());
+        copy.sealed_memtables = Arc::new(
+            super_version
                 .sealed_memtables
                 .add(tmp_memtable_id, yanked_memtable.clone()),
         );
+
+        version_history_lock.append_version(copy);
 
         log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
 
@@ -507,7 +512,11 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
-        let version = self.super_version.read().expect("lock is poisoned");
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
 
         let tables_item_count = self
             .current_version()
@@ -515,8 +524,8 @@ impl AbstractTree for Tree {
             .map(|x| x.metadata.item_count)
             .sum::<u64>();
 
-        let memtable_count = version.active_memtable.len() as u64;
-        let sealed_count = version
+        let memtable_count = super_version.active_memtable.len() as u64;
+        let sealed_count = super_version
             .sealed_memtables
             .iter()
             .map(|(_, mt)| mt.len())
@@ -536,7 +545,11 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
-        let version = self.super_version.read().expect("lock is poisoned");
+        let version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
 
         let active = version.active_memtable.get_highest_seqno();
 
@@ -585,6 +598,13 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+        self.version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno)
+    }
+
     /// Normalizes a user-provided range into owned `Bound<Slice>` values.
     ///
     /// Returns a tuple containing:
@@ -641,7 +661,8 @@ impl Tree {
 
         // Check for old version
         if config.path.join("version").try_exists()? {
-            return Err(crate::Error::InvalidVersion(FormatVersion::V1));
+            log::error!("It looks like you are trying to open a V1 database - the database needs a manual migration, however a migration tool is not provided, as V1 is extremely outdated.");
+            return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
         let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
@@ -712,7 +733,8 @@ impl Tree {
     }
 
     fn get_internal_entry_from_tables(
-        super_version: &SuperVersion,
+        &self,
+        version: &Version,
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
@@ -720,7 +742,7 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
-        for level in super_version.version.iter_levels() {
+        for level in version.iter_levels() {
             for run in level.iter() {
                 // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
                 if run.len() >= 4 {
@@ -750,12 +772,12 @@ impl Tree {
     fn inner_compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
-        seqno_threshold: SeqNo,
+        mvcc_gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         use crate::compaction::worker::{do_compaction, Options};
 
         let mut opts = Options::from_tree(self, strategy);
-        opts.eviction_seqno = seqno_threshold;
+        opts.mvcc_gc_watermark = mvcc_gc_watermark;
 
         do_compaction(&opts)?;
 
@@ -798,21 +820,11 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let super_version = self.super_version.write().expect("lock is poisoned");
+        let version = self.get_version_for_snapshot(seqno);
 
-        let iter_state = {
-            let active = &super_version.active_memtable;
-            let sealed = &super_version.sealed_memtables;
+        let iter_state = { IterState { version, ephemeral } };
 
-            IterState {
-                active: active.clone(),
-                sealed: sealed.iter().map(|(_, mt)| mt.clone()).collect(),
-                ephemeral,
-                version: super_version.version.clone(),
-            }
-        };
-
-        TreeIter::create_range(iter_state, bounds, seqno, &super_version.version)
+        TreeIter::create_range(iter_state, bounds, seqno)
     }
 
     #[doc(hidden)]
@@ -848,9 +860,10 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn append_entry(&self, value: InternalValue) -> (u64, u64) {
-        self.super_version
+        self.version_history
             .read()
             .expect("lock is poisoned")
+            .latest_version()
             .active_memtable
             .insert(value)
     }
@@ -873,7 +886,13 @@ impl Tree {
         };
 
         if manifest.version != FormatVersion::V3 {
-            return Err(crate::Error::InvalidVersion(manifest.version));
+            if manifest.version == FormatVersion::V2 {
+                log::error!("It looks like you are trying to open a V2 database - the database needs a manual migration, a tool is available at <TODO: 3.0.0 LINK>.");
+            }
+            if manifest.version as u8 > 3 {
+                log::error!("It looks like you are trying to open a database from the future. Are you a time traveller?");
+            }
+            return Err(crate::Error::InvalidVersion(manifest.version.into()));
         }
 
         // IMPORTANT: Restore persisted config
@@ -899,21 +918,15 @@ impl Tree {
             .max()
             .unwrap_or_default();
 
-        let path = config.path.clone();
-
         let inner = TreeInner {
             id: tree_id,
-            table_id_counter: Arc::new(AtomicU64::new(highest_table_id + 1)),
+            table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_generator: SequenceNumberCounter::default(),
-            super_version: Arc::new(RwLock::new(SuperVersion {
-                active_memtable: Arc::default(),
-                sealed_memtables: Arc::default(),
-                version,
-            })),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
             metrics,

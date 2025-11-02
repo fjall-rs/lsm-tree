@@ -19,9 +19,10 @@ use std::sync::{
 /// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
-/// let tree = Config::new(path).open()?;
 ///
 /// let seqno = SequenceNumberCounter::default();
+///
+/// let tree = Config::new(path, seqno.clone()).open()?;
 ///
 /// // Do some inserts...
 /// tree.insert("a".as_bytes(), "abc", seqno.next());

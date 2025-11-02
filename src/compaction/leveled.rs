@@ -7,23 +7,20 @@ use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
-    table::Table,
-    version::{run::Ranged, Run, Version},
-    HashSet, KeyRange, TableId,
+    table::{util::aggregate_run_key_range, Table},
+    version::{Run, Version},
+    HashSet, TableId,
 };
 
-pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
-    let lo = tables.first().expect("run should never be empty");
-    let hi = tables.last().expect("run should never be empty");
-    KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
-}
+#[doc(hidden)]
+pub const NAME: &str = "LeveledCompaction";
 
 /// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
     curr_run: &Run<Table>,
     next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
-    overshoot: u64,
+    _overshoot: u64,
     table_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
@@ -203,7 +200,7 @@ impl Strategy {
 
 impl CompactionStrategy for Strategy {
     fn get_name(&self) -> &'static str {
-        "LeveledCompaction"
+        NAME
     }
 
     fn get_config(&self) -> Vec<crate::KvPair> {
@@ -374,9 +371,6 @@ impl CompactionStrategy for Strategy {
             }
 
             // NOTE: Never score Lmax
-            //
-            // NOTE: We check for level length above
-            #[expect(clippy::indexing_slicing)]
             {
                 scores[6] = (0.0, 0);
             }

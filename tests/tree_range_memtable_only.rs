@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_range_memtable_only() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "", 0);
     tree.insert("b", "", 0);

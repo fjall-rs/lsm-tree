@@ -4,14 +4,13 @@ use test_log::test;
 
 /// NOTE: Fix: https://github.com/fjall-rs/lsm-tree/commit/66a974ae6748646a40df475c291e04cf1dfbaece
 #[test]
-#[ignore]
 fn compaction_readers_grouping() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = Config::new(path).open()?;
-
     let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(path, seqno.clone()).open()?;
 
     tree.insert("a".as_bytes(), "abc", seqno.next());
     tree.insert("b".as_bytes(), "abc", seqno.next());

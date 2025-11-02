@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a0", 0);
     tree.insert("a", "a1", 1);
@@ -26,42 +26,33 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert_eq!(&*tree.get("b", SeqNo::MAX)?.unwrap(), b"b3");
     assert_eq!(&*tree.get("c", SeqNo::MAX)?.unwrap(), b"c4");
 
-    // TODO: test snapshot reads
+    assert_eq!(&*tree.get("a", 1)?.unwrap(), b"a0");
+    assert_eq!(&*tree.get("b", 1)?.unwrap(), b"b0");
+    assert!(tree.get("c", 1)?.is_none());
 
-    // let snapshot = tree.snapshot(1);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a0");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b0");
-    // assert!(snapshot.get("c")?.is_none());
+    assert_eq!(&*tree.get("a", 2)?.unwrap(), b"a1");
+    assert_eq!(&*tree.get("b", 2)?.unwrap(), b"b1");
+    assert!(tree.get("c", 2)?.is_none());
 
-    // let snapshot = tree.snapshot(2);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a1");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b1");
-    // assert!(snapshot.get("c")?.is_none());
+    assert_eq!(&*tree.get("a", 3)?.unwrap(), b"a1");
+    assert_eq!(&*tree.get("b", 3)?.unwrap(), b"b2");
+    assert!(tree.get("c", 3)?.is_none());
 
-    // let snapshot = tree.snapshot(3);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a1");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b2");
-    // assert!(snapshot.get("c")?.is_none());
+    assert_eq!(&*tree.get("a", 4)?.unwrap(), b"a1");
+    assert_eq!(&*tree.get("b", 4)?.unwrap(), b"b3");
+    assert!(tree.get("c", 4)?.is_none());
 
-    // let snapshot = tree.snapshot(4);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a1");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
-    // assert!(snapshot.get("c")?.is_none());
+    assert_eq!(&*tree.get("a", 5)?.unwrap(), b"a1");
+    assert_eq!(&*tree.get("b", 5)?.unwrap(), b"b3");
+    assert_eq!(&*tree.get("c", 5)?.unwrap(), b"c4");
 
-    // let snapshot = tree.snapshot(5);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a1");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
-    // assert_eq!(&*snapshot.get("c")?.unwrap(), b"c4");
+    assert_eq!(&*tree.get("a", 6)?.unwrap(), b"a5");
+    assert_eq!(&*tree.get("b", 6)?.unwrap(), b"b3");
+    assert_eq!(&*tree.get("c", 6)?.unwrap(), b"c4");
 
-    // let snapshot = tree.snapshot(6);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a5");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
-    // assert_eq!(&*snapshot.get("c")?.unwrap(), b"c4");
-
-    // let snapshot = tree.snapshot(100);
-    // assert_eq!(&*snapshot.get("a")?.unwrap(), b"a5");
-    // assert_eq!(&*snapshot.get("b")?.unwrap(), b"b3");
-    // assert_eq!(&*snapshot.get("c")?.unwrap(), b"c4");
+    assert_eq!(&*tree.get("a", 100)?.unwrap(), b"a5");
+    assert_eq!(&*tree.get("b", 100)?.unwrap(), b"b3");
+    assert_eq!(&*tree.get("c", 100)?.unwrap(), b"c4");
 
     let mut iter = tree.iter(SeqNo::MAX, None);
 
@@ -70,59 +61,50 @@ fn tree_read_mvcc() -> lsm_tree::Result<()> {
     assert_eq!(&*iter.next().unwrap().value()?, b"c4");
     assert!(iter.next().is_none());
 
-    // TODO: test snapshot reads
+    let mut iter = tree.iter(1, None);
 
-    // let snapshot = tree.snapshot(1);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a0");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b0");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a0");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b0");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(2, None);
 
-    // let snapshot = tree.snapshot(2);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a1");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b1");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b1");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(3, None);
 
-    // let snapshot = tree.snapshot(3);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a1");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b2");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b2");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(4, None);
 
-    // let snapshot = tree.snapshot(4);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a1");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b3");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(5, None);
 
-    // let snapshot = tree.snapshot(5);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a1");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b3");
+    assert_eq!(&*iter.next().unwrap().value()?, b"c4");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a1");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"c4");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(6, None);
 
-    // let snapshot = tree.snapshot(6);
-    // let mut iter = snapshot.iter();
+    assert_eq!(&*iter.next().unwrap().value()?, b"a5");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b3");
+    assert_eq!(&*iter.next().unwrap().value()?, b"c4");
+    assert!(iter.next().is_none());
 
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"c4");
-    // assert!(iter.next().is_none());
+    let mut iter = tree.iter(100, None);
 
-    // let snapshot = tree.snapshot(100);
-    // let mut iter = snapshot.iter();
-
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"a5");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"b3");
-    // assert_eq!(&*iter.next().unwrap().unwrap().1, b"c4");
-    // assert!(iter.next().is_none());
+    assert_eq!(&*iter.next().unwrap().value()?, b"a5");
+    assert_eq!(&*iter.next().unwrap().value()?, b"b3");
+    assert_eq!(&*iter.next().unwrap().value()?, b"c4");
+    assert!(iter.next().is_none());
 
     Ok(())
 }

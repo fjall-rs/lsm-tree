@@ -120,11 +120,10 @@ fn main() {
         let file = dir.path().join("table_fuzz");
 
         {
-            let mut writer = lsm_tree::table::Writer::new(file.clone(), 0)
+            let mut writer = lsm_tree::table::Writer::new(file.clone(), 0, 0)
                 .unwrap()
                 .use_data_block_restart_interval(restart_interval)
                 .use_data_block_size(data_block_size)
-                .use_index_block_size(index_block_size)
                 .use_data_block_hash_ratio(hash_ratio);
 
             if index_type == IndexType::TwoLevel {
@@ -141,8 +140,9 @@ fn main() {
             let _trailer = writer.finish().unwrap();
         }
 
-        let table = lsm_tree::table::recover(
+        let table = lsm_tree::Table::recover(
             file,
+            lsm_tree::Checksum::from_raw(0),
             0,
             Arc::new(lsm_tree::Cache::with_capacity_bytes(0)),
             Arc::new(lsm_tree::DescriptorTable::new(10)),

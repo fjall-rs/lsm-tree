@@ -12,7 +12,7 @@ use standard_bloom::Builder as StandardBloomFilterBuilder;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BloomConstructionPolicy {
     BitsPerKey(f32),
-    FpRate(f32), // TODO: 3.0.0 rename: FalsePositiveRate?
+    FalsePositiveRate(f32),
 }
 
 impl Default for BloomConstructionPolicy {
@@ -28,7 +28,7 @@ impl BloomConstructionPolicy {
 
         match self {
             Self::BitsPerKey(bpk) => Builder::with_bpk(n, *bpk),
-            Self::FpRate(fpr) => Builder::with_fp_rate(n, *fpr),
+            Self::FalsePositiveRate(fpr) => Builder::with_fp_rate(n, *fpr),
         }
     }
 
@@ -36,7 +36,7 @@ impl BloomConstructionPolicy {
     pub fn is_active(&self) -> bool {
         match self {
             Self::BitsPerKey(bpk) => *bpk > 0.0,
-            Self::FpRate(fpr) => *fpr > 0.0,
+            Self::FalsePositiveRate(fpr) => *fpr > 0.0,
         }
     }
 
@@ -44,7 +44,7 @@ impl BloomConstructionPolicy {
     pub fn estimated_key_bits(&self, n: usize) -> f32 {
         match self {
             Self::BitsPerKey(bpk) => *bpk,
-            Self::FpRate(fpr) => {
+            Self::FalsePositiveRate(fpr) => {
                 let m = StandardBloomFilterBuilder::calculate_m(n, *fpr);
                 (m / n) as f32
             }
@@ -65,10 +65,7 @@ impl TryFrom<u8> for FilterType {
         match value {
             0 => Ok(Self::StandardBloom),
             1 => Ok(Self::BlockedBloom),
-            _ => Err(crate::Error::Decode(crate::DecodeError::InvalidTag((
-                "FilterType",
-                value,
-            )))),
+            _ => Err(crate::Error::InvalidTag(("FilterType", value))),
         }
     }
 }

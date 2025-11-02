@@ -50,9 +50,10 @@ impl std::ops::DerefMut for FragmentationMap {
 }
 
 impl FragmentationMap {
+    /// Returns the number of bytes that could be freed from disk.
     #[must_use]
     pub fn stale_bytes(&self) -> u64 {
-        self.0.values().map(|x| x.bytes).sum()
+        self.0.values().map(|x| x.on_disk_bytes).sum()
     }
 
     // TODO: TEST: unit test
@@ -62,6 +63,10 @@ impl FragmentationMap {
         self.0.retain(|&k, _| value_log.contains_key(k));
     }
 
+    /// Merges a fragmentation map into another.
+    ///
+    /// This is used after a compaction stream is summed up (using the expiration callback), to apply
+    /// the diff to the tree's fragmentation stats.
     pub fn merge_into(self, other: &mut Self) {
         for (blob_file_id, diff) in self.0 {
             other
@@ -78,7 +83,7 @@ impl FragmentationMap {
 }
 
 impl crate::coding::Encode for FragmentationMap {
-    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::EncodeError> {
+    fn encode_into<W: std::io::Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
         use byteorder::{WriteBytesExt, LE};
 
         #[expect(
@@ -106,7 +111,7 @@ impl crate::coding::Encode for FragmentationMap {
 }
 
 impl crate::coding::Decode for FragmentationMap {
-    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::DecodeError>
+    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, crate::Error>
     where
         Self: Sized,
     {
@@ -154,7 +159,7 @@ impl ExpiredKvCallback for FragmentationMap {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used)]
+#[expect(clippy::expect_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use crate::{
