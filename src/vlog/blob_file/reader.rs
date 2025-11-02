@@ -2,8 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use byteorder::{LittleEndian, ReadBytesExt};
-
 use crate::{
     vlog::{
         blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
@@ -11,6 +9,7 @@ use crate::{
     },
     BlobFile, Checksum, CompressionType, UserValue,
 };
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
     io::{Cursor, Read, Seek},

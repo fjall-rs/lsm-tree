@@ -4,7 +4,6 @@
 
 pub mod hidden_set;
 
-use crate::SeqNo;
 use hidden_set::HiddenSet;
 
 #[derive(Default)]

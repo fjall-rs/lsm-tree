@@ -1,5 +1,6 @@
-use std::iter::Peekable;
-use std::time::Instant;
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
 
 use crate::blob_tree::handle::BlobIndirection;
 use crate::blob_tree::FragmentationMap;
@@ -11,6 +12,8 @@ use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Table};
+use std::iter::Peekable;
+use std::time::Instant;
 
 pub(super) fn prepare_table_writer(
     version: &Version,
