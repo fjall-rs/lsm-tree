@@ -125,13 +125,13 @@ impl DoubleEndedIterator for RunReader {
 #[expect(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{AbstractTree, Slice};
+    use crate::{AbstractTree, SequenceNumberCounter, Slice};
     use test_log::test;
 
     #[test]
     fn run_reader_skip() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(&tempdir).open()?;
+        let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
 
         let ids = [
             ["a", "b", "c"],
@@ -166,7 +166,7 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(&tempdir).open()?;
+        let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
 
         let ids = [
             ["a", "b", "c"],

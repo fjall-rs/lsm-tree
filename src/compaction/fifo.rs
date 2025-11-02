@@ -155,13 +155,13 @@ impl CompactionStrategy for Strategy {
 #[cfg(test)]
 mod tests {
     use super::Strategy;
-    use crate::{AbstractTree, Config, KvSeparationOptions};
+    use crate::{AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
     use std::sync::Arc;
 
     #[test]
     fn fifo_empty_levels() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path()).open()?;
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
         let fifo = Arc::new(Strategy::new(1, None));
         tree.compact(fifo, 0)?;
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn fifo_below_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path()).open()?;
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
         for i in 0..4u8 {
             tree.insert([b'k', i].as_slice(), "v", u64::from(i));
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path()).open()?;
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
         for i in 0..4u8 {
             tree.insert([b'k', i].as_slice(), "v", u64::from(i));
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path())
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
             .open()?;
 
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn fifo_ttl() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path()).open()?;
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
         // Freeze time and create first (older) table at t=1000s
         crate::time::set_unix_timestamp_for_test(Some(std::time::Duration::from_secs(1_000)));
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn fifo_ttl_then_limit_additional_drops_blob_unit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(dir.path())
+        let tree = Config::new(dir.path(), SequenceNumberCounter::default())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
             .open()?;
 

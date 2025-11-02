@@ -260,7 +260,7 @@ impl MultiWriter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::CompressionPolicy, AbstractTree, Config, SeqNo};
+    use crate::{config::CompressionPolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
     use test_log::test;
 
     // NOTE: Tests that versions of the same key stay
@@ -273,7 +273,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder)
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
             .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
             .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
             .open()?;
@@ -301,7 +301,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder)
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
             .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
             .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
             .open()?;

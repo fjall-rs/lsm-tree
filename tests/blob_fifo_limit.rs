@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, KvSeparationOptions};
+use lsm_tree::{AbstractTree, KvSeparationOptions, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
@@ -7,7 +7,7 @@ fn blob_tree_fifo_limit() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 

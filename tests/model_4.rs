@@ -1,6 +1,8 @@
 // Found by model testing
 
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, KvSeparationOptions, Result};
+use lsm_tree::{
+    config::BlockSizePolicy, AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter,
+};
 use std::sync::Arc;
 use test_log::test;
 
@@ -9,7 +11,7 @@ fn model_4() -> Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
         .data_block_size_policy(BlockSizePolicy::all(100))
         .open()?;

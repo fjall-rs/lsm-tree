@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Guard, SeqNo};
+use lsm_tree::{AbstractTree, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -6,7 +6,7 @@ fn tree_l0_range_blob() -> lsm_tree::Result<()> {
     let folder: tempfile::TempDir = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path)
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

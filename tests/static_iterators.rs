@@ -2,14 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use lsm_tree::{AbstractTree, Config, Guard};
+use lsm_tree::{AbstractTree, Config, Guard, SequenceNumberCounter};
 use test_log::test;
 
 /// Test that iterators can be stored in a struct (proving they're 'static)
 #[test]
 fn static_iterator_ownership() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "value_a", 0);
     tree.insert("b", "value_b", 1);
@@ -41,7 +41,7 @@ fn static_iterator_ownership() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("value_{}", i), i as u64);
@@ -70,7 +70,7 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_prefix() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("user:1:name", "Alice", 0);
     tree.insert("user:1:age", "30", 1);
@@ -96,7 +96,7 @@ fn static_iterator_prefix() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_reverse() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..10 {
         tree.insert(format!("key_{}", i), format!("value_{}", i), i as u64);
@@ -122,7 +122,7 @@ fn static_iterator_reverse() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_with_segments() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Write data and flush to disk
     for i in 0..50 {
@@ -153,7 +153,7 @@ fn static_iterator_with_segments() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder)
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
@@ -184,7 +184,7 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Initial data
     for i in 0..10 {
@@ -219,7 +219,7 @@ fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("val_{}", i), i as u64);
@@ -251,7 +251,7 @@ fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Create data and flush
     for i in 0..50 {
@@ -277,7 +277,7 @@ fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
 #[test]
 fn static_iterator_with_tombstones() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
-    let tree = Config::new(&folder).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..20 {
         tree.insert(format!("key_{:02}", i), format!("val_{}", i), i as u64);

@@ -6,9 +6,9 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = Config::new(path).open()?;
-
     let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(path, seqno.clone()).open()?;
 
     tree.insert("a".as_bytes(), "abc", seqno.next());
     tree.insert("b".as_bytes(), "abc", seqno.next());

@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions};
+use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -6,7 +6,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
@@ -20,7 +20,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("tables").join("0"))?;
 
     {
-        let _tree = Config::new(&folder).open()?;
+        let _tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert!(!folder.path().join("tables").join("0").try_exists()?);
         assert!(folder.path().join("tables").join("1").try_exists()?);
@@ -34,7 +34,7 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder)
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
             .with_kv_separation(Some(
                 KvSeparationOptions::default()
                     .age_cutoff(1.0)
@@ -60,7 +60,7 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("blobs").join("0"))?;
 
     {
-        let _tree = Config::new(&folder)
+        let _tree = Config::new(&folder, SequenceNumberCounter::default())
             .with_kv_separation(Default::default())
             .open()?;
 

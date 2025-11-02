@@ -41,7 +41,7 @@
 //!
 //! // A tree is a single physical keyspace/index/...
 //! // and supports a BTreeMap-like API
-//! let tree = Config::new(folder).open()?;
+//! let tree = Config::new(folder, Default::default()).open()?;
 //!
 //! // Note compared to the BTreeMap API, operations return a Result<T>
 //! // So you can handle I/O errors if they occur
@@ -172,7 +172,7 @@ pub mod merge;
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
 
-mod multi_reader;
+// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;

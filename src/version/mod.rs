@@ -4,11 +4,15 @@
 
 mod blob_file_list;
 mod optimize;
+mod persist;
 pub mod recovery;
 pub mod run;
+mod super_version;
 
 pub use blob_file_list::BlobFileList;
+pub use persist::persist_version;
 pub use run::Run;
+pub use super_version::{SuperVersion, SuperVersions};
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
@@ -16,7 +20,7 @@ use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
 use crate::{
     vlog::{BlobFile, BlobFileId},
-    HashSet, KeyRange, SeqNo, Table, TableId,
+    HashSet, KeyRange, Table, TableId,
 };
 use optimize::optimize_runs;
 use run::Ranged;
@@ -170,12 +174,6 @@ pub struct VersionInner {
 #[derive(Clone)]
 pub struct Version {
     inner: Arc<VersionInner>,
-
-    /// The sequence number at the time the version was installed
-    ///
-    /// We keep all versions that have `seqno_watermark` > `mvcc_watermark` to prevent
-    /// snapshots losing data
-    pub(crate) seqno_watermark: SeqNo,
 }
 
 impl std::ops::Deref for Version {
@@ -223,7 +221,6 @@ impl Version {
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
             }),
-            seqno_watermark: 0,
         }
     }
 
@@ -280,7 +277,6 @@ impl Version {
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
             }),
-            seqno_watermark: 0,
         }
     }
 
@@ -384,7 +380,6 @@ impl Version {
                 blob_files: value_log,
                 gc_stats,
             }),
-            seqno_watermark: 0,
         }
     }
 
@@ -468,7 +463,6 @@ impl Version {
                 blob_files: value_log,
                 gc_stats,
             }),
-            seqno_watermark: 0,
         })
     }
 
@@ -551,7 +545,6 @@ impl Version {
                 blob_files: value_log,
                 gc_stats,
             }),
-            seqno_watermark: 0,
         }
     }
 
@@ -597,7 +590,6 @@ impl Version {
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
             }),
-            seqno_watermark: 0,
         }
     }
 }
@@ -658,89 +650,6 @@ impl Version {
         writer.start("blob_gc_stats")?;
 
         self.gc_stats.encode_into(writer)?;
-
-        Ok(())
-    }
-
-    pub fn fmt(&self, mut f: impl std::io::Write, hidden_set: &HiddenSet) -> std::io::Result<()> {
-        for (idx, level) in self.iter_levels().enumerate() {
-            writeln!(
-                f,
-                "{idx} [{}], r={}: ",
-                match (level.is_empty(), level.is_disjoint()) {
-                    (true, _) => ".",
-                    (false, true) => "D",
-                    (false, false) => "_",
-                },
-                level.len(),
-            )?;
-
-            for run in level.iter() {
-                write!(f, "  ")?;
-
-                if run.len() >= 30 {
-                    for table in run.iter().take(2) {
-                        let id = table.id();
-                        let is_hidden = hidden_set.is_hidden(id);
-
-                        write!(
-                            f,
-                            "{}{id}{}",
-                            if is_hidden { "(" } else { "[" },
-                            if is_hidden { ")" } else { "]" },
-                        )?;
-                    }
-                    write!(f, " . . . ")?;
-
-                    for table in run.iter().rev().take(2).rev() {
-                        let id = table.id();
-                        let is_hidden = hidden_set.is_hidden(id);
-
-                        write!(
-                            f,
-                            "{}{id}{}",
-                            if is_hidden { "(" } else { "[" },
-                            if is_hidden { ")" } else { "]" },
-                        )?;
-                    }
-
-                    writeln!(
-                        f,
-                        " | # = {}, {} MiB",
-                        run.len(),
-                        run.iter().map(Table::file_size).sum::<u64>() / 1_024 / 1_024,
-                    )?;
-                } else {
-                    for table in run.iter() {
-                        let id = table.id();
-                        let is_hidden = hidden_set.is_hidden(id);
-
-                        write!(
-                            f,
-                            "{}{id}{}",
-                            if is_hidden { "(" } else { "[" },
-                            if is_hidden { ")" } else { "]" },
-                        )?;
-                    }
-
-                    writeln!(
-                        f,
-                        " | # = {}, {} MiB",
-                        run.len(),
-                        run.iter().map(Table::file_size).sum::<u64>() / 1_024 / 1_024,
-                    )?;
-                }
-            }
-        }
-
-        if !self.blob_files.is_empty() {
-            writeln!(f)?;
-            writeln!(
-                f,
-                "BLOB: {:?}",
-                self.blob_files.list_ids().collect::<Vec<_>>(),
-            )?;
-        }
 
         Ok(())
     }

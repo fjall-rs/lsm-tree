@@ -1,4 +1,4 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
@@ -7,7 +7,7 @@ const ITEM_COUNT: usize = 100;
 fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
@@ -30,7 +30,7 @@ fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
 fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?.keep();
 
-    let tree = Config::new(folder)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 

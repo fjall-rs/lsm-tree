@@ -37,18 +37,6 @@ impl CompressionPolicy {
     }
 
     /// Constructs a custom compression policy.
-    ///
-    /// # Example
-    ///
-    /// Skip compression in level 0:
-    ///
-    /// ```
-    /// # use lsm_tree::{CompressionType, config::CompressionPolicy};
-    /// let policy = CompressionPolicy::new(&[
-    ///   CompressionType::None,
-    ///   CompressionType::Lz4, // use LZ4 for L1+
-    /// ]);
-    /// ```
     #[must_use]
     pub fn new(policy: impl Into<Vec<CompressionType>>) -> Self {
         let policy = policy.into();

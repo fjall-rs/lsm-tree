@@ -3,12 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    compaction::state::{persist_version, CompactionState},
+    compaction::state::CompactionState,
     config::Config,
-    memtable::Memtable,
     stop_signal::StopSignal,
-    tree::sealed::SealedMemtables,
-    version::Version,
+    version::{persist_version, SuperVersions, Version},
     SequenceNumberCounter, TableId,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
@@ -32,17 +30,6 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-pub struct SuperVersion {
-    /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<Memtable>,
-
-    /// Frozen memtables that are being flushed
-    pub(crate) sealed_memtables: Arc<SealedMemtables>,
-
-    /// Current tree version
-    pub(crate) version: Version,
-}
-
 pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
@@ -55,7 +42,7 @@ pub struct TreeInner {
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_generator: SequenceNumberCounter,
 
-    pub(crate) super_version: Arc<RwLock<SuperVersion>>,
+    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
 
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
@@ -82,21 +69,15 @@ impl TreeInner {
         let version = Version::new(0);
         persist_version(&config.path, &version)?;
 
-        let path = config.path.clone();
-
         Ok(Self {
             id: get_next_tree_id(),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_generator: SequenceNumberCounter::default(),
             config,
-            super_version: Arc::new(RwLock::new(SuperVersion {
-                active_memtable: Arc::default(),
-                sealed_memtables: Arc::default(),
-                version,
-            })),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::new(path))),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
             metrics: Metrics::default().into(),
