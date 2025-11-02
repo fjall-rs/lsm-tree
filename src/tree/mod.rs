@@ -747,8 +747,6 @@ impl Tree {
                 // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
                 if run.len() >= 4 {
                     if let Some(table) = run.get_for_key(key) {
-                        eprintln!("probe table #{}", table.id());
-
                         if let Some(item) = table.get(key, seqno, key_hash)? {
                             return Ok(ignore_tombstone_value(item));
                         }
@@ -756,8 +754,6 @@ impl Tree {
                 } else {
                     // NOTE: Fallback to linear search
                     for table in run.iter() {
-                        eprintln!("probe table #{}", table.id());
-
                         if !table.is_key_in_key_range(key) {
                             continue;
                         }
