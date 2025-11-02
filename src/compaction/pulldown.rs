@@ -2,8 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
+use super::{Choice, CompactionStrategy};
+use crate::{
+    compaction::{state::CompactionState, Input},
+    version::Version,
+    Config,
+};
 
 /// Pulls down and merges a level into the destination level.
 ///
@@ -15,27 +19,24 @@ impl CompactionStrategy for Strategy {
         "PullDownCompaction"
     }
 
-    #[allow(clippy::expect_used)]
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
+    #[expect(clippy::expect_used)]
+    fn choose(&self, version: &Version, _: &Config, _: &CompactionState) -> Choice {
+        let level = version
+            .level(usize::from(self.0))
+            .expect("source level should exist");
 
-        let level = resolved_view
-            .get(usize::from(self.0))
-            .expect("level should exist");
+        let next_level = version
+            .level(usize::from(self.1))
+            .expect("destination level should exist");
 
-        let next_level = resolved_view
-            .get(usize::from(self.1))
-            .expect("next level should exist");
-
-        // TODO: list_ids()
-        let mut segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
-
-        segment_ids.extend(next_level.segments.iter().map(Segment::id));
+        let mut table_ids = level.list_ids();
+        table_ids.extend(next_level.list_ids());
 
         Choice::Merge(Input {
-            segment_ids,
+            table_ids,
             dest_level: self.1,
             target_size: 64_000_000,
+            canonical_level: 6, // We don't really care - this compaction is only used for very specific unit tests
         })
     }
 }

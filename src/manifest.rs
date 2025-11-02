@@ -2,58 +2,76 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{Decode, DecodeError, Encode, EncodeError},
-    file::MAGIC_BYTES,
-    segment::meta::TableType,
-    TreeType, Version,
-};
+use crate::{FormatVersion, TreeType};
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io::Write;
+use std::{io::Write, path::Path};
 
 pub struct Manifest {
-    pub(crate) version: Version,
-    pub(crate) tree_type: TreeType,
-    pub(crate) table_type: TableType,
-    pub(crate) level_count: u8,
+    pub version: FormatVersion,
+    pub tree_type: TreeType,
+    pub level_count: u8,
 }
 
-impl Encode for Manifest {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
-        writer.write_all(&MAGIC_BYTES)?;
+impl Manifest {
+    pub fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
+        writer.start("format_version")?;
+        writer.write_u8(self.version.into())?;
+
+        writer.start("crate_version")?;
+        writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;
+
+        writer.start("tree_type")?;
         writer.write_u8(self.tree_type.into())?;
-        writer.write_u8(self.table_type.into())?;
+
+        writer.start("level_count")?;
         writer.write_u8(self.level_count)?;
+
         Ok(())
     }
 }
 
-impl Decode for Manifest {
-    fn decode_from<R: std::io::Read>(reader: &mut R) -> Result<Self, DecodeError> {
-        let mut header = [0; MAGIC_BYTES.len()];
-        reader.read_exact(&mut header)?;
+impl Manifest {
+    pub fn decode_from(path: &Path, reader: &sfa::Reader) -> Result<Self, crate::Error> {
+        let toc = reader.toc();
 
-        if header != MAGIC_BYTES {
-            return Err(crate::DecodeError::InvalidHeader("Manifest"));
-        }
+        let version = {
+            let section = toc
+                .section(b"format_version")
+                .expect("format_version section must exist in manifest");
 
-        #[allow(clippy::expect_used)]
-        let version = *header.get(3).expect("header must be length 4");
-        let version = Version::try_from(version).map_err(|()| DecodeError::InvalidVersion)?;
+            let mut reader = section.buf_reader(path)?;
+            let version = reader.read_u8()?;
+            FormatVersion::try_from(version).map_err(|()| crate::Error::InvalidVersion(version))?
+        };
 
-        let tree_type = reader.read_u8()?;
-        let table_type = reader.read_u8()?;
-        let level_count = reader.read_u8()?;
+        let tree_type = {
+            let section = toc
+                .section(b"tree_type")
+                .expect("tree_type section must exist in manifest");
+
+            let mut reader = section.buf_reader(path)?;
+            let tree_type = reader.read_u8()?;
+            tree_type
+                .try_into()
+                .map_err(|()| crate::Error::InvalidTag(("TreeType", tree_type)))?
+        };
+
+        let level_count = {
+            let section = toc
+                .section(b"level_count")
+                .expect("level_count section must exist in manifest");
+
+            let mut reader = section.buf_reader(path)?;
+            reader.read_u8()?
+        };
+
+        // Currently level count is hard coded to 7
+        assert_eq!(7, level_count, "level count should be 7");
 
         Ok(Self {
             version,
+            tree_type,
             level_count,
-            tree_type: tree_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("TreeType", tree_type)))?,
-            table_type: table_type
-                .try_into()
-                .map_err(|()| DecodeError::InvalidTag(("TableType", table_type)))?,
         })
     }
 }

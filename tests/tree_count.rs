@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Slice};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
@@ -7,7 +7,7 @@ const ITEM_COUNT: usize = 1_000;
 fn tree_memtable_count() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -15,13 +15,16 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
         tree.insert(key, value.as_bytes(), 0);
     }
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
 
@@ -32,7 +35,7 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -42,13 +45,16 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
 
@@ -59,7 +65,9 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open_as_blob_tree()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -69,13 +77,16 @@ fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(tree.len(None, None)?, ITEM_COUNT);
+    assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
-        tree.iter(None, None).filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
         ITEM_COUNT
     );
     assert_eq!(
-        tree.iter(None, None).rev().filter(|x| x.is_ok()).count(),
+        tree.iter(SeqNo::MAX, None)
+            .rev()
+            .flat_map(|x| x.key())
+            .count(),
         ITEM_COUNT
     );
 
@@ -88,7 +99,7 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(folder).open()?;
+    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -98,14 +109,13 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    // NOTE: don't care
-    #[allow(clippy::type_complexity)]
     let mut range: (Bound<Slice>, Bound<Slice>) = (Unbounded, Unbounded);
     let mut count = 0;
 
     loop {
         let chunk = tree
-            .range(range.clone(), None, None)
+            .range(range.clone(), SeqNo::MAX, None)
+            .map(|x| x.into_inner())
             .take(10)
             .collect::<lsm_tree::Result<Vec<_>>>()?;
 

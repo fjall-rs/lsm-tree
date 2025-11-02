@@ -3,15 +3,17 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
-use crate::segment::block::ItemSize;
-use crate::value::{InternalValue, SeqNo, UserValue, ValueType};
+use crate::{
+    value::{InternalValue, SeqNo, UserValue},
+    ValueType,
+};
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
-use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::sync::atomic::AtomicU64;
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
-/// When the Memtable exceeds some size, it should be flushed to a disk segment.
+/// When the Memtable exceeds some size, it should be flushed to a table.
 #[derive(Default)]
 pub struct Memtable {
     /// The actual content, stored in a lock-free skiplist.
@@ -21,7 +23,7 @@ pub struct Memtable {
     /// Approximate active memtable size.
     ///
     /// If this grows too large, a flush is triggered.
-    pub(crate) approximate_size: AtomicU32,
+    pub(crate) approximate_size: AtomicU64,
 
     /// Highest encountered sequence number.
     ///
@@ -61,8 +63,8 @@ impl Memtable {
     ///
     /// The item with the highest seqno will be returned, if `seqno` is None.
     #[doc(hidden)]
-    pub fn get(&self, key: &[u8], seqno: Option<SeqNo>) -> Option<InternalValue> {
-        if seqno == Some(0) {
+    pub fn get(&self, key: &[u8], seqno: SeqNo) -> Option<InternalValue> {
+        if seqno == 0 {
             return None;
         }
 
@@ -82,14 +84,7 @@ impl Memtable {
         // abcdef -> 6
         // abcdef -> 5
         //
-        let lower_bound = InternalKey::new(
-            key,
-            match seqno {
-                Some(seqno) => seqno - 1,
-                None => SeqNo::MAX,
-            },
-            ValueType::Value,
-        );
+        let lower_bound = InternalKey::new(key, seqno - 1, ValueType::Value);
 
         let mut iter = self
             .items
@@ -103,12 +98,12 @@ impl Memtable {
     }
 
     /// Gets approximate size of memtable in bytes.
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> u64 {
         self.approximate_size
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// Counts the amount of items in the memtable.
+    /// Counts the number of items in the memtable.
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -121,10 +116,15 @@ impl Memtable {
 
     /// Inserts an item into the memtable
     #[doc(hidden)]
-    pub fn insert(&self, item: InternalValue) -> (u32, u32) {
-        // NOTE: We know values are limited to 32-bit length
-        #[allow(clippy::cast_possible_truncation)]
-        let item_size = item.size() as u32;
+    pub fn insert(&self, item: InternalValue) -> (u64, u64) {
+        #[expect(
+            clippy::expect_used,
+            reason = "keys are limited to 16-bit length + values are limited to 32-bit length"
+        )]
+        let item_size =
+            (item.key.user_key.len() + item.value.len() + std::mem::size_of::<InternalValue>())
+                .try_into()
+                .expect("should fit into u64");
 
         let size_before = self
             .approximate_size
@@ -155,11 +155,11 @@ impl Memtable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::ValueType;
+    use crate::ValueType;
     use test_log::test;
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
         let memtable = Memtable::default();
 
@@ -170,10 +170,10 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get(b"hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", SeqNo::MAX);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", SeqNo::MAX);
         assert_eq!(*b"hello-value-999991", &*item.unwrap().value);
 
         memtable.insert(InternalValue::from_components(
@@ -183,22 +183,22 @@ mod tests {
             ValueType::Value,
         ));
 
-        let item = memtable.get(b"hello-key-99999", None);
+        let item = memtable.get(b"hello-key-99999", SeqNo::MAX);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", None);
+        let item = memtable.get(b"hello-key-999991", SeqNo::MAX);
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
 
-        let item = memtable.get(b"hello-key-99999", Some(1));
+        let item = memtable.get(b"hello-key-99999", 1);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", Some(1));
+        let item = memtable.get(b"hello-key-999991", 1);
         assert_eq!((*b"hello-value-999991"), &*item.unwrap().value);
 
-        let item = memtable.get(b"hello-key-99999", Some(2));
+        let item = memtable.get(b"hello-key-99999", 2);
         assert_eq!(None, item);
 
-        let item = memtable.get(b"hello-key-999991", Some(2));
+        let item = memtable.get(b"hello-key-999991", 2);
         assert_eq!((*b"hello-value-999991-2"), &*item.unwrap().value);
     }
 
@@ -211,7 +211,7 @@ mod tests {
 
         memtable.insert(value.clone());
 
-        assert_eq!(Some(value), memtable.get(b"abc", None));
+        assert_eq!(Some(value), memtable.get(b"abc", SeqNo::MAX));
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
                 4,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
     }
 
@@ -284,7 +284,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
 
         assert_eq!(
@@ -294,7 +294,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get(b"abc0", None)
+            memtable.get(b"abc0", SeqNo::MAX)
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
                 255,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", None)
+            memtable.get(b"abc", SeqNo::MAX)
         );
 
         assert_eq!(
@@ -338,7 +338,7 @@ mod tests {
                 99,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", Some(100))
+            memtable.get(b"abc", 100)
         );
 
         assert_eq!(
@@ -348,7 +348,7 @@ mod tests {
                 0,
                 ValueType::Value,
             )),
-            memtable.get(b"abc", Some(50))
+            memtable.get(b"abc", 50)
         );
     }
 }

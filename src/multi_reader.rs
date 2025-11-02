@@ -5,6 +5,8 @@
 use crate::InternalValue;
 use std::collections::VecDeque;
 
+// TODO: remove?
+
 /// Reads through a disjoint, sorted set of readers
 pub struct MultiReader<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> {
     readers: VecDeque<I>,
@@ -48,18 +50,17 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::{AbstractTree, Slice};
+    use crate::{AbstractTree, SequenceNumberCounter, Slice};
     use test_log::test;
 
     // TODO: same test for prefix & ranges
 
     #[test]
-    fn segment_multi_reader_basic() -> crate::Result<()> {
+    fn table_multi_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(&tempdir).open()?;
+        let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
 
         let ids = [
             ["a", "b", "c"],
@@ -75,20 +76,18 @@ mod tests {
             tree.flush_active_memtable(0)?;
         }
 
-        let segments = tree
-            .levels
-            .read()
-            .expect("lock is poisoned")
-            .iter()
+        let tables = tree
+            .current_version()
+            .iter_tables()
             .cloned()
             .collect::<Vec<_>>();
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -109,12 +108,12 @@ mod tests {
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);
@@ -135,12 +134,12 @@ mod tests {
             assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key.user_key);
         }
 
-        #[allow(clippy::unwrap_used)]
+        #[expect(clippy::unwrap_used)]
         {
             let mut readers: VecDeque<_> = VecDeque::new();
 
-            for segment in &segments {
-                readers.push_back(segment.iter());
+            for table in &tables {
+                readers.push_back(table.iter());
             }
 
             let multi_reader = MultiReader::new(readers);

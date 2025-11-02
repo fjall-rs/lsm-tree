@@ -2,21 +2,18 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::segment::block::offset::BlockOffset;
-use crate::segment::id::GlobalSegmentId;
-use crate::segment::{block_index::IndexBlock, value_block::ValueBlock};
-use crate::UserValue;
+use crate::table::block::Header;
+use crate::table::{Block, BlockOffset};
+use crate::{GlobalTableId, UserValue};
 use quick_cache::Weighter;
 use quick_cache::{sync::Cache as QuickCache, Equivalent};
-use std::sync::Arc;
 
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
 
 #[derive(Clone)]
 enum Item {
-    DataBlock(Arc<ValueBlock>),
-    IndexBlock(Arc<IndexBlock>),
+    Block(Block),
     Blob(UserValue),
 }
 
@@ -30,8 +27,8 @@ impl Equivalent<CacheKey> for (u8, u64, u64, u64) {
 }
 
 impl From<(u8, u64, u64, u64)> for CacheKey {
-    fn from((tag, root_id, segment_id, offset): (u8, u64, u64, u64)) -> Self {
-        Self(tag, root_id, segment_id, offset)
+    fn from((tag, root_id, table_id, offset): (u8, u64, u64, u64)) -> Self {
+        Self(tag, root_id, table_id, offset)
     }
 }
 
@@ -39,12 +36,12 @@ impl From<(u8, u64, u64, u64)> for CacheKey {
 struct BlockWeighter;
 
 impl Weighter<CacheKey, Item> for BlockWeighter {
-    fn weight(&self, _: &CacheKey, block: &Item) -> u64 {
-        #[allow(clippy::cast_possible_truncation)]
-        match block {
-            Item::DataBlock(block) => block.header.uncompressed_length.into(),
-            Item::IndexBlock(block) => block.header.uncompressed_length.into(),
-            Item::Blob(blob) => blob.len() as u64,
+    fn weight(&self, _: &CacheKey, item: &Item) -> u64 {
+        use Item::{Blob, Block};
+
+        match item {
+            Block(b) => (Header::serialized_len() as u64) + u64::from(b.header.uncompressed_length),
+            Blob(b) => b.len() as u64,
         }
     }
 }
@@ -63,13 +60,13 @@ impl Weighter<CacheKey, Item> for BlockWeighter {
 /// # use lsm_tree::{Tree, Config, Cache};
 /// # use std::sync::Arc;
 /// #
-/// // Provide 40 MB of cache capacity
-/// let cache = Arc::new(Cache::with_capacity_bytes(40 * 1_000 * 1_000));
+/// // Provide 64 MB of cache capacity
+/// let cache = Arc::new(Cache::with_capacity_bytes(64 * 1_000 * 1_000));
 ///
 /// # let folder = tempfile::tempdir()?;
-/// let tree1 = Config::new(folder).use_cache(cache.clone()).open()?;
+/// let tree1 = Config::new(folder, Default::default()).use_cache(cache.clone()).open()?;
 /// # let folder = tempfile::tempdir()?;
-/// let tree2 = Config::new(folder).use_cache(cache.clone()).open()?;
+/// let tree2 = Config::new(folder, Default::default()).use_cache(cache.clone()).open()?;
 /// #
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
@@ -88,12 +85,18 @@ impl Cache {
     pub fn with_capacity_bytes(bytes: u64) -> Self {
         use quick_cache::sync::DefaultLifecycle;
 
-        #[allow(clippy::default_trait_access)]
-        let quick_cache = QuickCache::with(
-            1_000_000,
-            bytes,
+        #[expect(clippy::expect_used, reason = "nothing we can do if it fails")]
+        let opts = quick_cache::OptionsBuilder::new()
+            .weight_capacity(bytes)
+            .hot_allocation(0.9)
+            .estimated_items_capacity(1_000)
+            .build()
+            .expect("cache options should be valid");
+
+        let quick_cache = QuickCache::with_options(
+            opts,
             BlockWeighter,
-            Default::default(),
+            rustc_hash::FxBuildHasher,
             DefaultLifecycle::default(),
         );
 
@@ -128,98 +131,49 @@ impl Cache {
     }
 
     #[doc(hidden)]
-    pub fn insert_data_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-        value: Arc<ValueBlock>,
-    ) {
-        if self.capacity > 0 {
-            self.data.insert(
-                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
-                Item::DataBlock(value),
-            );
-        }
-    }
-
-    #[doc(hidden)]
-    pub fn insert_index_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-        value: Arc<IndexBlock>,
-    ) {
-        if self.capacity > 0 {
-            self.data.insert(
-                (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into(),
-                Item::IndexBlock(value),
-            );
-        }
-    }
-
-    #[doc(hidden)]
     #[must_use]
-    pub fn get_data_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-    ) -> Option<Arc<ValueBlock>> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
+    pub fn get_block(&self, id: GlobalTableId, offset: BlockOffset) -> Option<Block> {
+        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into();
 
-        if let Item::DataBlock(block) = self.data.get(&key)? {
-            Some(block)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
+        Some(match self.data.get(&key)? {
+            Item::Block(block) => block,
+            Item::Blob(_) => unreachable!("invalid cache item"),
+        })
     }
 
     #[doc(hidden)]
-    #[must_use]
-    pub fn get_index_block(
-        &self,
-        id: GlobalSegmentId,
-        offset: BlockOffset,
-    ) -> Option<Arc<IndexBlock>> {
-        let key: CacheKey = (TAG_BLOCK, id.tree_id(), id.segment_id(), *offset).into();
-
-        if let Item::IndexBlock(block) = self.data.get(&key)? {
-            Some(block)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
+    pub fn insert_block(&self, id: GlobalTableId, offset: BlockOffset, block: Block) {
+        self.data.insert(
+            (TAG_BLOCK, id.tree_id(), id.table_id(), *offset).into(),
+            Item::Block(block),
+        );
     }
 
     #[doc(hidden)]
     pub fn insert_blob(
         &self,
-        vlog_id: value_log::ValueLogId,
-        vhandle: &value_log::ValueHandle,
+        vlog_id: crate::TreeId,
+        vhandle: &crate::vlog::ValueHandle,
         value: UserValue,
     ) {
-        if self.capacity > 0 {
-            self.data.insert(
-                (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into(),
-                Item::Blob(value),
-            );
-        }
+        self.data.insert(
+            (TAG_BLOB, vlog_id, vhandle.blob_file_id, vhandle.offset).into(),
+            Item::Blob(value),
+        );
     }
 
     #[doc(hidden)]
     #[must_use]
     pub fn get_blob(
         &self,
-        vlog_id: value_log::ValueLogId,
-        vhandle: &value_log::ValueHandle,
+        vlog_id: crate::TreeId,
+        vhandle: &crate::vlog::ValueHandle,
     ) -> Option<UserValue> {
-        let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.segment_id, vhandle.offset).into();
+        let key: CacheKey = (TAG_BLOB, vlog_id, vhandle.blob_file_id, vhandle.offset).into();
 
-        if let Item::Blob(blob) = self.data.get(&key)? {
-            Some(blob)
-        } else {
-            log::warn!("cache item type was unexpected - this is a bug");
-            None
-        }
+        Some(match self.data.get(&key)? {
+            Item::Blob(blob) => blob,
+            Item::Block(_) => unreachable!("invalid cache item"),
+        })
     }
 }

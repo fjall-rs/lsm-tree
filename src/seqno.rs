@@ -6,7 +6,7 @@ use crate::SeqNo;
 use std::sync::{
     atomic::{
         AtomicU64,
-        Ordering::{Acquire, Release},
+        Ordering::{AcqRel, Acquire, Release},
     },
     Arc,
 };
@@ -19,17 +19,15 @@ use std::sync::{
 /// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
-/// let tree = Config::new(path).open()?;
 ///
 /// let seqno = SequenceNumberCounter::default();
+///
+/// let tree = Config::new(path, seqno.clone()).open()?;
 ///
 /// // Do some inserts...
 /// tree.insert("a".as_bytes(), "abc", seqno.next());
 /// tree.insert("b".as_bytes(), "abc", seqno.next());
 /// tree.insert("c".as_bytes(), "abc", seqno.next());
-///
-/// // Maybe create a snapshot
-/// let snapshot = tree.snapshot(seqno.get());
 ///
 /// // Create a batch
 /// let batch_seqno = seqno.next();
@@ -37,19 +35,11 @@ use std::sync::{
 /// tree.remove("b".as_bytes(), batch_seqno);
 /// tree.remove("c".as_bytes(), batch_seqno);
 /// #
-/// # assert!(tree.is_empty(None, None)?);
+/// # assert!(tree.is_empty(batch_seqno + 1, None)?);
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 #[derive(Clone, Default, Debug)]
 pub struct SequenceNumberCounter(Arc<AtomicU64>);
-
-impl std::ops::Deref for SequenceNumberCounter {
-    type Target = Arc<AtomicU64>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 impl SequenceNumberCounter {
     /// Creates a new counter, setting it to some previous value
@@ -63,12 +53,49 @@ impl SequenceNumberCounter {
     /// This should only be used when creating a snapshot.
     #[must_use]
     pub fn get(&self) -> SeqNo {
-        self.load(Acquire)
+        self.0.load(Acquire)
     }
 
     /// Gets the next sequence number.
     #[must_use]
     pub fn next(&self) -> SeqNo {
-        self.fetch_add(1, Release)
+        let seqno = self.0.fetch_add(1, Release);
+
+        // The MSB is reserved for transactions.
+        //
+        // This gives us 63-bit sequence numbers technically.
+        assert!(seqno < 0x8000_0000_0000_0000, "Ran out of sequence numbers");
+
+        seqno
+    }
+
+    /// Sets the sequence number.
+    pub fn set(&self, seqno: SeqNo) {
+        self.0.store(seqno, Release);
+    }
+
+    /// Maximizes the sequence number.
+    pub fn fetch_max(&self, seqno: SeqNo) {
+        self.0.fetch_max(seqno, AcqRel);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_log::test;
+
+    #[test]
+    fn not_max_seqno() {
+        let counter = super::SequenceNumberCounter::default();
+        counter.set(0x7FFF_FFFF_FFFF_FFFF);
+        let _ = counter.next();
+    }
+
+    #[test]
+    #[should_panic = "Ran out of sequence numbers"]
+    fn max_seqno() {
+        let counter = super::SequenceNumberCounter::default();
+        counter.set(0x8000_0000_0000_0000);
+        let _ = counter.next();
     }
 }

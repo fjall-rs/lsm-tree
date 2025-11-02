@@ -19,15 +19,15 @@
 //! on disk and perform fast lookup queries.
 //! Instead of updating a disk-based data structure in-place,
 //! deltas (inserts and deletes) are added into an in-memory write buffer (`Memtable`).
-//! Data is then flushed to disk segments, as the write buffer reaches some threshold.
+//! Data is then flushed to disk-resident table files when the write buffer reaches some threshold.
 //!
-//! Amassing many segments on disk will degrade read performance and waste disk space usage, so segments
-//! can be periodically merged into larger segments in a process called `Compaction`.
+//! Amassing many tables on disk will degrade read performance and waste disk space, so tables
+//! can be periodically merged into larger tables in a process called `Compaction`.
 //! Different compaction strategies have different advantages and drawbacks, and should be chosen based
 //! on the workload characteristics.
 //!
 //! Because maintaining an efficient structure is deferred to the compaction process, writing to an LSMT
-//! is very fast (O(1) complexity).
+//! is very fast (_O(1)_ complexity).
 //!
 //! Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 //! engine, larger keys and values have a bigger performance impact.
@@ -41,27 +41,27 @@
 //!
 //! // A tree is a single physical keyspace/index/...
 //! // and supports a BTreeMap-like API
-//! let tree = Config::new(folder).open()?;
+//! let tree = Config::new(folder, Default::default()).open()?;
 //!
 //! // Note compared to the BTreeMap API, operations return a Result<T>
 //! // So you can handle I/O errors if they occur
 //! tree.insert("my_key", "my_value", /* sequence number */ 0);
 //!
-//! let item = tree.get("my_key", None)?;
+//! let item = tree.get("my_key", 1)?;
 //! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
 //! // Search by prefix
-//! for item in tree.prefix("prefix", None, None) {
+//! for item in tree.prefix("prefix", 1, None) {
 //!   // ...
 //! }
 //!
 //! // Search by range
-//! for item in tree.range("a"..="z", None, None) {
+//! for item in tree.range("a"..="z", 1, None) {
 //!   // ...
 //! }
 //!
 //! // Iterators implement DoubleEndedIterator, so you can search backwards, too!
-//! for item in tree.prefix("prefix", None, None).rev() {
+//! for item in tree.prefix("user1", 1, None).rev() {
 //!   // ...
 //! }
 //!
@@ -69,10 +69,9 @@
 //! // and persisting all in-memory data.
 //! // Note, this flushes synchronously, which may not be desired
 //! tree.flush_active_memtable(0)?;
-//! assert_eq!(Some("my_value".as_bytes().into()), item);
 //!
-//! // When some disk segments have amassed, use compaction
-//! // to reduce the amount of disk segments
+//! // When some tables have amassed, use compaction
+//! // to reduce the number of tables
 //!
 //! // Choose compaction strategy based on workload
 //! use lsm_tree::compaction::Leveled;
@@ -82,15 +81,12 @@
 //!
 //! let version_gc_threshold = 0;
 //! tree.compact(Arc::new(strategy), version_gc_threshold)?;
-//!
-//! assert_eq!(Some("my_value".as_bytes().into()), item);
 //! #
 //! # Ok::<(), lsm_tree::Error>(())
 //! ```
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
-#![deny(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::indexing_slicing)]
@@ -99,71 +95,84 @@
 #![allow(clippy::missing_const_for_fn)]
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
-#![warn(clippy::needless_lifetimes)]
-#![warn(clippy::cloned_ref_to_slice_refs)]
-#![warn(clippy::non_canonical_partial_ord_impl)]
+#![warn(clippy::redundant_feature_names)]
+// the bytes feature uses unsafe to improve from_reader performance; so we need to relax this lint
+// #![cfg_attr(feature = "bytes", deny(unsafe_code))]
+// #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
 
-pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, xxhash_rust::xxh3::Xxh3Builder>;
-pub(crate) type HashSet<K> = std::collections::HashSet<K, xxhash_rust::xxh3::Xxh3Builder>;
+#[doc(hidden)]
+pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
-#[allow(unused)]
-macro_rules! set {
-    ($($x:expr),+ $(,)?) => {
-        [$($x),+].into_iter().collect::<HashSet<_>>()
-    }
-}
+pub(crate) type HashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 
 macro_rules! fail_iter {
     ($e:expr) => {
         match $e {
             Ok(v) => v,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Some(Err(e.into())),
         }
     };
 }
+
+macro_rules! unwrap {
+    ($x:expr) => {{
+        $x.expect("should read")
+    }};
+}
+
+pub(crate) use unwrap;
 
 mod any_tree;
 
 mod r#abstract;
 
 #[doc(hidden)]
-pub mod binary_search;
-
-#[doc(hidden)]
 pub mod blob_tree;
 
+#[doc(hidden)]
 mod cache;
 
+mod checksum;
+
 #[doc(hidden)]
-pub mod bloom;
+pub mod coding;
 
 pub mod compaction;
-mod config;
+mod compression;
 
-#[doc(hidden)]
-pub mod descriptor_table;
+/// Configuration
+pub mod config;
+
+mod double_ended_peekable;
 
 mod error;
-// mod export;
 
 #[doc(hidden)]
 pub mod file;
 
+mod hash;
+
+mod iter_guard;
+
 mod key;
+mod key_range;
 
-#[doc(hidden)]
-pub mod level_manifest;
-
-mod level_reader;
-mod level_scanner;
+mod run_reader;
+mod run_scanner;
 
 mod manifest;
 mod memtable;
 
 #[doc(hidden)]
+pub mod descriptor_table;
+
+#[doc(hidden)]
 pub mod merge;
 
-mod multi_reader;
+#[cfg(feature = "metrics")]
+pub(crate) mod metrics;
+
+// mod multi_reader;
 
 #[doc(hidden)]
 pub mod mvcc_stream;
@@ -174,63 +183,68 @@ mod path;
 pub mod range;
 
 #[doc(hidden)]
-pub mod segment;
+pub mod table;
 
 mod seqno;
-mod snapshot;
-mod windows;
+mod slice;
+mod slice_windows;
 
 #[doc(hidden)]
 pub mod stop_signal;
 
+mod format_version;
 mod time;
 mod tree;
-mod value;
-mod version;
 
-/// KV-tuple, typically returned by an iterator
+/// Utility functions
+pub mod util;
+
+mod value;
+mod value_type;
+mod version;
+mod vlog;
+
+/// User defined key (byte array)
+pub type UserKey = Slice;
+
+/// User defined data (byte array)
+pub type UserValue = Slice;
+
+/// KV-tuple (key + value)
 pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
-pub use value_log::KeyRange;
-
-#[doc(hidden)]
-pub mod coding {
-    pub use value_log::coding::{Decode, DecodeError, Encode, EncodeError};
-}
-
-#[doc(hidden)]
 pub use {
+    blob_tree::handle::BlobIndirection,
+    checksum::Checksum,
+    key_range::KeyRange,
     merge::BoxedIterator,
-    segment::{block::checksum::Checksum, id::GlobalSegmentId, meta::SegmentId},
+    slice::Builder,
+    table::{GlobalTableId, Table, TableId},
+    tree::ingest::Ingestion,
     tree::inner::TreeId,
     value::InternalValue,
 };
 
 pub use {
+    any_tree::AnyTree,
+    blob_tree::BlobTree,
     cache::Cache,
-    coding::{DecodeError, EncodeError},
-    config::{Config, TreeType},
+    compression::CompressionType,
+    config::{Config, KvSeparationOptions, TreeType},
+    descriptor_table::DescriptorTable,
     error::{Error, Result},
+    format_version::FormatVersion,
+    iter_guard::IterGuard as Guard,
     memtable::Memtable,
     r#abstract::AbstractTree,
-    segment::{meta::CompressionType, Segment},
     seqno::SequenceNumberCounter,
-    snapshot::Snapshot,
+    slice::Slice,
     tree::Tree,
-    value::{SeqNo, UserKey, UserValue, ValueType},
-    version::Version,
+    value::SeqNo,
+    value_type::ValueType,
+    vlog::BlobFile,
 };
 
-pub use any_tree::AnyTree;
-
-pub use blob_tree::BlobTree;
-
-pub use value_log::{BlobCache, Slice};
-
-/// Blob garbage collection utilities
-pub mod gc {
-    pub use value_log::{
-        GcReport as Report, GcStrategy as Strategy, SpaceAmpStrategy, StaleThresholdStrategy,
-    };
-}
+#[cfg(feature = "metrics")]
+pub use metrics::Metrics;

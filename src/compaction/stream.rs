@@ -5,16 +5,33 @@
 use crate::{InternalValue, SeqNo, UserKey, ValueType};
 use std::iter::Peekable;
 
+type Item = crate::Result<InternalValue>;
+
+/// A callback that receives all expired KVs
+///
+/// Used for counting blobs that are not referenced anymore because of
+/// vHandles that are being dropped through compaction.
+pub trait ExpiredKvCallback {
+    fn on_expired(&mut self, kv: &InternalValue);
+}
+
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
-#[allow(clippy::module_name_repetitions)]
-pub struct CompactionStream<I: Iterator<Item = crate::Result<InternalValue>>> {
+pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
+    /// KV stream
     inner: Peekable<I>,
+
+    /// MVCC watermark to get rid of old versions
     gc_seqno_threshold: SeqNo,
+
+    /// Event emitter that receives all expired KVs
+    expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
+
+    evict_tombstones: bool,
 }
 
-impl<I: Iterator<Item = crate::Result<InternalValue>>> CompactionStream<I> {
+impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I, gc_seqno_threshold: SeqNo) -> Self {
@@ -23,39 +40,50 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> CompactionStream<I> {
         Self {
             inner: iter,
             gc_seqno_threshold,
+            expiration_callback: None,
+            evict_tombstones: false,
         }
     }
 
-    fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
+    pub fn evict_tombstones(mut self, b: bool) -> Self {
+        self.evict_tombstones = b;
+        self
+    }
+
+    /// Installs a callback that receives all expired KVs.
+    pub fn with_expiration_callback(mut self, cb: &'a mut dyn ExpiredKvCallback) -> Self {
+        self.expiration_callback = Some(cb);
+        self
+    }
+
+    /// Drains the remaining versions of the given key.
+    fn drain_key(&mut self, key: &UserKey) -> crate::Result<()> {
         loop {
-            let Some(next) = self.inner.peek() else {
+            let Some(next) = self.inner.next_if(|kv| {
+                if let Ok(kv) = kv {
+                    let expired = kv.key.user_key == key;
+
+                    if expired {
+                        if let Some(watcher) = &mut self.expiration_callback {
+                            watcher.on_expired(kv);
+                        }
+                    }
+
+                    expired
+                } else {
+                    true
+                }
+            }) else {
                 return Ok(());
             };
 
-            let Ok(next) = next else {
-                // NOTE: We just asserted, the peeked value is an error
-                #[allow(clippy::expect_used)]
-                return Err(self
-                    .inner
-                    .next()
-                    .expect("should exist")
-                    .expect_err("should be error"));
-            };
-
-            // Consume version
-            if next.key.user_key == key {
-                // NOTE: We know the next value is not empty, because we just peeked it
-                #[allow(clippy::expect_used)]
-                self.inner.next().expect("should not be empty")?;
-            } else {
-                return Ok(());
-            }
+            next?;
         }
     }
 }
 
-impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionStream<I> {
-    type Item = crate::Result<InternalValue>;
+impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
+    type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -63,8 +91,10 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
-                    // NOTE: We just asserted, the peeked value is an error
-                    #[allow(clippy::expect_used)]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we just asserted, the peeked value is an error"
+                    )]
                     return Some(Err(self
                         .inner
                         .next()
@@ -72,12 +102,19 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
                         .expect_err("should be error")));
                 };
 
-                // NOTE: Only item of this key and thus latest version, so return it no matter what
                 if peeked.key.user_key > head.key.user_key {
-                    return Some(Ok(head));
-                }
+                    if head.is_tombstone() && self.evict_tombstones {
+                        continue;
+                    }
 
-                if peeked.key.seqno < self.gc_seqno_threshold {
+                    // NOTE: Only item of this key and thus latest version, so return it no matter what
+                    // ...
+                } else if peeked.key.seqno < self.gc_seqno_threshold {
+                    if head.key.value_type == ValueType::Tombstone && self.evict_tombstones {
+                        fail_iter!(self.drain_key(&head.key.user_key));
+                        continue;
+                    }
+
                     // NOTE: If next item is an actual value, and current value is weak tombstone,
                     // drop the tombstone
                     let drop_weak_tombstone = peeked.key.value_type == ValueType::Value
@@ -85,13 +122,23 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 
                     // NOTE: Next item is expired,
                     // so the tail of this user key is entirely expired, so drain it all
-                    fail_iter!(self.drain_key_min(&head.key.user_key));
+                    fail_iter!(self.drain_key(&head.key.user_key));
 
                     if drop_weak_tombstone {
                         continue;
                     }
                 }
+            } else if head.is_tombstone() && self.evict_tombstones {
+                continue;
             }
+
+            // TODO: look at how this plays with blob GC
+            // // NOTE: Convert sequence number to zero if it is below the snapshot watermark.
+            // //
+            // // This can save a lot of space, because "0" only takes 1 byte.
+            // if head.key.seqno < self.gc_seqno_threshold {
+            //     head.key.seqno = 0;
+            // }
 
             return Some(Ok(head));
         }
@@ -101,7 +148,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for CompactionSt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::{InternalValue, ValueType};
+    use crate::{value::InternalValue, ValueType};
     use test_log::test;
 
     macro_rules! stream {
@@ -110,10 +157,10 @@ mod tests {
             let mut counters = std::collections::HashMap::new();
 
             $(
-                #[allow(clippy::string_lit_as_bytes)]
+                #[expect(clippy::string_lit_as_bytes)]
                 let key = $key.as_bytes();
 
-                #[allow(clippy::string_lit_as_bytes)]
+                #[expect(clippy::string_lit_as_bytes)]
                 let sub_key = $sub_key.as_bytes();
 
                 let value_type = match $value_type {
@@ -138,7 +185,73 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_expired_callback_1() -> crate::Result<()> {
+        #[derive(Default)]
+        struct MyCallback {
+            items: Vec<InternalValue>,
+        }
+
+        impl ExpiredKvCallback for MyCallback {
+            fn on_expired(&mut self, kv: &InternalValue) {
+                self.items.push(kv.clone());
+            }
+        }
+
+        #[rustfmt::skip]
+        let vec = stream![
+          "a", "", "T",
+          "a", "", "T",
+          "a", "", "T",
+        ];
+
+        let mut my_watcher = MyCallback::default();
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
+
+        assert_eq!(
+            // TODO: Seqno is normally reset to 0
+            InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
+            iter.next().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        assert_eq!(
+            [
+                InternalValue::from_components("a", "", 998, ValueType::Value),
+                InternalValue::from_components("a", "", 997, ValueType::Value),
+            ],
+            &*my_watcher.items,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    #[ignore = "wip"]
+    fn compaction_stream_seqno_zeroing_1() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let vec = stream![
+          "a", "", "T",
+          "a", "", "T",
+          "a", "", "T",
+        ];
+
+        let iter = vec.iter().cloned().map(Ok);
+        let mut iter = CompactionStream::new(iter, 1_000);
+
+        assert_eq!(
+            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            iter.next().unwrap()?,
+        );
+        iter_closed!(iter);
+
+        Ok(())
+    }
+
+    #[test]
     fn compaction_stream_queue_weak_tombstones() {
         #[rustfmt::skip]
         let vec = stream![
@@ -158,7 +271,7 @@ mod tests {
 
     /// GC should not evict tombstones, unless they are covered up
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -168,8 +281,9 @@ mod tests {
         ];
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, SeqNo::MAX);
+        let mut iter = CompactionStream::new(iter, 1_000_000);
 
+        // TODO: Seqno is normally reset to 0
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
@@ -188,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_old_tombstone() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -233,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_tombstone_overwrite_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -254,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -279,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_no_gc() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -304,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict() {
         #[rustfmt::skip]
         let vec = stream![
@@ -321,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict_next_value() -> crate::Result<()> {
         #[rustfmt::skip]
         let mut vec = stream![
@@ -351,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
@@ -381,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used)]
     fn compaction_stream_no_evict_simple_multi_keys() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![

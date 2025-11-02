@@ -2,11 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{DecodeError, EncodeError},
-    version::Version,
-    Checksum, CompressionType,
-};
+use crate::{Checksum, CompressionType};
 
 /// Represents errors that can occur in the LSM-tree
 #[derive(Debug)]
@@ -15,26 +11,35 @@ pub enum Error {
     /// I/O error
     Io(std::io::Error),
 
-    /// Serialization failed
-    Encode(EncodeError),
-
-    /// Deserialization failed
-    Decode(DecodeError),
-
     /// Decompression failed
     Decompress(CompressionType),
 
     /// Invalid or unparsable data format version
-    InvalidVersion(Version),
+    InvalidVersion(u8),
 
-    /// Some required segments could not be recovered from disk
+    /// Some required files could not be recovered from disk
     Unrecoverable,
 
-    /// Invalid checksum value (got, expected)
-    InvalidChecksum((Checksum, Checksum)),
+    /// Checksum mismatch
+    ChecksumMismatch {
+        /// Checksum of loaded block
+        got: Checksum,
 
-    /// Value log errors
-    ValueLog(value_log::Error),
+        /// Checksum that was saved in block header
+        expected: Checksum,
+    },
+
+    /// Invalid enum tag
+    InvalidTag((&'static str, u8)),
+
+    /// Invalid block trailer
+    InvalidTrailer,
+
+    /// Invalid block header
+    InvalidHeader(&'static str),
+
+    /// UTF-8 error
+    Utf8(std::str::Utf8Error),
 }
 
 impl std::fmt::Display for Error {
@@ -47,13 +52,34 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
-            Self::Encode(e) => Some(e),
-            Self::Decode(e) => Some(e),
-            Self::ValueLog(e) => Some(e),
-            Self::Decompress(_)
-            | Self::InvalidVersion(_)
-            | Self::Unrecoverable
-            | Self::InvalidChecksum(_) => None,
+            _ => None,
+        }
+    }
+}
+
+impl From<sfa::Error> for Error {
+    fn from(value: sfa::Error) -> Self {
+        match value {
+            sfa::Error::Io(e) => Self::from(e),
+            sfa::Error::ChecksumMismatch { got, expected } => {
+                log::error!("Archive ToC checksum mismatch");
+                Self::ChecksumMismatch {
+                    got: got.into(),
+                    expected: expected.into(),
+                }
+            }
+            sfa::Error::InvalidHeader => {
+                log::error!("Invalid archive header");
+                Self::Unrecoverable
+            }
+            sfa::Error::InvalidVersion => {
+                log::error!("Invalid archive version");
+                Self::Unrecoverable
+            }
+            sfa::Error::UnsupportedChecksumType => {
+                log::error!("Invalid archive checksum type");
+                Self::Unrecoverable
+            }
         }
     }
 }
@@ -61,24 +87,6 @@ impl std::error::Error for Error {
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::Io(value)
-    }
-}
-
-impl From<EncodeError> for Error {
-    fn from(value: EncodeError) -> Self {
-        Self::Encode(value)
-    }
-}
-
-impl From<DecodeError> for Error {
-    fn from(value: DecodeError) -> Self {
-        Self::Decode(value)
-    }
-}
-
-impl From<value_log::Error> for Error {
-    fn from(value: value_log::Error) -> Self {
-        Self::ValueLog(value)
     }
 }
 

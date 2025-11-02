@@ -3,10 +3,16 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    config::Config, file::LEVELS_MANIFEST_FILE, level_manifest::LevelManifest, memtable::Memtable,
-    segment::meta::SegmentId, stop_signal::StopSignal,
+    compaction::state::CompactionState,
+    config::Config,
+    stop_signal::StopSignal,
+    version::{persist_version, SuperVersions, Version},
+    SequenceNumberCounter, TableId,
 };
-use std::sync::{atomic::AtomicU64, Arc, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 
 /// Unique tree ID
 ///
@@ -15,58 +21,30 @@ pub type TreeId = u64;
 
 /// Unique memtable ID
 ///
-/// Memtable IDs map one-to-one to some segment.
+/// Memtable IDs map one-to-one to some table.
 pub type MemtableId = u64;
 
-/// Stores references to all sealed memtables
-///
-/// Memtable IDs are monotonically increasing, so we don't really
-/// need a search tree; also there are only a handful of them at most.
-#[derive(Default)]
-pub struct SealedMemtables(Vec<(MemtableId, Arc<Memtable>)>);
-
-impl SealedMemtables {
-    pub fn add(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
-        self.0.push((id, memtable));
-    }
-
-    pub fn remove(&mut self, id_to_remove: MemtableId) {
-        self.0.retain(|(id, _)| *id != id_to_remove);
-    }
-
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<Memtable>)> {
-        self.0.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-/// Hands out a unique (monotonically increasing) tree ID
+/// Hands out a unique (monotonically increasing) tree ID.
 pub fn get_next_tree_id() -> TreeId {
     static TREE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
 
-    /// Hands out a unique (monotonically increasing) segment ID
+    /// Hands out a unique (monotonically increasing) table ID
     #[doc(hidden)]
-    pub segment_id_counter: Arc<AtomicU64>,
+    pub table_id_counter: SequenceNumberCounter,
 
-    /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<RwLock<Arc<Memtable>>>,
+    // This is not really used in the normal tree, but we need it in the blob tree
+    /// Hands out a unique (monotonically increasing) blob file ID
+    pub(crate) blob_file_id_generator: SequenceNumberCounter,
 
-    /// Frozen memtables that are being flushed
-    pub(crate) sealed_memtables: Arc<RwLock<SealedMemtables>>,
+    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
 
-    /// Level manifest
-    #[doc(hidden)]
-    pub levels: Arc<RwLock<LevelManifest>>,
+    pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
     /// Tree configuration
     pub config: Config,
@@ -75,29 +53,39 @@ pub struct TreeInner {
     /// will interrupt the compaction and kill the worker.
     pub(crate) stop_signal: StopSignal,
 
+    /// Used by major compaction to be the exclusive compaction going on.
+    ///
+    /// Minor compactions use `major_compaction_lock.read()` instead, so they
+    /// can be concurrent next to each other.
     pub(crate) major_compaction_lock: RwLock<()>,
+
+    #[doc(hidden)]
+    #[cfg(feature = "metrics")]
+    pub metrics: Arc<Metrics>,
 }
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let levels =
-            LevelManifest::create_new(config.level_count, config.path.join(LEVELS_MANIFEST_FILE))?;
+        let version = Version::new(0);
+        persist_version(&config.path, &version)?;
 
         Ok(Self {
             id: get_next_tree_id(),
-            segment_id_counter: Arc::new(AtomicU64::default()),
+            table_id_counter: SequenceNumberCounter::default(),
+            blob_file_id_generator: SequenceNumberCounter::default(),
             config,
-            active_memtable: Arc::default(),
-            sealed_memtables: Arc::default(),
-            levels: Arc::new(RwLock::new(levels)),
+            version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
+
+            #[cfg(feature = "metrics")]
+            metrics: Metrics::default().into(),
         })
     }
 
-    pub fn get_next_segment_id(&self) -> SegmentId {
-        self.segment_id_counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    pub fn get_next_table_id(&self) -> TableId {
+        self.table_id_counter.next()
     }
 }
 

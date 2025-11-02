@@ -1,24 +1,24 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     {
-        let tree = Config::new(&folder).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
-        assert_eq!(1, tree.segment_count());
+        assert_eq!(1, tree.table_count());
     }
 
-    let ds_store = folder.join("segments").join(".DS_Store");
+    let ds_store = folder.join("tables").join(".DS_Store");
     std::fs::File::create(&ds_store)?;
     assert!(ds_store.try_exists()?);
 
     {
-        let tree = Config::new(&folder).open()?;
-        assert_eq!(1, tree.segment_count());
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        assert_eq!(1, tree.table_count());
     }
     assert!(ds_store.try_exists()?);
 

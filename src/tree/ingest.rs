@@ -4,132 +4,218 @@
 
 use super::Tree;
 use crate::{
-    file::SEGMENTS_FOLDER,
-    segment::{block_index::BlockIndexImpl, multi_writer::MultiWriter, SegmentInner},
-    AbstractTree, Segment, UserKey, UserValue, ValueType,
+    compaction::MoveDown, config::FilterPolicyEntry, table::multi_writer::MultiWriter,
+    AbstractTree, BlobIndirection, SeqNo, UserKey, UserValue,
 };
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{path::PathBuf, sync::Arc};
 
+pub const INITIAL_CANONICAL_LEVEL: usize = 1;
+
+/// Bulk ingestion
+///
+/// Items NEED to be added in ascending key order.
 pub struct Ingestion<'a> {
     folder: PathBuf,
     tree: &'a Tree,
-    writer: MultiWriter,
+    pub(crate) writer: MultiWriter,
+    seqno: SeqNo,
 }
 
 impl<'a> Ingestion<'a> {
+    /// Creates a new ingestion.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a Tree) -> crate::Result<Self> {
-        assert_eq!(
-            0,
-            tree.segment_count(),
-            "can only perform bulk_ingest on empty trees",
+        let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
+        log::debug!("Ingesting into tables in {}", folder.display());
+
+        let index_partitioning = tree
+            .config
+            .index_block_partitioning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
+        let filter_partitioning = tree
+            .config
+            .filter_block_partitioning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
+        // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
+        let mut writer = MultiWriter::new(
+            folder.clone(),
+            tree.table_id_counter.clone(),
+            64 * 1_024 * 1_024,
+            6,
+        )?
+        .use_bloom_policy({
+            if let FilterPolicyEntry::Bloom(p) =
+                tree.config.filter_policy.get(INITIAL_CANONICAL_LEVEL)
+            {
+                p
+            } else {
+                crate::config::BloomConstructionPolicy::BitsPerKey(0.0)
+            }
+        })
+        .use_data_block_size(
+            tree.config
+                .data_block_size_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_data_block_hash_ratio(
+            tree.config
+                .data_block_hash_ratio_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_data_block_compression(
+            tree.config
+                .data_block_compression_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_index_block_compression(
+            tree.config
+                .index_block_compression_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_data_block_restart_interval(
+            tree.config
+                .data_block_restart_interval_policy
+                .get(INITIAL_CANONICAL_LEVEL),
+        )
+        .use_index_block_restart_interval(
+            tree.config
+                .index_block_restart_interval_policy
+                .get(INITIAL_CANONICAL_LEVEL),
         );
 
-        let folder = tree.config.path.join(SEGMENTS_FOLDER);
-        log::debug!("Ingesting into disk segments in {folder:?}");
-
-        let mut writer = MultiWriter::new(
-            tree.segment_id_counter.clone(),
-            128 * 1_024 * 1_024,
-            crate::segment::writer::Options {
-                folder: folder.clone(),
-                data_block_size: tree.config.data_block_size,
-                index_block_size: tree.config.index_block_size,
-                segment_id: 0, /* TODO: unused */
-            },
-        )?
-        .use_compression(tree.config.compression);
-
-        {
-            use crate::segment::writer::BloomConstructionPolicy;
-
-            if tree.config.bloom_bits_per_key >= 0 {
-                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(
-                    tree.config.bloom_bits_per_key.unsigned_abs(),
-                ));
-            } else {
-                writer = writer.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0));
-            }
+        if index_partitioning {
+            writer = writer.use_partitioned_index();
+        }
+        if filter_partitioning {
+            writer = writer.use_partitioned_filter();
         }
 
         Ok(Self {
             folder,
             tree,
             writer,
+            seqno: 0,
         })
     }
 
+    /// Sets the ingestion seqno.
+    #[must_use]
+    pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
+        self.seqno = seqno;
+        self
+    }
+
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub(crate) fn write_indirection(
+        &mut self,
+        key: UserKey,
+        indirection: BlobIndirection,
+    ) -> crate::Result<()> {
+        use crate::coding::Encode;
+
+        self.writer.write(crate::InternalValue::from_components(
+            key,
+            indirection.encode_into_vec(),
+            self.seqno,
+            crate::ValueType::Indirection,
+        ))?;
+
+        self.writer.register_blob(indirection);
+
+        Ok(())
+    }
+
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     pub fn write(&mut self, key: UserKey, value: UserValue) -> crate::Result<()> {
         self.writer.write(crate::InternalValue::from_components(
             key,
             value,
-            0,
-            ValueType::Value,
+            self.seqno,
+            crate::ValueType::Value,
         ))
     }
 
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    #[doc(hidden)]
+    pub fn write_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
+        self.writer.write(crate::InternalValue::from_components(
+            key,
+            crate::UserValue::empty(),
+            self.seqno,
+            crate::ValueType::Tombstone,
+        ))
+    }
+
+    /// Finishes the ingestion.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::{
-            compaction::MoveDown, segment::block_index::two_level_index::TwoLevelBlockIndex,
-        };
+        use crate::Table;
 
         let results = self.writer.finish()?;
 
-        let created_segments = results
+        log::info!("Finished ingestion writer");
+
+        let pin_filter = self
+            .tree
+            .config
+            .filter_block_pinning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
+        let pin_index = self
+            .tree
+            .config
+            .filter_block_pinning_policy
+            .get(INITIAL_CANONICAL_LEVEL);
+
+        let created_tables = results
             .into_iter()
-            .map(|trailer| -> crate::Result<Segment> {
-                let segment_id = trailer.metadata.id;
-                let segment_file_path = self.folder.join(segment_id.to_string());
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                // TODO: table recoverer struct w/ builder pattern
+                // Table::recover()
+                //  .pin_filters(true)
+                //  .with_metrics(metrics)
+                //  .run(path, tree_id, cache, descriptor_table);
 
-                let block_index = TwoLevelBlockIndex::from_file(
-                    &segment_file_path,
-                    &trailer.metadata,
-                    trailer.offsets.tli_ptr,
-                    (self.tree.id, segment_id).into(),
-                    self.tree.config.descriptor_table.clone(),
+                Table::recover(
+                    self.folder.join(table_id.to_string()),
+                    checksum,
+                    self.tree.id,
                     self.tree.config.cache.clone(),
-                )?;
-                let block_index = BlockIndexImpl::TwoLevel(block_index);
-                let block_index = Arc::new(block_index);
-
-                Ok(SegmentInner {
-                    tree_id: self.tree.id,
-
-                    descriptor_table: self.tree.config.descriptor_table.clone(),
-                    cache: self.tree.config.cache.clone(),
-
-                    metadata: trailer.metadata,
-                    offsets: trailer.offsets,
-
-                    #[allow(clippy::needless_borrows_for_generic_args)]
-                    block_index,
-
-                    bloom_filter: Segment::load_bloom(
-                        &segment_file_path,
-                        trailer.offsets.bloom_ptr,
-                    )?,
-
-                    path: segment_file_path,
-                    is_deleted: AtomicBool::default(),
-                }
-                .into())
+                    self.tree.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.tree.metrics.clone(),
+                )
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree.register_segments(&created_segments)?;
+        self.tree.register_tables(&created_tables, None, None)?;
 
-        self.tree.compact(Arc::new(MoveDown(0, 6)), 0)?;
+        let last_level_idx = self.tree.config.level_count - 1;
 
-        for segment in &created_segments {
-            let segment_file_path = self.folder.join(segment.id().to_string());
-
-            self.tree
-                .config
-                .descriptor_table
-                .insert(&segment_file_path, segment.global_id());
-        }
+        self.tree
+            .compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;
 
         Ok(())
     }

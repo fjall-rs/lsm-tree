@@ -1,5 +1,4 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, TreeType};
-use std::fs::File;
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
@@ -9,31 +8,58 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
     {
-        let tree = Config::new(&folder).open_as_blob_tree()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
-        assert_eq!(tree.len(None, None)?, 0);
-        assert_eq!(tree.iter(None, None).flatten().count(), 0);
-        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
+        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .map(|x| x.key())
+                .rev()
+                .flatten()
+                .count(),
+            0
+        );
         assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
     {
-        let tree = Config::new(&folder).open_as_blob_tree()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
-        assert_eq!(tree.len(None, None)?, 0);
-        assert_eq!(tree.iter(None, None).flatten().count(), 0);
-        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
+        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .map(|x| x.key())
+                .rev()
+                .flatten()
+                .count(),
+            0
+        );
         assert_eq!(tree.tree_type(), TreeType::Blob);
 
         tree.flush_active_memtable(0)?;
     }
 
     {
-        let tree = Config::new(&folder).open_as_blob_tree()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
-        assert_eq!(tree.len(None, None)?, 0);
-        assert_eq!(tree.iter(None, None).flatten().count(), 0);
-        assert_eq!(tree.iter(None, None).rev().flatten().count(), 0);
+        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .map(|x| x.key())
+                .rev()
+                .flatten()
+                .count(),
+            0
+        );
         assert_eq!(tree.tree_type(), TreeType::Blob);
     }
 
@@ -47,7 +73,9 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder).open_as_blob_tree()?;
+        let tree = Config::new(&folder, seqno.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -63,10 +91,16 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
             tree.insert(key, value.as_bytes(), seqno.next());
         }
 
-        assert_eq!(tree.len(None, None)?, ITEM_COUNT * 2);
-        assert_eq!(tree.iter(None, None).flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
-            tree.iter(None, None).rev().flatten().count(),
+            tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
+            ITEM_COUNT * 2
+        );
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .rev()
+                .flat_map(|x| x.key())
+                .count(),
             ITEM_COUNT * 2
         );
 
@@ -74,12 +108,20 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder).open_as_blob_tree()?;
+        let tree = Config::new(&folder, seqno.clone())
+            .with_kv_separation(Some(Default::default()))
+            .open()?;
 
-        assert_eq!(tree.len(None, None)?, ITEM_COUNT * 2);
-        assert_eq!(tree.iter(None, None).flatten().count(), ITEM_COUNT * 2);
+        assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(
-            tree.iter(None, None).rev().flatten().count(),
+            tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(),
+            ITEM_COUNT * 2
+        );
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .rev()
+                .flat_map(|x| x.key())
+                .count(),
             ITEM_COUNT * 2
         );
     }

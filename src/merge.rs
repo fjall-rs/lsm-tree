@@ -7,7 +7,7 @@ use interval_heap::IntervalHeap as Heap;
 
 type IterItem = crate::Result<InternalValue>;
 
-pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + 'a>;
+pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + Send + 'a>;
 
 #[derive(Eq)]
 struct HeapItem(usize, InternalValue);
@@ -26,7 +26,7 @@ impl Ord for HeapItem {
 
 impl PartialOrd for HeapItem {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.1.key.cmp(&other.1.key))
+        Some(self.cmp(other))
     }
 }
 
@@ -53,10 +53,9 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
         }
     }
 
-    #[allow(clippy::indexing_slicing)]
     fn initialize_lo(&mut self) -> crate::Result<()> {
-        for idx in 0..self.iterators.len() {
-            if let Some(item) = self.iterators[idx].next() {
+        for (idx, it) in self.iterators.iter_mut().enumerate() {
+            if let Some(item) = it.next() {
                 let item = item?;
                 self.heap.push(HeapItem(idx, item));
             }
@@ -67,10 +66,9 @@ impl<I: Iterator<Item = IterItem>> Merger<I> {
 }
 
 impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
-    #[allow(clippy::indexing_slicing)]
     fn initialize_hi(&mut self) -> crate::Result<()> {
-        for idx in 0..self.iterators.len() {
-            if let Some(item) = self.iterators[idx].next_back() {
+        for (idx, it) in self.iterators.iter_mut().enumerate() {
+            if let Some(item) = it.next_back() {
                 let item = item?;
                 self.heap.push(HeapItem(idx, item));
             }
@@ -83,7 +81,6 @@ impl<I: DoubleEndedIterator<Item = IterItem>> Merger<I> {
 impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
     type Item = IterItem;
 
-    #[allow(clippy::indexing_slicing)]
     fn next(&mut self) -> Option<Self::Item> {
         if !self.initialized_lo {
             fail_iter!(self.initialize_lo());
@@ -91,6 +88,7 @@ impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
 
         let min_item = self.heap.pop_min()?;
 
+        #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[min_item.0].next() {
             let next_item = fail_iter!(next_item);
             self.heap.push(HeapItem(min_item.0, next_item));
@@ -101,7 +99,6 @@ impl<I: Iterator<Item = IterItem>> Iterator for Merger<I> {
 }
 
 impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> {
-    #[allow(clippy::indexing_slicing)]
     fn next_back(&mut self) -> Option<Self::Item> {
         if !self.initialized_hi {
             fail_iter!(self.initialize_hi());
@@ -109,11 +106,70 @@ impl<I: DoubleEndedIterator<Item = IterItem>> DoubleEndedIterator for Merger<I> 
 
         let max_item = self.heap.pop_max()?;
 
+        #[expect(clippy::indexing_slicing, reason = "we trust the HeapItem index")]
         if let Some(next_item) = self.iterators[max_item.0].next_back() {
             let next_item = fail_iter!(next_item);
             self.heap.push(HeapItem(max_item.0, next_item));
         }
 
         Some(Ok(max_item.1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ValueType::Value;
+    use test_log::test;
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn merge_simple() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let a = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+        #[rustfmt::skip]
+        let b = vec![
+            Ok(InternalValue::from_components("b", b"", 0, Value)),
+        ];
+
+        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("a", b"", 0, Value),
+        );
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("b", b"", 0, Value),
+        );
+        assert!(iter.next().is_none(), "iter should be closed");
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "maybe not needed"]
+    #[expect(clippy::unwrap_used)]
+    fn merge_dup() -> crate::Result<()> {
+        #[rustfmt::skip]
+        let a = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+        #[rustfmt::skip]
+        let b = vec![
+            Ok(InternalValue::from_components("a", b"", 0, Value)),
+        ];
+
+        let mut iter = Merger::new(vec![a.into_iter(), b.into_iter()]);
+
+        assert_eq!(
+            iter.next().unwrap()?,
+            InternalValue::from_components("a", b"", 0, Value),
+        );
+        assert!(iter.next().is_none(), "iter should be closed");
+
+        Ok(())
     }
 }

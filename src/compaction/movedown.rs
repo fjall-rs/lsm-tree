@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{level_manifest::LevelManifest, Config, HashSet, Segment};
+use crate::{compaction::state::CompactionState, table::Table, version::Version, Config};
 
 /// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
@@ -13,29 +13,26 @@ impl CompactionStrategy for Strategy {
         "MoveDownCompaction"
     }
 
-    #[allow(clippy::expect_used)]
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let resolved_view = levels.resolved_view();
-
-        let level = resolved_view
-            .get(usize::from(self.0))
-            .expect("level should exist");
-
-        let next_level = resolved_view
-            .get(usize::from(self.1))
-            .expect("next level should exist");
-
-        if next_level.is_empty() {
-            // TODO: list_ids()
-            let segment_ids: HashSet<_> = level.segments.iter().map(Segment::id).collect();
-
-            Choice::Move(Input {
-                segment_ids,
-                dest_level: self.1,
-                target_size: 64_000_000,
-            })
-        } else {
-            Choice::DoNothing
+    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+        if version.level_is_busy(usize::from(self.0), state.hidden_set()) {
+            return Choice::DoNothing;
         }
+
+        let Some(level) = version.level(self.0.into()) else {
+            return Choice::DoNothing;
+        };
+
+        let table_ids = level
+            .iter()
+            .flat_map(|run| run.iter())
+            .map(Table::id)
+            .collect();
+
+        Choice::Move(Input {
+            table_ids,
+            dest_level: self.1,
+            canonical_level: self.1,
+            target_size: u64::MAX,
+        })
     }
 }

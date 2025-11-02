@@ -3,25 +3,19 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
-use crate::{config::Config, level_manifest::LevelManifest, HashSet, Segment};
+use crate::{
+    compaction::state::CompactionState, config::Config, table::Table, version::Version, HashSet,
+};
 
-/// Major compaction
-///
-/// Compacts all segments into the last level.
+/// Compacts all tables into the last level
 pub struct Strategy {
     target_size: u64,
 }
 
 impl Strategy {
-    /// Configures a new `SizeTiered` compaction strategy.
-    ///
-    /// # Panics
-    ///
-    /// Panics, if `target_size` is below 1024 bytes.
+    /// Configures a new `Major` compaction strategy.
     #[must_use]
-    #[allow(dead_code)]
     pub fn new(target_size: u64) -> Self {
-        assert!(target_size >= 1_024);
         Self { target_size }
     }
 }
@@ -39,22 +33,23 @@ impl CompactionStrategy for Strategy {
         "MajorCompaction"
     }
 
-    fn choose(&self, levels: &LevelManifest, _: &Config) -> Choice {
-        let segment_ids: HashSet<_> = levels.iter().map(Segment::id).collect();
+    fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
+        let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 
         // NOTE: This should generally not occur because of the
         // tree-level major compaction lock
         // But just as a fail-safe...
-        let some_hidden = segment_ids
-            .iter()
-            .any(|&id| levels.hidden_set().is_hidden(id));
+        let some_hidden = table_ids.iter().any(|&id| state.hidden_set().is_hidden(id));
 
         if some_hidden {
             Choice::DoNothing
         } else {
+            let last_level_idx = cfg.level_count - 1;
+
             Choice::Merge(CompactionInput {
-                segment_ids,
-                dest_level: levels.last_level_index(),
+                table_ids,
+                dest_level: last_level_idx,
+                canonical_level: last_level_idx,
                 target_size: self.target_size,
             })
         }

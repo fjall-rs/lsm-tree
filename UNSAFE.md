@@ -1,5 +1,28 @@
 # Unsafe usage
 
-Currently, the project itself only uses one **1** unsafe block (ignoring dependencies which are tested themselves separately):
+...
 
-- https://github.com/fjall-rs/lsm-tree/blob/2d8686e873369bd9c4ff2b562ed988c1cea38331/src/binary_search.rs#L23-L25
+## Run fuzz testing
+
+```bash
+cd fuzz/data_block
+mkdir in
+cat /dev/random | head -n 100 > in/input
+cargo afl build && cargo afl fuzz -i in -o out target/debug/data_block
+
+cd fuzz/index_block
+mkdir in
+cat /dev/random | head -n 100 > in/input
+cargo afl build && cargo afl fuzz -i in -o out target/debug/index_block
+
+cd fuzz/table_read
+mkdir in
+cat /dev/random | head -n 100 > in/input
+cargo afl build && cargo afl fuzz -i in -o out target/debug/table_read
+```
+
+## Run mutation testing
+
+```bash
+cargo-mutants mutants --test-tool=nextest
+```

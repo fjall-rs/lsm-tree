@@ -2,19 +2,73 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use std::{io::Write, path::Path};
+use crate::Slice;
+use std::{fs::File, io::Write, path::Path};
 
-pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 2];
+pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const MANIFEST_FILE: &str = "manifest";
-pub const SEGMENTS_FOLDER: &str = "segments";
-pub const LEVELS_MANIFEST_FILE: &str = "levels";
+pub const TABLES_FOLDER: &str = "tables";
 pub const BLOBS_FOLDER: &str = "blobs";
 
-/// Atomically rewrites a file
+/// Reads bytes from a file using `pread`.
+pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slice> {
+    // SAFETY: This slice builder starts uninitialized, but we know its length
+    //
+    // We use read_at/seek_read which give us the number of bytes read
+    // If that number does not match the slice length, the function panics (for now),
+    // so the (partially) uninitialized buffer is discarded
+    //
+    // Additionally, generally, block loads furthermore do a checksum check which
+    // would likely catch the buffer being wrong somehow
+    #[expect(unsafe_code, reason = "see safety")]
+    let mut builder = unsafe { Slice::builder_unzeroed(size) };
+
+    {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+
+            let bytes_read = file.read_at(&mut builder, offset)?;
+
+            assert_eq!(
+                bytes_read,
+                size,
+                "not enough bytes read: file has length {}",
+                file.metadata()?.len(),
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+
+            let bytes_read = file.seek_read(&mut builder, offset)?;
+
+            assert_eq!(
+                bytes_read,
+                size,
+                "not enough bytes read: file has length {}",
+                file.metadata()?.len(),
+            );
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            compile_error!("unsupported OS");
+            unimplemented!();
+        }
+    }
+
+    Ok(builder.freeze().into())
+}
+
+/// Atomically rewrites a file.
 pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
-    // NOTE: Nothing we can do
-    #[allow(clippy::expect_used)]
+    #[expect(
+        clippy::expect_used,
+        reason = "every file should have a parent directory"
+    )]
     let folder = path.parent().expect("should have a parent");
 
     let mut temp_file = tempfile::NamedTempFile::new_in(folder)?;
@@ -29,6 +83,10 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
         let file = std::fs::File::open(path)?;
         file.sync_all()?;
 
+        #[expect(
+            clippy::expect_used,
+            reason = "files should always have a parent directory"
+        )]
         let folder = path.parent().expect("should have parent folder");
         fsync_directory(folder)?;
     }

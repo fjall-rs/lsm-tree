@@ -1,47 +1,105 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    config::CompressionPolicy, AbstractTree, Config, KvSeparationOptions, SeqNo,
+    SequenceNumberCounter,
+};
 use test_log::test;
 
+// NOTE: This was a logic/MVCC error in v2 that could drop
+// a blob file while it was maybe accessible by a snapshot read
+//
+// https://github.com/fjall-rs/lsm-tree/commit/79c6ead4b955051cbb4835913e21d08b8aeafba1
 #[test]
 fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    let tree = Config::new(&folder)
-        .compression(lsm_tree::CompressionType::None)
-        .open_as_blob_tree()?;
     let seqno = SequenceNumberCounter::default();
 
-    tree.insert("a", "neptune".repeat(10_000), seqno.next());
-    let snapshot = tree.snapshot(seqno.get());
-    assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune".repeat(10_000));
+    let tree = Config::new(&folder, seqno.clone())
+        .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .staleness_threshold(0.01)
+                .age_cutoff(1.0)
+                .separation_threshold(50),
+        ))
+        .open()?;
 
-    tree.insert("a", "neptune2".repeat(10_000), seqno.next());
-    assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune2".repeat(10_000));
+    tree.insert("a", "neptune".repeat(50), seqno.next());
 
-    tree.insert("a", "neptune3".repeat(10_000), seqno.next());
-    assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
+    let snapshot_seqno = seqno.get();
+
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(50),
+    );
+    assert_eq!(&*tree.get("a", SeqNo::MAX)?.unwrap(), b"neptune".repeat(50),);
+
+    tree.insert("a", "neptune2".repeat(50), seqno.next());
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(50),
+    );
+    assert_eq!(
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
+        b"neptune2".repeat(50),
+    );
+
+    tree.insert("a", "neptune3".repeat(50), seqno.next());
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(50),
+    );
+    assert_eq!(
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
+        b"neptune3".repeat(50),
+    );
 
     tree.flush_active_memtable(0)?;
-    assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
 
-    let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
-    assert_eq!(2, report.stale_blobs);
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(50),
+    );
+    assert_eq!(
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
+        b"neptune3".repeat(50),
+    );
 
-    let strategy = value_log::SpaceAmpStrategy::new(1.0);
-    tree.apply_gc_strategy(&strategy, 0)?;
+    tree.major_compact(u64::MAX, 0)?;
+    tree.major_compact(u64::MAX, 0)?;
 
     // IMPORTANT: We cannot drop any blobs yet
-    // because we the watermark is too low
+    // because the watermark is too low
     //
     // This would previously fail
-    let report = tree.gc_scan_stats(seqno.get() + 1, 0)?;
-    assert_eq!(2, report.stale_blobs);
 
-    assert_eq!(&*snapshot.get("a")?.unwrap(), b"neptune".repeat(10_000));
-    assert_eq!(&*tree.get("a", None)?.unwrap(), b"neptune3".repeat(10_000));
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
+    }
+
+    assert_eq!(
+        &*tree.get("a", snapshot_seqno)?.unwrap(),
+        b"neptune".repeat(50),
+    );
+    assert_eq!(
+        &*tree.get("a", SeqNo::MAX)?.unwrap(),
+        b"neptune3".repeat(50),
+    );
+
+    tree.major_compact(u64::MAX, 1_000)?;
+
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert!(!gc_stats.is_empty());
+    }
+
+    tree.major_compact(u64::MAX, 1_000)?;
+
+    {
+        let gc_stats = tree.current_version().gc_stats().clone();
+        assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
+    }
 
     Ok(())
 }

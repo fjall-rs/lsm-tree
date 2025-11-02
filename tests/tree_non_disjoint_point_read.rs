@@ -1,13 +1,13 @@
-use lsm_tree::{AbstractTree, Config};
+use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
-    let tree = Config::new(folder)
-        .data_block_size(1_024)
-        .index_block_size(1_024)
+    let tree = Config::new(folder, SequenceNumberCounter::default())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
     tree.insert("a", "a", 0);
@@ -44,12 +44,12 @@ fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
     tree.insert("z", "z", 0);
     tree.flush_active_memtable(0)?;
 
-    tree.get("c", None).unwrap().unwrap();
-    tree.get("d", None).unwrap().unwrap();
-    tree.get("e", None).unwrap().unwrap();
-    tree.get("f", None).unwrap().unwrap();
-    tree.get("g", None).unwrap().unwrap();
-    tree.get("h", None).unwrap().unwrap();
+    tree.get("c", SeqNo::MAX).unwrap().unwrap();
+    tree.get("d", SeqNo::MAX).unwrap().unwrap();
+    tree.get("e", SeqNo::MAX).unwrap().unwrap();
+    tree.get("f", SeqNo::MAX).unwrap().unwrap();
+    tree.get("g", SeqNo::MAX).unwrap().unwrap();
+    tree.get("h", SeqNo::MAX).unwrap().unwrap();
 
     Ok(())
 }

@@ -1,3 +1,7 @@
+<!-- TODO: remove at some point after 3.0.0 -->
+> [!WARNING]
+> This is the 3.x source code - the 2.x source is available at https://github.com/fjall-rs/lsm-tree/tree/2.x.x
+
 <p align="center">
   <img src="/logo.png" height="160">
 </p>
@@ -5,7 +9,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.76.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.91.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
@@ -19,33 +23,30 @@ A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rus
 
 This is the most feature-rich LSM-tree implementation in Rust! It features:
 
-- Thread-safe BTreeMap-like API
-- [99.9% safe](./UNSAFE.md) & stable Rust
-- Block-based tables with compression support
+- Thread-safe `BTreeMap`-like API
+- Mostly [safe](./UNSAFE.md) & 100% stable Rust
+- Block-based tables with compression support & prefix truncation
+  - Optional block hash indexes in data blocks for faster point lookups [[3]](#footnotes)
+  - Per-level filter/index block pinning configuration
 - Range & prefix searching with forward and reverse iteration
-- Size-tiered, (concurrent) Leveled and FIFO compaction
-- Multi-threaded flushing (immutable/sealed memtables)
-- Partitioned block index to reduce memory footprint and keep startup time short [[1]](#footnotes)
 - Block caching to keep hot data in memory
-- Bloom filters to increase point lookup performance
-- Snapshots (MVCC)
+- File descriptor caching with upper bound to reduce fopen calls
+- *AMQ* filters (currently Bloom filters) to improve point lookup performance
+- Multi-versioning of KVs, enabling snapshot reads
+- Optionally partitioned block index & filters for better cache efficiency [[1]](#footnotes)
+- Size-tiered, (concurrent) Leveled and FIFO compaction 
+- Multi-threaded flushing (immutable/sealed memtables)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
 
-Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
-engine, larger keys and values have a bigger performance impact.
+Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
+As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
 
 ## Feature flags
 
 ### lz4
 
 Allows using `LZ4` compression, powered by [`lz4_flex`](https://github.com/PSeitz/lz4_flex).
-
-*Disabled by default.*
-
-### miniz
-
-Allows using `DEFLATE/zlib` compression, powered by [`miniz_oxide`](https://github.com/Frommi/miniz_oxide).
 
 *Disabled by default.*
 
@@ -66,7 +67,7 @@ Future breaking changes will result in a major version bump and a migration path
 ## Run unit benchmarks
 
 ```bash
-cargo bench --features lz4,miniz
+cargo bench --features lz4
 ```
 
 ## License
@@ -80,3 +81,5 @@ All contributions are to be licensed as MIT OR Apache-2.0.
 [1] https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html
 
 [2] https://github.com/facebook/rocksdb/wiki/BlobDB
+
+[3] https://rocksdb.org/blog/2018/08/23/data-block-hash-index.html
