@@ -121,12 +121,23 @@ impl SuperVersions {
                 .expect("should always find a SuperVersion");
         }
 
-        self.0
+        let version = self
+            .0
             .iter()
             .rev()
             .find(|version| version.seqno < seqno)
-            .cloned()
-            .expect("should always find a SuperVersion")
+            .cloned();
+
+        if version.is_none() {
+            log::error!("Failed to find a SuperVersion for snapshot with seqno={seqno}");
+            log::error!("SuperVersions:");
+
+            for version in self.0.iter().rev() {
+                log::error!("-> {}, seqno={}", version.version.id(), version.seqno);
+            }
+        }
+
+        version.expect("should always find a SuperVersion")
     }
 
     pub fn append_sealed_memtable(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
