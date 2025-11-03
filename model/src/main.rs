@@ -136,7 +136,7 @@ impl Drop for OpLog {
 fn run_oplog(oplog: &[Operation]) -> lsm_tree::Result<bool> {
     let folder = tempfile::tempdir_in("/king/tmp")?;
 
-    let db = lsm_tree::Config::new(folder.path())
+    let db = lsm_tree::Config::new(folder.path(), Default::default())
         .data_block_compression_policy(CompressionPolicy::disabled())
         .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))
@@ -180,7 +180,7 @@ fn run_oplog(oplog: &[Operation]) -> lsm_tree::Result<bool> {
 
     db.drop_range::<&[u8], _>(..)?;
 
-    Ok(db.segment_count() == 0 && db.blob_file_count() == 0)
+    Ok(db.table_count() == 0 && db.blob_file_count() == 0)
 }
 
 fn main() -> lsm_tree::Result<()> {
@@ -271,7 +271,9 @@ fn main() -> lsm_tree::Result<()> {
 
     let mut model = ModelTree::<ByteView, ByteView>::new();
 
-    let db = lsm_tree::Config::new(folder.path())
+    let seqno = lsm_tree::SequenceNumberCounter::default();
+
+    let db = lsm_tree::Config::new(folder.path(), seqno.clone())
         .data_block_compression_policy(CompressionPolicy::disabled())
         .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))
@@ -285,7 +287,6 @@ fn main() -> lsm_tree::Result<()> {
         target_size: 32_000,
         ..Default::default()
     });
-    let seqno = lsm_tree::SequenceNumberCounter::default();
 
     for x in 0u64..100_000 {
         let key: ByteView = x.to_be_bytes().into();
@@ -397,7 +398,7 @@ fn main() -> lsm_tree::Result<()> {
             eprintln!(
                 "DB size: {}, # tables: {}, # blob files: {}",
                 db.disk_space(),
-                db.segment_count(),
+                db.table_count(),
                 db.blob_file_count(),
             );
             eprintln!("-- Clearing state --");
@@ -411,11 +412,11 @@ fn main() -> lsm_tree::Result<()> {
             eprintln!(
                 "DB size: {} MiB, # tables: {}, # blob files: {}",
                 db.disk_space() / 1_024 / 1_024,
-                db.segment_count(),
+                db.table_count(),
                 db.blob_file_count(),
             );
 
-            assert_eq!(0, db.segment_count());
+            assert_eq!(0, db.table_count());
             assert_eq!(0, db.blob_file_count());
 
             assert!(db.is_empty(seqno.get(), None)?);
