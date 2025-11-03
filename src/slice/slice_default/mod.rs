@@ -23,7 +23,8 @@ impl Slice {
         Self(ByteView::new(&[]))
     }
 
-    pub(crate) unsafe fn builder_unzeroed(len: usize) -> Builder {
+    #[doc(hidden)]
+    pub unsafe fn builder_unzeroed(len: usize) -> Builder {
         ByteView::builder_unzeroed(len)
     }
 
@@ -35,10 +36,8 @@ impl Slice {
         Self(ByteView::fused(left, right))
     }
 
-    pub(crate) fn from_reader<R: std::io::Read>(
-        reader: &mut R,
-        len: usize,
-    ) -> std::io::Result<Self> {
+    #[doc(hidden)]
+    pub fn from_reader<R: std::io::Read>(reader: &mut R, len: usize) -> std::io::Result<Self> {
         ByteView::from_reader(reader, len).map(Self)
     }
 }
