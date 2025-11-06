@@ -25,7 +25,8 @@ impl Slice {
         Self(Bytes::from_static(&[]))
     }
 
-    pub(crate) unsafe fn builder_unzeroed(len: usize) -> Builder {
+    #[doc(hidden)]
+    pub unsafe fn builder_unzeroed(len: usize) -> Builder {
         // Use `with_capacity` & `set_len`` to avoid zeroing the buffer
         let mut builder = Builder::with_capacity(len);
 
