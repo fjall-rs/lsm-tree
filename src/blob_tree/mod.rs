@@ -360,10 +360,6 @@ impl AbstractTree for BlobTree {
 
         self.register_tables(&created_tables, Some(&blob_files), None)?;
 
-        let last_level_idx = self.index.config.level_count - 1;
-
-        self.compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;
-
         visible_seqno.fetch_max(seqno + 1);
 
         log::info!("Ingested {count} items in {:?}", start.elapsed());

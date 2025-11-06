@@ -212,11 +212,6 @@ impl<'a> Ingestion<'a> {
 
         self.tree.register_tables(&created_tables, None, None)?;
 
-        let last_level_idx = self.tree.config.level_count - 1;
-
-        self.tree
-            .compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;
-
         Ok(())
     }
 }
