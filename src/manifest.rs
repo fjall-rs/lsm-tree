@@ -26,6 +26,9 @@ impl Manifest {
         writer.start("level_count")?;
         writer.write_u8(self.level_count)?;
 
+        writer.start("filter_hash_type")?;
+        writer.write_u8(0)?; // 0 = XXH3
+
         Ok(())
     }
 }
@@ -67,6 +70,20 @@ impl Manifest {
 
         // Currently level count is hard coded to 7
         assert_eq!(7, level_count, "level count should be 7");
+
+        {
+            let filter_hash_type = {
+                let section = toc
+                    .section(b"filter_hash_type")
+                    .expect("filter_hash_type section must exist in manifest");
+
+                let mut reader = section.buf_reader(path)?;
+                reader.read_u8()?
+            };
+
+            // Only one supported right now (and probably forever)
+            assert_eq!(0, filter_hash_type, "filter_hash_type should be XXH3");
+        }
 
         Ok(Self {
             version,
