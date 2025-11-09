@@ -6,6 +6,16 @@ use enum_dispatch::enum_dispatch;
 /// Guard to access key-value pairs
 #[enum_dispatch]
 pub trait IterGuard {
+    /// Accesses the key-value pair if the predicate returns `true`.
+    ///
+    /// The predicate receives the key - if returning false, the value
+    /// may not be loaded if the tree is key-value separated.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn into_inner_if(self, pred: impl Fn(&[u8]) -> bool) -> crate::Result<Option<KvPair>>;
+
     /// Accesses the key-value pair.
     ///
     /// # Errors
