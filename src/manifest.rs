@@ -4,7 +4,10 @@
 
 use crate::{FormatVersion, TreeType};
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::{io::Write, path::Path};
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
 
 pub struct Manifest {
     pub version: FormatVersion,
@@ -27,7 +30,7 @@ impl Manifest {
         writer.write_u8(self.level_count)?;
 
         writer.start("filter_hash_type")?;
-        writer.write_u8(0)?; // 0 = XXH3
+        writer.write_all(b"xxh3")?;
 
         Ok(())
     }
@@ -77,12 +80,17 @@ impl Manifest {
                     .section(b"filter_hash_type")
                     .expect("filter_hash_type section must exist in manifest");
 
-                let mut reader = section.buf_reader(path)?;
-                reader.read_u8()?
+                section
+                    .buf_reader(path)?
+                    .bytes()
+                    .collect::<Result<Vec<_>, _>>()?
             };
 
             // Only one supported right now (and probably forever)
-            assert_eq!(0, filter_hash_type, "filter_hash_type should be XXH3");
+            assert_eq!(
+                b"xxh3", &*filter_hash_type,
+                "filter_hash_type should be XXH3"
+            );
         }
 
         Ok(Self {
