@@ -9,7 +9,10 @@ use crate::{
     SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
 };
 use enum_dispatch::enum_dispatch;
-use std::{ops::RangeBounds, sync::Arc};
+use std::{
+    ops::RangeBounds,
+    sync::{Arc, MutexGuard},
+};
 
 pub type RangeItem = crate::Result<KvPair>;
 
@@ -28,18 +31,32 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn current_version(&self) -> Version;
 
-    /// Synchronously flushes the active memtable to a table.
+    /// Seals the active memtable and flushes to table(s).
     ///
-    /// The function may not return a result, if, during concurrent workloads, the memtable
-    /// ends up being empty before the flush is set up.
+    /// If there are already other sealed memtables lined up, those will be flushed as well.
     ///
-    /// The result will contain the [`Table`].
+    /// Only used in tests.
+    #[doc(hidden)]
+    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<()> {
+        let lock = self.get_flush_lock();
+        self.rotate_memtable();
+        self.flush(&lock, eviction_seqno)?;
+        Ok(())
+    }
+
+    /// Synchronously flushes sealed memtables to tables.
+    ///
+    /// The function may not return a result, if nothing was flushed.
+    /// Otherwise, the result will contain the [`Table`].
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    #[doc(hidden)]
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>>;
+    fn flush(
+        &self,
+        lock: &MutexGuard<'_, ()>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<Option<bool>>; // TODO: 3.0.0 return memtable sizes sum that were flushed
 
     /// Returns an iterator that scans through the entire tree.
     ///
@@ -145,6 +162,9 @@ pub trait AbstractTree {
     #[cfg(feature = "metrics")]
     fn metrics(&self) -> &Arc<crate::Metrics>;
 
+    /// Acquires the flush lock which is required to call [`Tree::flush`].
+    fn get_flush_lock(&self) -> MutexGuard<'_, ()>;
+
     /// Synchronously flushes a memtable to a table.
     ///
     /// This method will not make the table immediately available,
@@ -154,12 +174,10 @@ pub trait AbstractTree {
     ///
     /// Will return `Err` if an IO error occurs.
     #[warn(clippy::type_complexity)]
-    fn flush_memtable(
+    fn flush_to_tables(
         &self,
-        table_id: TableId, // TODO: remove?
-        memtable: &Arc<Memtable>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Table, Option<BlobFile>)>>;
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<(Vec<Table>, Option<BlobFile>)>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///
@@ -222,8 +240,8 @@ pub trait AbstractTree {
     /// Returns the tree type.
     fn tree_type(&self) -> TreeType;
 
-    /// Seals the active memtable, and returns a reference to it.
-    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)>;
+    /// Seals the active memtable.
+    fn rotate_memtable(&self) -> Option<Arc<Memtable>>;
 
     /// Returns the number of tables currently in the tree.
     fn table_count(&self) -> usize;

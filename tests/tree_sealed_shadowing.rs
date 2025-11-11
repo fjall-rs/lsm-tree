@@ -16,11 +16,14 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
     tree.remove("a", 1);
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    let (id, memtable) = tree.rotate_memtable().unwrap();
+    tree.rotate_memtable().unwrap();
+
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 
-    let (table, _) = tree.flush_memtable(id, &memtable, 0)?.unwrap();
-    tree.register_tables(&[table], None, None)?;
+    {
+        let flush_lock = tree.get_flush_lock();
+        assert!(tree.flush(&flush_lock, 0)?.unwrap());
+    }
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
 

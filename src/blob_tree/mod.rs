@@ -9,10 +9,11 @@ pub mod handle;
 pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
-    coding::{Decode, Encode},
+    coding::Decode,
     compaction::stream::CompactionStream,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
+    merge::Merger,
     r#abstract::{AbstractTree, RangeItem},
     table::Table,
     tree::inner::MemtableId,
@@ -23,7 +24,12 @@ use crate::{
     UserKey, UserValue,
 };
 use handle::BlobIndirection;
-use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{
+    io::Cursor,
+    ops::RangeBounds,
+    path::PathBuf,
+    sync::{Arc, MutexGuard},
+};
 
 pub struct Guard {
     tree: crate::BlobTree,
@@ -178,23 +184,36 @@ impl AbstractTree for BlobTree {
         self.index.current_version()
     }
 
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Table>> {
-        let Some((table_id, yanked_memtable)) = self.index.rotate_memtable() else {
-            return Ok(None);
-        };
+    fn flush(
+        &self,
+        _lock: &MutexGuard<'_, ()>,
+        seqno_threshold: SeqNo,
+    ) -> crate::Result<Option<bool>> {
+        let version_history = self
+            .index
+            .version_history
+            .write()
+            .expect("lock is poisoned");
 
-        let Some((table, blob_file)) =
-            self.flush_memtable(table_id, &yanked_memtable, eviction_seqno)?
-        else {
-            return Ok(None);
-        };
-        self.register_tables(
-            std::slice::from_ref(&table),
-            blob_file.as_ref().map(std::slice::from_ref),
-            None,
-        )?;
+        let latest = version_history.latest_version();
 
-        Ok(Some(table))
+        let merger = Merger::new(
+            latest
+                .sealed_memtables
+                .iter()
+                .map(|(_, mt)| mt.iter().map(Ok))
+                .collect::<Vec<_>>(),
+        );
+        let stream = CompactionStream::new(merger, seqno_threshold);
+
+        drop(version_history);
+
+        if let Some((tables, _)) = self.flush_to_tables(stream)? {
+            self.register_tables(&tables, None, None)?;
+        }
+
+        // TODO: 3.0.0 return value
+        Ok(None)
     }
 
     #[cfg(feature = "metrics")]
@@ -440,128 +459,132 @@ impl AbstractTree for BlobTree {
         self.index.sealed_memtable_count()
     }
 
-    fn flush_memtable(
+    fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
+        self.index.get_flush_lock()
+    }
+
+    fn flush_to_tables(
         &self,
-        table_id: TableId,
-        memtable: &Arc<Memtable>,
-        eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
-        use crate::{file::TABLES_FOLDER, table::Writer as TableWriter};
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<(Vec<Table>, Option<BlobFile>)>> {
+        // use crate::{file::TABLES_FOLDER, table::Writer as TableWriter};
 
-        let table_folder = self.index.config.path.join(TABLES_FOLDER);
+        // let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
-        log::debug!("Flushing memtable & performing key-value separation");
-        log::debug!("=> to table in {}", table_folder.display());
-        log::debug!("=> to blob file at {}", self.blobs_folder.display());
+        // log::debug!("Flushing memtable & performing key-value separation");
+        // log::debug!("=> to table in {}", table_folder.display());
+        // log::debug!("=> to blob file at {}", self.blobs_folder.display());
 
-        let mut table_writer =
-            TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
-                // TODO: apply other policies
-                .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
-                .use_bloom_policy({
-                    use crate::config::FilterPolicyEntry::{Bloom, None};
-                    use crate::table::filter::BloomConstructionPolicy;
+        // let mut table_writer =
+        //     TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
+        //         // TODO: apply other policies
+        //         .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
+        //         .use_bloom_policy({
+        //             use crate::config::FilterPolicyEntry::{Bloom, None};
+        //             use crate::table::filter::BloomConstructionPolicy;
 
-                    match self.index.config.filter_policy.get(0) {
-                        Bloom(policy) => policy,
-                        None => BloomConstructionPolicy::BitsPerKey(0.0),
-                    }
-                });
+        //             match self.index.config.filter_policy.get(0) {
+        //                 Bloom(policy) => policy,
+        //                 None => BloomConstructionPolicy::BitsPerKey(0.0),
+        //             }
+        //         });
 
-        let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_generator.clone(),
-            u64::MAX,
-            self.index.config.path.join(BLOBS_FOLDER),
-        )?
-        .use_compression(
-            self.index
-                .config
-                .kv_separation_opts
-                .as_ref()
-                .expect("blob options should exist")
-                .compression,
-        );
+        // let mut blob_writer = BlobFileWriter::new(
+        //     self.index.0.blob_file_id_generator.clone(),
+        //     u64::MAX,
+        //     self.index.config.path.join(BLOBS_FOLDER),
+        // )?
+        // .use_compression(
+        //     self.index
+        //         .config
+        //         .kv_separation_opts
+        //         .as_ref()
+        //         .expect("blob options should exist")
+        //         .compression,
+        // );
 
-        let iter = memtable.iter().map(Ok);
-        let compaction_stream = CompactionStream::new(iter, eviction_seqno);
+        // let iter = memtable.iter().map(Ok);
+        // let compaction_stream = CompactionStream::new(iter, eviction_seqno);
 
-        let mut blob_bytes_referenced = 0;
-        let mut blob_on_disk_bytes_referenced = 0;
-        let mut blobs_referenced_count = 0;
+        // let mut blob_bytes_referenced = 0;
+        // let mut blob_on_disk_bytes_referenced = 0;
+        // let mut blobs_referenced_count = 0;
 
-        let separation_threshold = self
-            .index
-            .config
-            .kv_separation_opts
-            .as_ref()
-            .expect("kv separation options should exist")
-            .separation_threshold;
+        // let separation_threshold = self
+        //     .index
+        //     .config
+        //     .kv_separation_opts
+        //     .as_ref()
+        //     .expect("kv separation options should exist")
+        //     .separation_threshold;
 
-        for item in compaction_stream {
-            let item = item?;
+        // for item in compaction_stream {
+        //     let item = item?;
 
-            if item.is_tombstone() {
-                // NOTE: Still need to add tombstone to index tree
-                // But no blob to blob writer
-                table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
-                continue;
-            }
+        //     if item.is_tombstone() {
+        //         // NOTE: Still need to add tombstone to index tree
+        //         // But no blob to blob writer
+        //         table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
+        //         continue;
+        //     }
 
-            let value = item.value;
+        //     let value = item.value;
 
-            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-            let value_size = value.len() as u32;
+        //     #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+        //     let value_size = value.len() as u32;
 
-            if value_size >= separation_threshold {
-                let offset = blob_writer.offset();
-                let blob_file_id = blob_writer.blob_file_id();
-                let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
+        //     if value_size >= separation_threshold {
+        //         let offset = blob_writer.offset();
+        //         let blob_file_id = blob_writer.blob_file_id();
+        //         let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
 
-                let indirection = BlobIndirection {
-                    vhandle: ValueHandle {
-                        blob_file_id,
-                        offset,
-                        on_disk_size,
-                    },
-                    size: value_size,
-                };
+        //         let indirection = BlobIndirection {
+        //             vhandle: ValueHandle {
+        //                 blob_file_id,
+        //                 offset,
+        //                 on_disk_size,
+        //             },
+        //             size: value_size,
+        //         };
 
-                table_writer.write({
-                    let mut vptr =
-                        InternalValue::new(item.key.clone(), indirection.encode_into_vec());
-                    vptr.key.value_type = crate::ValueType::Indirection;
-                    vptr
-                })?;
+        //         table_writer.write({
+        //             let mut vptr =
+        //                 InternalValue::new(item.key.clone(), indirection.encode_into_vec());
+        //             vptr.key.value_type = crate::ValueType::Indirection;
+        //             vptr
+        //         })?;
 
-                blob_bytes_referenced += u64::from(value_size);
-                blob_on_disk_bytes_referenced += u64::from(on_disk_size);
-                blobs_referenced_count += 1;
-            } else {
-                table_writer.write(InternalValue::new(item.key, value))?;
-            }
-        }
+        //         blob_bytes_referenced += u64::from(value_size);
+        //         blob_on_disk_bytes_referenced += u64::from(on_disk_size);
+        //         blobs_referenced_count += 1;
+        //     } else {
+        //         table_writer.write(InternalValue::new(item.key, value))?;
+        //     }
+        // }
 
-        log::trace!("Creating blob file");
-        let blob_files = blob_writer.finish()?;
-        assert!(blob_files.len() <= 1);
-        let blob_file = blob_files.into_iter().next();
+        // log::trace!("Creating blob file");
+        // let blob_files = blob_writer.finish()?;
+        // assert!(blob_files.len() <= 1);
+        // let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree table {table_id}");
+        // log::trace!("Creating LSM-tree table {table_id}");
 
-        if blob_bytes_referenced > 0 {
-            if let Some(blob_file) = &blob_file {
-                table_writer.link_blob_file(
-                    blob_file.id(),
-                    blobs_referenced_count,
-                    blob_bytes_referenced,
-                    blob_on_disk_bytes_referenced,
-                );
-            }
-        }
+        // if blob_bytes_referenced > 0 {
+        //     if let Some(blob_file) = &blob_file {
+        //         table_writer.link_blob_file(
+        //             blob_file.id(),
+        //             blobs_referenced_count,
+        //             blob_bytes_referenced,
+        //             blob_on_disk_bytes_referenced,
+        //         );
+        //     }
+        // }
 
-        let table = self.index.consume_writer(table_writer)?;
+        // let table = self.index.consume_writer(table_writer)?;
 
-        Ok(table.map(|table| (table, blob_file)))
+        // Ok(table.map(|table| (table, blob_file)))
+
+        unimplemented!()
     }
 
     fn register_tables(
@@ -609,7 +632,7 @@ impl AbstractTree for BlobTree {
         crate::TreeType::Blob
     }
 
-    fn rotate_memtable(&self) -> Option<(crate::tree::inner::MemtableId, Arc<crate::Memtable>)> {
+    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
         self.index.rotate_memtable()
     }
 
