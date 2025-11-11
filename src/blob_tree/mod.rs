@@ -553,7 +553,7 @@ impl AbstractTree for BlobTree {
                     pin_filter,
                     pin_index,
                     #[cfg(feature = "metrics")]
-                    self.metrics.clone(),
+                    self.index.metrics.clone(),
                 )
             })
             .collect::<crate::Result<Vec<_>>>()?;
