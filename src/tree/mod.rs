@@ -8,17 +8,13 @@ pub mod sealed;
 
 use crate::{
     blob_tree::FragmentationMap,
-    compaction::{
-        drop_range::OwnedBounds, state::CompactionState, stream::CompactionStream,
-        CompactionStrategy,
-    },
+    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
-    merge::Merger,
     slice::Slice,
     table::{multi_writer::MultiWriter, Table},
     value::InternalValue,
@@ -85,12 +81,22 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn get_version_history_lock(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        self.version_history.write().expect("lock is poisoned")
+    }
+
     fn next_table_id(&self) -> TableId {
         self.0.table_id_counter.get()
     }
 
     fn id(&self) -> TreeId {
         self.id
+    }
+
+    fn blob_file_count(&self) -> usize {
+        0
     }
 
     #[expect(clippy::significant_drop_tightening)]
@@ -123,39 +129,6 @@ impl AbstractTree for Tree {
 
     fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
         self.flush_lock.lock().expect("lock is poisoned")
-    }
-
-    fn flush(
-        &self,
-        _lock: &MutexGuard<'_, ()>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<bool>> {
-        let version_history = self.version_history.write().expect("lock is poisoned");
-        let latest = version_history.latest_version();
-
-        let sealed_ids = latest
-            .sealed_memtables
-            .iter()
-            .map(|mt| mt.0)
-            .collect::<Vec<_>>();
-
-        let merger = Merger::new(
-            latest
-                .sealed_memtables
-                .iter()
-                .map(|(_, mt)| mt.iter().map(Ok))
-                .collect::<Vec<_>>(),
-        );
-        let stream = CompactionStream::new(merger, seqno_threshold);
-
-        drop(version_history);
-
-        if let Some((tables, _)) = self.flush_to_tables(stream)? {
-            self.register_tables(&tables, None, None, &sealed_ids)?;
-        }
-
-        // TODO: 3.0.0 return value
-        Ok(None)
     }
 
     #[cfg(feature = "metrics")]
@@ -340,7 +313,7 @@ impl AbstractTree for Tree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<(Vec<Table>, Option<BlobFile>)>> {
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::file::TABLES_FOLDER;
         use std::time::Instant;
 
@@ -724,38 +697,6 @@ impl Tree {
         }?;
 
         Ok(tree)
-    }
-
-    pub(crate) fn consume_writer(
-        &self,
-        writer: crate::table::Writer,
-    ) -> crate::Result<Option<Table>> {
-        let table_file_path = writer.path.clone();
-
-        let Some((_, checksum)) = writer.finish()? else {
-            return Ok(None);
-        };
-
-        log::debug!("Finalized table write at {}", table_file_path.display());
-
-        let pin_filter = self.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.config.filter_block_pinning_policy.get(0);
-
-        let created_table = Table::recover(
-            table_file_path,
-            checksum,
-            self.id,
-            self.config.cache.clone(),
-            self.config.descriptor_table.clone(),
-            pin_filter,
-            pin_index,
-            #[cfg(feature = "metrics")]
-            self.metrics.clone(),
-        )?;
-
-        log::debug!("Flushed table to {:?}", created_table.path);
-
-        Ok(Some(created_table))
     }
 
     /// Returns `true` if there are some tables that are being compacted.

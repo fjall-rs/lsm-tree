@@ -674,6 +674,7 @@ mod tests {
         tree.insert("b", "b", 0);
         tree.insert("c", "c", 0);
         tree.flush_active_memtable(1_000)?;
+        assert_eq!(0, tree.sealed_memtable_count());
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 

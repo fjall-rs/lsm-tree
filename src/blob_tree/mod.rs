@@ -10,10 +10,8 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
     coding::Decode,
-    compaction::stream::CompactionStream,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
-    merge::Merger,
     r#abstract::{AbstractTree, RangeItem},
     table::Table,
     tree::inner::MemtableId,
@@ -168,6 +166,12 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn get_version_history_lock(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        self.index.get_version_history_lock()
+    }
+
     fn next_table_id(&self) -> TableId {
         self.index.next_table_id()
     }
@@ -182,44 +186,6 @@ impl AbstractTree for BlobTree {
 
     fn current_version(&self) -> Version {
         self.index.current_version()
-    }
-
-    fn flush(
-        &self,
-        _lock: &MutexGuard<'_, ()>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<bool>> {
-        let version_history = self
-            .index
-            .version_history
-            .write()
-            .expect("lock is poisoned");
-
-        let latest = version_history.latest_version();
-
-        let sealed_ids = latest
-            .sealed_memtables
-            .iter()
-            .map(|mt| mt.0)
-            .collect::<Vec<_>>();
-
-        let merger = Merger::new(
-            latest
-                .sealed_memtables
-                .iter()
-                .map(|(_, mt)| mt.iter().map(Ok))
-                .collect::<Vec<_>>(),
-        );
-        let stream = CompactionStream::new(merger, seqno_threshold);
-
-        drop(version_history);
-
-        if let Some((tables, _)) = self.flush_to_tables(stream)? {
-            self.register_tables(&tables, None, None, &sealed_ids)?;
-        }
-
-        // TODO: 3.0.0 return value
-        Ok(None)
     }
 
     #[cfg(feature = "metrics")]
@@ -472,125 +438,127 @@ impl AbstractTree for BlobTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<(Vec<Table>, Option<BlobFile>)>> {
-        // use crate::{file::TABLES_FOLDER, table::Writer as TableWriter};
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+        use crate::{coding::Encode, file::TABLES_FOLDER, table::multi_writer::MultiWriter};
 
-        // let table_folder = self.index.config.path.join(TABLES_FOLDER);
+        let start = std::time::Instant::now();
 
-        // log::debug!("Flushing memtable & performing key-value separation");
-        // log::debug!("=> to table in {}", table_folder.display());
-        // log::debug!("=> to blob file at {}", self.blobs_folder.display());
+        let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
-        // let mut table_writer =
-        //     TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
-        //         // TODO: apply other policies
-        //         .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
-        //         .use_bloom_policy({
-        //             use crate::config::FilterPolicyEntry::{Bloom, None};
-        //             use crate::table::filter::BloomConstructionPolicy;
+        log::debug!("Flushing memtable(s) & performing key-value separation");
+        log::debug!("=> to table(s) in {}", table_folder.display());
+        log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
-        //             match self.index.config.filter_policy.get(0) {
-        //                 Bloom(policy) => policy,
-        //                 None => BloomConstructionPolicy::BitsPerKey(0.0),
-        //             }
-        //         });
+        let mut table_writer = MultiWriter::new(
+            table_folder.clone(),
+            self.index.table_id_counter.clone(),
+            64_000_000,
+            0,
+        )?
+        // TODO: 3.0.0 apply other policies
+        .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
+        .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
+            use crate::table::filter::BloomConstructionPolicy;
 
-        // let mut blob_writer = BlobFileWriter::new(
-        //     self.index.0.blob_file_id_generator.clone(),
-        //     u64::MAX,
-        //     self.index.config.path.join(BLOBS_FOLDER),
-        // )?
-        // .use_compression(
-        //     self.index
-        //         .config
-        //         .kv_separation_opts
-        //         .as_ref()
-        //         .expect("blob options should exist")
-        //         .compression,
-        // );
+            match self.index.config.filter_policy.get(0) {
+                Bloom(policy) => policy,
+                None => BloomConstructionPolicy::BitsPerKey(0.0),
+            }
+        });
 
-        // let iter = memtable.iter().map(Ok);
-        // let compaction_stream = CompactionStream::new(iter, eviction_seqno);
+        let mut blob_writer = BlobFileWriter::new(
+            self.index.0.blob_file_id_generator.clone(),
+            u64::MAX,
+            self.index.config.path.join(BLOBS_FOLDER),
+        )?
+        .use_compression(
+            self.index
+                .config
+                .kv_separation_opts
+                .as_ref()
+                .expect("blob options should exist")
+                .compression,
+        );
 
-        // let mut blob_bytes_referenced = 0;
-        // let mut blob_on_disk_bytes_referenced = 0;
-        // let mut blobs_referenced_count = 0;
+        let separation_threshold = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist")
+            .separation_threshold;
 
-        // let separation_threshold = self
-        //     .index
-        //     .config
-        //     .kv_separation_opts
-        //     .as_ref()
-        //     .expect("kv separation options should exist")
-        //     .separation_threshold;
+        for item in stream {
+            let item = item?;
 
-        // for item in compaction_stream {
-        //     let item = item?;
+            if item.is_tombstone() {
+                // NOTE: Still need to add tombstone to index tree
+                // But no blob to blob writer
+                table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
+                continue;
+            }
 
-        //     if item.is_tombstone() {
-        //         // NOTE: Still need to add tombstone to index tree
-        //         // But no blob to blob writer
-        //         table_writer.write(InternalValue::new(item.key, UserValue::empty()))?;
-        //         continue;
-        //     }
+            let value = item.value;
 
-        //     let value = item.value;
+            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+            let value_size = value.len() as u32;
 
-        //     #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-        //     let value_size = value.len() as u32;
+            if value_size >= separation_threshold {
+                let offset = blob_writer.offset();
+                let blob_file_id = blob_writer.blob_file_id();
+                let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
 
-        //     if value_size >= separation_threshold {
-        //         let offset = blob_writer.offset();
-        //         let blob_file_id = blob_writer.blob_file_id();
-        //         let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
+                let indirection = BlobIndirection {
+                    vhandle: ValueHandle {
+                        blob_file_id,
+                        offset,
+                        on_disk_size,
+                    },
+                    size: value_size,
+                };
 
-        //         let indirection = BlobIndirection {
-        //             vhandle: ValueHandle {
-        //                 blob_file_id,
-        //                 offset,
-        //                 on_disk_size,
-        //             },
-        //             size: value_size,
-        //         };
+                table_writer.write({
+                    let mut vptr =
+                        InternalValue::new(item.key.clone(), indirection.encode_into_vec());
+                    vptr.key.value_type = crate::ValueType::Indirection;
+                    vptr
+                })?;
 
-        //         table_writer.write({
-        //             let mut vptr =
-        //                 InternalValue::new(item.key.clone(), indirection.encode_into_vec());
-        //             vptr.key.value_type = crate::ValueType::Indirection;
-        //             vptr
-        //         })?;
+                table_writer.register_blob(indirection);
+            } else {
+                table_writer.write(InternalValue::new(item.key, value))?;
+            }
+        }
 
-        //         blob_bytes_referenced += u64::from(value_size);
-        //         blob_on_disk_bytes_referenced += u64::from(on_disk_size);
-        //         blobs_referenced_count += 1;
-        //     } else {
-        //         table_writer.write(InternalValue::new(item.key, value))?;
-        //     }
-        // }
+        let blob_files = blob_writer.finish()?;
 
-        // log::trace!("Creating blob file");
-        // let blob_files = blob_writer.finish()?;
-        // assert!(blob_files.len() <= 1);
-        // let blob_file = blob_files.into_iter().next();
+        let result = table_writer.finish()?;
 
-        // log::trace!("Creating LSM-tree table {table_id}");
+        log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
-        // if blob_bytes_referenced > 0 {
-        //     if let Some(blob_file) = &blob_file {
-        //         table_writer.link_blob_file(
-        //             blob_file.id(),
-        //             blobs_referenced_count,
-        //             blob_bytes_referenced,
-        //             blob_on_disk_bytes_referenced,
-        //         );
-        //     }
-        // }
+        let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.index.config.filter_block_pinning_policy.get(0);
 
-        // let table = self.index.consume_writer(table_writer)?;
+        // Load tables
+        let tables = result
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    table_folder.join(table_id.to_string()),
+                    checksum,
+                    self.index.id,
+                    self.index.config.cache.clone(),
+                    self.index.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
 
-        // Ok(table.map(|table| (table, blob_file)))
-
-        unimplemented!()
+        Ok(Some((tables, Some(blob_files))))
     }
 
     fn register_tables(
