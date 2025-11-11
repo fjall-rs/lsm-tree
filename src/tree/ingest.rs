@@ -210,7 +210,8 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.tree.register_tables(&created_tables, None, None)?;
+        self.tree
+            .register_tables(&created_tables, None, None, &[])?;
 
         Ok(())
     }

@@ -618,12 +618,18 @@ mod tests {
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
+        assert_eq!(1, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
+
         tree.insert("b", "a", 1);
         tree.flush_active_memtable(0)?;
+        assert_eq!(2, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
+
         tree.insert("c", "a", 2);
         tree.flush_active_memtable(0)?;
-
         assert_eq!(3, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
 
         tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 

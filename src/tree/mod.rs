@@ -133,6 +133,12 @@ impl AbstractTree for Tree {
         let version_history = self.version_history.write().expect("lock is poisoned");
         let latest = version_history.latest_version();
 
+        let sealed_ids = latest
+            .sealed_memtables
+            .iter()
+            .map(|mt| mt.0)
+            .collect::<Vec<_>>();
+
         let merger = Merger::new(
             latest
                 .sealed_memtables
@@ -145,7 +151,7 @@ impl AbstractTree for Tree {
         drop(version_history);
 
         if let Some((tables, _)) = self.flush_to_tables(stream)? {
-            self.register_tables(&tables, None, None)?;
+            self.register_tables(&tables, None, None, &sealed_ids)?;
         }
 
         // TODO: 3.0.0 return value
@@ -361,7 +367,7 @@ impl AbstractTree for Tree {
         );
 
         let mut table_writer =
-            MultiWriter::new(folder, self.table_id_counter.clone(), 64_000_000, 0)?
+            MultiWriter::new(folder.clone(), self.table_id_counter.clone(), 64_000_000, 0)?
                 .use_data_block_restart_interval(data_block_restart_interval)
                 .use_index_block_restart_interval(index_block_restart_interval)
                 .use_data_block_compression(data_block_compression)
@@ -397,7 +403,22 @@ impl AbstractTree for Tree {
         let pin_index = self.config.filter_block_pinning_policy.get(0);
 
         // Load tables
-        let tables = todo!();
+        let tables = result
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    folder.join(table_id.to_string()),
+                    checksum,
+                    self.id,
+                    self.config.cache.clone(),
+                    self.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
 
         Ok(Some((tables, None)))
     }
@@ -408,6 +429,7 @@ impl AbstractTree for Tree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
+        sealed_memtables_to_delete: &[MemtableId],
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
@@ -429,9 +451,9 @@ impl AbstractTree for Tree {
                     frag_map.filter(|x| !x.is_empty()),
                 );
 
-                for table in tables {
-                    log::trace!("releasing sealed memtable {}", table.id());
-                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table.id()));
+                for &table_id in sealed_memtables_to_delete {
+                    log::trace!("releasing sealed memtable #{table_id}");
+                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
                 }
 
                 Ok(copy)

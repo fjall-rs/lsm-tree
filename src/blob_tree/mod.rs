@@ -197,6 +197,12 @@ impl AbstractTree for BlobTree {
 
         let latest = version_history.latest_version();
 
+        let sealed_ids = latest
+            .sealed_memtables
+            .iter()
+            .map(|mt| mt.0)
+            .collect::<Vec<_>>();
+
         let merger = Merger::new(
             latest
                 .sealed_memtables
@@ -209,7 +215,7 @@ impl AbstractTree for BlobTree {
         drop(version_history);
 
         if let Some((tables, _)) = self.flush_to_tables(stream)? {
-            self.register_tables(&tables, None, None)?;
+            self.register_tables(&tables, None, None, &sealed_ids)?;
         }
 
         // TODO: 3.0.0 return value
@@ -395,7 +401,7 @@ impl AbstractTree for BlobTree {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.register_tables(&created_tables, Some(&blob_files), None)?;
+        self.register_tables(&created_tables, Some(&blob_files), None, &[])?;
 
         visible_seqno.fetch_max(seqno + 1);
 
@@ -592,8 +598,10 @@ impl AbstractTree for BlobTree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
+        sealed_memtables_to_delete: &[MemtableId],
     ) -> crate::Result<()> {
-        self.index.register_tables(tables, blob_files, frag_map)
+        self.index
+            .register_tables(tables, blob_files, frag_map, sealed_memtables_to_delete)
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
