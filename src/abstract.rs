@@ -70,6 +70,10 @@ pub trait AbstractTree {
         let version_history = self.get_version_history_lock();
         let latest = version_history.latest_version();
 
+        if latest.sealed_memtables.len() == 0 {
+            return Ok(None);
+        }
+
         let sealed_ids = latest
             .sealed_memtables
             .iter()
