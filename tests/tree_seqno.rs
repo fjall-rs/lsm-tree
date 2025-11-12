@@ -48,7 +48,7 @@ fn tree_highest_seqno() -> lsm_tree::Result<()> {
 
     {
         let flush_lock = tree.get_flush_lock();
-        assert!(tree.flush(&flush_lock, 0)?.unwrap());
+        assert!(tree.flush(&flush_lock, 0)?.unwrap() > 0);
     }
 
     assert_eq!(tree.get_highest_seqno(), Some(4));

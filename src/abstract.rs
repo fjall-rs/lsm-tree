@@ -64,7 +64,7 @@ pub trait AbstractTree {
         &self,
         _lock: &MutexGuard<'_, ()>,
         seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<bool>> {
+    ) -> crate::Result<Option<u64>> {
         use crate::{compaction::stream::CompactionStream, merge::Merger};
 
         let version_history = self.get_version_history_lock();
@@ -79,6 +79,8 @@ pub trait AbstractTree {
             .iter()
             .map(|mt| mt.0)
             .collect::<Vec<_>>();
+
+        let flushed_size = latest.sealed_memtables.iter().map(|(_, x)| x.size()).sum();
 
         let merger = Merger::new(
             latest
@@ -95,8 +97,7 @@ pub trait AbstractTree {
             self.register_tables(&tables, blob_files.as_deref(), None, &sealed_ids)?;
         }
 
-        // TODO: 3.0.0 return memtable sizes sum that were flushed
-        Ok(Some(true))
+        Ok(Some(flushed_size))
     }
 
     /// Returns an iterator that scans through the entire tree.

@@ -22,7 +22,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     {
         let flush_lock = tree.get_flush_lock();
-        assert!(tree.flush(&flush_lock, 0)?.unwrap());
+        assert!(tree.flush(&flush_lock, 0)?.unwrap() > 0);
     }
 
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
