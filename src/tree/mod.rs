@@ -340,7 +340,7 @@ impl AbstractTree for Tree {
         );
 
         let mut table_writer =
-            MultiWriter::new(folder.clone(), self.table_id_counter.clone(), 64_000_000, 0)?
+            MultiWriter::new(folder.clone(), self.table_id_counter.clone(), 64 * 1_024 * 1_024, 0)?
                 .use_data_block_restart_interval(data_block_restart_interval)
                 .use_index_block_restart_interval(index_block_restart_interval)
                 .use_data_block_compression(data_block_compression)
