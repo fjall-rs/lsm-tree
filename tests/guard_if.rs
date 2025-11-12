@@ -8,8 +8,8 @@ fn guard_into_inner_if() -> lsm_tree::Result<()> {
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
-        tree.insert("a#name", "peter", 0);
-        tree.insert("a#age", "25", 0);
+        tree.insert("earth#name", "earth", 0);
+        tree.insert("earth#color", "BLUE", 0);
 
         assert_eq!(2, tree.iter(SeqNo::MAX, None).count());
 
