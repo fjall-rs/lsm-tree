@@ -62,6 +62,8 @@ The disk format is stable as of 1.0.0.
 
 2.0.0 uses a new disk format and needs a manual format migration.
 
+3.0.0 uses a new disk format and needs a manual format migration.
+
 Future breaking changes will result in a major version bump and a migration path.
 
 ## Run unit benchmarks
