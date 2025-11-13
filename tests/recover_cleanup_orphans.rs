@@ -10,11 +10,11 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
-        assert!(folder.path().join("tables").join("1").try_exists()?);
+        assert!(folder.path().join("tables").join("0").try_exists()?);
 
         tree.major_compact(u64::MAX, 0)?;
 
-        assert!(folder.path().join("tables").join("2").try_exists()?);
+        assert!(folder.path().join("tables").join("1").try_exists()?);
     }
 
     std::fs::File::create(folder.path().join("tables").join("0"))?;
@@ -23,8 +23,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
         let _tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         assert!(!folder.path().join("tables").join("0").try_exists()?);
-        assert!(!folder.path().join("tables").join("1").try_exists()?);
-        assert!(folder.path().join("tables").join("2").try_exists()?);
+        assert!(folder.path().join("tables").join("1").try_exists()?);
     }
 
     Ok(())
