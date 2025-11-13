@@ -164,6 +164,7 @@ pub type KvPair = (UserKey, UserValue);
 pub use {
     blob_tree::{handle::BlobIndirection, Guard as BlobGuard},
     checksum::Checksum,
+    iter_guard::IterGuardImpl,
     key_range::KeyRange,
     merge::BoxedIterator,
     slice::Builder,

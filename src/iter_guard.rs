@@ -53,8 +53,12 @@ pub trait IterGuard {
     }
 }
 
+/// Generic iterator value
 #[enum_dispatch(IterGuard)]
 pub enum IterGuardImpl {
+    /// Iterator value of a standard LSM-tree
     Standard(StandardGuard),
+
+    /// Iterator value of a key-value separated tree
     Blob(BlobGuard),
 }

@@ -19,7 +19,8 @@ fn guard_into_inner_if() -> lsm_tree::Result<()> {
                 .filter_map(|guard| {
                     guard
                         .into_inner_if(|key| key.ends_with(b"#name"))
-                        .transpose()
+                        .unwrap()
+                        .1
                 })
                 .count(),
         );
