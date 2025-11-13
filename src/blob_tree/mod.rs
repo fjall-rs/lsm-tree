@@ -467,9 +467,16 @@ impl AbstractTree for BlobTree {
             }
         });
 
+        let kv_opts = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist");
+
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_generator.clone(),
-            u64::MAX,
+            kv_opts.file_target_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
         .use_compression(
@@ -481,13 +488,7 @@ impl AbstractTree for BlobTree {
                 .compression,
         );
 
-        let separation_threshold = self
-            .index
-            .config
-            .kv_separation_opts
-            .as_ref()
-            .expect("kv separation options should exist")
-            .separation_threshold;
+        let separation_threshold = kv_opts.separation_threshold;
 
         for item in stream {
             let item = item?;
