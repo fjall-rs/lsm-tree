@@ -344,7 +344,7 @@ impl AbstractTree for BlobTree {
         let results = table_writer.writer.finish()?;
 
         let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.index.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.index.config.index_block_pinning_policy.get(0);
 
         let created_tables = results
             .into_iter()
@@ -538,7 +538,7 @@ impl AbstractTree for BlobTree {
         log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
         let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.index.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.index.config.index_block_pinning_policy.get(0);
 
         // Load tables
         let tables = result

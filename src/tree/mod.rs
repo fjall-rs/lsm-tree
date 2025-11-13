@@ -339,23 +339,27 @@ impl AbstractTree for Tree {
             folder.display(),
         );
 
-        let mut table_writer =
-            MultiWriter::new(folder.clone(), self.table_id_counter.clone(), 64 * 1_024 * 1_024, 0)?
-                .use_data_block_restart_interval(data_block_restart_interval)
-                .use_index_block_restart_interval(index_block_restart_interval)
-                .use_data_block_compression(data_block_compression)
-                .use_index_block_compression(index_block_compression)
-                .use_data_block_size(data_block_size)
-                .use_data_block_hash_ratio(data_block_hash_ratio)
-                .use_bloom_policy({
-                    use crate::config::FilterPolicyEntry::{Bloom, None};
-                    use crate::table::filter::BloomConstructionPolicy;
+        let mut table_writer = MultiWriter::new(
+            folder.clone(),
+            self.table_id_counter.clone(),
+            64 * 1_024 * 1_024,
+            0,
+        )?
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_index_block_compression(index_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
+        .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
+            use crate::table::filter::BloomConstructionPolicy;
 
-                    match self.config.filter_policy.get(0) {
-                        Bloom(policy) => policy,
-                        None => BloomConstructionPolicy::BitsPerKey(0.0),
-                    }
-                });
+            match self.config.filter_policy.get(0) {
+                Bloom(policy) => policy,
+                None => BloomConstructionPolicy::BitsPerKey(0.0),
+            }
+        });
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -373,7 +377,7 @@ impl AbstractTree for Tree {
         log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
         let pin_filter = self.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.index_block_pinning_policy.get(0);
 
         // Load tables
         let tables = result

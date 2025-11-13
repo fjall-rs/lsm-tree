@@ -53,7 +53,9 @@ pub trait AbstractTree {
         Ok(())
     }
 
-    /// Synchronously flushes sealed memtables to tables.
+    /// Synchronously flushes pending sealed memtables to tables.
+    ///
+    /// Returns the sum of flushed memtable sizes that were flushed.
     ///
     /// The function may not return a result, if nothing was flushed.
     ///

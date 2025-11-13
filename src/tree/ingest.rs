@@ -184,7 +184,7 @@ impl<'a> Ingestion<'a> {
         let pin_index = self
             .tree
             .config
-            .filter_block_pinning_policy
+            .index_block_pinning_policy
             .get(INITIAL_CANONICAL_LEVEL);
 
         let created_tables = results
