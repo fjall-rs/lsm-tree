@@ -175,18 +175,6 @@ impl<'a> Ingestion<'a> {
 
         log::info!("Finished ingestion writer");
 
-        let pin_filter = self
-            .tree
-            .config
-            .filter_block_pinning_policy
-            .get(INITIAL_CANONICAL_LEVEL);
-
-        let pin_index = self
-            .tree
-            .config
-            .index_block_pinning_policy
-            .get(INITIAL_CANONICAL_LEVEL);
-
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
@@ -202,8 +190,8 @@ impl<'a> Ingestion<'a> {
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
+                    false,
+                    false,
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),
                 )
@@ -211,7 +199,7 @@ impl<'a> Ingestion<'a> {
             .collect::<crate::Result<Vec<_>>>()?;
 
         self.tree
-            .register_tables(&created_tables, None, None, &[])?;
+            .register_tables(&created_tables, None, None, &[], 0)?;
 
         Ok(())
     }

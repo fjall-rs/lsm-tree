@@ -266,7 +266,7 @@ impl AbstractTree for BlobTree {
         seqno_generator: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        use crate::{compaction::MoveDown, tree::ingest::Ingestion};
+        use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
         let seqno = seqno_generator.next();
@@ -343,9 +343,6 @@ impl AbstractTree for BlobTree {
         let blob_files = blob_writer.finish()?;
         let results = table_writer.writer.finish()?;
 
-        let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.index.config.index_block_pinning_policy.get(0);
-
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
@@ -359,15 +356,15 @@ impl AbstractTree for BlobTree {
                     self.index.id,
                     self.index.config.cache.clone(),
                     self.index.config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
+                    false,
+                    false,
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),
                 )
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.register_tables(&created_tables, Some(&blob_files), None, &[])?;
+        self.register_tables(&created_tables, Some(&blob_files), None, &[], 0)?;
 
         visible_seqno.fetch_max(seqno + 1);
 
@@ -594,9 +591,15 @@ impl AbstractTree for BlobTree {
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         sealed_memtables_to_delete: &[MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
-        self.index
-            .register_tables(tables, blob_files, frag_map, sealed_memtables_to_delete)
+        self.index.register_tables(
+            tables,
+            blob_files,
+            frag_map,
+            sealed_memtables_to_delete,
+            gc_watermark,
+        )
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {

@@ -96,7 +96,13 @@ pub trait AbstractTree {
         drop(version_history);
 
         if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
-            self.register_tables(&tables, blob_files.as_deref(), None, &sealed_ids)?;
+            self.register_tables(
+                &tables,
+                blob_files.as_deref(),
+                None,
+                &sealed_ids,
+                seqno_threshold,
+            )?;
         }
 
         Ok(Some(flushed_size))
@@ -234,6 +240,7 @@ pub trait AbstractTree {
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         sealed_memtables_to_delete: &[MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()>;
 
     /// Clears the active memtable atomically.

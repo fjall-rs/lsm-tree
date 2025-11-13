@@ -407,6 +407,7 @@ impl AbstractTree for Tree {
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
         sealed_memtables_to_delete: &[MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
@@ -437,6 +438,10 @@ impl AbstractTree for Tree {
             },
             &self.config.seqno,
         )?;
+
+        if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
+            log::warn!("Version GC failed: {e:?}");
+        }
 
         Ok(())
     }
