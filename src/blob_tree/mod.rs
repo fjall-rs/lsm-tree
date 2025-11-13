@@ -155,7 +155,7 @@ impl BlobTree {
 
         index
             .0
-            .blob_file_id_generator
+            .blob_file_id_counter
             .set(blob_file_id_to_continue_with);
 
         Ok(Self {
@@ -281,7 +281,7 @@ impl AbstractTree for BlobTree {
 
         let mut table_writer = Ingestion::new(&self.index)?.with_seqno(seqno);
         let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_generator.clone(),
+            self.index.0.blob_file_id_counter.clone(),
             blob_file_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
@@ -498,7 +498,7 @@ impl AbstractTree for BlobTree {
             .expect("kv separation options should exist");
 
         let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_generator.clone(),
+            self.index.0.blob_file_id_counter.clone(),
             kv_opts.file_target_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?

@@ -67,7 +67,7 @@ impl Options {
             global_seqno: tree.config.seqno.clone(),
             tree_id: tree.id,
             table_id_generator: tree.table_id_counter.clone(),
-            blob_file_id_generator: tree.blob_file_id_generator.clone(),
+            blob_file_id_generator: tree.blob_file_id_counter.clone(),
             config: tree.config.clone(),
             version_history: tree.version_history.clone(),
             stop_signal: tree.stop_signal.clone(),

@@ -518,7 +518,7 @@ impl AbstractTree for Tree {
         }
 
         let yanked_memtable = super_version.active_memtable;
-        let tmp_memtable_id = self.get_next_table_id();
+        let memtable_id = self.0.memtable_id_counter.next();
 
         let mut copy = version_history_lock.latest_version();
         copy.seqno = self.config.seqno.next();
@@ -526,12 +526,12 @@ impl AbstractTree for Tree {
         copy.sealed_memtables = Arc::new(
             super_version
                 .sealed_memtables
-                .add(tmp_memtable_id, yanked_memtable.clone()),
+                .add(memtable_id, yanked_memtable.clone()),
         );
 
         version_history_lock.append_version(copy);
 
-        log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
+        log::trace!("rotate: added memtable id={memtable_id} to sealed memtables");
 
         Some(yanked_memtable)
     }
@@ -922,8 +922,9 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
+            memtable_id_counter: SequenceNumberCounter::default(),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
-            blob_file_id_generator: SequenceNumberCounter::default(),
+            blob_file_id_counter: SequenceNumberCounter::default(),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             config,
