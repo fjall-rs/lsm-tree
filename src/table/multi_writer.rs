@@ -101,6 +101,7 @@ impl MultiWriter {
             .entry(indirection.vhandle.blob_file_id)
             .and_modify(|entry| {
                 entry.bytes += u64::from(indirection.size);
+                entry.on_disk_bytes += u64::from(indirection.vhandle.on_disk_size);
                 entry.len += 1;
             })
             .or_insert_with(|| LinkedFile {

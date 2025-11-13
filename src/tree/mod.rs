@@ -16,7 +16,7 @@ use crate::{
     manifest::Manifest,
     memtable::Memtable,
     slice::Slice,
-    table::Table,
+    table::{multi_writer::MultiWriter, Table},
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version, VersionId},
     vlog::BlobFile,
@@ -27,7 +27,7 @@ use inner::{MemtableId, TreeId, TreeInner};
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 #[cfg(feature = "metrics")]
@@ -36,7 +36,7 @@ use crate::metrics::Metrics;
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
 impl IterGuard for Guard {
-    fn into_inner_if(self, pred: impl Fn(&[u8]) -> bool) -> crate::Result<Option<KvPair>> {
+    fn into_inner_if(self, pred: impl Fn(&UserKey) -> bool) -> crate::Result<Option<KvPair>> {
         let (k, v) = self.0?;
 
         if pred(&k) {
@@ -81,12 +81,22 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn get_version_history_lock(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        self.version_history.write().expect("lock is poisoned")
+    }
+
     fn next_table_id(&self) -> TableId {
         self.0.table_id_counter.get()
     }
 
     fn id(&self) -> TreeId {
         self.id
+    }
+
+    fn blob_file_count(&self) -> usize {
+        0
     }
 
     #[expect(clippy::significant_drop_tightening)]
@@ -117,20 +127,8 @@ impl AbstractTree for Tree {
             .version
     }
 
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>> {
-        log::debug!("Flushing active memtable");
-
-        let Some((table_id, yanked_memtable)) = self.rotate_memtable() else {
-            return Ok(None);
-        };
-
-        let Some((table, _)) = self.flush_memtable(table_id, &yanked_memtable, seqno_threshold)?
-        else {
-            return Ok(None);
-        };
-        self.register_tables(std::slice::from_ref(&table), None, None)?;
-
-        Ok(Some(table))
+    fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
+        self.flush_lock.lock().expect("lock is poisoned")
     }
 
     #[cfg(feature = "metrics")]
@@ -312,19 +310,16 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn flush_memtable(
+    fn flush_to_tables(
         &self,
-        table_id: TableId,
-        memtable: &Arc<Memtable>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
-        use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, table::Writer};
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+        use crate::file::TABLES_FOLDER;
         use std::time::Instant;
 
         let start = Instant::now();
 
         let folder = self.config.path.join(TABLES_FOLDER);
-        let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
 
@@ -340,26 +335,31 @@ impl AbstractTree for Tree {
         let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
-            table_file_path.display(),
+            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            folder.display(),
         );
 
-        let mut table_writer = Writer::new(table_file_path, table_id, 0)?
-            .use_data_block_restart_interval(data_block_restart_interval)
-            .use_index_block_restart_interval(index_block_restart_interval)
-            .use_data_block_compression(data_block_compression)
-            .use_index_block_compression(index_block_compression)
-            .use_data_block_size(data_block_size)
-            .use_data_block_hash_ratio(data_block_hash_ratio)
-            .use_bloom_policy({
-                use crate::config::FilterPolicyEntry::{Bloom, None};
-                use crate::table::filter::BloomConstructionPolicy;
+        let mut table_writer = MultiWriter::new(
+            folder.clone(),
+            self.table_id_counter.clone(),
+            64 * 1_024 * 1_024,
+            0,
+        )?
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_index_block_compression(index_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
+        .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
+            use crate::table::filter::BloomConstructionPolicy;
 
-                match self.config.filter_policy.get(0) {
-                    Bloom(policy) => policy,
-                    None => BloomConstructionPolicy::BitsPerKey(0.0),
-                }
-            });
+            match self.config.filter_policy.get(0) {
+                Bloom(policy) => policy,
+                None => BloomConstructionPolicy::BitsPerKey(0.0),
+            }
+        });
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -368,18 +368,36 @@ impl AbstractTree for Tree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
-        let iter = memtable.iter().map(Ok);
-        let compaction_filter = CompactionStream::new(iter, seqno_threshold);
-
-        for item in compaction_filter {
+        for item in stream {
             table_writer.write(item?)?;
         }
 
-        let result = self.consume_writer(table_writer)?;
+        let result = table_writer.finish()?;
 
-        log::debug!("Flushed memtable {table_id:?} in {:?}", start.elapsed());
+        log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
-        Ok(result.map(|table| (table, None)))
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.index_block_pinning_policy.get(0);
+
+        // Load tables
+        let tables = result
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    folder.join(table_id.to_string()),
+                    checksum,
+                    self.id,
+                    self.config.cache.clone(),
+                    self.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Some((tables, None)))
     }
 
     #[expect(clippy::significant_drop_tightening)]
@@ -388,6 +406,8 @@ impl AbstractTree for Tree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
+        sealed_memtables_to_delete: &[MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
@@ -409,15 +429,19 @@ impl AbstractTree for Tree {
                     frag_map.filter(|x| !x.is_empty()),
                 );
 
-                for table in tables {
-                    log::trace!("releasing sealed memtable {}", table.id());
-                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table.id()));
+                for &table_id in sealed_memtables_to_delete {
+                    log::trace!("releasing sealed memtable #{table_id}");
+                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
                 }
 
                 Ok(copy)
             },
             &self.config.seqno,
         )?;
+
+        if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
+            log::warn!("Version GC failed: {e:?}");
+        }
 
         Ok(())
     }
@@ -485,7 +509,7 @@ impl AbstractTree for Tree {
     }
 
     #[expect(clippy::significant_drop_tightening)]
-    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
+    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
         let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
         let super_version = version_history_lock.latest_version();
 
@@ -494,7 +518,7 @@ impl AbstractTree for Tree {
         }
 
         let yanked_memtable = super_version.active_memtable;
-        let tmp_memtable_id = self.get_next_table_id();
+        let memtable_id = self.0.memtable_id_counter.next();
 
         let mut copy = version_history_lock.latest_version();
         copy.seqno = self.config.seqno.next();
@@ -502,14 +526,14 @@ impl AbstractTree for Tree {
         copy.sealed_memtables = Arc::new(
             super_version
                 .sealed_memtables
-                .add(tmp_memtable_id, yanked_memtable.clone()),
+                .add(memtable_id, yanked_memtable.clone()),
         );
 
         version_history_lock.append_version(copy);
 
-        log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
+        log::trace!("rotate: added memtable id={memtable_id} to sealed memtables");
 
-        Some((tmp_memtable_id, yanked_memtable))
+        Some(yanked_memtable)
     }
 
     fn table_count(&self) -> usize {
@@ -682,38 +706,6 @@ impl Tree {
         }?;
 
         Ok(tree)
-    }
-
-    pub(crate) fn consume_writer(
-        &self,
-        writer: crate::table::Writer,
-    ) -> crate::Result<Option<Table>> {
-        let table_file_path = writer.path.clone();
-
-        let Some((_, checksum)) = writer.finish()? else {
-            return Ok(None);
-        };
-
-        log::debug!("Finalized table write at {}", table_file_path.display());
-
-        let pin_filter = self.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.config.filter_block_pinning_policy.get(0);
-
-        let created_table = Table::recover(
-            table_file_path,
-            checksum,
-            self.id,
-            self.config.cache.clone(),
-            self.config.descriptor_table.clone(),
-            pin_filter,
-            pin_index,
-            #[cfg(feature = "metrics")]
-            self.metrics.clone(),
-        )?;
-
-        log::debug!("Flushed table to {:?}", created_table.path);
-
-        Ok(Some(created_table))
     }
 
     /// Returns `true` if there are some tables that are being compacted.
@@ -930,12 +922,14 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
+            memtable_id_counter: SequenceNumberCounter::default(),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
-            blob_file_id_generator: SequenceNumberCounter::default(),
+            blob_file_id_counter: SequenceNumberCounter::default(),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
+            flush_lock: Mutex::default(),
             compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]

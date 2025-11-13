@@ -34,13 +34,17 @@ pub struct TreeInner {
     /// Unique tree ID
     pub id: TreeId,
 
+    /// Hands out a unique (monotonically increasing) memtable ID
+    #[doc(hidden)]
+    pub memtable_id_counter: SequenceNumberCounter,
+
     /// Hands out a unique (monotonically increasing) table ID
     #[doc(hidden)]
     pub table_id_counter: SequenceNumberCounter,
 
     // This is not really used in the normal tree, but we need it in the blob tree
     /// Hands out a unique (monotonically increasing) blob file ID
-    pub(crate) blob_file_id_generator: SequenceNumberCounter,
+    pub(crate) blob_file_id_counter: SequenceNumberCounter,
 
     pub(crate) version_history: Arc<RwLock<SuperVersions>>,
 
@@ -59,6 +63,8 @@ pub struct TreeInner {
     /// can be concurrent next to each other.
     pub(crate) major_compaction_lock: RwLock<()>,
 
+    pub(crate) flush_lock: Mutex<()>,
+
     #[doc(hidden)]
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,
@@ -71,12 +77,14 @@ impl TreeInner {
 
         Ok(Self {
             id: get_next_tree_id(),
+            memtable_id_counter: SequenceNumberCounter::default(),
             table_id_counter: SequenceNumberCounter::default(),
-            blob_file_id_generator: SequenceNumberCounter::default(),
+            blob_file_id_counter: SequenceNumberCounter::default(),
             config,
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
+            flush_lock: Mutex::default(),
             compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]

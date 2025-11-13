@@ -67,7 +67,7 @@ impl Options {
             global_seqno: tree.config.seqno.clone(),
             tree_id: tree.id,
             table_id_generator: tree.table_id_counter.clone(),
-            blob_file_id_generator: tree.blob_file_id_generator.clone(),
+            blob_file_id_generator: tree.blob_file_id_counter.clone(),
             config: tree.config.clone(),
             version_history: tree.version_history.clone(),
             stop_signal: tree.stop_signal.clone(),
@@ -618,12 +618,18 @@ mod tests {
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
+        assert_eq!(1, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
+
         tree.insert("b", "a", 1);
         tree.flush_active_memtable(0)?;
+        assert_eq!(2, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
+
         tree.insert("c", "a", 2);
         tree.flush_active_memtable(0)?;
-
         assert_eq!(3, tree.approximate_len());
+        assert_eq!(0, tree.sealed_memtable_count());
 
         tree.compact(Arc::new(crate::compaction::Fifo::new(1, None)), 3)?;
 
@@ -668,6 +674,7 @@ mod tests {
         tree.insert("b", "b", 0);
         tree.insert("c", "c", 0);
         tree.flush_active_memtable(1_000)?;
+        assert_eq!(0, tree.sealed_memtable_count());
         assert_eq!(1, tree.table_count());
         assert_eq!(1, tree.blob_file_count());
 
