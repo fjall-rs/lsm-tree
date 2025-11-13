@@ -14,7 +14,7 @@ pub trait IterGuard {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn into_inner_if(self, pred: impl Fn(&[u8]) -> bool) -> crate::Result<Option<KvPair>>;
+    fn into_inner_if(self, pred: impl Fn(&UserKey) -> bool) -> crate::Result<Option<KvPair>>;
 
     /// Accesses the key-value pair.
     ///

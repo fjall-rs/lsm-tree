@@ -36,7 +36,7 @@ use crate::metrics::Metrics;
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
 impl IterGuard for Guard {
-    fn into_inner_if(self, pred: impl Fn(&[u8]) -> bool) -> crate::Result<Option<KvPair>> {
+    fn into_inner_if(self, pred: impl Fn(&UserKey) -> bool) -> crate::Result<Option<KvPair>> {
         let (k, v) = self.0?;
 
         if pred(&k) {

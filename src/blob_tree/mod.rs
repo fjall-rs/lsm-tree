@@ -36,7 +36,10 @@ pub struct Guard {
 }
 
 impl IterGuard for Guard {
-    fn into_inner_if(self, pred: impl Fn(&[u8]) -> bool) -> crate::Result<Option<crate::KvPair>> {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<Option<crate::KvPair>> {
         let kv = self.kv?;
 
         if pred(&kv.key.user_key) {
