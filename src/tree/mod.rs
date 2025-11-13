@@ -33,16 +33,20 @@ use std::{
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
+/// Iterator value guard
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
 impl IterGuard for Guard {
-    fn into_inner_if(self, pred: impl Fn(&UserKey) -> bool) -> crate::Result<Option<KvPair>> {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
         let (k, v) = self.0?;
 
         if pred(&k) {
-            Ok(Some((k, v)))
+            Ok((k, Some(v)))
         } else {
-            Ok(None)
+            Ok((k, None))
         }
     }
 

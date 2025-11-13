@@ -29,6 +29,7 @@ use std::{
     sync::{Arc, MutexGuard},
 };
 
+/// Iterator value guard
 pub struct Guard {
     tree: crate::BlobTree,
     version: Version,
@@ -39,7 +40,7 @@ impl IterGuard for Guard {
     fn into_inner_if(
         self,
         pred: impl Fn(&UserKey) -> bool,
-    ) -> crate::Result<Option<crate::KvPair>> {
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
         let kv = self.kv?;
 
         if pred(&kv.key.user_key) {
@@ -51,9 +52,9 @@ impl IterGuard for Guard {
                 &self.version,
                 kv,
             )
-            .map(Some)
+            .map(|(k, v)| (k, Some(v)))
         } else {
-            Ok(None)
+            Ok((kv.key.user_key, None))
         }
     }
 

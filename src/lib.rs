@@ -162,7 +162,7 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
-    blob_tree::handle::BlobIndirection,
+    blob_tree::{handle::BlobIndirection, Guard as BlobGuard},
     checksum::Checksum,
     key_range::KeyRange,
     merge::BoxedIterator,
@@ -170,6 +170,7 @@ pub use {
     table::{GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
+    tree::Guard as StandardGuard,
     value::InternalValue,
 };
 
