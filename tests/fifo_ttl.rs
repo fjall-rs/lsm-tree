@@ -17,7 +17,7 @@ fn fifo_ttl_no_drop_when_recent_or_disabled() -> lsm_tree::Result<()> {
     assert_eq!(2, tree.table_count());
 
     // TTL enabled but not yet expired
-    let fifo_recent = Arc::new(Fifo::new(u64::MAX, Some(1)));
+    let fifo_recent = Arc::new(Fifo::new(u64::MAX, Some(15)));
     tree.compact(fifo_recent, 2)?;
     assert_eq!(2, tree.table_count());
 
