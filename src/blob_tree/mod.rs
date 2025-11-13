@@ -449,14 +449,33 @@ impl AbstractTree for BlobTree {
         log::debug!("=> to table(s) in {}", table_folder.display());
         log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
+        let data_block_size = self.index.config.data_block_size_policy.get(0);
+
+        let data_block_restart_interval =
+            self.index.config.data_block_restart_interval_policy.get(0);
+        let index_block_restart_interval =
+            self.index.config.index_block_restart_interval_policy.get(0);
+
+        let data_block_compression = self.index.config.data_block_compression_policy.get(0);
+        let index_block_compression = self.index.config.index_block_compression_policy.get(0);
+
+        let data_block_hash_ratio = self.index.config.data_block_hash_ratio_policy.get(0);
+
+        let index_partitioning = self.index.config.index_block_partitioning_policy.get(0);
+        let filter_partitioning = self.index.config.filter_block_partitioning_policy.get(0);
+
         let mut table_writer = MultiWriter::new(
             table_folder.clone(),
             self.index.table_id_counter.clone(),
             64_000_000,
             0,
         )?
-        // TODO: 3.0.0 apply other policies
-        .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_index_block_compression(index_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
         .use_bloom_policy({
             use crate::config::FilterPolicyEntry::{Bloom, None};
             use crate::table::filter::BloomConstructionPolicy;
@@ -466,6 +485,13 @@ impl AbstractTree for BlobTree {
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
         });
+
+        if index_partitioning {
+            table_writer = table_writer.use_partitioned_index();
+        }
+        if filter_partitioning {
+            table_writer = table_writer.use_partitioned_filter();
+        }
 
         let kv_opts = self
             .index
