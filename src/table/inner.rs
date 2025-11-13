@@ -49,6 +49,10 @@ pub struct Inner {
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
 
+    /// Name of the prefix extractor used when this table was created, if any.
+    /// Used to determine compatibility with the current extractor for prefix-aware filtering.
+    pub prefix_extractor_name: Option<String>,
+
     pub is_deleted: AtomicBool,
 
     pub(super) checksum: Checksum,

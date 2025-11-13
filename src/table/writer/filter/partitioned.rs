@@ -150,14 +150,33 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
-        self.approx_filter_size +=
-            self.bloom_policy
-                .estimated_key_bits(self.bloom_hash_buffer.len()) as usize;
+        // Approximate filter size in BYTES = bits_per_key(n) * n / 8
+        let n = self.bloom_hash_buffer.len();
+        let bpk = self.bloom_policy.estimated_key_bits(n) as f64;
+        self.approx_filter_size = ((bpk * n as f64) / 8.0) as usize;
 
         self.last_key = Some(key.clone());
 
         if self.approx_filter_size >= self.partition_size as usize {
             self.spill_filter_partition(key)?;
+        }
+
+        Ok(())
+    }
+
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
+        self.bloom_hash_buffer.push(Builder::get_hash(bytes));
+
+        // Approximate filter size in BYTES = bits_per_key(n) * n / 8
+        let n = self.bloom_hash_buffer.len();
+        let bpk = self.bloom_policy.estimated_key_bits(n) as f64;
+        self.approx_filter_size = ((bpk * n as f64) / 8.0) as usize;
+
+        if self.approx_filter_size >= self.partition_size as usize {
+            // We register prefixes only after a key has been seen, so last_key should exist
+            if let Some(key) = self.last_key.clone() {
+                self.spill_filter_partition(&key)?;
+            }
         }
 
         Ok(())
