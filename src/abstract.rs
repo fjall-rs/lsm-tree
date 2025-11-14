@@ -25,6 +25,12 @@ pub type RangeItem = crate::Result<KvPair>;
 /// Generic Tree API
 #[enum_dispatch]
 pub trait AbstractTree {
+    // TODO: remove
+    #[doc(hidden)]
+    fn version_memtable_size_sum(&self) -> u64 {
+        self.get_version_history_lock().memtable_size_sum()
+    }
+
     #[doc(hidden)]
     fn next_table_id(&self) -> TableId;
 
@@ -79,16 +85,16 @@ pub trait AbstractTree {
         let sealed_ids = latest
             .sealed_memtables
             .iter()
-            .map(|mt| mt.0)
+            .map(|mt| mt.id)
             .collect::<Vec<_>>();
 
-        let flushed_size = latest.sealed_memtables.iter().map(|(_, x)| x.size()).sum();
+        let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
 
         let merger = Merger::new(
             latest
                 .sealed_memtables
                 .iter()
-                .map(|(_, mt)| mt.iter().map(Ok))
+                .map(|mt| mt.iter().map(Ok))
                 .collect::<Vec<_>>(),
         );
         let stream = CompactionStream::new(merger, seqno_threshold);
@@ -258,7 +264,7 @@ pub trait AbstractTree {
     /// Adds a sealed memtables.
     ///
     /// May be used to restore the LSM-tree's in-memory state from some journals.
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>);
+    fn add_sealed_memtable(&self, memtable: Arc<Memtable>);
 
     /// Performs compaction on the tree's levels, blocking the caller until it's done.
     ///

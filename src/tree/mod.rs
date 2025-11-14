@@ -455,7 +455,7 @@ impl AbstractTree for Tree {
             .write()
             .expect("lock is poisoned")
             .latest_version()
-            .active_memtable = Arc::new(Memtable::default());
+            .active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
@@ -466,9 +466,9 @@ impl AbstractTree for Tree {
             .active_memtable = Arc::new(memtable);
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
+    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
-        version_lock.append_sealed_memtable(id, memtable);
+        version_lock.append_sealed_memtable(memtable);
     }
 
     fn compact(
@@ -522,20 +522,19 @@ impl AbstractTree for Tree {
         }
 
         let yanked_memtable = super_version.active_memtable;
-        let memtable_id = self.0.memtable_id_counter.next();
 
         let mut copy = version_history_lock.latest_version();
         copy.seqno = self.config.seqno.next();
-        copy.active_memtable = Arc::new(Memtable::default());
-        copy.sealed_memtables = Arc::new(
-            super_version
-                .sealed_memtables
-                .add(memtable_id, yanked_memtable.clone()),
-        );
+        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.sealed_memtables =
+            Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
 
         version_history_lock.append_version(copy);
 
-        log::trace!("rotate: added memtable id={memtable_id} to sealed memtables");
+        log::trace!(
+            "rotate: added memtable id={} to sealed memtables",
+            yanked_memtable.id,
+        );
 
         Some(yanked_memtable)
     }
@@ -566,7 +565,7 @@ impl AbstractTree for Tree {
         let sealed_count = super_version
             .sealed_memtables
             .iter()
-            .map(|(_, mt)| mt.len())
+            .map(|mt| mt.len())
             .sum::<usize>() as u64;
 
         (memtable_count + sealed_count + tables_item_count)
@@ -594,7 +593,7 @@ impl AbstractTree for Tree {
         let sealed = version
             .sealed_memtables
             .iter()
-            .map(|(_, table)| table.get_highest_seqno())
+            .map(|mt| mt.get_highest_seqno())
             .max()
             .flatten();
 
@@ -729,8 +728,8 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
     ) -> Option<InternalValue> {
-        for (_, memtable) in super_version.sealed_memtables.iter().rev() {
-            if let Some(entry) = memtable.get(key, seqno) {
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if let Some(entry) = mt.get(key, seqno) {
                 return Some(entry);
             }
         }

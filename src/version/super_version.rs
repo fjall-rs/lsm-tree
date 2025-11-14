@@ -4,7 +4,7 @@
 
 use crate::{
     memtable::Memtable,
-    tree::{inner::MemtableId, sealed::SealedMemtables},
+    tree::sealed::SealedMemtables,
     version::{persist_version, Version},
     SeqNo, SequenceNumberCounter,
 };
@@ -31,13 +31,31 @@ impl SuperVersions {
     pub fn new(version: Version) -> Self {
         Self(
             vec![SuperVersion {
-                active_memtable: Arc::default(),
+                active_memtable: Arc::new(Memtable::new(0)),
                 sealed_memtables: Arc::default(),
                 version,
                 seqno: 0,
             }]
             .into(),
         )
+    }
+
+    pub fn memtable_size_sum(&self) -> u64 {
+        let mut set = crate::HashMap::default();
+
+        for super_version in &self.0 {
+            set.entry(super_version.active_memtable.id)
+                .and_modify(|bytes| *bytes += super_version.active_memtable.size())
+                .or_insert_with(|| super_version.active_memtable.size());
+
+            for sealed in super_version.sealed_memtables.iter() {
+                set.entry(sealed.id)
+                    .and_modify(|bytes| *bytes += sealed.size())
+                    .or_insert_with(|| sealed.size());
+            }
+        }
+
+        set.into_values().sum()
     }
 
     pub fn free_list_len(&self) -> usize {
@@ -140,9 +158,9 @@ impl SuperVersions {
         version.expect("should always find a SuperVersion")
     }
 
-    pub fn append_sealed_memtable(&mut self, id: MemtableId, memtable: Arc<Memtable>) {
+    pub fn append_sealed_memtable(&mut self, memtable: Arc<Memtable>) {
         let mut copy = self.latest_version();
-        copy.sealed_memtables = Arc::new(copy.sealed_memtables.add(id, memtable));
+        copy.sealed_memtables = Arc::new(copy.sealed_memtables.add(memtable));
         self.0.push_back(copy);
     }
 }

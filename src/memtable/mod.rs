@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
+use crate::tree::inner::MemtableId;
 use crate::{
     value::{InternalValue, SeqNo, UserValue},
     ValueType,
@@ -14,8 +15,10 @@ use std::sync::atomic::AtomicU64;
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
 /// When the Memtable exceeds some size, it should be flushed to a table.
-#[derive(Default)]
 pub struct Memtable {
+    #[doc(hidden)]
+    pub id: MemtableId,
+
     /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
     pub items: SkipMap<InternalKey, UserValue>,
@@ -32,6 +35,17 @@ pub struct Memtable {
 }
 
 impl Memtable {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn new(id: MemtableId) -> Self {
+        Self {
+            id,
+            items: SkipMap::default(),
+            approximate_size: AtomicU64::default(),
+            highest_seqno: AtomicU64::default(),
+        }
+    }
+
     /// Clears the memtable.
     pub fn clear(&mut self) {
         self.items.clear();
@@ -161,7 +175,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used)]
     fn memtable_mvcc_point_read() {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0);
 
         memtable.insert(InternalValue::from_components(
             *b"hello-key-999991",
@@ -204,7 +218,7 @@ mod tests {
 
     #[test]
     fn memtable_get() {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0);
 
         let value =
             InternalValue::from_components(b"abc".to_vec(), b"abc".to_vec(), 0, ValueType::Value);
@@ -216,7 +230,7 @@ mod tests {
 
     #[test]
     fn memtable_get_highest_seqno() {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),
@@ -262,7 +276,7 @@ mod tests {
 
     #[test]
     fn memtable_get_prefix() {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc0".to_vec(),
@@ -300,7 +314,7 @@ mod tests {
 
     #[test]
     fn memtable_get_old_version() {
-        let memtable = Memtable::default();
+        let memtable = Memtable::new(0);
 
         memtable.insert(InternalValue::from_components(
             b"abc".to_vec(),

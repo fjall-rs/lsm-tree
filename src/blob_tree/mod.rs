@@ -610,8 +610,8 @@ impl AbstractTree for BlobTree {
         self.index.set_active_memtable(memtable);
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
-        self.index.add_sealed_memtable(id, memtable);
+    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
+        self.index.add_sealed_memtable(memtable);
     }
 
     fn compact(

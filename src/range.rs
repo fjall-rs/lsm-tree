@@ -192,7 +192,7 @@ impl TreeIter {
             }
 
             // Sealed memtables
-            for (_, memtable) in lock.version.sealed_memtables.iter() {
+            for memtable in lock.version.sealed_memtables.iter() {
                 let iter = memtable.range(range.clone());
 
                 iters.push(Box::new(
