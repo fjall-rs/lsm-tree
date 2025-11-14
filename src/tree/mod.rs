@@ -7,27 +7,25 @@ pub mod inner;
 pub mod sealed;
 
 use crate::{
-    blob_tree::FragmentationMap,
-    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
+    compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
-    file::BLOBS_FOLDER,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
     slice::Slice,
-    table::{multi_writer::MultiWriter, Table},
+    table::Table,
     value::InternalValue,
-    version::{recovery::recover, SuperVersion, SuperVersions, Version, VersionId},
+    version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SeqNo, SequenceNumberCounter, TableId,
-    TreeType, UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, TreeType,
+    UserKey, UserValue, ValueType,
 };
-use inner::{MemtableId, TreeId, TreeInner};
+use inner::{TreeId, TreeInner};
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 #[cfg(feature = "metrics")]
@@ -131,7 +129,7 @@ impl AbstractTree for Tree {
             .version
     }
 
-    fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
+    fn get_flush_lock(&self) -> std::sync::MutexGuard<'_, ()> {
         self.flush_lock.lock().expect("lock is poisoned")
     }
 
@@ -318,7 +316,7 @@ impl AbstractTree for Tree {
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
-        use crate::file::TABLES_FOLDER;
+        use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
         use std::time::Instant;
 
         let start = Instant::now();
@@ -409,8 +407,8 @@ impl AbstractTree for Tree {
         &self,
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
-        frag_map: Option<FragmentationMap>,
-        sealed_memtables_to_delete: &[MemtableId],
+        frag_map: Option<crate::blob_tree::FragmentationMap>,
+        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
         gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
@@ -933,7 +931,9 @@ impl Tree {
             config,
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
+            compaction_state: Arc::new(Mutex::new(
+                crate::compaction::state::CompactionState::default(),
+            )),
 
             #[cfg(feature = "metrics")]
             metrics,
@@ -989,7 +989,7 @@ impl Tree {
         tree_path: P,
         tree_id: TreeId,
         cache: &Arc<Cache>,
-        descriptor_table: &Arc<DescriptorTable>,
+        descriptor_table: &Arc<crate::DescriptorTable>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
         use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
@@ -1111,7 +1111,7 @@ impl Tree {
         log::debug!("Successfully recovered {} tables", tables.len());
 
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
-            &tree_path.join(BLOBS_FOLDER),
+            &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
 
@@ -1134,7 +1134,10 @@ impl Tree {
         Ok(version)
     }
 
-    fn cleanup_orphaned_version(path: &Path, latest_version_id: VersionId) -> crate::Result<()> {
+    fn cleanup_orphaned_version(
+        path: &Path,
+        latest_version_id: crate::version::VersionId,
+    ) -> crate::Result<()> {
         let version_str = format!("v{latest_version_id}");
 
         for file in std::fs::read_dir(path)? {

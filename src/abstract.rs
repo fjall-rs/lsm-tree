@@ -3,18 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::FragmentationMap,
-    compaction::CompactionStrategy,
-    config::TreeType,
-    iter_guard::IterGuardImpl,
-    table::Table,
-    tree::inner::MemtableId,
-    version::{SuperVersions, Version},
-    vlog::BlobFile,
-    AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
-    SequenceNumberCounter, TableId, Tree, TreeId, UserKey, UserValue,
+    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
+    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, SequenceNumberCounter, TableId, Tree,
+    UserKey, UserValue,
 };
-use enum_dispatch::enum_dispatch;
 use std::{
     ops::RangeBounds,
     sync::{Arc, MutexGuard, RwLockWriteGuard},
@@ -23,7 +15,7 @@ use std::{
 pub type RangeItem = crate::Result<KvPair>;
 
 /// Generic Tree API
-#[enum_dispatch]
+#[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
     // TODO: remove
     #[doc(hidden)]
@@ -35,7 +27,7 @@ pub trait AbstractTree {
     fn next_table_id(&self) -> TableId;
 
     #[doc(hidden)]
-    fn id(&self) -> TreeId;
+    fn id(&self) -> crate::TreeId;
 
     #[doc(hidden)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
@@ -44,7 +36,7 @@ pub trait AbstractTree {
     fn current_version(&self) -> Version;
 
     #[doc(hidden)]
-    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, SuperVersions>;
+    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, crate::version::SuperVersions>;
 
     /// Seals the active memtable and flushes to table(s).
     ///
@@ -244,8 +236,8 @@ pub trait AbstractTree {
         &self,
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
-        frag_map: Option<FragmentationMap>,
-        sealed_memtables_to_delete: &[MemtableId],
+        frag_map: Option<crate::blob_tree::FragmentationMap>,
+        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
         gc_watermark: SeqNo,
     ) -> crate::Result<()>;
 
@@ -273,7 +265,7 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn compact(
         &self,
-        strategy: Arc<dyn CompactionStrategy>,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 
@@ -296,7 +288,7 @@ pub trait AbstractTree {
     fn active_memtable_size(&self) -> u64;
 
     /// Returns the tree type.
-    fn tree_type(&self) -> TreeType;
+    fn tree_type(&self) -> crate::TreeType;
 
     /// Seals the active memtable.
     fn rotate_memtable(&self) -> Option<Arc<Memtable>>;
