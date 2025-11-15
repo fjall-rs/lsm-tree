@@ -63,6 +63,10 @@ impl SuperVersions {
     }
 
     pub(crate) fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+        if gc_watermark == 0 {
+            return Ok(());
+        }
+
         log::trace!("Running manifest GC with watermark={gc_watermark}");
 
         loop {
@@ -75,6 +79,12 @@ impl SuperVersions {
             };
 
             if head.seqno < gc_watermark {
+                log::trace!(
+                    "Removing version #{} (seqno={})",
+                    head.version.id(),
+                    head.seqno,
+                );
+
                 let path = folder.join(format!("v{}", head.version.id()));
                 if path.try_exists()? {
                     std::fs::remove_file(path)?;
