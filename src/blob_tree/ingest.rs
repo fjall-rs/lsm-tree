@@ -151,12 +151,12 @@ impl<'a> BlobIngestion<'a> {
         let blob_files = self.blob.finish()?;
         let results = self.table.writer.finish()?;
 
-        let pin_filter = index.config.filter_block_pinning_policy.get(0);
-        let pin_index = index.config.index_block_pinning_policy.get(0);
-
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
+                // Do not pin ingestion output tables here. Large ingests are
+                // typically placed in level 1 and would otherwise keep all
+                // filter and index blocks pinned, increasing memory pressure.
                 Table::recover(
                     index
                         .config
@@ -167,8 +167,8 @@ impl<'a> BlobIngestion<'a> {
                     index.id,
                     index.config.cache.clone(),
                     index.config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
+                    false,
+                    false,
                     #[cfg(feature = "metrics")]
                     index.metrics.clone(),
                 )

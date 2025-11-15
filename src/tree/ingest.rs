@@ -219,18 +219,6 @@ impl<'a> Ingestion<'a> {
 
         log::info!("Finished ingestion writer");
 
-        let pin_filter = self
-            .tree
-            .config
-            .filter_block_pinning_policy
-            .get(INITIAL_CANONICAL_LEVEL);
-
-        let pin_index = self
-            .tree
-            .config
-            .index_block_pinning_policy
-            .get(INITIAL_CANONICAL_LEVEL);
-
         // Turn the writer output into fully recovered tables that can be
         // registered as a fresh L0 run.
         let created_tables = results
@@ -242,14 +230,17 @@ impl<'a> Ingestion<'a> {
                 //  .with_metrics(metrics)
                 //  .run(path, tree_id, cache, descriptor_table);
 
+                // Do not pin ingestion output tables here. Large ingests are
+                // typically placed in level 1 and would otherwise keep all
+                // filter and index blocks pinned, increasing memory pressure.
                 Table::recover(
                     self.folder.join(table_id.to_string()),
                     checksum,
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
+                    false,
+                    false,
                     #[cfg(feature = "metrics")]
                     self.tree.metrics.clone(),
                 )
