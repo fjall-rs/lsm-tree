@@ -12,15 +12,15 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder, seqno.clone()).open()?;
 
-    tree.ingest(
-        (0..ITEM_COUNT as u64).map(|x| {
-            let k = x.to_be_bytes();
-            let v = nanoid::nanoid!();
-            (k.into(), v.into())
-        }),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = tree.ingestion()?.with_seqno(seq);
+    for x in 0..ITEM_COUNT as u64 {
+        let k = x.to_be_bytes();
+        let v = nanoid::nanoid!();
+        ingestion.write(k.into(), v.into())?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -47,15 +47,15 @@ fn tree_copy() -> lsm_tree::Result<()> {
 
     let src = Config::new(folder, seqno.clone()).open()?;
 
-    src.ingest(
-        (0..ITEM_COUNT as u64).map(|x| {
-            let k = x.to_be_bytes();
-            let v = nanoid::nanoid!();
-            (k.into(), v.into())
-        }),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = src.ingestion()?.with_seqno(seq);
+    for x in 0..ITEM_COUNT as u64 {
+        let k = x.to_be_bytes();
+        let v = nanoid::nanoid!();
+        ingestion.write(k.into(), v.into())?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -73,13 +73,14 @@ fn tree_copy() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let dest = Config::new(folder, seqno.clone()).open()?;
 
-    dest.ingest(
-        src.iter(SeqNo::MAX, None)
-            .map(|x| x.into_inner())
-            .map(|x| x.unwrap()),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = dest.ingestion()?.with_seqno(seq);
+    for item in src.iter(SeqNo::MAX, None) {
+        let (k, v) = item.into_inner().unwrap();
+        ingestion.write(k, v)?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -108,15 +109,15 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
-    tree.ingest(
-        (0..ITEM_COUNT as u64).map(|x| {
-            let k = x.to_be_bytes();
-            let v = nanoid::nanoid!();
-            (k.into(), v.into())
-        }),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = tree.ingestion()?.with_seqno(seq);
+    for x in 0..ITEM_COUNT as u64 {
+        let k = x.to_be_bytes();
+        let v = nanoid::nanoid!();
+        ingestion.write(k.into(), v.into())?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -146,15 +147,15 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
-    src.ingest(
-        (0..ITEM_COUNT as u64).map(|x| {
-            let k = x.to_be_bytes();
-            let v = nanoid::nanoid!();
-            (k.into(), v.into())
-        }),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = src.ingestion()?.with_seqno(seq);
+    for x in 0..ITEM_COUNT as u64 {
+        let k = x.to_be_bytes();
+        let v = nanoid::nanoid!();
+        ingestion.write(k.into(), v.into())?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -175,13 +176,14 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
-    dest.ingest(
-        src.iter(SeqNo::MAX, None)
-            .map(|x| x.into_inner())
-            .map(|x| x.unwrap()),
-        &seqno,
-        &visible_seqno,
-    )?;
+    let seq = seqno.next();
+    let mut ingestion = dest.ingestion()?.with_seqno(seq);
+    for item in src.iter(SeqNo::MAX, None) {
+        let (k, v) = item.into_inner().unwrap();
+        ingestion.write(k, v)?;
+    }
+    ingestion.finish()?;
+    visible_seqno.fetch_max(seq + 1);
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(

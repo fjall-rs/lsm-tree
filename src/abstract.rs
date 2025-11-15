@@ -3,9 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, SequenceNumberCounter, TableId, Tree,
-    UserKey, UserValue,
+    blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
+    iter_guard::IterGuardImpl, table::Table, tree::inner::MemtableId, version::Version,
+    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
+    TableId, Tree, TreeId, UserKey, UserValue,
 };
 use std::{
     ops::RangeBounds,
@@ -136,27 +137,6 @@ pub trait AbstractTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
-
-    /// Ingests a sorted stream of key-value pairs into the tree.
-    ///
-    /// Can only be called on a new fresh, empty tree.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if an IO error occurs.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tree is **not** initially empty.
-    ///
-    /// Will panic if the input iterator is not sorted in ascending order.
-    #[doc(hidden)]
-    fn ingest(
-        &self,
-        iter: impl Iterator<Item = (UserKey, UserValue)>,
-        seqno_generator: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()>;
 
     /// Returns the approximate number of tombstones in the tree.
     fn tombstone_count(&self) -> u64;
