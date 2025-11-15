@@ -7,7 +7,7 @@ pub mod inner;
 pub mod sealed;
 
 use crate::{
-    compaction::{drop_range::OwnedBounds, CompactionStrategy},
+    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
@@ -103,8 +103,14 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        // Returns the newest visible version (`entry.seqno < seqno`) by consulting sources
+        // in recency order and returning on first hit: active memtable, sealed memtables,
+        // then tables (each scanned newest-first).
+
         let version_history_lock = self.version_history.read().expect("lock is poisoned");
         let super_version = version_history_lock.get_version_for_snapshot(seqno);
+        // Avoid holding the read lock across potential I/O in table lookups
+        drop(version_history_lock);
 
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
@@ -118,7 +124,13 @@ impl AbstractTree for Tree {
         }
 
         // Now look in tables... this may involve disk I/O
-        self.get_internal_entry_from_tables(&super_version.version, key, seqno)
+        if let Some(entry) =
+            self.get_internal_entry_from_tables(&super_version.version, key, seqno)?
+        {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        Ok(None)
     }
 
     fn current_version(&self) -> Version {
@@ -191,48 +203,6 @@ impl AbstractTree for Tree {
             .iter_tables()
             .map(Table::weak_tombstone_reclaimable)
             .sum()
-    }
-
-    fn ingest(
-        &self,
-        iter: impl Iterator<Item = (UserKey, UserValue)>,
-        seqno_generator: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()> {
-        use crate::tree::ingest::Ingestion;
-        use std::time::Instant;
-
-        let seqno = seqno_generator.next();
-
-        // TODO: allow ingestion always, by flushing memtable
-
-        let mut writer = Ingestion::new(self)?.with_seqno(seqno);
-
-        let start = Instant::now();
-        let mut count = 0;
-        let mut last_key = None;
-
-        for (key, value) in iter {
-            if let Some(last_key) = &last_key {
-                assert!(
-                    key > last_key,
-                    "next key in bulk ingest was not greater than last key, last: {last_key:?}, next: {key:?}",
-                );
-            }
-            last_key = Some(key.clone());
-
-            writer.write(key, value)?;
-
-            count += 1;
-        }
-
-        writer.finish()?;
-
-        visible_seqno.fetch_max(seqno + 1);
-
-        log::info!("Ingested {count} items in {:?}", start.elapsed());
-
-        Ok(())
     }
 
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
@@ -545,7 +515,6 @@ impl AbstractTree for Tree {
         self.current_version().level(idx).map(|x| x.table_count())
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
         let super_version = self
             .version_history
@@ -578,7 +547,6 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         let version = self
             .version_history
@@ -709,6 +677,38 @@ impl Tree {
         Ok(tree)
     }
 
+    pub(crate) fn consume_writer(
+        &self,
+        writer: crate::table::Writer,
+    ) -> crate::Result<Option<Table>> {
+        let table_file_path = writer.path.clone();
+
+        let Some((_, checksum)) = writer.finish()? else {
+            return Ok(None);
+        };
+
+        log::debug!("Finalized table write at {}", table_file_path.display());
+
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.index_block_pinning_policy.get(0);
+
+        let created_table = Table::recover(
+            table_file_path,
+            checksum,
+            self.id,
+            self.config.cache.clone(),
+            self.config.descriptor_table.clone(),
+            pin_filter,
+            pin_index,
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
+        )?;
+
+        log::debug!("Flushed table to {:?}", created_table.path);
+
+        Ok(Some(created_table))
+    }
+
     /// Returns `true` if there are some tables that are being compacted.
     #[doc(hidden)]
     #[must_use]
@@ -731,10 +731,10 @@ impl Tree {
                 return Some(entry);
             }
         }
-
         None
     }
 
+    // Scan levels top-down and runs newest-first; return the first table hit
     fn get_internal_entry_from_tables(
         &self,
         version: &Version,
@@ -751,7 +751,7 @@ impl Tree {
                 if run.len() >= 4 {
                     if let Some(table) = run.get_for_key(key) {
                         if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
+                            return Ok(Some(item));
                         }
                     }
                 } else {
@@ -762,7 +762,7 @@ impl Tree {
                         }
 
                         if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
+                            return Ok(Some(item));
                         }
                     }
                 }
@@ -931,9 +931,7 @@ impl Tree {
             config,
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
-            compaction_state: Arc::new(Mutex::new(
-                crate::compaction::state::CompactionState::default(),
-            )),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
             metrics,

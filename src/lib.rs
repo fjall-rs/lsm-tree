@@ -169,14 +169,14 @@ pub use {
     merge::BoxedIterator,
     slice::Builder,
     table::{GlobalTableId, Table, TableId},
-    tree::ingest::Ingestion,
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
 };
 
 pub use {
-    any_tree::AnyTree,
+    any_tree::{AnyIngestion, AnyTree},
+    blob_tree::ingest::BlobIngestion,
     blob_tree::BlobTree,
     cache::Cache,
     compression::CompressionType,
@@ -189,6 +189,7 @@ pub use {
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     slice::Slice,
+    tree::ingest::Ingestion,
     tree::Tree,
     value::SeqNo,
     value_type::ValueType,

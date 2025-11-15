@@ -4,6 +4,7 @@
 
 mod gc;
 pub mod handle;
+pub mod ingest;
 
 #[doc(hidden)]
 pub use gc::{FragmentationEntry, FragmentationMap};
@@ -262,119 +263,6 @@ impl AbstractTree for BlobTree {
 
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
         self.index.drop_range(range)
-    }
-
-    fn ingest(
-        &self,
-        iter: impl Iterator<Item = (UserKey, UserValue)>,
-        seqno_generator: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()> {
-        use crate::tree::ingest::Ingestion;
-        use std::time::Instant;
-
-        let seqno = seqno_generator.next();
-
-        let blob_file_size = self
-            .index
-            .config
-            .kv_separation_opts
-            .as_ref()
-            .expect("kv separation options should exist")
-            .file_target_size;
-
-        let mut table_writer = Ingestion::new(&self.index)?.with_seqno(seqno);
-        let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_counter.clone(),
-            blob_file_size,
-            self.index.config.path.join(BLOBS_FOLDER),
-        )?
-        .use_compression(
-            self.index
-                .config
-                .kv_separation_opts
-                .as_ref()
-                .expect("blob options should exist")
-                .compression,
-        );
-
-        let start = Instant::now();
-        let mut count = 0;
-        let mut last_key = None;
-
-        let separation_threshold = self
-            .index
-            .config
-            .kv_separation_opts
-            .as_ref()
-            .expect("kv separation options should exist")
-            .separation_threshold;
-
-        for (key, value) in iter {
-            if let Some(last_key) = &last_key {
-                assert!(
-                    key > last_key,
-                    "next key in bulk ingest was not greater than last key",
-                );
-            }
-            last_key = Some(key.clone());
-
-            #[expect(clippy::cast_possible_truncation, reason = "values are 32-bit max")]
-            let value_size = value.len() as u32;
-
-            if value_size >= separation_threshold {
-                let offset = blob_writer.offset();
-                let blob_file_id = blob_writer.blob_file_id();
-                let on_disk_size = blob_writer.write(&key, seqno, &value)?;
-
-                let indirection = BlobIndirection {
-                    vhandle: ValueHandle {
-                        blob_file_id,
-                        offset,
-                        on_disk_size,
-                    },
-                    size: value_size,
-                };
-
-                table_writer.write_indirection(key, indirection)?;
-            } else {
-                table_writer.write(key, value)?;
-            }
-
-            count += 1;
-        }
-
-        let blob_files = blob_writer.finish()?;
-        let results = table_writer.writer.finish()?;
-
-        let created_tables = results
-            .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
-                    self.index
-                        .config
-                        .path
-                        .join(crate::file::TABLES_FOLDER)
-                        .join(table_id.to_string()),
-                    checksum,
-                    self.index.id,
-                    self.index.config.cache.clone(),
-                    self.index.config.descriptor_table.clone(),
-                    false,
-                    false,
-                    #[cfg(feature = "metrics")]
-                    self.index.metrics.clone(),
-                )
-            })
-            .collect::<crate::Result<Vec<_>>>()?;
-
-        self.register_tables(&created_tables, Some(&blob_files), None, &[], 0)?;
-
-        visible_seqno.fetch_max(seqno + 1);
-
-        log::info!("Ingested {count} items in {:?}", start.elapsed());
-
-        Ok(())
     }
 
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
