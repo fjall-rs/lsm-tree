@@ -12,8 +12,9 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 
     let tree = Config::new(folder, seqno.clone()).open()?;
 
+    let mut ingestion = tree.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = tree.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
@@ -47,8 +48,9 @@ fn tree_copy() -> lsm_tree::Result<()> {
 
     let src = Config::new(folder, seqno.clone()).open()?;
 
+    let mut ingestion = src.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = src.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
@@ -73,8 +75,9 @@ fn tree_copy() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let dest = Config::new(folder, seqno.clone()).open()?;
 
+    let mut ingestion = dest.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = dest.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for item in src.iter(SeqNo::MAX, None) {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
@@ -109,8 +112,9 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
+    let mut ingestion = tree.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = tree.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
@@ -147,8 +151,9 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
+    let mut ingestion = src.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = src.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
@@ -176,8 +181,9 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
+    let mut ingestion = dest.ingestion()?;
     let seq = seqno.next();
-    let mut ingestion = dest.ingestion()?.with_seqno(seq);
+    ingestion = ingestion.with_seqno(seq);
     for item in src.iter(SeqNo::MAX, None) {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
