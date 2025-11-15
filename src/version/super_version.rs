@@ -58,30 +58,39 @@ impl SuperVersions {
         set.into_values().sum()
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     pub fn free_list_len(&self) -> usize {
-        self.0.len().saturating_sub(1)
+        self.len().saturating_sub(1)
     }
 
     pub(crate) fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+        if gc_watermark == 0 {
+            return Ok(());
+        }
+
         log::trace!("Running manifest GC with watermark={gc_watermark}");
 
-        loop {
-            if self.free_list_len() == 0 {
-                break;
-            }
+        if let Some(hi_idx) = self.0.iter().rposition(|x| x.seqno < gc_watermark) {
+            for _ in 0..hi_idx {
+                let Some(head) = self.0.front() else {
+                    break;
+                };
 
-            let Some(head) = self.0.front() else {
-                break;
-            };
+                log::trace!(
+                    "Removing version #{} (seqno={})",
+                    head.version.id(),
+                    head.seqno,
+                );
 
-            if head.seqno < gc_watermark {
                 let path = folder.join(format!("v{}", head.version.id()));
                 if path.try_exists()? {
                     std::fs::remove_file(path)?;
                 }
+
                 self.0.pop_front();
-            } else {
-                break;
             }
         }
 
@@ -162,5 +171,170 @@ impl SuperVersions {
         let mut copy = self.latest_version();
         copy.sealed_memtables = Arc::new(copy.sealed_memtables.add(memtable));
         self.0.push_back(copy);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn super_version_gc_above_watermark() -> crate::Result<()> {
+        let mut history = SuperVersions(
+            vec![
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 0,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 1,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 2,
+                },
+            ]
+            .into(),
+        );
+
+        history.maintenance(Path::new("."), 0)?;
+
+        assert_eq!(history.free_list_len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn super_version_gc_below_watermark_simple() -> crate::Result<()> {
+        let mut history = SuperVersions(
+            vec![
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 0,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 1,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 2,
+                },
+            ]
+            .into(),
+        );
+
+        history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(history.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn super_version_gc_below_watermark_simple_2() -> crate::Result<()> {
+        let mut history = SuperVersions(
+            vec![
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 0,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 1,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 2,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 8,
+                },
+            ]
+            .into(),
+        );
+
+        history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(history.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn super_version_gc_below_watermark_keep() -> crate::Result<()> {
+        let mut history = SuperVersions(
+            vec![
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 0,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 8,
+                },
+            ]
+            .into(),
+        );
+
+        history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(history.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn super_version_gc_below_watermark_shadowed() -> crate::Result<()> {
+        let mut history = SuperVersions(
+            vec![
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 0,
+                },
+                SuperVersion {
+                    active_memtable: Arc::new(Memtable::new(0)),
+                    sealed_memtables: Arc::default(),
+                    version: Version::new(0),
+                    seqno: 2,
+                },
+            ]
+            .into(),
+        );
+
+        history.maintenance(Path::new("."), 3)?;
+
+        assert_eq!(history.len(), 1);
+
+        Ok(())
     }
 }
