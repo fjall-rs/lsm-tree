@@ -7,7 +7,7 @@ use crate::{
     SeqNo, UserKey, UserValue,
 };
 
-/// Bulk ingestion for BlobTree
+/// Bulk ingestion for [`BlobTree`]
 ///
 /// Items NEED to be added in ascending key order.
 ///

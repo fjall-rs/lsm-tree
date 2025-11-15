@@ -20,9 +20,6 @@ pub enum Error {
     /// Some required files could not be recovered from disk
     Unrecoverable,
 
-    /// Ingestion could not start because required preconditions were not met
-    IngestionPreconditionFailed,
-
     /// Checksum mismatch
     ChecksumMismatch {
         /// Checksum of loaded block
