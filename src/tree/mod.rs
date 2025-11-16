@@ -889,12 +889,6 @@ impl Tree {
         };
 
         if manifest.version != FormatVersion::V3 {
-            if manifest.version == FormatVersion::V2 {
-                log::error!("It looks like you are trying to open a V2 database - the database needs a manual migration, a tool is available at <TODO: 3.0.0 LINK>.");
-            }
-            if manifest.version as u8 > 3 {
-                log::error!("It looks like you are trying to open a database from the future. Are you a time traveller?");
-            }
             return Err(crate::Error::InvalidVersion(manifest.version.into()));
         }
 
