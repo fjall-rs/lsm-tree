@@ -470,7 +470,7 @@ impl Writer {
 
             self.block_buffer.clear();
 
-            // TODO: no binary index
+            // TODO: disable binary index: https://github.com/fjall-rs/lsm-tree/issues/185
             DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
 
             Block::write_into(
