@@ -18,11 +18,11 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
+use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
-use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
@@ -229,7 +229,6 @@ impl Version {
     }
 
     pub(crate) fn from_recovery(
-        tree_type: TreeType,
         recovery: Recovery,
         tables: &[Table],
         blob_files: &[BlobFile],
@@ -262,7 +261,7 @@ impl Version {
 
         Ok(Self::from_levels(
             recovery.curr_version_id,
-            tree_type,
+            recovery.tree_type,
             version_levels,
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,

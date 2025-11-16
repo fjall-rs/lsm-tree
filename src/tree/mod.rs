@@ -19,8 +19,8 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, TreeType,
-    UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey,
+    UserValue, ValueType,
 };
 use inner::{TreeId, TreeInner};
 use std::{
@@ -897,11 +897,6 @@ impl Tree {
         let metrics = Arc::new(Metrics::default());
 
         let version = Self::recover_levels(
-            if config.kv_separation_opts.is_some() {
-                TreeType::Blob
-            } else {
-                TreeType::Standard
-            },
             &config.path,
             tree_id,
             &config.cache,
@@ -991,7 +986,6 @@ impl Tree {
 
     /// Recovers the level manifest, loading all tables from disk.
     fn recover_levels<P: AsRef<Path>>(
-        tree_type: TreeType,
         tree_path: P,
         tree_id: TreeId,
         cache: &Arc<Cache>,
@@ -1121,7 +1115,7 @@ impl Tree {
             &recovery.blob_file_ids,
         )?;
 
-        let version = Version::from_recovery(tree_type, recovery, &tables, &blob_files)?;
+        let version = Version::from_recovery(recovery, &tables, &blob_files)?;
 
         // NOTE: Cleanup old versions
         // But only after we definitely recovered the latest version

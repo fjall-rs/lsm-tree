@@ -4,7 +4,7 @@
 
 use crate::{
     coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
-    TableId,
+    TableId, TreeType,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
@@ -18,6 +18,7 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 }
 
 pub struct Recovery {
+    pub tree_type: TreeType,
     pub curr_version_id: VersionId,
     pub table_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
@@ -44,7 +45,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
             .section(b"tables")
             .ok_or(crate::Error::Unrecoverable)
             .inspect_err(|_| {
-                    log::error!("tables section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                log::error!("tables section not found in version #{curr_version_id} - maybe the file is corrupted?");
             })?
             .buf_reader(&version_file_path)?;
 
@@ -84,7 +85,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
             .section(b"blob_files")
             .ok_or(crate::Error::Unrecoverable)
             .inspect_err(|_| {
-                    log::error!("blob_files section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                log::error!("blob_files section not found in version #{curr_version_id} - maybe the file is corrupted?");
             })?
             .buf_reader(&version_file_path)?;
 
@@ -114,7 +115,7 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
             .section(b"blob_gc_stats")
             .ok_or(crate::Error::Unrecoverable)
             .inspect_err(|_| {
-                    log::error!("blob_gc_stats section not found in version #{curr_version_id} - maybe the file is corrupted?");
+                log::error!("blob_gc_stats section not found in version #{curr_version_id} - maybe the file is corrupted?");
             })?
             .buf_reader(&version_file_path)?;
 
@@ -122,6 +123,18 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     };
 
     Ok(Recovery {
+        tree_type: {
+            let byte = toc.section(b"tree_type").ok_or(crate::Error::Unrecoverable)
+            .inspect_err(|_|{
+                log::error!("tree_type section not found in version #{curr_version_id} - maybe the file is corrupted?");
+            })?
+            .buf_reader(
+                &version_file_path
+            )?
+            .read_u8()?;
+
+            TreeType::try_from(byte).map_err(|()| crate::Error::InvalidHeader("TreeType"))?
+        },
         curr_version_id,
         table_ids: levels,
         blob_file_ids,
