@@ -9,6 +9,7 @@ pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
 pub const TABLES_FOLDER: &str = "tables";
 pub const BLOBS_FOLDER: &str = "blobs";
+pub const CURRENT_VERSION_FILE: &str = "current";
 
 /// Reads bytes from a file using `pread`.
 pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slice> {

@@ -2,14 +2,17 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{coding::Decode, version::VersionId, vlog::BlobFileId, Checksum, TableId};
+use crate::{
+    coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
+    TableId,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
 pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId> {
     use byteorder::{LittleEndian, ReadBytesExt};
 
-    std::fs::File::open(folder.join("current"))
+    std::fs::File::open(folder.join(CURRENT_VERSION_FILE))
         .and_then(|mut f| f.read_u64::<LittleEndian>())
         .map_err(Into::into)
 }

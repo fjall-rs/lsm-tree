@@ -1,5 +1,5 @@
 use crate::{
-    file::{fsync_directory, rewrite_atomic},
+    file::{fsync_directory, rewrite_atomic, CURRENT_VERSION_FILE},
     version::Version,
 };
 use std::{io::BufWriter, path::Path};
@@ -26,7 +26,10 @@ pub fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
     // IMPORTANT: fsync folder on Unix
     fsync_directory(folder)?;
 
-    rewrite_atomic(&folder.join("current"), &version.id().to_le_bytes())?;
+    rewrite_atomic(
+        &folder.join(CURRENT_VERSION_FILE),
+        &version.id().to_le_bytes(),
+    )?;
 
     Ok(())
 }

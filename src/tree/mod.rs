@@ -9,6 +9,7 @@ pub mod sealed;
 use crate::{
     compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
+    file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
@@ -698,7 +699,7 @@ impl Tree {
             return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
-        let tree = if config.path.join("current").try_exists()? {
+        let tree = if config.path.join(CURRENT_VERSION_FILE).try_exists()? {
             Self::recover(config)
         } else {
             Self::create_new(config)
