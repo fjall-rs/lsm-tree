@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 /// Runtime metrics
 ///
@@ -39,6 +39,15 @@ pub struct Metrics {
 
     /// Number of IOs that were skipped due to filter
     pub(crate) io_skipped_by_filter: AtomicUsize,
+
+    /// Number of data block bytes that were requested from OS or disk
+    pub(crate) data_block_io_requested: AtomicU64,
+
+    /// Number of index block bytes that were requested from OS or disk
+    pub(crate) index_block_io_requested: AtomicU64,
+
+    /// Number of filter block bytes that were requested from OS or disk
+    pub(crate) filter_block_io_requested: AtomicU64,
 }
 
 #[expect(
