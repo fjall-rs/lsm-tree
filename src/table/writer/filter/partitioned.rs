@@ -163,7 +163,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         Ok(())
     }
 
-    fn finish(mut self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<()> {
+    fn finish(mut self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
         if !self.bloom_hash_buffer.is_empty() {
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
@@ -175,8 +175,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         file_writer.write_all(&self.final_filter_buffer)?;
         log::trace!("Concatted filter partitions onto blocks file");
 
+        let block_count = self.tli_handles.len();
+
         self.write_top_level_index(file_writer, index_base_offset)?;
 
-        Ok(())
+        Ok(block_count)
     }
 }

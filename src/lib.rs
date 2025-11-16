@@ -31,59 +31,6 @@
 //!
 //! Keys are limited to 65536 bytes, values are limited to 2^32 bytes. As is normal with any kind of storage
 //! engine, larger keys and values have a bigger performance impact.
-//!
-//! # Example usage
-//!
-//! ```
-//! use lsm_tree::{AbstractTree, Config, Tree};
-//! #
-//! # let folder = tempfile::tempdir()?;
-//!
-//! // A tree is a single physical keyspace/index/...
-//! // and supports a BTreeMap-like API
-//! let tree = Config::new(folder, Default::default()).open()?;
-//!
-//! // Note compared to the BTreeMap API, operations return a Result<T>
-//! // So you can handle I/O errors if they occur
-//! tree.insert("my_key", "my_value", /* sequence number */ 0);
-//!
-//! let item = tree.get("my_key", 1)?;
-//! assert_eq!(Some("my_value".as_bytes().into()), item);
-//!
-//! // Search by prefix
-//! for item in tree.prefix("prefix", 1, None) {
-//!   // ...
-//! }
-//!
-//! // Search by range
-//! for item in tree.range("a"..="z", 1, None) {
-//!   // ...
-//! }
-//!
-//! // Iterators implement DoubleEndedIterator, so you can search backwards, too!
-//! for item in tree.prefix("user1", 1, None).rev() {
-//!   // ...
-//! }
-//!
-//! // Flush to secondary storage, clearing the memtable
-//! // and persisting all in-memory data.
-//! // Note, this flushes synchronously, which may not be desired
-//! tree.flush_active_memtable(0)?;
-//!
-//! // When some tables have amassed, use compaction
-//! // to reduce the number of tables
-//!
-//! // Choose compaction strategy based on workload
-//! use lsm_tree::compaction::Leveled;
-//! # use std::sync::Arc;
-//!
-//! let strategy = Leveled::default();
-//!
-//! let version_gc_threshold = 0;
-//! tree.compact(Arc::new(strategy), version_gc_threshold)?;
-//! #
-//! # Ok::<(), lsm_tree::Error>(())
-//! ```
 
 #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
 #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/lsm-tree/main/logo.png")]
@@ -143,28 +90,23 @@ mod compression;
 /// Configuration
 pub mod config;
 
-mod double_ended_peekable;
+#[doc(hidden)]
+pub mod descriptor_table;
 
+mod double_ended_peekable;
 mod error;
 
 #[doc(hidden)]
 pub mod file;
 
 mod hash;
-
 mod iter_guard;
-
 mod key;
 mod key_range;
-
-mod run_reader;
-mod run_scanner;
-
 mod manifest;
 mod memtable;
-
-#[doc(hidden)]
-pub mod descriptor_table;
+mod run_reader;
+mod run_scanner;
 
 #[doc(hidden)]
 pub mod merge;
@@ -215,14 +157,16 @@ pub type KvPair = (UserKey, UserValue);
 
 #[doc(hidden)]
 pub use {
-    blob_tree::handle::BlobIndirection,
+    blob_tree::{handle::BlobIndirection, Guard as BlobGuard},
     checksum::Checksum,
+    iter_guard::IterGuardImpl,
     key_range::KeyRange,
     merge::BoxedIterator,
     slice::Builder,
     table::{GlobalTableId, Table, TableId},
     tree::ingest::Ingestion,
     tree::inner::TreeId,
+    tree::Guard as StandardGuard,
     value::InternalValue,
 };
 

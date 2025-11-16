@@ -3,31 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{FormatVersion, TreeType};
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::{io::Write, path::Path};
+use byteorder::ReadBytesExt;
+use std::{io::Read, path::Path};
 
 pub struct Manifest {
     pub version: FormatVersion,
     pub tree_type: TreeType,
     pub level_count: u8,
-}
-
-impl Manifest {
-    pub fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
-        writer.start("format_version")?;
-        writer.write_u8(self.version.into())?;
-
-        writer.start("crate_version")?;
-        writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;
-
-        writer.start("tree_type")?;
-        writer.write_u8(self.tree_type.into())?;
-
-        writer.start("level_count")?;
-        writer.write_u8(self.level_count)?;
-
-        Ok(())
-    }
 }
 
 impl Manifest {
@@ -67,6 +49,25 @@ impl Manifest {
 
         // Currently level count is hard coded to 7
         assert_eq!(7, level_count, "level count should be 7");
+
+        {
+            let filter_hash_type = {
+                let section = toc
+                    .section(b"filter_hash_type")
+                    .expect("filter_hash_type section must exist in manifest");
+
+                section
+                    .buf_reader(path)?
+                    .bytes()
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+
+            // Only one supported right now (and probably forever)
+            assert_eq!(
+                b"xxh3", &*filter_hash_type,
+                "filter_hash_type should be XXH3"
+            );
+        }
 
         Ok(Self {
             version,

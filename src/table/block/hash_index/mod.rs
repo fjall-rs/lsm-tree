@@ -3,17 +3,17 @@
 // (found in the LICENSE-* files in the repository)
 
 //! The hash index is a compact (typically <=1 byte per KV) index
-//! embeddeded into a block to speed up point reads
+//! embeddeded into a block to speed up point reads.
 //!
 //! The index is initialized with `hash_ratio * item_count` buckets.
 //!
-//! Each bucket is initialized as 254 (FREE).
+//! Each bucket is initialized as 254 (`FREE`).
 //!
 //! During block building, each key is hashed into a bucket.
 //! If the bucket is FREE, it is set to the index of the binary index pointer
 //! pointing to the item's restart interval.
 //!
-//! If the given bucket is already < FREE, it is set to CONFLICT.
+//! If the given bucket is already non-`FREE`, it is set to `CONFLICT`.
 //!
 //! During a point read, `CONFLICT`ed buckets are skipped, and the binary index
 //! is consulted instead.

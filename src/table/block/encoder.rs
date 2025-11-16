@@ -36,7 +36,7 @@ pub trait Encodable<Context: Default> {
 /// Block encoder
 ///
 /// The block encoder accepts an ascending stream of items, encodes them into
-/// restart intervals and builds binary index (and optionally a hash index).
+/// restart intervals and builds a binary seek index (and optionally a hash index).
 ///
 /// # Example
 ///
@@ -69,7 +69,7 @@ pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
     pub(crate) restart_count: usize,
 
     pub(crate) restart_interval: u8,
-    // pub(crate) use_prefix_truncation: bool, // TODO: support non-prefix truncation
+    // pub(crate) use_prefix_truncation: bool, // TODO: support non-prefix truncation?
     pub(crate) binary_index_builder: BinaryIndexBuilder,
     pub(crate) hash_index_builder: HashIndexBuilder,
 
@@ -78,6 +78,7 @@ pub struct Encoder<'a, Context: Default, Item: Encodable<Context>> {
 
 // TODO: support no binary index -> use in meta blocks with restart interval = 1
 // TODO: adjust test + fuzz tests to also test for no binary index
+// TODO: https://github.com/fjall-rs/lsm-tree/issues/185
 
 impl<'a, Context: Default, Item: Encodable<Context>> Encoder<'a, Context, Item> {
     pub fn new(

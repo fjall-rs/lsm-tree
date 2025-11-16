@@ -6,6 +6,19 @@ use enum_dispatch::enum_dispatch;
 /// Guard to access key-value pairs
 #[enum_dispatch]
 pub trait IterGuard {
+    /// Accesses the key-value pair if the predicate returns `true`.
+    ///
+    /// The predicate receives the key - if returning false, the value
+    /// may not be loaded if the tree is key-value separated.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)>;
+
     /// Accesses the key-value pair.
     ///
     /// # Errors
@@ -40,8 +53,12 @@ pub trait IterGuard {
     }
 }
 
+/// Generic iterator value
 #[enum_dispatch(IterGuard)]
 pub enum IterGuardImpl {
+    /// Iterator value of a standard LSM-tree
     Standard(StandardGuard),
+
+    /// Iterator value of a key-value separated tree
     Blob(BlobGuard),
 }

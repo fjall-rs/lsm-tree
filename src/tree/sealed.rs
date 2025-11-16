@@ -10,24 +10,24 @@ use std::sync::Arc;
 /// Memtable IDs are monotonically increasing, so we don't really
 /// need a search tree; also there are only a handful of them at most.
 #[derive(Clone, Default)]
-pub struct SealedMemtables(Vec<(MemtableId, Arc<Memtable>)>);
+pub struct SealedMemtables(Vec<Arc<Memtable>>);
 
 impl SealedMemtables {
     /// Copy-and-writes a new list with additional Memtable.
-    pub fn add(&self, id: MemtableId, memtable: Arc<Memtable>) -> Self {
+    pub fn add(&self, memtable: Arc<Memtable>) -> Self {
         let mut copy = self.clone();
-        copy.0.push((id, memtable));
+        copy.0.push(memtable);
         copy
     }
 
     /// Copy-and-writes a new list with the specified Memtable removed.
     pub fn remove(&self, id_to_remove: MemtableId) -> Self {
         let mut copy = self.clone();
-        copy.0.retain(|(id, _)| *id != id_to_remove);
+        copy.0.retain(|mt| mt.id != id_to_remove);
         copy
     }
 
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &(MemtableId, Arc<Memtable>)> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<Memtable>> {
         self.0.iter()
     }
 

@@ -34,7 +34,6 @@ pub struct MultiWriter {
     results: Vec<(TableId, Checksum)>,
 
     table_id_generator: SequenceNumberCounter,
-    current_table_id: u64,
 
     pub writer: Writer,
 
@@ -77,9 +76,8 @@ impl MultiWriter {
             index_block_restart_interval: 1,
 
             target_size,
-            results: Vec::with_capacity(10),
+            results: Vec::new(),
             table_id_generator,
-            current_table_id,
             writer,
 
             data_block_compression: CompressionType::None,
@@ -101,6 +99,7 @@ impl MultiWriter {
             .entry(indirection.vhandle.blob_file_id)
             .and_modify(|entry| {
                 entry.bytes += u64::from(indirection.size);
+                entry.on_disk_bytes += u64::from(indirection.vhandle.on_disk_size);
                 entry.len += 1;
             })
             .or_insert_with(|| LinkedFile {

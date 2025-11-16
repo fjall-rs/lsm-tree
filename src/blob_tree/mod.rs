@@ -9,8 +9,7 @@ pub mod handle;
 pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
-    coding::{Decode, Encode},
-    compaction::stream::CompactionStream,
+    coding::Decode,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
@@ -23,8 +22,14 @@ use crate::{
     UserKey, UserValue,
 };
 use handle::BlobIndirection;
-use std::{io::Cursor, ops::RangeBounds, path::PathBuf, sync::Arc};
+use std::{
+    io::Cursor,
+    ops::RangeBounds,
+    path::PathBuf,
+    sync::{Arc, MutexGuard},
+};
 
+/// Iterator value guard
 pub struct Guard {
     tree: crate::BlobTree,
     version: Version,
@@ -32,6 +37,27 @@ pub struct Guard {
 }
 
 impl IterGuard for Guard {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
+        let kv = self.kv?;
+
+        if pred(&kv.key.user_key) {
+            resolve_value_handle(
+                self.tree.id(),
+                self.tree.blobs_folder.as_path(),
+                &self.tree.index.config.cache,
+                &self.tree.index.config.descriptor_table,
+                &self.version,
+                kv,
+            )
+            .map(|(k, v)| (k, Some(v)))
+        } else {
+            Ok((kv.key.user_key, None))
+        }
+    }
+
     fn key(self) -> crate::Result<UserKey> {
         self.kv.map(|kv| kv.key.user_key)
     }
@@ -133,7 +159,7 @@ impl BlobTree {
 
         index
             .0
-            .blob_file_id_generator
+            .blob_file_id_counter
             .set(blob_file_id_to_continue_with);
 
         Ok(Self {
@@ -144,6 +170,12 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn get_version_history_lock(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        self.index.get_version_history_lock()
+    }
+
     fn next_table_id(&self) -> TableId {
         self.index.next_table_id()
     }
@@ -158,25 +190,6 @@ impl AbstractTree for BlobTree {
 
     fn current_version(&self) -> Version {
         self.index.current_version()
-    }
-
-    fn flush_active_memtable(&self, eviction_seqno: SeqNo) -> crate::Result<Option<Table>> {
-        let Some((table_id, yanked_memtable)) = self.index.rotate_memtable() else {
-            return Ok(None);
-        };
-
-        let Some((table, blob_file)) =
-            self.flush_memtable(table_id, &yanked_memtable, eviction_seqno)?
-        else {
-            return Ok(None);
-        };
-        self.register_tables(
-            std::slice::from_ref(&table),
-            blob_file.as_ref().map(std::slice::from_ref),
-            None,
-        )?;
-
-        Ok(Some(table))
     }
 
     #[cfg(feature = "metrics")]
@@ -257,7 +270,7 @@ impl AbstractTree for BlobTree {
         seqno_generator: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        use crate::{compaction::MoveDown, tree::ingest::Ingestion};
+        use crate::tree::ingest::Ingestion;
         use std::time::Instant;
 
         let seqno = seqno_generator.next();
@@ -272,7 +285,7 @@ impl AbstractTree for BlobTree {
 
         let mut table_writer = Ingestion::new(&self.index)?.with_seqno(seqno);
         let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_generator.clone(),
+            self.index.0.blob_file_id_counter.clone(),
             blob_file_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
@@ -334,9 +347,6 @@ impl AbstractTree for BlobTree {
         let blob_files = blob_writer.finish()?;
         let results = table_writer.writer.finish()?;
 
-        let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.index.config.filter_block_pinning_policy.get(0);
-
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
@@ -350,19 +360,15 @@ impl AbstractTree for BlobTree {
                     self.index.id,
                     self.index.config.cache.clone(),
                     self.index.config.descriptor_table.clone(),
-                    pin_filter,
-                    pin_index,
+                    false,
+                    false,
                     #[cfg(feature = "metrics")]
                     self.index.metrics.clone(),
                 )
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        self.register_tables(&created_tables, Some(&blob_files), None)?;
-
-        let last_level_idx = self.index.config.level_count - 1;
-
-        self.compact(Arc::new(MoveDown(0, last_level_idx)), 0)?;
+        self.register_tables(&created_tables, Some(&blob_files), None, &[], 0)?;
 
         visible_seqno.fetch_max(seqno + 1);
 
@@ -426,37 +432,78 @@ impl AbstractTree for BlobTree {
         self.index.sealed_memtable_count()
     }
 
-    fn flush_memtable(
+    fn get_flush_lock(&self) -> MutexGuard<'_, ()> {
+        self.index.get_flush_lock()
+    }
+
+    fn flush_to_tables(
         &self,
-        table_id: TableId,
-        memtable: &Arc<Memtable>,
-        eviction_seqno: SeqNo,
-    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
-        use crate::{file::TABLES_FOLDER, table::Writer as TableWriter};
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+        use crate::{coding::Encode, file::TABLES_FOLDER, table::multi_writer::MultiWriter};
+
+        let start = std::time::Instant::now();
 
         let table_folder = self.index.config.path.join(TABLES_FOLDER);
 
-        log::debug!("Flushing memtable & performing key-value separation");
-        log::debug!("=> to table in {}", table_folder.display());
-        log::debug!("=> to blob file at {}", self.blobs_folder.display());
+        let data_block_size = self.index.config.data_block_size_policy.get(0);
 
-        let mut table_writer =
-            TableWriter::new(table_folder.join(table_id.to_string()), table_id, 0)?
-                // TODO: apply other policies
-                .use_data_block_compression(self.index.config.data_block_compression_policy.get(0))
-                .use_bloom_policy({
-                    use crate::config::FilterPolicyEntry::{Bloom, None};
-                    use crate::table::filter::BloomConstructionPolicy;
+        let data_block_restart_interval =
+            self.index.config.data_block_restart_interval_policy.get(0);
+        let index_block_restart_interval =
+            self.index.config.index_block_restart_interval_policy.get(0);
 
-                    match self.index.config.filter_policy.get(0) {
-                        Bloom(policy) => policy,
-                        None => BloomConstructionPolicy::BitsPerKey(0.0),
-                    }
-                });
+        let data_block_compression = self.index.config.data_block_compression_policy.get(0);
+        let index_block_compression = self.index.config.index_block_compression_policy.get(0);
+
+        let data_block_hash_ratio = self.index.config.data_block_hash_ratio_policy.get(0);
+
+        let index_partitioning = self.index.config.index_block_partitioning_policy.get(0);
+        let filter_partitioning = self.index.config.filter_block_partitioning_policy.get(0);
+
+        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}");
+        log::debug!("=> to table(s) in {}", table_folder.display());
+        log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
+
+        let mut table_writer = MultiWriter::new(
+            table_folder.clone(),
+            self.index.table_id_counter.clone(),
+            64_000_000,
+            0,
+        )?
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_index_block_compression(index_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
+        .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
+            use crate::table::filter::BloomConstructionPolicy;
+
+            match self.index.config.filter_policy.get(0) {
+                Bloom(policy) => policy,
+                None => BloomConstructionPolicy::BitsPerKey(0.0),
+            }
+        });
+
+        if index_partitioning {
+            table_writer = table_writer.use_partitioned_index();
+        }
+        if filter_partitioning {
+            table_writer = table_writer.use_partitioned_filter();
+        }
+
+        let kv_opts = self
+            .index
+            .config
+            .kv_separation_opts
+            .as_ref()
+            .expect("kv separation options should exist");
 
         let mut blob_writer = BlobFileWriter::new(
-            self.index.0.blob_file_id_generator.clone(),
-            u64::MAX,
+            self.index.0.blob_file_id_counter.clone(),
+            kv_opts.file_target_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
         .use_compression(
@@ -468,22 +515,9 @@ impl AbstractTree for BlobTree {
                 .compression,
         );
 
-        let iter = memtable.iter().map(Ok);
-        let compaction_stream = CompactionStream::new(iter, eviction_seqno);
+        let separation_threshold = kv_opts.separation_threshold;
 
-        let mut blob_bytes_referenced = 0;
-        let mut blob_on_disk_bytes_referenced = 0;
-        let mut blobs_referenced_count = 0;
-
-        let separation_threshold = self
-            .index
-            .config
-            .kv_separation_opts
-            .as_ref()
-            .expect("kv separation options should exist")
-            .separation_threshold;
-
-        for item in compaction_stream {
+        for item in stream {
             let item = item?;
 
             if item.is_tombstone() {
@@ -519,35 +553,40 @@ impl AbstractTree for BlobTree {
                     vptr
                 })?;
 
-                blob_bytes_referenced += u64::from(value_size);
-                blob_on_disk_bytes_referenced += u64::from(on_disk_size);
-                blobs_referenced_count += 1;
+                table_writer.register_blob(indirection);
             } else {
                 table_writer.write(InternalValue::new(item.key, value))?;
             }
         }
 
-        log::trace!("Creating blob file");
         let blob_files = blob_writer.finish()?;
-        assert!(blob_files.len() <= 1);
-        let blob_file = blob_files.into_iter().next();
 
-        log::trace!("Creating LSM-tree table {table_id}");
+        let result = table_writer.finish()?;
 
-        if blob_bytes_referenced > 0 {
-            if let Some(blob_file) = &blob_file {
-                table_writer.link_blob_file(
-                    blob_file.id(),
-                    blobs_referenced_count,
-                    blob_bytes_referenced,
-                    blob_on_disk_bytes_referenced,
-                );
-            }
-        }
+        log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
-        let table = self.index.consume_writer(table_writer)?;
+        let pin_filter = self.index.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.index.config.index_block_pinning_policy.get(0);
 
-        Ok(table.map(|table| (table, blob_file)))
+        // Load tables
+        let tables = result
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    table_folder.join(table_id.to_string()),
+                    checksum,
+                    self.index.id,
+                    self.index.config.cache.clone(),
+                    self.index.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.index.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Some((tables, Some(blob_files))))
     }
 
     fn register_tables(
@@ -555,16 +594,24 @@ impl AbstractTree for BlobTree {
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
         frag_map: Option<FragmentationMap>,
+        sealed_memtables_to_delete: &[MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
-        self.index.register_tables(tables, blob_files, frag_map)
+        self.index.register_tables(
+            tables,
+            blob_files,
+            frag_map,
+            sealed_memtables_to_delete,
+            gc_watermark,
+        )
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
         self.index.set_active_memtable(memtable);
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
-        self.index.add_sealed_memtable(id, memtable);
+    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
+        self.index.add_sealed_memtable(memtable);
     }
 
     fn compact(
@@ -595,7 +642,7 @@ impl AbstractTree for BlobTree {
         crate::TreeType::Blob
     }
 
-    fn rotate_memtable(&self) -> Option<(crate::tree::inner::MemtableId, Arc<crate::Memtable>)> {
+    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
         self.index.rotate_memtable()
     }
 

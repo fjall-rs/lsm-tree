@@ -17,7 +17,9 @@ pub trait FilterWriter<W: std::io::Write> {
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()>;
 
     /// Writes the filter to a file.
-    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<()>;
+    ///
+    /// Returns the number of filter blocks written (always 1 in case of full filter block).
+    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize>;
 
     fn set_filter_policy(
         self: Box<Self>,

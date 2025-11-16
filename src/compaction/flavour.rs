@@ -329,7 +329,7 @@ impl StandardCompaction {
         let table_base_folder = self.table_writer.base_path.clone();
 
         let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
-        let pin_index = opts.config.filter_block_pinning_policy.get(dst_lvl);
+        let pin_index = opts.config.index_block_pinning_policy.get(dst_lvl);
 
         self.table_writer
             .finish()?

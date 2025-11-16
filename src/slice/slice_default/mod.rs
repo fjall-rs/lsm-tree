@@ -19,7 +19,8 @@ impl Slice {
         Self(bytes.into())
     }
 
-    pub(crate) fn empty() -> Self {
+    #[doc(hidden)]
+    pub fn empty() -> Self {
         Self(ByteView::new(&[]))
     }
 

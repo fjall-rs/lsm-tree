@@ -45,7 +45,6 @@ use iter::Iter;
 use std::{
     borrow::Cow,
     fs::File,
-    io::{BufReader, Read, Seek},
     ops::{Bound, RangeBounds},
     path::PathBuf,
     sync::Arc,
@@ -115,14 +114,29 @@ impl Table {
         use byteorder::{ReadBytesExt, LE};
 
         Ok(if let Some(handle) = &self.regions.linked_blob_files {
-            let reader = File::open(&*self.path)?;
-            let mut reader = BufReader::new(reader);
-            reader.seek(std::io::SeekFrom::Start(*handle.offset()))?;
-            let mut reader = reader.take(u64::from(handle.size()));
+            // Try to get FD from descriptor table first, similar to util::load_block
+            let table_id = self.global_id();
+            let cached_fd = self.descriptor_table.access_for_table(&table_id);
+            let fd_cache_miss = cached_fd.is_none();
 
-            let mut blob_files = vec![];
+            let fd = if let Some(fd) = cached_fd {
+                fd
+            } else {
+                Arc::new(File::open(&*self.path)?)
+            };
 
+            // Read the exact region using pread-style helper
+            let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
+
+            // If we opened the file here, cache the FD for future accesses
+            if fd_cache_miss {
+                self.descriptor_table.insert_for_table(table_id, fd);
+            }
+
+            // Parse the buffer
+            let mut reader = &buf[..];
             let len = reader.read_u32::<LE>()?;
+            let mut blob_files = Vec::with_capacity(len as usize);
 
             for _ in 0..len {
                 let blob_file_id = reader.read_u64::<LE>()?;
@@ -403,6 +417,7 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
+    #[warn(clippy::too_many_arguments)]
     pub fn recover(
         file_path: PathBuf,
         checksum: Checksum,

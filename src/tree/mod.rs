@@ -7,10 +7,9 @@ pub mod inner;
 pub mod sealed;
 
 use crate::{
-    blob_tree::FragmentationMap,
-    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
+    compaction::{drop_range::OwnedBounds, CompactionStrategy},
     config::Config,
-    file::BLOBS_FOLDER,
+    file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
@@ -18,12 +17,12 @@ use crate::{
     slice::Slice,
     table::Table,
     value::InternalValue,
-    version::{recovery::recover, SuperVersion, SuperVersions, Version, VersionId},
+    version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, DescriptorTable, KvPair, SeqNo, SequenceNumberCounter, TableId,
-    TreeType, UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey,
+    UserValue, ValueType,
 };
-use inner::{MemtableId, TreeId, TreeInner};
+use inner::{TreeId, TreeInner};
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
@@ -33,9 +32,23 @@ use std::{
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
+/// Iterator value guard
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
 
 impl IterGuard for Guard {
+    fn into_inner_if(
+        self,
+        pred: impl Fn(&UserKey) -> bool,
+    ) -> crate::Result<(UserKey, Option<UserValue>)> {
+        let (k, v) = self.0?;
+
+        if pred(&k) {
+            Ok((k, Some(v)))
+        } else {
+            Ok((k, None))
+        }
+    }
+
     fn key(self) -> crate::Result<UserKey> {
         self.0.map(|(k, _)| k)
     }
@@ -71,12 +84,22 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn get_version_history_lock(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        self.version_history.write().expect("lock is poisoned")
+    }
+
     fn next_table_id(&self) -> TableId {
         self.0.table_id_counter.get()
     }
 
     fn id(&self) -> TreeId {
         self.id
+    }
+
+    fn blob_file_count(&self) -> usize {
+        0
     }
 
     #[expect(clippy::significant_drop_tightening)]
@@ -107,20 +130,8 @@ impl AbstractTree for Tree {
             .version
     }
 
-    fn flush_active_memtable(&self, seqno_threshold: SeqNo) -> crate::Result<Option<Table>> {
-        log::debug!("Flushing active memtable");
-
-        let Some((table_id, yanked_memtable)) = self.rotate_memtable() else {
-            return Ok(None);
-        };
-
-        let Some((table, _)) = self.flush_memtable(table_id, &yanked_memtable, seqno_threshold)?
-        else {
-            return Ok(None);
-        };
-        self.register_tables(std::slice::from_ref(&table), None, None)?;
-
-        Ok(Some(table))
+    fn get_flush_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.flush_lock.lock().expect("lock is poisoned")
     }
 
     #[cfg(feature = "metrics")]
@@ -302,19 +313,16 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn flush_memtable(
+    fn flush_to_tables(
         &self,
-        table_id: TableId,
-        memtable: &Arc<Memtable>,
-        seqno_threshold: SeqNo,
-    ) -> crate::Result<Option<(Table, Option<BlobFile>)>> {
-        use crate::{compaction::stream::CompactionStream, file::TABLES_FOLDER, table::Writer};
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+        use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
         use std::time::Instant;
 
         let start = Instant::now();
 
         let folder = self.config.path.join(TABLES_FOLDER);
-        let table_file_path = folder.join(table_id.to_string());
 
         let data_block_size = self.config.data_block_size_policy.get(0);
 
@@ -330,26 +338,31 @@ impl AbstractTree for Tree {
         let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing table to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
-            table_file_path.display(),
+            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            folder.display(),
         );
 
-        let mut table_writer = Writer::new(table_file_path, table_id, 0)?
-            .use_data_block_restart_interval(data_block_restart_interval)
-            .use_index_block_restart_interval(index_block_restart_interval)
-            .use_data_block_compression(data_block_compression)
-            .use_index_block_compression(index_block_compression)
-            .use_data_block_size(data_block_size)
-            .use_data_block_hash_ratio(data_block_hash_ratio)
-            .use_bloom_policy({
-                use crate::config::FilterPolicyEntry::{Bloom, None};
-                use crate::table::filter::BloomConstructionPolicy;
+        let mut table_writer = MultiWriter::new(
+            folder.clone(),
+            self.table_id_counter.clone(),
+            64 * 1_024 * 1_024,
+            0,
+        )?
+        .use_data_block_restart_interval(data_block_restart_interval)
+        .use_index_block_restart_interval(index_block_restart_interval)
+        .use_data_block_compression(data_block_compression)
+        .use_index_block_compression(index_block_compression)
+        .use_data_block_size(data_block_size)
+        .use_data_block_hash_ratio(data_block_hash_ratio)
+        .use_bloom_policy({
+            use crate::config::FilterPolicyEntry::{Bloom, None};
+            use crate::table::filter::BloomConstructionPolicy;
 
-                match self.config.filter_policy.get(0) {
-                    Bloom(policy) => policy,
-                    None => BloomConstructionPolicy::BitsPerKey(0.0),
-                }
-            });
+            match self.config.filter_policy.get(0) {
+                Bloom(policy) => policy,
+                None => BloomConstructionPolicy::BitsPerKey(0.0),
+            }
+        });
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -358,18 +371,36 @@ impl AbstractTree for Tree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
-        let iter = memtable.iter().map(Ok);
-        let compaction_filter = CompactionStream::new(iter, seqno_threshold);
-
-        for item in compaction_filter {
+        for item in stream {
             table_writer.write(item?)?;
         }
 
-        let result = self.consume_writer(table_writer)?;
+        let result = table_writer.finish()?;
 
-        log::debug!("Flushed memtable {table_id:?} in {:?}", start.elapsed());
+        log::debug!("Flushed memtable(s) in {:?}", start.elapsed());
 
-        Ok(result.map(|table| (table, None)))
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.index_block_pinning_policy.get(0);
+
+        // Load tables
+        let tables = result
+            .into_iter()
+            .map(|(table_id, checksum)| -> crate::Result<Table> {
+                Table::recover(
+                    folder.join(table_id.to_string()),
+                    checksum,
+                    self.id,
+                    self.config.cache.clone(),
+                    self.config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
+                    #[cfg(feature = "metrics")]
+                    self.metrics.clone(),
+                )
+            })
+            .collect::<crate::Result<Vec<_>>>()?;
+
+        Ok(Some((tables, None)))
     }
 
     #[expect(clippy::significant_drop_tightening)]
@@ -377,7 +408,9 @@ impl AbstractTree for Tree {
         &self,
         tables: &[Table],
         blob_files: Option<&[BlobFile]>,
-        frag_map: Option<FragmentationMap>,
+        frag_map: Option<crate::blob_tree::FragmentationMap>,
+        sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
+        gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         log::trace!(
             "Registering {} tables, {} blob files",
@@ -399,15 +432,19 @@ impl AbstractTree for Tree {
                     frag_map.filter(|x| !x.is_empty()),
                 );
 
-                for table in tables {
-                    log::trace!("releasing sealed memtable {}", table.id());
-                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table.id()));
+                for &table_id in sealed_memtables_to_delete {
+                    log::trace!("releasing sealed memtable #{table_id}");
+                    copy.sealed_memtables = Arc::new(copy.sealed_memtables.remove(table_id));
                 }
 
                 Ok(copy)
             },
             &self.config.seqno,
         )?;
+
+        if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {
+            log::warn!("Version GC failed: {e:?}");
+        }
 
         Ok(())
     }
@@ -417,7 +454,7 @@ impl AbstractTree for Tree {
             .write()
             .expect("lock is poisoned")
             .latest_version()
-            .active_memtable = Arc::new(Memtable::default());
+            .active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
     }
 
     fn set_active_memtable(&self, memtable: Memtable) {
@@ -428,9 +465,9 @@ impl AbstractTree for Tree {
             .active_memtable = Arc::new(memtable);
     }
 
-    fn add_sealed_memtable(&self, id: MemtableId, memtable: Arc<Memtable>) {
+    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
-        version_lock.append_sealed_memtable(id, memtable);
+        version_lock.append_sealed_memtable(memtable);
     }
 
     fn compact(
@@ -475,7 +512,7 @@ impl AbstractTree for Tree {
     }
 
     #[expect(clippy::significant_drop_tightening)]
-    fn rotate_memtable(&self) -> Option<(MemtableId, Arc<Memtable>)> {
+    fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
         let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
         let super_version = version_history_lock.latest_version();
 
@@ -484,22 +521,21 @@ impl AbstractTree for Tree {
         }
 
         let yanked_memtable = super_version.active_memtable;
-        let tmp_memtable_id = self.get_next_table_id();
 
         let mut copy = version_history_lock.latest_version();
         copy.seqno = self.config.seqno.next();
-        copy.active_memtable = Arc::new(Memtable::default());
-        copy.sealed_memtables = Arc::new(
-            super_version
-                .sealed_memtables
-                .add(tmp_memtable_id, yanked_memtable.clone()),
-        );
+        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.sealed_memtables =
+            Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
 
         version_history_lock.append_version(copy);
 
-        log::trace!("rotate: added memtable id={tmp_memtable_id} to sealed memtables");
+        log::trace!(
+            "rotate: added memtable id={} to sealed memtables",
+            yanked_memtable.id,
+        );
 
-        Some((tmp_memtable_id, yanked_memtable))
+        Some(yanked_memtable)
     }
 
     fn table_count(&self) -> usize {
@@ -528,7 +564,7 @@ impl AbstractTree for Tree {
         let sealed_count = super_version
             .sealed_memtables
             .iter()
-            .map(|(_, mt)| mt.len())
+            .map(|mt| mt.len())
             .sum::<usize>() as u64;
 
         (memtable_count + sealed_count + tables_item_count)
@@ -556,7 +592,7 @@ impl AbstractTree for Tree {
         let sealed = version
             .sealed_memtables
             .iter()
-            .map(|(_, table)| table.get_highest_seqno())
+            .map(|mt| mt.get_highest_seqno())
             .max()
             .flatten();
 
@@ -655,8 +691,6 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        use crate::file::MANIFEST_FILE;
-
         log::debug!("Opening LSM-tree at {}", config.path.display());
 
         // Check for old version
@@ -665,45 +699,13 @@ impl Tree {
             return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
-        let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
+        let tree = if config.path.join(CURRENT_VERSION_FILE).try_exists()? {
             Self::recover(config)
         } else {
             Self::create_new(config)
         }?;
 
         Ok(tree)
-    }
-
-    pub(crate) fn consume_writer(
-        &self,
-        writer: crate::table::Writer,
-    ) -> crate::Result<Option<Table>> {
-        let table_file_path = writer.path.clone();
-
-        let Some((_, checksum)) = writer.finish()? else {
-            return Ok(None);
-        };
-
-        log::debug!("Finalized table write at {}", table_file_path.display());
-
-        let pin_filter = self.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.config.filter_block_pinning_policy.get(0);
-
-        let created_table = Table::recover(
-            table_file_path,
-            checksum,
-            self.id,
-            self.config.cache.clone(),
-            self.config.descriptor_table.clone(),
-            pin_filter,
-            pin_index,
-            #[cfg(feature = "metrics")]
-            self.metrics.clone(),
-        )?;
-
-        log::debug!("Flushed table to {:?}", created_table.path);
-
-        Ok(Some(created_table))
     }
 
     /// Returns `true` if there are some tables that are being compacted.
@@ -723,8 +725,8 @@ impl Tree {
         key: &[u8],
         seqno: SeqNo,
     ) -> Option<InternalValue> {
-        for (_, memtable) in super_version.sealed_memtables.iter().rev() {
-            if let Some(entry) = memtable.get(key, seqno) {
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if let Some(entry) = mt.get(key, seqno) {
                 return Some(entry);
             }
         }
@@ -874,29 +876,20 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
+        use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
-        let manifest = {
-            let manifest_path = config.path.join(MANIFEST_FILE);
-            let reader = sfa::Reader::new(&manifest_path)?;
-            Manifest::decode_from(&manifest_path, &reader)?
-        };
+        // let manifest = {
+        //     let manifest_path = config.path.join(MANIFEST_FILE);
+        //     let reader = sfa::Reader::new(&manifest_path)?;
+        //     Manifest::decode_from(&manifest_path, &reader)?
+        // };
 
-        if manifest.version != FormatVersion::V3 {
-            if manifest.version == FormatVersion::V2 {
-                log::error!("It looks like you are trying to open a V2 database - the database needs a manual migration, a tool is available at <TODO: 3.0.0 LINK>.");
-            }
-            if manifest.version as u8 > 3 {
-                log::error!("It looks like you are trying to open a database from the future. Are you a time traveller?");
-            }
-            return Err(crate::Error::InvalidVersion(manifest.version.into()));
-        }
-
-        // IMPORTANT: Restore persisted config
-        config.level_count = manifest.level_count;
+        // if manifest.version != FormatVersion::V3 {
+        //     return Err(crate::Error::InvalidVersion(manifest.version.into()));
+        // }
 
         let tree_id = get_next_tree_id();
 
@@ -912,6 +905,19 @@ impl Tree {
             &metrics,
         )?;
 
+        {
+            let manifest_path = config.path.join(format!("v{}", version.id()));
+            let reader = sfa::Reader::new(&manifest_path)?;
+            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
+
+            if manifest.version != FormatVersion::V3 {
+                return Err(crate::Error::InvalidVersion(manifest.version.into()));
+            }
+
+            // IMPORTANT: Restore persisted config
+            config.level_count = manifest.level_count;
+        }
+
         let highest_table_id = version
             .iter_tables()
             .map(Table::id)
@@ -920,13 +926,17 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
+            memtable_id_counter: SequenceNumberCounter::default(),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
-            blob_file_id_generator: SequenceNumberCounter::default(),
+            blob_file_id_counter: SequenceNumberCounter::default(),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             config,
             major_compaction_lock: RwLock::default(),
-            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
+            flush_lock: Mutex::default(),
+            compaction_state: Arc::new(Mutex::new(
+                crate::compaction::state::CompactionState::default(),
+            )),
 
             #[cfg(feature = "metrics")]
             metrics,
@@ -937,7 +947,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, MANIFEST_FILE, TABLES_FOLDER};
+        use crate::file::{fsync_directory, TABLES_FOLDER};
         use std::fs::create_dir_all;
 
         let path = config.path.clone();
@@ -945,29 +955,26 @@ impl Tree {
 
         create_dir_all(&path)?;
 
-        let manifest_path = path.join(MANIFEST_FILE);
-        assert!(!manifest_path.try_exists()?);
-
         let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
-        // Create manifest
-        {
-            let mut writer = sfa::Writer::new_at_path(manifest_path)?;
+        // // Create manifest
+        // {
+        //     let mut writer = sfa::Writer::new_at_path(manifest_path)?;
 
-            Manifest {
-                version: FormatVersion::V3,
-                level_count: config.level_count,
-                tree_type: if config.kv_separation_opts.is_some() {
-                    TreeType::Blob
-                } else {
-                    TreeType::Standard
-                },
-            }
-            .encode_into(&mut writer)?;
+        //     Manifest {
+        //         version: FormatVersion::V3,
+        //         level_count: config.level_count,
+        //         tree_type: if config.kv_separation_opts.is_some() {
+        //             TreeType::Blob
+        //         } else {
+        //             TreeType::Standard
+        //         },
+        //     }
+        //     .encode_into(&mut writer)?;
 
-            writer.finish()?;
-        }
+        //     writer.finish()?;
+        // }
 
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&table_folder_path)?;
@@ -982,7 +989,7 @@ impl Tree {
         tree_path: P,
         tree_id: TreeId,
         cache: &Arc<Cache>,
-        descriptor_table: &Arc<DescriptorTable>,
+        descriptor_table: &Arc<crate::DescriptorTable>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
         use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
@@ -1104,7 +1111,7 @@ impl Tree {
         log::debug!("Successfully recovered {} tables", tables.len());
 
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
-            &tree_path.join(BLOBS_FOLDER),
+            &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
 
@@ -1127,7 +1134,10 @@ impl Tree {
         Ok(version)
     }
 
-    fn cleanup_orphaned_version(path: &Path, latest_version_id: VersionId) -> crate::Result<()> {
+    fn cleanup_orphaned_version(
+        path: &Path,
+        latest_version_id: crate::version::VersionId,
+    ) -> crate::Result<()> {
         let version_str = format!("v{latest_version_id}");
 
         for file in std::fs::read_dir(path)? {
