@@ -22,6 +22,7 @@ use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
+use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::{ops::Deref, sync::Arc};
@@ -152,6 +153,8 @@ pub struct VersionInner {
     /// The version's ID
     id: VersionId,
 
+    tree_type: TreeType,
+
     /// The individual LSM-tree levels which consist of runs of tables
     levels: Vec<Level>,
 
@@ -211,12 +214,13 @@ impl Version {
     }
 
     /// Creates a new empty version.
-    pub fn new(id: VersionId) -> Self {
+    pub fn new(id: VersionId, tree_type: TreeType) -> Self {
         let levels = (0..DEFAULT_LEVEL_COUNT).map(|_| Level::empty()).collect();
 
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type,
                 levels,
                 blob_files: Arc::default(),
                 gc_stats: Arc::default(),
@@ -225,6 +229,7 @@ impl Version {
     }
 
     pub(crate) fn from_recovery(
+        tree_type: TreeType,
         recovery: Recovery,
         tables: &[Table],
         blob_files: &[BlobFile],
@@ -257,6 +262,7 @@ impl Version {
 
         Ok(Self::from_levels(
             recovery.curr_version_id,
+            tree_type,
             version_levels,
             BlobFileList::new(blob_files.iter().cloned().map(|bf| (bf.id(), bf)).collect()),
             recovery.gc_stats,
@@ -266,6 +272,7 @@ impl Version {
     /// Creates a new pre-populated version.
     pub fn from_levels(
         id: VersionId,
+        tree_type: TreeType,
         levels: Vec<Level>,
         blob_files: BlobFileList,
         gc_stats: FragmentationMap,
@@ -273,6 +280,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type,
                 levels,
                 blob_files: Arc::new(blob_files),
                 gc_stats: Arc::new(gc_stats),
@@ -376,6 +384,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -459,6 +468,7 @@ impl Version {
         Ok(Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -541,6 +551,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type: self.tree_type,
                 levels,
                 blob_files: value_log,
                 gc_stats,
@@ -586,6 +597,7 @@ impl Version {
         Self {
             inner: Arc::new(VersionInner {
                 id,
+                tree_type: self.tree_type,
                 levels,
                 blob_files: self.blob_files.clone(),
                 gc_stats: self.gc_stats.clone(),
@@ -596,7 +608,32 @@ impl Version {
 
 impl Version {
     pub(crate) fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
+        use crate::FormatVersion;
         use byteorder::{LittleEndian, WriteBytesExt};
+        use std::io::Write;
+
+        //
+        // Manifest
+        //
+
+        writer.start("format_version")?;
+        writer.write_u8(FormatVersion::V3.into())?;
+
+        writer.start("crate_version")?;
+        writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;
+
+        writer.start("tree_type")?;
+        writer.write_u8(self.tree_type.into())?;
+
+        writer.start("level_count")?;
+        writer.write_u8(self.level_count() as u8)?;
+
+        writer.start("filter_hash_type")?;
+        writer.write_all(b"xxh3")?;
+
+        //
+        // Levels
+        //
 
         writer.start("tables")?;
 

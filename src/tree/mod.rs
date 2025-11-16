@@ -690,8 +690,6 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        use crate::file::MANIFEST_FILE;
-
         log::debug!("Opening LSM-tree at {}", config.path.display());
 
         // Check for old version
@@ -700,7 +698,7 @@ impl Tree {
             return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
-        let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
+        let tree = if config.path.join("current").try_exists()? {
             Self::recover(config)
         } else {
             Self::create_new(config)
@@ -877,23 +875,20 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
+        use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
-        let manifest = {
-            let manifest_path = config.path.join(MANIFEST_FILE);
-            let reader = sfa::Reader::new(&manifest_path)?;
-            Manifest::decode_from(&manifest_path, &reader)?
-        };
+        // let manifest = {
+        //     let manifest_path = config.path.join(MANIFEST_FILE);
+        //     let reader = sfa::Reader::new(&manifest_path)?;
+        //     Manifest::decode_from(&manifest_path, &reader)?
+        // };
 
-        if manifest.version != FormatVersion::V3 {
-            return Err(crate::Error::InvalidVersion(manifest.version.into()));
-        }
-
-        // IMPORTANT: Restore persisted config
-        config.level_count = manifest.level_count;
+        // if manifest.version != FormatVersion::V3 {
+        //     return Err(crate::Error::InvalidVersion(manifest.version.into()));
+        // }
 
         let tree_id = get_next_tree_id();
 
@@ -901,6 +896,11 @@ impl Tree {
         let metrics = Arc::new(Metrics::default());
 
         let version = Self::recover_levels(
+            if config.kv_separation_opts.is_some() {
+                TreeType::Blob
+            } else {
+                TreeType::Standard
+            },
             &config.path,
             tree_id,
             &config.cache,
@@ -908,6 +908,19 @@ impl Tree {
             #[cfg(feature = "metrics")]
             &metrics,
         )?;
+
+        {
+            let manifest_path = config.path.join(format!("v{}", version.id()));
+            let reader = sfa::Reader::new(&manifest_path)?;
+            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
+
+            if manifest.version != FormatVersion::V3 {
+                return Err(crate::Error::InvalidVersion(manifest.version.into()));
+            }
+
+            // IMPORTANT: Restore persisted config
+            config.level_count = manifest.level_count;
+        }
 
         let highest_table_id = version
             .iter_tables()
@@ -938,7 +951,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, MANIFEST_FILE, TABLES_FOLDER};
+        use crate::file::{fsync_directory, TABLES_FOLDER};
         use std::fs::create_dir_all;
 
         let path = config.path.clone();
@@ -946,29 +959,26 @@ impl Tree {
 
         create_dir_all(&path)?;
 
-        let manifest_path = path.join(MANIFEST_FILE);
-        assert!(!manifest_path.try_exists()?);
-
         let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
-        // Create manifest
-        {
-            let mut writer = sfa::Writer::new_at_path(manifest_path)?;
+        // // Create manifest
+        // {
+        //     let mut writer = sfa::Writer::new_at_path(manifest_path)?;
 
-            Manifest {
-                version: FormatVersion::V3,
-                level_count: config.level_count,
-                tree_type: if config.kv_separation_opts.is_some() {
-                    TreeType::Blob
-                } else {
-                    TreeType::Standard
-                },
-            }
-            .encode_into(&mut writer)?;
+        //     Manifest {
+        //         version: FormatVersion::V3,
+        //         level_count: config.level_count,
+        //         tree_type: if config.kv_separation_opts.is_some() {
+        //             TreeType::Blob
+        //         } else {
+        //             TreeType::Standard
+        //         },
+        //     }
+        //     .encode_into(&mut writer)?;
 
-            writer.finish()?;
-        }
+        //     writer.finish()?;
+        // }
 
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&table_folder_path)?;
@@ -980,6 +990,7 @@ impl Tree {
 
     /// Recovers the level manifest, loading all tables from disk.
     fn recover_levels<P: AsRef<Path>>(
+        tree_type: TreeType,
         tree_path: P,
         tree_id: TreeId,
         cache: &Arc<Cache>,
@@ -1109,7 +1120,7 @@ impl Tree {
             &recovery.blob_file_ids,
         )?;
 
-        let version = Version::from_recovery(recovery, &tables, &blob_files)?;
+        let version = Version::from_recovery(tree_type, recovery, &tables, &blob_files)?;
 
         // NOTE: Cleanup old versions
         // But only after we definitely recovered the latest version

@@ -90,28 +90,23 @@ mod compression;
 /// Configuration
 pub mod config;
 
-mod double_ended_peekable;
+#[doc(hidden)]
+pub mod descriptor_table;
 
+mod double_ended_peekable;
 mod error;
 
 #[doc(hidden)]
 pub mod file;
 
 mod hash;
-
 mod iter_guard;
-
 mod key;
 mod key_range;
-
-mod run_reader;
-mod run_scanner;
-
 mod manifest;
 mod memtable;
-
-#[doc(hidden)]
-pub mod descriptor_table;
+mod run_reader;
+mod run_scanner;
 
 #[doc(hidden)]
 pub mod merge;

@@ -72,7 +72,14 @@ pub struct TreeInner {
 
 impl TreeInner {
     pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let version = Version::new(0);
+        let version = Version::new(
+            0,
+            if config.kv_separation_opts.is_some() {
+                crate::TreeType::Blob
+            } else {
+                crate::TreeType::Standard
+            },
+        );
         persist_version(&config.path, &version)?;
 
         Ok(Self {

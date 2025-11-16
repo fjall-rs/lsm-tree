@@ -186,19 +186,19 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
                 },
             ]
@@ -219,19 +219,19 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
                 },
             ]
@@ -252,25 +252,25 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 8,
                 },
             ]
@@ -291,13 +291,13 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 8,
                 },
             ]
@@ -318,13 +318,13 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0),
+                    version: Version::new(0, crate::TreeType::Standard),
                     seqno: 2,
                 },
             ]
