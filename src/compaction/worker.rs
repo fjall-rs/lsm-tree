@@ -292,12 +292,9 @@ fn pick_blob_files_to_rewrite(
             continue;
         }
 
-        let other_ref = table
-            .list_blob_file_references()
-            .expect("should not fail")
-            .unwrap_or_default();
-
-        let other_refs = other_ref
+        let other_refs = table
+            .list_blob_file_references()?
+            .unwrap_or_default()
             .into_iter()
             .filter(|x| linked_blob_files.iter().any(|bf| bf.id() == x.blob_file_id))
             .collect::<Vec<_>>();

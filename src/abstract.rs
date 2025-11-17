@@ -29,6 +29,9 @@ pub trait AbstractTree {
     #[doc(hidden)]
     fn id(&self) -> crate::TreeId;
 
+    /// Like [`AbstractTree::get`], but returns the actual internal entry, not just the user value.
+    ///
+    /// Used in tests.
     #[doc(hidden)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
