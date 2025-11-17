@@ -417,6 +417,7 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
+    #[warn(clippy::too_many_arguments)]
     pub fn recover(
         file_path: PathBuf,
         checksum: Checksum,

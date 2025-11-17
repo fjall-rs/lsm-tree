@@ -3,37 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{FormatVersion, TreeType};
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::{
-    io::{Read, Write},
-    path::Path,
-};
+use byteorder::ReadBytesExt;
+use std::{io::Read, path::Path};
 
 pub struct Manifest {
     pub version: FormatVersion,
     pub tree_type: TreeType,
     pub level_count: u8,
-}
-
-impl Manifest {
-    pub fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
-        writer.start("format_version")?;
-        writer.write_u8(self.version.into())?;
-
-        writer.start("crate_version")?;
-        writer.write_all(env!("CARGO_PKG_VERSION").as_bytes())?;
-
-        writer.start("tree_type")?;
-        writer.write_u8(self.tree_type.into())?;
-
-        writer.start("level_count")?;
-        writer.write_u8(self.level_count)?;
-
-        writer.start("filter_hash_type")?;
-        writer.write_all(b"xxh3")?;
-
-        Ok(())
-    }
 }
 
 impl Manifest {
