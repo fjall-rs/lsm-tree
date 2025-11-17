@@ -468,7 +468,7 @@ impl AbstractTree for BlobTree {
         let mut table_writer = MultiWriter::new(
             table_folder.clone(),
             self.index.table_id_counter.clone(),
-            64_000_000,
+            64 * 1_024 * 1_024,
             0,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
