@@ -292,10 +292,7 @@ fn pick_blob_files_to_rewrite(
             continue;
         }
 
-        let other_ref = table
-            .list_blob_file_references()
-            .expect("should not fail")
-            .unwrap_or_default();
+        let other_ref = table.list_blob_file_references()?.unwrap_or_default();
 
         let other_refs = other_ref
             .into_iter()
