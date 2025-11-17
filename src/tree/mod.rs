@@ -106,20 +106,7 @@ impl AbstractTree for Tree {
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
         let version_history_lock = self.version_history.read().expect("lock is poisoned");
         let super_version = version_history_lock.get_version_for_snapshot(seqno);
-
-        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        // Now look in sealed memtables
-        if let Some(entry) =
-            Self::get_internal_entry_from_sealed_memtables(&super_version, key, seqno)
-        {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        // Now look in tables... this may involve disk I/O
-        self.get_internal_entry_from_tables(&super_version.version, key, seqno)
+        Self::get_internal_entry_from_version(&super_version, key, seqno)
     }
 
     fn current_version(&self) -> Version {
@@ -634,6 +621,105 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    #[doc(hidden)]
+    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+        version: SuperVersion,
+        range: &'a R,
+        seqno: SeqNo,
+        ephemeral: Option<Arc<Memtable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+        use crate::range::{IterState, TreeIter};
+        use std::ops::Bound::{self, Excluded, Included, Unbounded};
+
+        let lo: Bound<UserKey> = match range.start_bound() {
+            Included(x) => Included(x.as_ref().into()),
+            Excluded(x) => Excluded(x.as_ref().into()),
+            Unbounded => Unbounded,
+        };
+
+        let hi: Bound<UserKey> = match range.end_bound() {
+            Included(x) => Included(x.as_ref().into()),
+            Excluded(x) => Excluded(x.as_ref().into()),
+            Unbounded => Unbounded,
+        };
+
+        let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
+
+        let iter_state = { IterState { version, ephemeral } };
+
+        TreeIter::create_range(iter_state, bounds, seqno)
+    }
+
+    pub(crate) fn get_internal_entry_from_version(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<InternalValue>> {
+        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        // Now look in sealed memtables
+        if let Some(entry) =
+            Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
+        {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        // Now look in tables... this may involve disk I/O
+        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+    }
+
+    fn get_internal_entry_from_tables(
+        version: &Version,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<InternalValue>> {
+        // NOTE: Create key hash for hash sharing
+        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
+        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
+
+        for level in version.iter_levels() {
+            for run in level.iter() {
+                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
+                if run.len() >= 4 {
+                    if let Some(table) = run.get_for_key(key) {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
+                } else {
+                    // NOTE: Fallback to linear search
+                    for table in run.iter() {
+                        if !table.is_key_in_key_range(key) {
+                            continue;
+                        }
+
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn get_internal_entry_from_sealed_memtables(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> Option<InternalValue> {
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if let Some(entry) = mt.get(key, seqno) {
+                return Some(entry);
+            }
+        }
+
+        None
+    }
+
     pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
         self.version_history
             .read()
@@ -720,57 +806,6 @@ impl Tree {
             .is_empty()
     }
 
-    fn get_internal_entry_from_sealed_memtables(
-        super_version: &SuperVersion,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> Option<InternalValue> {
-        for mt in super_version.sealed_memtables.iter().rev() {
-            if let Some(entry) = mt.get(key, seqno) {
-                return Some(entry);
-            }
-        }
-
-        None
-    }
-
-    fn get_internal_entry_from_tables(
-        &self,
-        version: &Version,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> crate::Result<Option<InternalValue>> {
-        // NOTE: Create key hash for hash sharing
-        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
-
-        for level in version.iter_levels() {
-            for run in level.iter() {
-                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
-                if run.len() >= 4 {
-                    if let Some(table) = run.get_for_key(key) {
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                    }
-                } else {
-                    // NOTE: Fallback to linear search
-                    for table in run.iter() {
-                        if !table.is_key_in_key_range(key) {
-                            continue;
-                        }
-
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
     fn inner_compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -799,48 +834,19 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
-        &'a self,
-        range: &'a R,
-        seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
-        use crate::range::{IterState, TreeIter};
-        use std::ops::Bound::{self, Excluded, Included, Unbounded};
-
-        let lo: Bound<UserKey> = match range.start_bound() {
-            Included(x) => Included(x.as_ref().into()),
-            Excluded(x) => Excluded(x.as_ref().into()),
-            Unbounded => Unbounded,
-        };
-
-        let hi: Bound<UserKey> = match range.end_bound() {
-            Included(x) => Included(x.as_ref().into()),
-            Excluded(x) => Excluded(x.as_ref().into()),
-            Unbounded => Unbounded,
-        };
-
-        let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
-
-        let version = self.get_version_for_snapshot(seqno);
-
-        let iter_state = { IterState { version, ephemeral } };
-
-        TreeIter::create_range(iter_state, bounds, seqno)
-    }
-
-    #[doc(hidden)]
     pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &self,
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.create_internal_range(range, seqno, ephemeral)
-            .map(|item| match item {
-                Ok(kv) => Ok((kv.key.user_key, kv.value)),
-                Err(e) => Err(e),
-            })
+        let version_history_lock = self.version_history.read().expect("lock is poisoned");
+        let super_version = version_history_lock.get_version_for_snapshot(seqno);
+
+        Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
+            Ok(kv) => Ok((kv.key.user_key, kv.value)),
+            Err(e) => Err(e),
+        })
     }
 
     #[doc(hidden)]
