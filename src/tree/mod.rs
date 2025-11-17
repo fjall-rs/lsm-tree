@@ -102,10 +102,13 @@ impl AbstractTree for Tree {
         0
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        let version_history_lock = self.version_history.read().expect("lock is poisoned");
-        let super_version = version_history_lock.get_version_for_snapshot(seqno);
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
         Self::get_internal_entry_from_version(&super_version, key, seqno)
     }
 
