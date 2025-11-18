@@ -29,7 +29,9 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -72,7 +74,9 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default())
+            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+            .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
