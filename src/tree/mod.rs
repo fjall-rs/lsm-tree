@@ -927,6 +927,19 @@ impl Tree {
                 return Err(crate::Error::InvalidVersion(manifest.version.into()));
             }
 
+            let requested_tree_type = match config.kv_separation_opts {
+                Some(_) => crate::TreeType::Blob,
+                None => crate::TreeType::Standard,
+            };
+
+            if version.tree_type() != requested_tree_type {
+                log::error!(
+                    "Tried to open a {requested_tree_type:?}Tree, but the existing tree is of type {:?}Tree. This indicates a misconfiguration or corruption.",
+                    version.tree_type(),
+                );
+                return Err(crate::Error::Unrecoverable);
+            }
+
             // IMPORTANT: Restore persisted config
             config.level_count = manifest.level_count;
         }

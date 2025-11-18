@@ -18,11 +18,11 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
-use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
+use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::fs::File;
@@ -191,6 +191,11 @@ impl std::ops::Deref for Version {
 
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
+    /// Returns the initial tree type.
+    pub fn tree_type(&self) -> TreeType {
+        self.tree_type
+    }
+
     /// Returns the version ID.
     pub fn id(&self) -> VersionId {
         self.id
