@@ -84,6 +84,10 @@ impl std::ops::Deref for Tree {
 }
 
 impl AbstractTree for Tree {
+    fn table_file_cache_size(&self) -> usize {
+        self.config.descriptor_table.len()
+    }
+
     fn get_version_history_lock(
         &self,
     ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {

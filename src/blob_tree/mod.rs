@@ -170,6 +170,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn table_file_cache_size(&self) -> usize {
+        self.index.table_file_cache_size()
+    }
+
     fn get_version_history_lock(
         &self,
     ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {

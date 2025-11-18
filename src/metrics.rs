@@ -55,40 +55,74 @@ pub struct Metrics {
     reason = "metrics can accept precision loss"
 )]
 impl Metrics {
+    /// Returns the cache hit rate for file descriptors in percent (0.0 - 1.0).
+    pub fn table_file_cache_hit_rate(&self) -> f64 {
+        let opened = self.table_file_opened.load(Relaxed) as f64;
+        let cached = self.table_file_opened_cached.load(Relaxed) as f64;
+
+        if opened == 0.0 {
+            1.0
+        } else {
+            cached / opened
+        }
+    }
+
+    /// Number of I/O data block bytes transferred from disk or OS page cache.
+    pub fn data_block_io(&self) -> u64 {
+        self.data_block_io_requested.load(Relaxed)
+    }
+
+    /// Number of I/O index block bytes transferred from disk or OS page cache.
+    pub fn index_block_io(&self) -> u64 {
+        self.index_block_io_requested.load(Relaxed)
+    }
+
+    /// Number of I/O filter block bytes transferred from disk or OS page cache.
+    pub fn filter_block_io(&self) -> u64 {
+        self.filter_block_io_requested.load(Relaxed)
+    }
+
+    /// Number of I/O block bytes transferred from disk or OS page cache.
+    pub fn block_io(&self) -> u64 {
+        self.data_block_io_requested.load(Relaxed)
+            + self.index_block_io_requested.load(Relaxed)
+            + self.filter_block_io_requested.load(Relaxed)
+    }
+
     /// Number of data blocks that were accessed.
-    pub fn data_block_loads(&self) -> usize {
+    pub fn data_block_load_count(&self) -> usize {
         self.data_block_load_cached.load(Relaxed) + self.data_block_load_io.load(Relaxed)
     }
 
     /// Number of index blocks that were accessed.
-    pub fn index_block_loads(&self) -> usize {
+    pub fn index_block_load_count(&self) -> usize {
         self.index_block_load_cached.load(Relaxed) + self.index_block_load_io.load(Relaxed)
     }
 
     /// Number of filter blocks that were accessed.
-    pub fn filter_block_loads(&self) -> usize {
+    pub fn filter_block_load_count(&self) -> usize {
         self.filter_block_load_cached.load(Relaxed) + self.filter_block_load_io.load(Relaxed)
     }
 
     /// Number of blocks that were loaded from disk or OS page cache.
-    pub fn block_loads_io(&self) -> usize {
+    pub fn block_load_io_count(&self) -> usize {
         self.data_block_load_io.load(Relaxed)
             + self.index_block_load_io.load(Relaxed)
             + self.filter_block_load_io.load(Relaxed)
     }
 
     /// Number of index blocks that were loaded from disk or OS page cache.
-    pub fn index_block_loads_cached(&self) -> usize {
+    pub fn index_block_load_cached_count(&self) -> usize {
         self.index_block_load_cached.load(Relaxed)
     }
 
     /// Number of filter blocks that were loaded from disk or OS page cache.
-    pub fn filter_block_loads_cached(&self) -> usize {
+    pub fn filter_block_load_cached_count(&self) -> usize {
         self.filter_block_load_cached.load(Relaxed)
     }
 
     /// Number of blocks that were loaded from disk or OS page cache.
-    pub fn block_loads_cached(&self) -> usize {
+    pub fn block_load_cached_count(&self) -> usize {
         self.data_block_load_cached.load(Relaxed)
             + self.index_block_load_cached.load(Relaxed)
             + self.filter_block_load_cached.load(Relaxed)
@@ -96,13 +130,13 @@ impl Metrics {
 
     /// Number of blocks that were accessed.
     pub fn block_loads(&self) -> usize {
-        self.block_loads_io() + self.block_loads_cached()
+        self.block_load_io_count() + self.block_load_cached_count()
     }
 
     /// Filter block cache efficiency in percent (0.0 - 1.0).
     pub fn filter_block_cache_hit_rate(&self) -> f64 {
-        let queries = self.filter_block_loads() as f64;
-        let hits = self.filter_block_loads_cached() as f64;
+        let queries = self.filter_block_load_count() as f64;
+        let hits = self.filter_block_load_cached_count() as f64;
 
         if queries == 0.0 {
             1.0
@@ -113,8 +147,8 @@ impl Metrics {
 
     /// Index block cache efficiency in percent (0.0 - 1.0).
     pub fn index_block_cache_hit_rate(&self) -> f64 {
-        let queries = self.index_block_loads() as f64;
-        let hits = self.index_block_loads_cached() as f64;
+        let queries = self.index_block_load_count() as f64;
+        let hits = self.index_block_load_cached_count() as f64;
 
         if queries == 0.0 {
             1.0
@@ -126,7 +160,7 @@ impl Metrics {
     /// Block cache efficiency in percent (0.0 - 1.0).
     pub fn block_cache_hit_rate(&self) -> f64 {
         let queries = self.block_loads() as f64;
-        let hits = self.block_loads_cached() as f64;
+        let hits = self.block_load_cached_count() as f64;
 
         if queries == 0.0 {
             1.0

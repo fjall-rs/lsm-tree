@@ -17,6 +17,9 @@ pub type RangeItem = crate::Result<KvPair>;
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
+    /// Returns the number of cached table file descriptors.
+    fn table_file_cache_size(&self) -> usize;
+
     // TODO: remove
     #[doc(hidden)]
     fn version_memtable_size_sum(&self) -> u64 {
