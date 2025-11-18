@@ -4,11 +4,13 @@
 
 use super::meta::Metadata;
 use crate::{
-    time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType, KeyRange, SeqNo, UserKey,
+    checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
+    KeyRange, SeqNo, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
-    io::Write,
+    fs::File,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -27,7 +29,7 @@ pub struct Writer {
     pub(crate) blob_file_id: BlobFileId,
 
     #[expect(clippy::struct_field_names)]
-    writer: sfa::Writer,
+    writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
 
     offset: u64,
 
@@ -50,7 +52,10 @@ impl Writer {
     #[doc(hidden)]
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
         let path = path.as_ref();
-        let mut writer = sfa::Writer::new_at_path(path)?;
+
+        let writer = BufWriter::new(File::create(path)?);
+        let writer = ChecksummedWriter::new(writer);
+        let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;
 
         Ok(Self {
@@ -215,8 +220,10 @@ impl Writer {
         };
         metadata.encode_into(&mut self.writer)?;
 
-        let checksum = self.writer.finish()?;
+        let mut checksum = self.writer.into_inner()?;
+        checksum.inner_mut().get_mut().sync_all()?;
+        let checksum = checksum.checksum();
 
-        Ok((metadata, checksum.into()))
+        Ok((metadata, checksum))
     }
 }

@@ -2,16 +2,19 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use std::io::{Seek, Write};
-
 use super::FilterWriter;
 use crate::{
+    checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
     table::{
         block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockOffset,
         IndexBlock, KeyedBlockHandle,
     },
     CompressionType, UserKey,
+};
+use std::{
+    fs::File,
+    io::{BufWriter, Seek, Write},
 };
 
 pub struct PartitionedFilterWriter {
@@ -94,7 +97,7 @@ impl PartitionedFilterWriter {
 
     fn write_top_level_index(
         &mut self,
-        file_writer: &mut sfa::Writer,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
         index_base_offset: BlockOffset,
     ) -> crate::Result<()> {
         file_writer.start("filter_tli")?;
@@ -163,7 +166,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         Ok(())
     }
 
-    fn finish(mut self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
+    fn finish(
+        mut self: Box<Self>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    ) -> crate::Result<usize> {
         if !self.bloom_hash_buffer.is_empty() {
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;

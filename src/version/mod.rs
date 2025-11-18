@@ -25,6 +25,8 @@ use crate::{
 };
 use optimize::optimize_runs;
 use run::Ranged;
+use std::fs::File;
+use std::io::BufWriter;
 use std::{ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
@@ -606,7 +608,10 @@ impl Version {
 }
 
 impl Version {
-    pub(crate) fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
+    pub(crate) fn encode_into(
+        &self,
+        writer: &mut sfa::Writer<BufWriter<File>>,
+    ) -> Result<(), crate::Error> {
         use crate::FormatVersion;
         use byteorder::{LittleEndian, WriteBytesExt};
         use std::io::Write;

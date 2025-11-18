@@ -3,12 +3,14 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    checksum::ChecksummedWriter,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
         writer::index::BlockIndexWriter, Block, IndexBlock,
     },
     CompressionType,
 };
+use std::{fs::File, io::BufWriter};
 
 pub struct FullIndexWriter {
     compression: CompressionType,
@@ -46,7 +48,10 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         Ok(())
     }
 
-    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
+    fn finish(
+        self: Box<Self>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    ) -> crate::Result<usize> {
         file_writer.start("tli")?;
 
         let mut bytes = vec![];

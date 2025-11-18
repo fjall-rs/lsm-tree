@@ -11,6 +11,7 @@ use super::{
     KeyedBlockHandle,
 };
 use crate::{
+    checksum::ChecksummedWriter,
     coding::Encode,
     file::fsync_directory,
     table::writer::{
@@ -57,7 +58,7 @@ pub struct Writer {
 
     /// File writer
     #[expect(clippy::struct_field_names)]
-    file_writer: sfa::Writer,
+    file_writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
 
     /// Writer of index blocks
     #[expect(clippy::struct_field_names)]
@@ -90,10 +91,10 @@ pub struct Writer {
 
 impl Writer {
     pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
-        let block_writer = File::create_new(&path)?;
-        let block_writer = BufWriter::with_capacity(u16::MAX.into(), block_writer);
-        let mut block_writer = sfa::Writer::from_writer(block_writer);
-        block_writer.start("data")?;
+        let writer = BufWriter::with_capacity(u16::MAX.into(), File::create_new(&path)?);
+        let writer = ChecksummedWriter::new(writer);
+        let mut writer = sfa::Writer::from_writer(writer);
+        writer.start("data")?;
 
         Ok(Self {
             initial_level,
@@ -118,7 +119,7 @@ impl Writer {
             filter_writer: Box::new(FullFilterWriter::new(BloomConstructionPolicy::default())),
 
             block_buffer: Vec::new(),
-            file_writer: block_writer,
+            file_writer: writer,
             chunk: Vec::new(),
 
             prev_pos: (BlockOffset(0), BlockOffset(0)),
@@ -487,7 +488,9 @@ impl Writer {
 
         // Write fixed-size trailer
         // and flush & fsync the table file
-        let checksum = self.file_writer.finish()?;
+        let mut checksum = self.file_writer.into_inner()?;
+        checksum.inner_mut().get_mut().sync_all()?;
+        let checksum = checksum.checksum();
 
         // IMPORTANT: fsync folder on Unix
 
@@ -505,6 +508,6 @@ impl Writer {
             *self.meta.file_pos / 1_024 / 1_024,
         );
 
-        Ok(Some((self.table_id, checksum.into())))
+        Ok(Some((self.table_id, checksum)))
     }
 }

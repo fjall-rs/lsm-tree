@@ -4,10 +4,12 @@
 
 use super::FilterWriter;
 use crate::{
+    checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
     table::{filter::standard_bloom::Builder, Block},
     CompressionType, UserKey,
 };
+use std::{fs::File, io::BufWriter};
 
 pub struct FullFilterWriter {
     /// Key hashes for AMQ filter
@@ -43,7 +45,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         Ok(())
     }
 
-    fn finish(self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
+    fn finish(
+        self: Box<Self>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    ) -> crate::Result<usize> {
         if self.bloom_hash_buffer.is_empty() {
             log::trace!("Filter write has no buffered hashes - not building filter");
         } else {
