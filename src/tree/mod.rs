@@ -489,16 +489,13 @@ impl AbstractTree for Tree {
         &self.config
     }
 
-    fn active_memtable_size(&self) -> u64 {
-        use std::sync::atomic::Ordering::Acquire;
-
+    fn active_memtable(&self) -> Arc<Memtable> {
         self.version_history
             .read()
             .expect("lock is poisoned")
             .latest_version()
             .active_memtable
-            .approximate_size
-            .load(Acquire)
+            .clone()
     }
 
     fn tree_type(&self) -> crate::TreeType {

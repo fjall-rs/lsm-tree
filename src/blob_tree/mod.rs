@@ -639,8 +639,8 @@ impl AbstractTree for BlobTree {
         self.index.get_highest_seqno()
     }
 
-    fn active_memtable_size(&self) -> u64 {
-        self.index.active_memtable_size()
+    fn active_memtable(&self) -> Arc<Memtable> {
+        self.index.active_memtable()
     }
 
     fn tree_type(&self) -> crate::TreeType {
