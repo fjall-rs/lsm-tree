@@ -266,10 +266,8 @@ pub trait AbstractTree {
         memtable_seqno.max(table_seqno)
     }
 
-    /// Returns the approximate size of the active memtable in bytes.
-    ///
-    /// May be used to flush the memtable if it grows too large.
-    fn active_memtable_size(&self) -> u64;
+    /// Returns the active memtable.
+    fn active_memtable(&self) -> Arc<Memtable>;
 
     /// Returns the tree type.
     fn tree_type(&self) -> crate::TreeType;
