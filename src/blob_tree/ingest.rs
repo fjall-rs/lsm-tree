@@ -41,9 +41,9 @@ impl<'a> BlobIngestion<'a> {
         let table = TableIngestion::new(&tree.index)?;
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
-            blob_file_size,
             tree.index.config.path.join(BLOBS_FOLDER),
         )?
+        .use_target_size(blob_file_size)
         .use_compression(kv.compression);
 
         let separation_threshold = kv.separation_threshold;

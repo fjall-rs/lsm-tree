@@ -19,8 +19,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Cache, Config, DescriptorTable, Memtable, SeqNo, SequenceNumberCounter, TableId, TreeId,
-    UserKey, UserValue,
+    Cache, Config, DescriptorTable, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{
@@ -396,9 +395,9 @@ impl AbstractTree for BlobTree {
 
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_counter.clone(),
-            kv_opts.file_target_size,
             self.index.config.path.join(BLOBS_FOLDER),
         )?
+        .use_target_size(kv_opts.file_target_size)
         .use_compression(
             self.index
                 .config
