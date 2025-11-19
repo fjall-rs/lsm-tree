@@ -18,13 +18,15 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
-use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
+use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
+use std::fs::File;
+use std::io::BufWriter;
 use std::{ops::Deref, sync::Arc};
 
 pub const DEFAULT_LEVEL_COUNT: u8 = 7;
@@ -189,6 +191,11 @@ impl std::ops::Deref for Version {
 
 // TODO: impl using generics so we can easily unit test Version transformation functions
 impl Version {
+    /// Returns the initial tree type.
+    pub fn tree_type(&self) -> TreeType {
+        self.tree_type
+    }
+
     /// Returns the version ID.
     pub fn id(&self) -> VersionId {
         self.id
@@ -606,7 +613,10 @@ impl Version {
 }
 
 impl Version {
-    pub(crate) fn encode_into(&self, writer: &mut sfa::Writer) -> Result<(), crate::Error> {
+    pub(crate) fn encode_into(
+        &self,
+        writer: &mut sfa::Writer<BufWriter<File>>,
+    ) -> Result<(), crate::Error> {
         use crate::FormatVersion;
         use byteorder::{LittleEndian, WriteBytesExt};
         use std::io::Write;

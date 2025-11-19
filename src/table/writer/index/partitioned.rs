@@ -3,13 +3,17 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    checksum::ChecksummedWriter,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
         writer::index::BlockIndexWriter, Block, BlockOffset, IndexBlock,
     },
     CompressionType,
 };
-use std::io::{Seek, Write};
+use std::{
+    fs::File,
+    io::{BufWriter, Seek, Write},
+};
 
 pub struct PartitionedIndexWriter {
     relative_file_pos: u64,
@@ -95,7 +99,7 @@ impl PartitionedIndexWriter {
 
     fn write_top_level_index(
         &mut self,
-        file_writer: &mut sfa::Writer,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
         index_base_offset: BlockOffset,
     ) -> crate::Result<()> {
         file_writer.start("tli")?;
@@ -166,7 +170,10 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
         Ok(())
     }
 
-    fn finish(mut self: Box<Self>, file_writer: &mut sfa::Writer) -> crate::Result<usize> {
+    fn finish(
+        mut self: Box<Self>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    ) -> crate::Result<usize> {
         if self.buffer_size > 0 {
             self.cut_index_block()?;
         }

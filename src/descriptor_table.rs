@@ -35,6 +35,10 @@ impl DescriptorTable {
         Self { inner: quick_cache }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.inner.len()
+    }
+
     #[doc(hidden)]
     pub fn clear(&self) {
         self.inner.clear();

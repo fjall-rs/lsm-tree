@@ -61,7 +61,7 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
 
     {
         let _tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Default::default())
+            .with_kv_separation(Some(Default::default()))
             .open()?;
 
         assert!(!folder.path().join("blobs").join("0").try_exists()?);
