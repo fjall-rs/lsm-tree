@@ -16,6 +16,8 @@ const TRAILER_SIZE: usize = 5 * std::mem::size_of::<u32>()
     // Fixed key size (unused)
     + std::mem::size_of::<u8>()
     + std::mem::size_of::<u16>()
+    // Prefix truncation on/off (always on)
+    + std::mem::size_of::<u8>()
     // Fixed value size (unused)
     + std::mem::size_of::<u8>()
     + std::mem::size_of::<u32>();
@@ -140,6 +142,9 @@ impl<'a> Trailer<'a> {
         encoder
             .writer
             .write_u32::<LittleEndian>(hash_index_offset)?;
+
+        // Prefix truncation on/off (always on)
+        encoder.writer.write_u8(1)?;
 
         // Fixed key size (unused)
         encoder.writer.write_u8(0)?;
