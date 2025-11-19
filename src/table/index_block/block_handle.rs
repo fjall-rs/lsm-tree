@@ -168,7 +168,6 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
 
         writer.write_u8(0)?; // 1
 
-        // TODO: maybe move these behind the key
         self.inner.encode_into(writer)?; // 2, 3
 
         #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
