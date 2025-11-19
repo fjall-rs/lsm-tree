@@ -900,8 +900,7 @@ impl Tree {
         let version = Self::recover_levels(
             &config.path,
             tree_id,
-            &config.cache,
-            &config.descriptor_table,
+            &config,
             #[cfg(feature = "metrics")]
             &metrics,
         )?;
@@ -1000,8 +999,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        cache: &Arc<Cache>,
-        descriptor_table: &Arc<crate::DescriptorTable>,
+        config: &Config,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
         use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
@@ -1088,14 +1086,17 @@ impl Tree {
             })?;
 
             if let Some(&(level_idx, checksum)) = table_map.get(&table_id) {
+                let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
+                let pin_index = config.index_block_pinning_policy.get(level_idx.into());
+
                 let table = Table::recover(
                     table_file_path,
                     checksum,
                     tree_id,
-                    cache.clone(),
-                    descriptor_table.clone(),
-                    level_idx <= 1, // TODO: look at configuration
-                    level_idx <= 2, // TODO: look at configuration
+                    config.cache.clone(),
+                    config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;
