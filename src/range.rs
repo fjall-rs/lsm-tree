@@ -64,7 +64,7 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 /// Because of Rust rules, the state is referenced using `self_cell`, see below.
 pub struct IterState {
     pub(crate) version: SuperVersion,
-    pub(crate) ephemeral: Option<Arc<Memtable>>,
+    pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
@@ -211,8 +211,12 @@ impl TreeIter {
                 ));
             }
 
-            if let Some(index) = &lock.ephemeral {
-                let iter = Box::new(index.range(range).map(Ok));
+            if let Some((mt, seqno)) = &lock.ephemeral {
+                let iter = Box::new(
+                    mt.range(range)
+                        .filter(move |item| seqno_filter(item.key.seqno, *seqno))
+                        .map(Ok),
+                );
                 iters.push(iter);
             }
 

@@ -118,7 +118,7 @@ pub trait AbstractTree {
     fn iter(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         self.range::<&[u8], _>(.., seqno, index)
     }
@@ -130,7 +130,7 @@ pub trait AbstractTree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
 
     /// Returns an iterator over a range of items.
@@ -140,7 +140,7 @@ pub trait AbstractTree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
 
     /// Ingests a sorted stream of key-value pairs into the tree.
@@ -357,7 +357,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn len(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
+    fn len(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<usize> {
         let mut count = 0;
 
         for item in self.iter(seqno, index) {
@@ -390,7 +390,7 @@ pub trait AbstractTree {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    fn is_empty(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<bool> {
+    fn is_empty(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<bool> {
         self.first_key_value(seqno, index).map(|x| x.is_none())
     }
 
@@ -422,7 +422,7 @@ pub trait AbstractTree {
     fn first_key_value(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> crate::Result<Option<KvPair>> {
         self.iter(seqno, index)
             .next()
@@ -458,7 +458,7 @@ pub trait AbstractTree {
     fn last_key_value(
         &self,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> crate::Result<Option<KvPair>> {
         self.iter(seqno, index)
             .next_back()

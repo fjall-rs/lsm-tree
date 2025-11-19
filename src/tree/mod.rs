@@ -144,7 +144,7 @@ impl AbstractTree for Tree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_prefix(&prefix, seqno, index)
@@ -156,7 +156,7 @@ impl AbstractTree for Tree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         Box::new(
             self.create_range(&range, seqno, index)
@@ -633,7 +633,7 @@ impl Tree {
         version: SuperVersion,
         range: &'a R,
         seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
+        ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
@@ -835,7 +835,7 @@ impl Tree {
     pub fn create_iter(
         &self,
         seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
+        ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
@@ -845,7 +845,7 @@ impl Tree {
         &self,
         range: &'a R,
         seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
+        ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         let version_history_lock = self.version_history.read().expect("lock is poisoned");
         let super_version = version_history_lock.get_version_for_snapshot(seqno);
@@ -861,7 +861,7 @@ impl Tree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
+        ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
         use crate::range::prefix_to_range;
 

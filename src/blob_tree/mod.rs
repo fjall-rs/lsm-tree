@@ -209,7 +209,7 @@ impl AbstractTree for BlobTree {
         &self,
         prefix: K,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         use crate::range::prefix_to_range;
 
@@ -235,7 +235,7 @@ impl AbstractTree for BlobTree {
         &self,
         range: R,
         seqno: SeqNo,
-        index: Option<Arc<Memtable>>,
+        index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
@@ -665,7 +665,7 @@ impl AbstractTree for BlobTree {
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster key reads
-    fn is_empty(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<bool> {
+    fn is_empty(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<bool> {
         self.index.is_empty(seqno, index)
     }
 
@@ -677,7 +677,7 @@ impl AbstractTree for BlobTree {
 
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster scans
-    fn len(&self, seqno: SeqNo, index: Option<Arc<Memtable>>) -> crate::Result<usize> {
+    fn len(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<usize> {
         self.index.len(seqno, index)
     }
 
