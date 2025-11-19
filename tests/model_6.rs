@@ -21,10 +21,10 @@ fn model_6() -> Result<()> {
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(10)))
         .open()?;
 
-    let compaction = Arc::new(lsm_tree::compaction::Leveled {
-        target_size: 1_024,
-        ..Default::default()
-    });
+    let compaction = Arc::new(
+        lsm_tree::compaction::Leveled::default()
+            .with_table_target_size(1_024)
+    );
 
     tree.insert([0, 0, 0, 0, 0, 0, 3, 152], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170598);
 tree.insert([0, 0, 0, 0, 0, 0, 0, 9], [104, 101, 108, 108, 111, 104, 101, 108, 108, 111], 170599);

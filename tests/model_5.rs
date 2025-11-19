@@ -16,10 +16,7 @@ fn model_5() -> Result<()> {
         .data_block_size_policy(BlockSizePolicy::all(100))
         .open()?;
 
-    let compaction = Arc::new(lsm_tree::compaction::Leveled {
-        target_size: 150,
-        ..Default::default()
-    });
+    let compaction = Arc::new(lsm_tree::compaction::Leveled::default().with_table_target_size(150));
 
     let value = b"hellohello";
 
