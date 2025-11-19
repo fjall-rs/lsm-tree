@@ -120,14 +120,14 @@ pub struct Strategy {
     /// Default = 4
     ///
     /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
-    pub l0_threshold: u8,
+    l0_threshold: u8,
 
     /// The target table size as disk (possibly compressed).
     ///
     /// Default = 64 MiB
     ///
     /// Same as `target_file_size_base` in `RocksDB`.
-    pub target_size: u64,
+    target_size: u64,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
     ///
@@ -135,14 +135,14 @@ pub struct Strategy {
     /// level to the next.
     ///
     /// Default = 10
-    pub level_ratio_policy: Vec<f32>,
+    level_ratio_policy: Vec<f32>,
 }
 
 impl Default for Strategy {
     fn default() -> Self {
         Self {
             l0_threshold: 4,
-            target_size:/* 64 Mib */ 64 * 1_024 * 1_024,
+            target_size:/* 64 MiB */ 64 * 1_024 * 1_024,
             level_ratio_policy: vec![10.0],
         }
     }
@@ -150,9 +150,29 @@ impl Default for Strategy {
 
 impl Strategy {
     /// Sets the growth ratio between levels.
+    ///
+    /// Default = 10.0
     #[must_use]
     pub fn with_level_ratio_policy(mut self, policy: Vec<f32>) -> Self {
         self.level_ratio_policy = policy;
+        self
+    }
+
+    /// Sets the L0 threshold.
+    ///
+    /// Default = 4
+    #[must_use]
+    pub fn with_l0_threshold(mut self, threshold: u8) -> Self {
+        self.l0_threshold = threshold;
+        self
+    }
+
+    /// Sets the table target size.
+    ///
+    /// Default = 64 MiB
+    #[must_use]
+    pub fn with_table_target_size(mut self, bytes: u64) -> Self {
+        self.target_size = bytes;
         self
     }
 
