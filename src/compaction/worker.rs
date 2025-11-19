@@ -424,9 +424,9 @@ fn merge_tables(
 
                 let writer = BlobFileWriter::new(
                     opts.blob_file_id_generator.clone(),
-                    blob_opts.file_target_size,
                     opts.config.path.join(BLOBS_FOLDER),
                 )?
+                .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, tables);

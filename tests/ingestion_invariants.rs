@@ -1,8 +1,7 @@
+use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SeqNo};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SeqNo};
 
 #[test]
 fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
@@ -24,7 +23,7 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
 
     // After ingestion, data is in tables; no sealed memtables
     assert_eq!(tree.sealed_memtable_count(), 0);
-    assert!(tree.table_count() >= tables_before + 1);
+    assert!(tree.table_count() > tables_before);
 
     // Reads must succeed from tables
     for i in 0..10u32 {
@@ -57,7 +56,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     tree.ingestion()?.with_seqno(20).finish()?;
 
     assert_eq!(tree.sealed_memtable_count(), 0);
-    assert!(tree.table_count() >= tables_before + 1);
+    assert!(tree.table_count() > tables_before);
 
     for i in 0..8u32 {
         let k = format!("s{:03}", i);

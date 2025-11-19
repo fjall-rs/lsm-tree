@@ -18,11 +18,11 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
+use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
-use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::fs::File;
