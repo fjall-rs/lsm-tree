@@ -152,6 +152,7 @@ impl<'a> Ingestion<'a> {
 
         // Remember the last user key to validate the next call's ordering
         self.last_key = Some(cloned_key);
+
         Ok(())
     }
 
@@ -169,16 +170,18 @@ impl<'a> Ingestion<'a> {
         }
 
         let cloned_key = key.clone();
-        let res = self.writer.write(crate::InternalValue::from_components(
+
+        self.writer.write(crate::InternalValue::from_components(
             key,
             value,
             self.seqno,
             crate::ValueType::Value,
-        ));
-        if res.is_ok() {
-            self.last_key = Some(cloned_key);
-        }
-        res
+        ))?;
+
+        // Remember the last user key to validate the next call's ordering
+        self.last_key = Some(cloned_key);
+
+        Ok(())
     }
 
     /// Writes a key-value pair.
