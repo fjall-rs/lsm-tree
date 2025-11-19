@@ -9,6 +9,7 @@ pub mod sealed;
 use crate::{
     compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
+    file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
@@ -18,8 +19,8 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, TreeType,
-    UserKey, UserValue, ValueType,
+    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey,
+    UserValue, ValueType,
 };
 use inner::{TreeId, TreeInner};
 use std::{
@@ -101,36 +102,14 @@ impl AbstractTree for Tree {
         0
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        // Returns the newest visible version (`entry.seqno < seqno`) by consulting sources
-        // in recency order and returning on first hit: active memtable, sealed memtables,
-        // then tables (each scanned newest-first).
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
 
-        let version_history_lock = self.version_history.read().expect("lock is poisoned");
-        let super_version = version_history_lock.get_version_for_snapshot(seqno);
-        // Avoid holding the read lock across potential I/O in table lookups
-        drop(version_history_lock);
-
-        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        // Now look in sealed memtables
-        if let Some(entry) =
-            Self::get_internal_entry_from_sealed_memtables(&super_version, key, seqno)
-        {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        // Now look in tables... this may involve disk I/O
-        if let Some(entry) =
-            self.get_internal_entry_from_tables(&super_version.version, key, seqno)?
-        {
-            return Ok(ignore_tombstone_value(entry));
-        }
-
-        Ok(None)
+        Self::get_internal_entry_from_version(&super_version, key, seqno)
     }
 
     fn current_version(&self) -> Version {
@@ -601,6 +580,105 @@ impl AbstractTree for Tree {
 }
 
 impl Tree {
+    #[doc(hidden)]
+    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
+        version: SuperVersion,
+        range: &'a R,
+        seqno: SeqNo,
+        ephemeral: Option<Arc<Memtable>>,
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+        use crate::range::{IterState, TreeIter};
+        use std::ops::Bound::{self, Excluded, Included, Unbounded};
+
+        let lo: Bound<UserKey> = match range.start_bound() {
+            Included(x) => Included(x.as_ref().into()),
+            Excluded(x) => Excluded(x.as_ref().into()),
+            Unbounded => Unbounded,
+        };
+
+        let hi: Bound<UserKey> = match range.end_bound() {
+            Included(x) => Included(x.as_ref().into()),
+            Excluded(x) => Excluded(x.as_ref().into()),
+            Unbounded => Unbounded,
+        };
+
+        let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
+
+        let iter_state = { IterState { version, ephemeral } };
+
+        TreeIter::create_range(iter_state, bounds, seqno)
+    }
+
+    pub(crate) fn get_internal_entry_from_version(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<InternalValue>> {
+        if let Some(entry) = super_version.active_memtable.get(key, seqno) {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        // Now look in sealed memtables
+        if let Some(entry) =
+            Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
+        {
+            return Ok(ignore_tombstone_value(entry));
+        }
+
+        // Now look in tables... this may involve disk I/O
+        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+    }
+
+    fn get_internal_entry_from_tables(
+        version: &Version,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<InternalValue>> {
+        // NOTE: Create key hash for hash sharing
+        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
+        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
+
+        for level in version.iter_levels() {
+            for run in level.iter() {
+                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
+                if run.len() >= 4 {
+                    if let Some(table) = run.get_for_key(key) {
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
+                } else {
+                    // NOTE: Fallback to linear search
+                    for table in run.iter() {
+                        if !table.is_key_in_key_range(key) {
+                            continue;
+                        }
+
+                        if let Some(item) = table.get(key, seqno, key_hash)? {
+                            return Ok(ignore_tombstone_value(item));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn get_internal_entry_from_sealed_memtables(
+        super_version: &SuperVersion,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> Option<InternalValue> {
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if let Some(entry) = mt.get(key, seqno) {
+                return Some(entry);
+            }
+        }
+
+        None
+    }
+
     pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
         self.version_history
             .read()
@@ -658,8 +736,6 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
-        use crate::file::MANIFEST_FILE;
-
         log::debug!("Opening LSM-tree at {}", config.path.display());
 
         // Check for old version
@@ -668,7 +744,7 @@ impl Tree {
             return Err(crate::Error::InvalidVersion(FormatVersion::V1.into()));
         }
 
-        let tree = if config.path.join(MANIFEST_FILE).try_exists()? {
+        let tree = if config.path.join(CURRENT_VERSION_FILE).try_exists()? {
             Self::recover(config)
         } else {
             Self::create_new(config)
@@ -721,57 +797,6 @@ impl Tree {
             .is_empty()
     }
 
-    fn get_internal_entry_from_sealed_memtables(
-        super_version: &SuperVersion,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> Option<InternalValue> {
-        for mt in super_version.sealed_memtables.iter().rev() {
-            if let Some(entry) = mt.get(key, seqno) {
-                return Some(entry);
-            }
-        }
-        None
-    }
-
-    // Scan levels top-down and runs newest-first; return the first table hit
-    fn get_internal_entry_from_tables(
-        &self,
-        version: &Version,
-        key: &[u8],
-        seqno: SeqNo,
-    ) -> crate::Result<Option<InternalValue>> {
-        // NOTE: Create key hash for hash sharing
-        // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
-        let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
-
-        for level in version.iter_levels() {
-            for run in level.iter() {
-                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
-                if run.len() >= 4 {
-                    if let Some(table) = run.get_for_key(key) {
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(Some(item));
-                        }
-                    }
-                } else {
-                    // NOTE: Fallback to linear search
-                    for table in run.iter() {
-                        if !table.is_key_in_key_range(key) {
-                            continue;
-                        }
-
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(Some(item));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
     fn inner_compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -800,48 +825,19 @@ impl Tree {
     }
 
     #[doc(hidden)]
-    pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
-        &'a self,
-        range: &'a R,
-        seqno: SeqNo,
-        ephemeral: Option<Arc<Memtable>>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
-        use crate::range::{IterState, TreeIter};
-        use std::ops::Bound::{self, Excluded, Included, Unbounded};
-
-        let lo: Bound<UserKey> = match range.start_bound() {
-            Included(x) => Included(x.as_ref().into()),
-            Excluded(x) => Excluded(x.as_ref().into()),
-            Unbounded => Unbounded,
-        };
-
-        let hi: Bound<UserKey> = match range.end_bound() {
-            Included(x) => Included(x.as_ref().into()),
-            Excluded(x) => Excluded(x.as_ref().into()),
-            Unbounded => Unbounded,
-        };
-
-        let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
-
-        let version = self.get_version_for_snapshot(seqno);
-
-        let iter_state = { IterState { version, ephemeral } };
-
-        TreeIter::create_range(iter_state, bounds, seqno)
-    }
-
-    #[doc(hidden)]
     pub fn create_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
         &self,
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<Arc<Memtable>>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        self.create_internal_range(range, seqno, ephemeral)
-            .map(|item| match item {
-                Ok(kv) => Ok((kv.key.user_key, kv.value)),
-                Err(e) => Err(e),
-            })
+        let version_history_lock = self.version_history.read().expect("lock is poisoned");
+        let super_version = version_history_lock.get_version_for_snapshot(seqno);
+
+        Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
+            Ok(kv) => Ok((kv.key.user_key, kv.value)),
+            Err(e) => Err(e),
+        })
     }
 
     #[doc(hidden)]
@@ -877,29 +873,20 @@ impl Tree {
     ///
     /// Returns error, if an IO error occurred.
     fn recover(mut config: Config) -> crate::Result<Self> {
-        use crate::{file::MANIFEST_FILE, stop_signal::StopSignal};
+        use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
-        let manifest = {
-            let manifest_path = config.path.join(MANIFEST_FILE);
-            let reader = sfa::Reader::new(&manifest_path)?;
-            Manifest::decode_from(&manifest_path, &reader)?
-        };
+        // let manifest = {
+        //     let manifest_path = config.path.join(MANIFEST_FILE);
+        //     let reader = sfa::Reader::new(&manifest_path)?;
+        //     Manifest::decode_from(&manifest_path, &reader)?
+        // };
 
-        if manifest.version != FormatVersion::V3 {
-            if manifest.version == FormatVersion::V2 {
-                log::error!("It looks like you are trying to open a V2 database - the database needs a manual migration, a tool is available at <TODO: 3.0.0 LINK>.");
-            }
-            if manifest.version as u8 > 3 {
-                log::error!("It looks like you are trying to open a database from the future. Are you a time traveller?");
-            }
-            return Err(crate::Error::InvalidVersion(manifest.version.into()));
-        }
-
-        // IMPORTANT: Restore persisted config
-        config.level_count = manifest.level_count;
+        // if manifest.version != FormatVersion::V3 {
+        //     return Err(crate::Error::InvalidVersion(manifest.version.into()));
+        // }
 
         let tree_id = get_next_tree_id();
 
@@ -914,6 +901,19 @@ impl Tree {
             #[cfg(feature = "metrics")]
             &metrics,
         )?;
+
+        {
+            let manifest_path = config.path.join(format!("v{}", version.id()));
+            let reader = sfa::Reader::new(&manifest_path)?;
+            let manifest = Manifest::decode_from(&manifest_path, &reader)?;
+
+            if manifest.version != FormatVersion::V3 {
+                return Err(crate::Error::InvalidVersion(manifest.version.into()));
+            }
+
+            // IMPORTANT: Restore persisted config
+            config.level_count = manifest.level_count;
+        }
 
         let highest_table_id = version
             .iter_tables()
@@ -942,7 +942,7 @@ impl Tree {
 
     /// Creates a new LSM-tree in a directory.
     fn create_new(config: Config) -> crate::Result<Self> {
-        use crate::file::{fsync_directory, MANIFEST_FILE, TABLES_FOLDER};
+        use crate::file::{fsync_directory, TABLES_FOLDER};
         use std::fs::create_dir_all;
 
         let path = config.path.clone();
@@ -950,29 +950,26 @@ impl Tree {
 
         create_dir_all(&path)?;
 
-        let manifest_path = path.join(MANIFEST_FILE);
-        assert!(!manifest_path.try_exists()?);
-
         let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
-        // Create manifest
-        {
-            let mut writer = sfa::Writer::new_at_path(manifest_path)?;
+        // // Create manifest
+        // {
+        //     let mut writer = sfa::Writer::new_at_path(manifest_path)?;
 
-            Manifest {
-                version: FormatVersion::V3,
-                level_count: config.level_count,
-                tree_type: if config.kv_separation_opts.is_some() {
-                    TreeType::Blob
-                } else {
-                    TreeType::Standard
-                },
-            }
-            .encode_into(&mut writer)?;
+        //     Manifest {
+        //         version: FormatVersion::V3,
+        //         level_count: config.level_count,
+        //         tree_type: if config.kv_separation_opts.is_some() {
+        //             TreeType::Blob
+        //         } else {
+        //             TreeType::Standard
+        //         },
+        //     }
+        //     .encode_into(&mut writer)?;
 
-            writer.finish()?;
-        }
+        //     writer.finish()?;
+        // }
 
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&table_folder_path)?;

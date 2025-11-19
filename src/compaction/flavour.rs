@@ -144,13 +144,9 @@ impl RelocatingCompaction {
             }) else {
                 break;
             };
+            let (entry, _) = blob?;
 
-            match blob {
-                Ok((entry, _)) => {
-                    assert!(entry.key <= key, "vptr was not matched with blob");
-                }
-                Err(e) => return Err(e),
-            }
+            assert!(entry.key <= key, "vptr was not matched with blob");
         }
 
         Ok(())

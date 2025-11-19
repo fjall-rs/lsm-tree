@@ -210,20 +210,21 @@ impl AbstractTree for BlobTree {
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
         use crate::range::prefix_to_range;
 
-        let range = prefix_to_range(prefix.as_ref());
-        let version = self.index.get_version_for_snapshot(seqno).version;
+        let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
+        let range = prefix_to_range(prefix.as_ref());
+
         Box::new(
-            self.index
-                .create_internal_range(&range, seqno, index)
-                .map(move |kv| {
+            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
+                move |kv| {
                     IterGuardImpl::Blob(Guard {
                         tree: tree.clone(),
-                        version: version.clone(),
+                        version: super_version.version.clone(),
                         kv,
                     })
-                }),
+                },
+            ),
         )
     }
 
@@ -233,19 +234,19 @@ impl AbstractTree for BlobTree {
         seqno: SeqNo,
         index: Option<Arc<Memtable>>,
     ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
-        let version = self.index.get_version_for_snapshot(seqno);
+        let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
         Box::new(
-            self.index
-                .create_internal_range(&range, seqno, index)
-                .map(move |kv| {
+            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
+                move |kv| {
                     IterGuardImpl::Blob(Guard {
                         tree: tree.clone(),
-                        version: version.clone().version,
+                        version: super_version.version.clone(),
                         kv,
                     })
-                }),
+                },
+            ),
         )
     }
 
@@ -356,7 +357,7 @@ impl AbstractTree for BlobTree {
         let mut table_writer = MultiWriter::new(
             table_folder.clone(),
             self.index.table_id_counter.clone(),
-            64_000_000,
+            64 * 1_024 * 1_024,
             0,
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
@@ -589,18 +590,24 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
-        let Some(item) = self.index.get_internal_entry(key, seqno)? else {
+        let super_version = self
+            .index
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        let Some(item) = crate::Tree::get_internal_entry_from_version(&super_version, key, seqno)?
+        else {
             return Ok(None);
         };
-
-        let version = self.index.get_version_for_snapshot(seqno).version;
 
         let (_, v) = resolve_value_handle(
             self.id(),
             self.blobs_folder.as_path(),
             &self.index.config.cache,
             &self.index.config.descriptor_table,
-            &version,
+            &super_version.version,
             item,
         )?;
 

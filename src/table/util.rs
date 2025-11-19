@@ -90,12 +90,24 @@ pub fn load_block(
     match block_type {
         BlockType::Filter => {
             metrics.filter_block_load_io.fetch_add(1, Relaxed);
+
+            metrics
+                .filter_block_io_requested
+                .fetch_add(handle.size().into(), Relaxed);
         }
         BlockType::Index => {
             metrics.index_block_load_io.fetch_add(1, Relaxed);
+
+            metrics
+                .index_block_io_requested
+                .fetch_add(handle.size().into(), Relaxed);
         }
         BlockType::Data => {
             metrics.data_block_load_io.fetch_add(1, Relaxed);
+
+            metrics
+                .data_block_io_requested
+                .fetch_add(handle.size().into(), Relaxed);
         }
         _ => {}
     }

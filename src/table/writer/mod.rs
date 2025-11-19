@@ -361,7 +361,7 @@ impl Writer {
         let index_block_count = self.index_writer.finish(&mut self.file_writer)?;
 
         // Write filter
-        self.filter_writer.finish(&mut self.file_writer)?;
+        let filter_block_count = self.filter_writer.finish(&mut self.file_writer)?;
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};
@@ -412,6 +412,10 @@ impl Writer {
                     &self.data_block_hash_ratio.to_le_bytes(),
                 ),
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
+                meta(
+                    "filter_block_count",
+                    &(filter_block_count as u64).to_le_bytes(),
+                ),
                 meta("filter_hash_type", b"xxh3"),
                 meta("id", &self.table_id.to_le_bytes()),
                 meta(
@@ -470,7 +474,7 @@ impl Writer {
 
             self.block_buffer.clear();
 
-            // TODO: no binary index
+            // TODO: disable binary index: https://github.com/fjall-rs/lsm-tree/issues/185
             DataBlock::encode_into(&mut self.block_buffer, &meta_items, 1, 0.0)?;
 
             Block::write_into(
