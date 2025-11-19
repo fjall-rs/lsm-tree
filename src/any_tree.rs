@@ -31,47 +31,67 @@ pub enum AnyIngestion<'a> {
     Blob(BlobIngestion<'a>),
 }
 
-impl<'a> AnyIngestion<'a> {
+impl AnyIngestion<'_> {
     #[must_use]
     /// Sets the sequence number used for subsequent writes
     pub fn with_seqno(self, seqno: SeqNo) -> Self {
         match self {
-            AnyIngestion::Standard(i) => AnyIngestion::Standard(i.with_seqno(seqno)),
-            AnyIngestion::Blob(b) => AnyIngestion::Blob(b.with_seqno(seqno)),
+            Self::Standard(i) => Self::Standard(i.with_seqno(seqno)),
+            Self::Blob(b) => Self::Blob(b.with_seqno(seqno)),
         }
     }
 
-    /// Writes a key-value pair
-    pub fn write(&mut self, key: UserKey, value: UserValue) -> crate::Result<()> {
+    /// Writes a key-value pair.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn write<K: Into<UserKey>, V: Into<UserValue>>(
+        &mut self,
+        key: K,
+        value: V,
+    ) -> crate::Result<()> {
         match self {
-            AnyIngestion::Standard(i) => i.write(key, value),
-            AnyIngestion::Blob(b) => b.write(key, value),
+            Self::Standard(i) => i.write(key.into(), value.into()),
+            Self::Blob(b) => b.write(key.into(), value.into()),
         }
     }
 
-    /// Writes a tombstone for a key
-    pub fn write_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
+    /// Writes a tombstone for a key.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn write_tombstone<K: Into<UserKey>>(&mut self, key: K) -> crate::Result<()> {
         match self {
-            AnyIngestion::Standard(i) => i.write_tombstone(key),
-            AnyIngestion::Blob(b) => b.write_tombstone(key),
+            Self::Standard(i) => i.write_tombstone(key.into()),
+            Self::Blob(b) => b.write_tombstone(key.into()),
         }
     }
 
-    /// Finalizes ingestion and registers created tables (and blob files if present)
+    /// Finalizes ingestion and registers created tables (and blob files if present).
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
         match self {
-            AnyIngestion::Standard(i) => i.finish(),
-            AnyIngestion::Blob(b) => b.finish(),
+            Self::Standard(i) => i.finish(),
+            Self::Blob(b) => b.finish(),
         }
     }
 }
 
 impl AnyTree {
-    /// Starts an ingestion for any tree type (standard or blob)
+    /// Starts an ingestion for any tree type (standard or blob).
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     pub fn ingestion(&self) -> crate::Result<AnyIngestion<'_>> {
         match self {
-            AnyTree::Standard(t) => Ok(AnyIngestion::Standard(Ingestion::new(t)?)),
-            AnyTree::Blob(b) => Ok(AnyIngestion::Blob(BlobIngestion::new(b)?)),
+            Self::Standard(t) => Ok(AnyIngestion::Standard(Ingestion::new(t)?)),
+            Self::Blob(b) => Ok(AnyIngestion::Blob(BlobIngestion::new(b)?)),
         }
     }
 }

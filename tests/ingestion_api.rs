@@ -9,10 +9,11 @@ fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
         let key = format!("k{:03}", i);
         tree.insert(key.as_bytes(), b"v", 0);
     }
+
     let mut ingest = tree.ingestion()?.with_seqno(10);
     for i in 0..10u32 {
         let key = format!("k{:03}", i);
-        ingest.write_tombstone(key.as_bytes().into())?;
+        ingest.write_tombstone(key)?;
     }
     ingest.finish()?;
 
@@ -34,7 +35,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
     // Older table value via ingestion (seqno 1)
     {
         let mut ingest = tree.ingestion()?.with_seqno(1);
-        ingest.write(b"k".as_slice().into(), b"old".as_slice().into())?;
+        ingest.write(b"k", b"old")?;
         ingest.finish()?;
     }
 
@@ -47,6 +48,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
         tree.get(b"k", lsm_tree::SeqNo::MAX)?,
         Some(b"new".as_slice().into())
     );
+
     Ok(())
 }
 
@@ -59,7 +61,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
     // Older table value via ingestion (seqno 1)
     {
         let mut ingest = tree.ingestion()?.with_seqno(1);
-        ingest.write(b"k".as_slice().into(), b"old".as_slice().into())?;
+        ingest.write(b"k", b"old")?;
         ingest.finish()?;
     }
 
@@ -69,6 +71,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
 
     // Read should see the delete from sealed memtable
     assert!(tree.get(b"k", lsm_tree::SeqNo::MAX)?.is_none());
+
     Ok(())
 }
 
@@ -81,12 +84,12 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
     // Two separate ingestions create two tables containing the same key at different seqnos
     {
         let mut ingest = tree.ingestion()?.with_seqno(1);
-        ingest.write(b"k".as_slice().into(), b"v1".as_slice().into())?;
+        ingest.write(b"k", b"v1")?;
         ingest.finish()?;
     }
     {
         let mut ingest = tree.ingestion()?.with_seqno(2);
-        ingest.write(b"k".as_slice().into(), b"v2".as_slice().into())?;
+        ingest.write(b"k", b"v2")?;
         ingest.finish()?;
     }
 
@@ -107,12 +110,12 @@ fn ingestion_enforces_order_standard_panics() {
         .unwrap();
 
     let mut ingest = tree.ingestion().unwrap().with_seqno(1);
+
     // First write higher key, then lower to trigger ordering assertion
-    ingest
-        .write(b"k2".as_slice().into(), b"v".as_slice().into())
-        .unwrap();
+    ingest.write(b"k2", b"v").unwrap();
+
     // Panics here
-    let _ = ingest.write(b"k1".as_slice().into(), b"v".as_slice().into());
+    let _ = ingest.write(b"k1", b"v");
 }
 
 #[test]
@@ -127,16 +130,16 @@ fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<(
     // Use a small value for the first write to avoid blob I/O
     let result = std::panic::catch_unwind(|| {
         let mut ingest = tree.ingestion().unwrap().with_seqno(1);
-        ingest
-            .write(b"k2".as_slice().into(), b"x".as_slice().into())
-            .unwrap();
+        ingest.write(b"k2", b"x").unwrap();
+
         // Second write would require blob I/O, but ordering check should fire before any blob write
-        let _ = ingest.write(b"k1".as_slice().into(), vec![1u8; 16].into());
+        let _ = ingest.write(b"k1", [1u8; 16]);
     });
     assert!(result.is_err());
 
     let after = tree.blob_file_count();
     assert_eq!(before, after);
+
     Ok(())
 }
 
@@ -149,14 +152,14 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
     // Older put written via ingestion to tables (seqno 1)
     {
         let mut ingest = tree.ingestion()?.with_seqno(1);
-        ingest.write(b"k".as_slice().into(), b"v1".as_slice().into())?;
+        ingest.write(b"k", b"v1")?;
         ingest.finish()?;
     }
 
     // Newer tombstone written via ingestion to tables (seqno 2)
     {
         let mut ingest = tree.ingestion()?.with_seqno(2);
-        ingest.write_tombstone(b"k".as_slice().into())?;
+        ingest.write_tombstone(b"k")?;
         ingest.finish()?;
     }
 
@@ -184,7 +187,7 @@ fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()>
     let mut ingest = tree.ingestion()?.with_seqno(10);
     for i in 0..8u32 {
         let key = format!("b{:03}", i);
-        ingest.write_tombstone(key.as_bytes().into())?;
+        ingest.write_tombstone(key)?;
     }
     ingest.finish()?;
 
@@ -229,7 +232,7 @@ fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Resu
     let mut ingest = tree.ingestion()?.with_seqno(10);
     for i in 0..5u32 {
         let key = format!("d{:03}", i);
-        ingest.write_tombstone(key.as_bytes().into())?;
+        ingest.write_tombstone(key)?;
     }
     ingest.finish()?;
 
@@ -274,9 +277,9 @@ fn blob_ingestion_separates_large_values_and_reads_ok() -> lsm_tree::Result<()> 
         .open()?;
 
     let mut ingest = tree.ingestion()?.with_seqno(1);
-    ingest.write("k_big1".as_bytes().into(), vec![1u8; 16].into())?;
-    ingest.write("k_big2".as_bytes().into(), vec![2u8; 32].into())?;
-    ingest.write("k_small".as_bytes().into(), b"abc".as_slice().into())?;
+    ingest.write("k_big1", [1u8; 16])?;
+    ingest.write("k_big2", [2u8; 32])?;
+    ingest.write("k_small", "abc")?;
     ingest.finish()?;
 
     assert!(tree.blob_file_count() >= 1);

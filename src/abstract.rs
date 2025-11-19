@@ -3,10 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::FragmentationMap, compaction::CompactionStrategy, config::TreeType,
-    iter_guard::IterGuardImpl, table::Table, tree::inner::MemtableId, version::Version,
-    vlog::BlobFile, AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo,
-    TableId, Tree, TreeId, UserKey, UserValue,
+    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
+    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree, UserKey, UserValue,
 };
 use std::{
     ops::RangeBounds,

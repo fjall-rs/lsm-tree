@@ -18,7 +18,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
-        ingestion.write(k.into(), v.into())?;
+        ingestion.write(k, v)?;
     }
     ingestion.finish()?;
     visible_seqno.fetch_max(seq + 1);
@@ -54,7 +54,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
-        ingestion.write(k.into(), v.into())?;
+        ingestion.write(k, v)?;
     }
     ingestion.finish()?;
     visible_seqno.fetch_max(seq + 1);
@@ -118,7 +118,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
-        ingestion.write(k.into(), v.into())?;
+        ingestion.write(k, v)?;
     }
     ingestion.finish()?;
     visible_seqno.fetch_max(seq + 1);
@@ -157,7 +157,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     for x in 0..ITEM_COUNT as u64 {
         let k = x.to_be_bytes();
         let v = nanoid::nanoid!();
-        ingestion.write(k.into(), v.into())?;
+        ingestion.write(k, v)?;
     }
     ingestion.finish()?;
     visible_seqno.fetch_max(seq + 1);

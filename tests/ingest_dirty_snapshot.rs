@@ -14,7 +14,7 @@ fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
     let mut ingest = tree.ingestion()?.with_seqno(seqno.next());
-    ingest.write("b".into(), "b".into())?;
+    ingest.write("b", "b")?;
     ingest.finish()?;
 
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
