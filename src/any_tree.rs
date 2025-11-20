@@ -23,7 +23,7 @@ pub enum AnyTree {
 // Keep zero allocations and direct dispatch; boxing introduces heap indirection and `dyn` adds virtual dispatch.
 // Ingestion calls use `&mut self` in tight loops; the active variant is stable and branch prediction makes the match cheap.
 // Allowing this lint preserves hot-path performance at the cost of a larger enum size.
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 pub enum AnyIngestion<'a> {
     /// Ingestion for a standard LSM-tree
     Standard(Ingestion<'a>),

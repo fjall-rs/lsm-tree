@@ -80,7 +80,7 @@ impl<'a> BlobIngestion<'a> {
             );
         }
 
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let value_size = value.len() as u32;
 
         if value_size >= self.separation_threshold {
