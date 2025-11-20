@@ -36,7 +36,7 @@ impl<'a> Ingestion<'a> {
         // path as normal writes: any dirty memtable content is moved into
         // tables before building new tables from the ingestion stream.
         // This keeps the lookup path ordered as active > sealed > tables.
-        tree.flush_active_memtable(SeqNo::MAX)?;
+        tree.flush_active_memtable(0)?;
 
         let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
         log::debug!("Ingesting into tables in {}", folder.display());
