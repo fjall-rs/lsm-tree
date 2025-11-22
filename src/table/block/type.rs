@@ -8,7 +8,6 @@ pub enum BlockType {
     Index,
     Filter,
     Meta,
-    Regions,
 }
 
 impl From<BlockType> for u8 {
@@ -18,7 +17,6 @@ impl From<BlockType> for u8 {
             BlockType::Index => 1,
             BlockType::Filter => 2,
             BlockType::Meta => 3,
-            BlockType::Regions => 4,
         }
     }
 }
@@ -32,7 +30,6 @@ impl TryFrom<u8> for BlockType {
             1 => Ok(Self::Index),
             2 => Ok(Self::Filter),
             3 => Ok(Self::Meta),
-            4 => Ok(Self::Regions),
             _ => Err(crate::Error::InvalidTag(("BlockType", value))),
         }
     }
