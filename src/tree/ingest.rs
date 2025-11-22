@@ -210,7 +210,7 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::{version::persist_version, AbstractTree, Table};
+        use crate::{AbstractTree, Table};
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
         //
@@ -278,26 +278,22 @@ impl<'a> Ingestion<'a> {
         let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
         let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
 
-        // Create the next version by adding our ingested tables as a new L0 run.
-        // We manually set the seqno to the global_seqno we allocated earlier,
-        // ensuring the version and tables share the same sequence number.
+        // Upgrade the version with our ingested tables, using the global_seqno
+        // we allocated earlier. This ensures the version and all tables share
+        // the same sequence number.
         //
-        // Why not use register_tables()?
-        // register_tables() calls upgrade_version(), which would allocate a
-        // DIFFERENT seqno via seqno.next(). We need to use the SAME seqno we
-        // already allocated and assigned to the tables.
-        let mut next_version = {
-            let current = version_lock.latest_version();
-            let mut copy = current.clone();
-            copy.version = copy.version.with_new_l0_run(&created_tables, None, None);
-            copy
-        };
-
-        next_version.seqno = global_seqno;
-
-        // Persist the new version to disk and append it to the version history.
-        persist_version(&self.tree.config.path, &next_version.version)?;
-        version_lock.append_version(next_version);
+        // We use upgrade_version_with_seqno (instead of upgrade_version) because
+        // we need precise control over the seqno: it must match the seqno we
+        // already assigned to the recovered tables.
+        version_lock.upgrade_version_with_seqno(
+            &self.tree.config.path,
+            |current| {
+                let mut copy = current.clone();
+                copy.version = copy.version.with_new_l0_run(&created_tables, None, None);
+                Ok(copy)
+            },
+            global_seqno,
+        )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.

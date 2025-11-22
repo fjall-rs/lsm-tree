@@ -140,7 +140,7 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::{version::persist_version, AbstractTree};
+        use crate::AbstractTree;
 
         let index = self.index().clone();
 
@@ -220,33 +220,26 @@ impl<'a> BlobIngestion<'a> {
         let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
         let mut version_lock = index.version_history.write().expect("lock is poisoned");
 
-        // Create the next version by adding both:
-        //   - Index tables as a new L0 run
-        //   - Blob files to the value log
+        // Upgrade the version with our ingested tables and blob files, using
+        // the global_seqno we allocated earlier. This ensures the version,
+        // tables, and blob files all share the same sequence number, which is
+        // critical for GC correctness - we must not delete blob files that are
+        // still referenced by visible snapshots.
         //
-        // We manually set the seqno to the global_seqno we allocated earlier,
-        // ensuring the version, tables, and blob files all share the same
-        // sequence number. This is critical for GC correctness - we must not
-        // delete blob files that are still referenced by visible snapshots.
-        //
-        // Why not use register_tables()?
-        // register_tables() calls upgrade_version(), which would allocate a
-        // DIFFERENT seqno via seqno.next(). We need to use the SAME seqno we
-        // already allocated and assigned to the tables.
-        let mut next_version = {
-            let current = version_lock.latest_version();
-            let mut copy = current.clone();
-            copy.version = copy
-                .version
-                .with_new_l0_run(&created_tables, Some(&blob_files), None);
-            copy
-        };
-
-        next_version.seqno = global_seqno;
-
-        // Persist the new version to disk and append it to the version history.
-        persist_version(&index.config.path, &next_version.version)?;
-        version_lock.append_version(next_version);
+        // We use upgrade_version_with_seqno (instead of upgrade_version) because
+        // we need precise control over the seqno: it must match the seqno we
+        // already assigned to the recovered tables.
+        version_lock.upgrade_version_with_seqno(
+            &index.config.path,
+            |current| {
+                let mut copy = current.clone();
+                copy.version =
+                    copy.version
+                        .with_new_l0_run(&created_tables, Some(&blob_files), None);
+                Ok(copy)
+            },
+            global_seqno,
+        )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
