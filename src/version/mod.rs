@@ -249,10 +249,10 @@ impl Version {
                     .map(|run| {
                         let run_tables = run
                             .iter()
-                            .map(|&(table_id, _, _)| {
+                            .map(|table| {
                                 tables
                                     .iter()
-                                    .find(|x| x.id() == table_id)
+                                    .find(|x| x.id() == table.id)
                                     .cloned()
                                     .ok_or(crate::Error::Unrecoverable)
                             })

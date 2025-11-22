@@ -17,10 +17,16 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
         .map_err(Into::into)
 }
 
+pub struct RecoveredTable {
+    pub id: TableId,
+    pub checksum: Checksum,
+    pub global_seqno: SeqNo,
+}
+
 pub struct Recovery {
     pub tree_type: TreeType,
     pub curr_version_id: VersionId,
-    pub table_ids: Vec<Vec<Vec<(TableId, Checksum, SeqNo)>>>,
+    pub table_ids: Vec<Vec<Vec<RecoveredTable>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
@@ -72,7 +78,11 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
 
                     let global_seqno = reader.read_u64::<LittleEndian>()?;
 
-                    run.push((id, checksum, global_seqno));
+                    run.push(RecoveredTable {
+                        id,
+                        checksum,
+                        global_seqno,
+                    });
                 }
 
                 level.push(run);

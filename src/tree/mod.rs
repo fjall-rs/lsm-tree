@@ -1013,19 +1013,19 @@ impl Tree {
 
             for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
-                    for &(table_id, checksum, seqno) in run {
+                    for table in run {
                         #[expect(
                             clippy::expect_used,
                             reason = "there are always less than 256 levels"
                         )]
                         result.insert(
-                            table_id,
+                            table.id,
                             (
                                 level_idx
                                     .try_into()
                                     .expect("there are less than 256 levels"),
-                                checksum,
-                                seqno,
+                                table.checksum,
+                                table.global_seqno,
                             ),
                         );
                     }
