@@ -94,6 +94,8 @@ pub struct Iter {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
 
+    global_seqno: SeqNo,
+
     #[expect(clippy::struct_field_names)]
     index_iter: BlockIndexIterImpl,
 
@@ -118,6 +120,7 @@ pub struct Iter {
 impl Iter {
     pub fn new(
         table_id: GlobalTableId,
+        global_seqno: SeqNo,
         path: Arc<PathBuf>,
         index_iter: BlockIndexIterImpl,
         descriptor_table: Arc<DescriptorTable>,
@@ -128,6 +131,8 @@ impl Iter {
         Self {
             table_id,
             path,
+
+            global_seqno,
 
             index_iter,
             descriptor_table,
@@ -165,7 +170,14 @@ impl Iterator for Iter {
         // Always try to keep iterating inside the already-materialized low data block first; this
         // lets callers consume multiple entries without touching the index or cache again.
         if let Some(block) = &mut self.lo_data_block {
-            if let Some(item) = block.next().map(Ok) {
+            if let Some(item) = block
+                .next()
+                .map(|mut v| {
+                    v.key.seqno += self.global_seqno;
+                    v
+                })
+                .map(Ok)
+            {
                 return Some(item);
             }
         }
@@ -212,7 +224,14 @@ impl Iterator for Iter {
                 // No more block handles coming from the index.  Flush any pending items buffered on
                 // the high side (used by reverse iteration) before signalling completion.
                 if let Some(block) = &mut self.hi_data_block {
-                    if let Some(item) = block.next().map(Ok) {
+                    if let Some(item) = block
+                        .next()
+                        .map(|mut v| {
+                            v.key.seqno += self.global_seqno;
+                            v
+                        })
+                        .map(Ok)
+                    {
                         return Some(item);
                     }
                 }
@@ -226,7 +245,6 @@ impl Iterator for Iter {
 
             // Load the next data block referenced by the index handle.  We try the shared block
             // cache first to avoid hitting the filesystem, and fall back to `load_block` on miss.
-            #[expect(clippy::single_match_else)]
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {
@@ -262,7 +280,9 @@ impl Iterator for Iter {
             self.lo_offset = handle.offset();
             self.lo_data_block = Some(reader);
 
-            if let Some(item) = item {
+            if let Some(mut item) = item {
+                item.key.seqno += self.global_seqno;
+
                 // Serving the first item immediately avoids stashing it in a temporary buffer and
                 // keeps block iteration semantics identical to the simple case at the top.
                 return Some(Ok(item));
@@ -276,7 +296,14 @@ impl DoubleEndedIterator for Iter {
         // Mirror the forward iterator: prefer consuming buffered items from the high data block to
         // avoid touching the index once a block has been materialized.
         if let Some(block) = &mut self.hi_data_block {
-            if let Some(item) = block.next_back().map(Ok) {
+            if let Some(item) = block
+                .next_back()
+                .map(|mut v| {
+                    v.key.seqno += self.global_seqno;
+                    v
+                })
+                .map(Ok)
+            {
                 return Some(item);
             }
         }
@@ -318,7 +345,14 @@ impl DoubleEndedIterator for Iter {
                 // Once we exhaust the index in reverse order, flush any items that were buffered on
                 // the low side (set when iterating forward first) before signalling completion.
                 if let Some(block) = &mut self.lo_data_block {
-                    if let Some(item) = block.next_back().map(Ok) {
+                    if let Some(item) = block
+                        .next_back()
+                        .map(|mut v| {
+                            v.key.seqno += self.global_seqno;
+                            v
+                        })
+                        .map(Ok)
+                    {
                         return Some(item);
                     }
                 }
@@ -367,7 +401,9 @@ impl DoubleEndedIterator for Iter {
             self.hi_offset = handle.offset();
             self.hi_data_block = Some(reader);
 
-            if let Some(item) = item {
+            if let Some(mut item) = item {
+                item.key.seqno += self.global_seqno;
+
                 // Emit the first materialized entry immediately to match the forward path and avoid
                 // storing it in a temporary buffer.
                 return Some(Ok(item));

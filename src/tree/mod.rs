@@ -7,7 +7,7 @@ pub mod inner;
 pub mod sealed;
 
 use crate::{
-    compaction::{drop_range::OwnedBounds, CompactionStrategy},
+    compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
@@ -188,48 +188,6 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    fn ingest(
-        &self,
-        iter: impl Iterator<Item = (UserKey, UserValue)>,
-        seqno_generator: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
-    ) -> crate::Result<()> {
-        use crate::tree::ingest::Ingestion;
-        use std::time::Instant;
-
-        let seqno = seqno_generator.next();
-
-        // TODO: allow ingestion always, by flushing memtable
-
-        let mut writer = Ingestion::new(self)?.with_seqno(seqno);
-
-        let start = Instant::now();
-        let mut count = 0;
-        let mut last_key = None;
-
-        for (key, value) in iter {
-            if let Some(last_key) = &last_key {
-                assert!(
-                    key > last_key,
-                    "next key in bulk ingest was not greater than last key, last: {last_key:?}, next: {key:?}",
-                );
-            }
-            last_key = Some(key.clone());
-
-            writer.write(key, value)?;
-
-            count += 1;
-        }
-
-        writer.finish()?;
-
-        visible_seqno.fetch_max(seqno + 1);
-
-        log::info!("Ingested {count} items in {:?}", start.elapsed());
-
-        Ok(())
-    }
-
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()> {
         let (bounds, is_empty) = Self::range_bounds_to_owned_bounds(&range);
 
@@ -383,6 +341,7 @@ impl AbstractTree for Tree {
                 Table::recover(
                     folder.join(table_id.to_string()),
                     checksum,
+                    0,
                     self.id,
                     self.config.cache.clone(),
                     self.config.descriptor_table.clone(),
@@ -537,7 +496,6 @@ impl AbstractTree for Tree {
         self.current_version().level(idx).map(|x| x.table_count())
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn approximate_len(&self) -> usize {
         let super_version = self
             .version_history
@@ -570,7 +528,6 @@ impl AbstractTree for Tree {
             .sum()
     }
 
-    #[expect(clippy::significant_drop_tightening)]
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
         let version = self
             .version_history
@@ -798,6 +755,39 @@ impl Tree {
         Ok(tree)
     }
 
+    pub(crate) fn consume_writer(
+        &self,
+        writer: crate::table::Writer,
+    ) -> crate::Result<Option<Table>> {
+        let table_file_path = writer.path.clone();
+
+        let Some((_, checksum)) = writer.finish()? else {
+            return Ok(None);
+        };
+
+        log::debug!("Finalized table write at {}", table_file_path.display());
+
+        let pin_filter = self.config.filter_block_pinning_policy.get(0);
+        let pin_index = self.config.index_block_pinning_policy.get(0);
+
+        let created_table = Table::recover(
+            table_file_path,
+            checksum,
+            0,
+            self.id,
+            self.config.cache.clone(),
+            self.config.descriptor_table.clone(),
+            pin_filter,
+            pin_index,
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
+        )?;
+
+        log::debug!("Flushed table to {:?}", created_table.path);
+
+        Ok(Some(created_table))
+    }
+
     /// Returns `true` if there are some tables that are being compacted.
     #[doc(hidden)]
     #[must_use]
@@ -909,8 +899,7 @@ impl Tree {
         let version = Self::recover_levels(
             &config.path,
             tree_id,
-            &config.cache,
-            &config.descriptor_table,
+            &config,
             #[cfg(feature = "metrics")]
             &metrics,
         )?;
@@ -957,9 +946,7 @@ impl Tree {
             config,
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
-            compaction_state: Arc::new(Mutex::new(
-                crate::compaction::state::CompactionState::default(),
-            )),
+            compaction_state: Arc::new(Mutex::new(CompactionState::default())),
 
             #[cfg(feature = "metrics")]
             metrics,
@@ -1011,8 +998,7 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        cache: &Arc<Cache>,
-        descriptor_table: &Arc<crate::DescriptorTable>,
+        config: &Config,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
     ) -> crate::Result<Version> {
         use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
@@ -1022,23 +1008,24 @@ impl Tree {
         let recovery = recover(tree_path)?;
 
         let table_map = {
-            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum)> =
+            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum, SeqNo)> =
                 crate::HashMap::default();
 
             for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
-                    for &(table_id, checksum) in run {
+                    for table in run {
                         #[expect(
                             clippy::expect_used,
                             reason = "there are always less than 256 levels"
                         )]
                         result.insert(
-                            table_id,
+                            table.id,
                             (
                                 level_idx
                                     .try_into()
                                     .expect("there are less than 256 levels"),
-                                checksum,
+                                table.checksum,
+                                table.global_seqno,
                             ),
                         );
                     }
@@ -1098,15 +1085,19 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&(level_idx, checksum)) = table_map.get(&table_id) {
+            if let Some(&(level_idx, checksum, global_seqno)) = table_map.get(&table_id) {
+                let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
+                let pin_index = config.index_block_pinning_policy.get(level_idx.into());
+
                 let table = Table::recover(
                     table_file_path,
                     checksum,
+                    global_seqno,
                     tree_id,
-                    cache.clone(),
-                    descriptor_table.clone(),
-                    level_idx <= 1, // TODO: look at configuration
-                    level_idx <= 2, // TODO: look at configuration
+                    config.cache.clone(),
+                    config.descriptor_table.clone(),
+                    pin_filter,
+                    pin_index,
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;

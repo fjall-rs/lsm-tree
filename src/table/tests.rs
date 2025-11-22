@@ -49,6 +49,7 @@ fn test_with_table(
                 file.clone(),
                 checksum,
                 0,
+                0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -73,6 +74,7 @@ fn test_with_table(
             let table = Table::recover(
                 file.clone(),
                 checksum,
+                0,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -99,6 +101,7 @@ fn test_with_table(
                 file.clone(),
                 checksum,
                 0,
+                0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -123,6 +126,7 @@ fn test_with_table(
             let table = Table::recover(
                 file.clone(),
                 checksum,
+                0,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -169,6 +173,7 @@ fn test_with_table(
                 file.clone(),
                 checksum,
                 0,
+                0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -192,6 +197,7 @@ fn test_with_table(
             let table = Table::recover(
                 file.clone(),
                 checksum,
+                0,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
@@ -217,6 +223,7 @@ fn test_with_table(
                 file.clone(),
                 checksum,
                 0,
+                0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -241,6 +248,7 @@ fn test_with_table(
             let table = Table::recover(
                 file,
                 checksum,
+                0,
                 0,
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),

@@ -39,7 +39,6 @@ impl MultiWriter {
     #[doc(hidden)]
     pub fn new<P: AsRef<Path>>(
         id_generator: SequenceNumberCounter,
-        target_size: u64,
         folder: P,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
@@ -50,7 +49,7 @@ impl MultiWriter {
         Ok(Self {
             id_generator,
             folder: folder.into(),
-            target_size,
+            target_size: 64 * 1_024 * 1_024,
 
             active_writer: Writer::new(blob_file_path, blob_file_id)?,
 

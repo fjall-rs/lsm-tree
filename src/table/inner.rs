@@ -11,7 +11,7 @@ use crate::{
     descriptor_table::DescriptorTable,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
-    Checksum, GlobalTableId,
+    Checksum, GlobalTableId, SeqNo,
 };
 use std::{
     path::PathBuf,
@@ -52,6 +52,8 @@ pub struct Inner {
     pub is_deleted: AtomicBool,
 
     pub(super) checksum: Checksum,
+
+    pub(super) global_seqno: SeqNo,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,

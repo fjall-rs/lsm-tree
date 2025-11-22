@@ -334,6 +334,7 @@ impl StandardCompaction {
                 Table::recover(
                     table_base_folder.join(table_id.to_string()),
                     checksum,
+                    0,
                     opts.tree_id,
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),

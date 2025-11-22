@@ -63,8 +63,8 @@ pub struct TreeInner {
     /// can be concurrent next to each other.
     pub(crate) major_compaction_lock: RwLock<()>,
 
+    /// Serializes flush operations.
     pub(crate) flush_lock: Mutex<()>,
-
     #[doc(hidden)]
     #[cfg(feature = "metrics")]
     pub metrics: Arc<Metrics>,

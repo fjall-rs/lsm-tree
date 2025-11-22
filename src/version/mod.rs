@@ -18,11 +18,11 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
+use crate::TreeType;
 use crate::{
     vlog::{BlobFile, BlobFileId},
     HashSet, KeyRange, Table, TableId,
 };
-use crate::{Tree, TreeType};
 use optimize::optimize_runs;
 use run::Ranged;
 use std::fs::File;
@@ -249,10 +249,10 @@ impl Version {
                     .map(|run| {
                         let run_tables = run
                             .iter()
-                            .map(|&(table_id, _)| {
+                            .map(|table| {
                                 tables
                                     .iter()
-                                    .find(|x| x.id() == table_id)
+                                    .find(|x| x.id() == table.id)
                                     .cloned()
                                     .ok_or(crate::Error::Unrecoverable)
                             })
@@ -674,6 +674,7 @@ impl Version {
                     writer.write_u64::<LittleEndian>(table.id())?;
                     writer.write_u8(0)?; // Checksum type, 0 = XXH3
                     writer.write_u128::<LittleEndian>(table.checksum().into_u128())?;
+                    writer.write_u64::<LittleEndian>(table.global_seqno())?;
                 }
             }
         }

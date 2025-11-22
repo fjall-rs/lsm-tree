@@ -111,14 +111,23 @@ impl SuperVersions {
         f: F,
         seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        // NOTE: Copy-on-write...
-        //
-        // Create a copy of the levels we can operate on
-        // without mutating the current level manifest
-        // If persisting to disk fails, this way the level manifest
-        // is unchanged
+        self.upgrade_version_with_seqno(tree_path, f, seqno.next())
+    }
+
+    /// Like `upgrade_version`, but takes an already-allocated sequence number.
+    ///
+    /// This is useful when the seqno must be coordinated with other operations
+    /// (e.g., bulk ingestion where tables are recovered with the same seqno).
+    pub(crate) fn upgrade_version_with_seqno<
+        F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>,
+    >(
+        &mut self,
+        tree_path: &Path,
+        f: F,
+        seqno: SeqNo,
+    ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
-        next_version.seqno = seqno.next();
+        next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
         persist_version(tree_path, &next_version.version)?;
