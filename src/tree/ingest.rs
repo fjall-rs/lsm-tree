@@ -32,12 +32,6 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a Tree) -> crate::Result<Self> {
-        // Use the shared flush helper so ingestion participates in the same
-        // path as normal writes: any dirty memtable content is moved into
-        // tables before building new tables from the ingestion stream.
-        // This keeps the lookup path ordered as active > sealed > tables.
-        tree.flush_active_memtable(0)?;
-
         let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
         log::debug!("Ingesting into tables in {}", folder.display());
 
@@ -216,30 +210,57 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::Table;
+        use crate::{version::persist_version, AbstractTree, Table};
 
+        // CRITICAL SECTION: Atomic flush + seqno allocation + registration
+        //
+        // We must ensure no concurrent writes interfere between flushing the
+        // active memtable and registering the ingested tables. The sequence is:
+        //   1. Acquire flush lock (prevents concurrent flushes)
+        //   2. Flush active memtable (ensures no pending writes)
+        //   3. Finish ingestion writer (creates table files)
+        //   4. Allocate next global seqno (atomic timestamp)
+        //   5. Recover tables with that seqno
+        //   6. Register version with same seqno
+        //
+        // Why not flush in new()?
+        // If we flushed in new(), there would be a race condition:
+        //   new() -> flush -> [TIME PASSES + OTHER WRITES] -> finish() -> seqno
+        // The seqno would be disconnected from the flush, violating MVCC.
+        //
+        // By holding the flush lock throughout, we guarantee atomicity.
+        let flush_lock = self.tree.get_flush_lock();
+
+        // Flush any pending memtable writes to ensure ingestion sees a
+        // consistent snapshot and lookup order remains correct.
+        // We call rotate + flush directly because we already hold the lock.
+        self.tree.rotate_memtable();
+        self.tree.flush(&flush_lock, 0)?;
+
+        // Finalize the ingestion writer, writing all buffered data to disk.
         let results = self.writer.finish()?;
 
         log::info!("Finished ingestion writer");
 
-        // Turn the writer output into fully recovered tables that can be
-        // registered as a fresh L0 run.
+        // Allocate the next global sequence number. This seqno will be shared
+        // by all ingested tables and the version that registers them, ensuring
+        // consistent MVCC snapshots.
+        let global_seqno = self.tree.config.seqno.next();
+
+        // Recover all created tables, assigning them the global_seqno we just
+        // allocated. This ensures all ingested tables share the same sequence
+        // number, which is critical for MVCC correctness.
+        //
+        // We intentionally do NOT pin filter/index blocks here. Large ingests
+        // are typically placed in level 1, and pinning would increase memory
+        // pressure unnecessarily.
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
-                // TODO: table recoverer struct w/ builder pattern
-                // Table::recover()
-                //  .pin_filters(true)
-                //  .with_metrics(metrics)
-                //  .run(path, tree_id, cache, descriptor_table);
-
-                // Do not pin ingestion output tables here. Large ingests are
-                // typically placed in level 1 and would otherwise keep all
-                // filter and index blocks pinned, increasing memory pressure.
                 Table::recover(
                     self.folder.join(table_id.to_string()),
                     checksum,
-                    todo!(),
+                    global_seqno,
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
@@ -251,11 +272,38 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Ingestion produces new tables only and does not touch sealed
-        // memtables directly, so the deletion set is empty and the
-        // watermark is left at its neutral value.
-        self.tree
-            .register_tables(&created_tables, None, None, &[], 0)?;
+        // Acquire locks for version registration. We must hold both the
+        // compaction state lock and version history lock to safely modify
+        // the tree's version.
+        let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
+        let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
+
+        // Create the next version by adding our ingested tables as a new L0 run.
+        // We manually set the seqno to the global_seqno we allocated earlier,
+        // ensuring the version and tables share the same sequence number.
+        //
+        // Why not use register_tables()?
+        // register_tables() calls upgrade_version(), which would allocate a
+        // DIFFERENT seqno via seqno.next(). We need to use the SAME seqno we
+        // already allocated and assigned to the tables.
+        let mut next_version = {
+            let current = version_lock.latest_version();
+            let mut copy = current.clone();
+            copy.version = copy.version.with_new_l0_run(&created_tables, None, None);
+            copy
+        };
+
+        next_version.seqno = global_seqno;
+
+        // Persist the new version to disk and append it to the version history.
+        persist_version(&self.tree.config.path, &next_version.version)?;
+        version_lock.append_version(next_version);
+
+        // Perform maintenance on the version history (e.g., clean up old versions).
+        // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
+        if let Err(e) = version_lock.maintenance(&self.tree.config.path, 0) {
+            log::warn!("Version GC failed: {e:?}");
+        }
 
         Ok(())
     }

@@ -140,23 +140,61 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn finish(self) -> crate::Result<()> {
-        use crate::AbstractTree;
+        use crate::{version::persist_version, AbstractTree};
 
-        // Capture required handles before consuming fields during finalization
         let index = self.index().clone();
-        let tree = self.tree.clone();
 
-        // Finalize both value log and index writer so the index sees a
-        // consistent set of blob files.
+        // CRITICAL SECTION: Atomic flush + seqno allocation + registration
+        //
+        // For BlobTree, we must coordinate THREE components atomically:
+        //   1. Index tree memtable flush
+        //   2. Value log blob files
+        //   3. Index tree tables (with blob indirections)
+        //
+        // The sequence ensures all components see the same global_seqno:
+        //   1. Acquire flush lock on index tree
+        //   2. Flush index tree active memtable
+        //   3. Finalize blob writer (creates blob files)
+        //   4. Finalize table writer (creates index tables)
+        //   5. Allocate next global seqno
+        //   6. Recover tables with that seqno
+        //   7. Register version with same seqno + blob files
+        //
+        // This prevents race conditions where blob files and their index
+        // entries could have mismatched sequence numbers.
+        let flush_lock = index.get_flush_lock();
+
+        // Flush any pending index memtable writes to ensure ingestion sees
+        // a consistent snapshot of the index.
+        // We call rotate + flush directly because we already hold the lock.
+        index.rotate_memtable();
+        index.flush(&flush_lock, 0)?;
+
+        // Finalize the blob writer first, ensuring all large values are
+        // written to blob files before we finalize the index tables that
+        // reference them.
         let blob_files = self.blob.finish()?;
+
+        // Finalize the table writer, creating index tables with blob
+        // indirections pointing to the blob files we just created.
         let results = self.table.writer.finish()?;
 
+        // Allocate the next global sequence number. This seqno will be shared
+        // by all ingested tables, blob files, and the version that registers
+        // them, ensuring consistent MVCC snapshots across the value log.
+        let global_seqno = index.config.seqno.next();
+
+        // Recover all created index tables, assigning them the global_seqno
+        // we just allocated. These tables contain indirections to the blob
+        // files created above, so they must share the same sequence number
+        // for MVCC correctness.
+        //
+        // We intentionally do NOT pin filter/index blocks here. Large ingests
+        // are typically placed in level 1, and pinning would increase memory
+        // pressure unnecessarily.
         let created_tables = results
             .into_iter()
             .map(|(table_id, checksum)| -> crate::Result<Table> {
-                // Do not pin ingestion output tables here. Large ingests are
-                // typically placed in level 1 and would otherwise keep all
-                // filter and index blocks pinned, increasing memory pressure.
                 Table::recover(
                     index
                         .config
@@ -164,7 +202,7 @@ impl<'a> BlobIngestion<'a> {
                         .join(crate::file::TABLES_FOLDER)
                         .join(table_id.to_string()),
                     checksum,
-                    todo!(),
+                    global_seqno,
                     index.id,
                     index.config.cache.clone(),
                     index.config.descriptor_table.clone(),
@@ -176,10 +214,45 @@ impl<'a> BlobIngestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Blob ingestion only appends new tables and blob files; sealed
-        // memtables remain unchanged and GC watermark stays at its
-        // neutral value for this operation.
-        tree.register_tables(&created_tables, Some(&blob_files), None, &[], 0)?;
+        // Acquire locks for version registration on the index tree. We must
+        // hold both the compaction state lock and version history lock to
+        // safely modify the tree's version.
+        let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
+        let mut version_lock = index.version_history.write().expect("lock is poisoned");
+
+        // Create the next version by adding both:
+        //   - Index tables as a new L0 run
+        //   - Blob files to the value log
+        //
+        // We manually set the seqno to the global_seqno we allocated earlier,
+        // ensuring the version, tables, and blob files all share the same
+        // sequence number. This is critical for GC correctness - we must not
+        // delete blob files that are still referenced by visible snapshots.
+        //
+        // Why not use register_tables()?
+        // register_tables() calls upgrade_version(), which would allocate a
+        // DIFFERENT seqno via seqno.next(). We need to use the SAME seqno we
+        // already allocated and assigned to the tables.
+        let mut next_version = {
+            let current = version_lock.latest_version();
+            let mut copy = current.clone();
+            copy.version = copy
+                .version
+                .with_new_l0_run(&created_tables, Some(&blob_files), None);
+            copy
+        };
+
+        next_version.seqno = global_seqno;
+
+        // Persist the new version to disk and append it to the version history.
+        persist_version(&index.config.path, &next_version.version)?;
+        version_lock.append_version(next_version);
+
+        // Perform maintenance on the version history (e.g., clean up old versions).
+        // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
+        if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
+            log::warn!("Version GC failed: {e:?}");
+        }
 
         Ok(())
     }
