@@ -164,6 +164,7 @@ impl<'a> BlobIngestion<'a> {
                         .join(crate::file::TABLES_FOLDER)
                         .join(table_id.to_string()),
                     checksum,
+                    todo!(),
                     index.id,
                     index.config.cache.clone(),
                     index.config.descriptor_table.clone(),

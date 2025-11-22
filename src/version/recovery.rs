@@ -4,7 +4,7 @@
 
 use crate::{
     coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
-    TableId, TreeType,
+    SeqNo, TableId, TreeType,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
@@ -20,7 +20,7 @@ pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId>
 pub struct Recovery {
     pub tree_type: TreeType,
     pub curr_version_id: VersionId,
-    pub table_ids: Vec<Vec<Vec<(TableId, Checksum)>>>,
+    pub table_ids: Vec<Vec<Vec<(TableId, Checksum, SeqNo)>>>,
     pub blob_file_ids: Vec<(BlobFileId, Checksum)>,
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
@@ -70,7 +70,9 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
                     let checksum = reader.read_u128::<LittleEndian>()?;
                     let checksum = Checksum::from_raw(checksum);
 
-                    run.push((id, checksum));
+                    let global_seqno = reader.read_u64::<LittleEndian>()?;
+
+                    run.push((id, checksum, global_seqno));
                 }
 
                 level.push(run);

@@ -341,6 +341,7 @@ impl AbstractTree for Tree {
                 Table::recover(
                     folder.join(table_id.to_string()),
                     checksum,
+                    0,
                     self.id,
                     self.config.cache.clone(),
                     self.config.descriptor_table.clone(),
@@ -772,6 +773,7 @@ impl Tree {
         let created_table = Table::recover(
             table_file_path,
             checksum,
+            0,
             self.id,
             self.config.cache.clone(),
             self.config.descriptor_table.clone(),
@@ -1006,12 +1008,12 @@ impl Tree {
         let recovery = recover(tree_path)?;
 
         let table_map = {
-            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum)> =
+            let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum, SeqNo)> =
                 crate::HashMap::default();
 
             for (level_idx, table_ids) in recovery.table_ids.iter().enumerate() {
                 for run in table_ids {
-                    for &(table_id, checksum) in run {
+                    for &(table_id, checksum, seqno) in run {
                         #[expect(
                             clippy::expect_used,
                             reason = "there are always less than 256 levels"
@@ -1023,6 +1025,7 @@ impl Tree {
                                     .try_into()
                                     .expect("there are less than 256 levels"),
                                 checksum,
+                                seqno,
                             ),
                         );
                     }
@@ -1082,13 +1085,14 @@ impl Tree {
                 crate::Error::Unrecoverable
             })?;
 
-            if let Some(&(level_idx, checksum)) = table_map.get(&table_id) {
+            if let Some(&(level_idx, checksum, global_seqno)) = table_map.get(&table_id) {
                 let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
                 let pin_index = config.index_block_pinning_policy.get(level_idx.into());
 
                 let table = Table::recover(
                     table_file_path,
                     checksum,
+                    global_seqno,
                     tree_id,
                     config.cache.clone(),
                     config.descriptor_table.clone(),

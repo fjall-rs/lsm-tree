@@ -239,6 +239,7 @@ impl<'a> Ingestion<'a> {
                 Table::recover(
                     self.folder.join(table_id.to_string()),
                     checksum,
+                    todo!(),
                     self.tree.id,
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),

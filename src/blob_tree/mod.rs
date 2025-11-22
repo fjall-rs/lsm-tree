@@ -467,6 +467,7 @@ impl AbstractTree for BlobTree {
                 Table::recover(
                     table_folder.join(table_id.to_string()),
                     checksum,
+                    0,
                     self.index.id,
                     self.index.config.cache.clone(),
                     self.index.config.descriptor_table.clone(),

@@ -96,6 +96,11 @@ impl std::fmt::Debug for Table {
 }
 
 impl Table {
+    #[must_use]
+    pub fn global_seqno(&self) -> SeqNo {
+        self.0.global_seqno
+    }
+
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
         if let Some(v) = self.0.cached_blob_bytes.get() {
             return Ok(*v);
@@ -239,7 +244,7 @@ impl Table {
         #[cfg(feature = "metrics")]
         use std::sync::atomic::Ordering::Relaxed;
 
-        if self.metadata.seqnos.0 >= seqno {
+        if (self.metadata.seqnos.0 + self.global_seqno()) >= seqno {
             return Ok(None);
         }
 
@@ -302,6 +307,8 @@ impl Table {
             return Ok(None);
         };
 
+        let seqno = seqno.saturating_sub(self.global_seqno());
+
         for block_handle in iter {
             let block_handle = block_handle?;
 
@@ -344,6 +351,7 @@ impl Table {
             &self.path,
             block_count,
             self.metadata.data_block_compression,
+            self.global_seqno(),
         )
     }
 
@@ -373,6 +381,7 @@ impl Table {
 
         let mut iter = Iter::new(
             self.global_id(),
+            self.global_seqno(),
             self.path.clone(),
             index_iter,
             self.descriptor_table.clone(),
@@ -421,6 +430,7 @@ impl Table {
     pub fn recover(
         file_path: PathBuf,
         checksum: Checksum,
+        global_seqno: SeqNo,
         tree_id: TreeId,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
@@ -545,6 +555,7 @@ impl Table {
             is_deleted: AtomicBool::default(),
 
             checksum,
+            global_seqno,
 
             #[cfg(feature = "metrics")]
             metrics,

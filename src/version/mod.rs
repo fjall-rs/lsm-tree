@@ -249,7 +249,7 @@ impl Version {
                     .map(|run| {
                         let run_tables = run
                             .iter()
-                            .map(|&(table_id, _)| {
+                            .map(|&(table_id, _, _)| {
                                 tables
                                     .iter()
                                     .find(|x| x.id() == table_id)
@@ -674,6 +674,7 @@ impl Version {
                     writer.write_u64::<LittleEndian>(table.id())?;
                     writer.write_u8(0)?; // Checksum type, 0 = XXH3
                     writer.write_u128::<LittleEndian>(table.checksum().into_u128())?;
+                    writer.write_u64::<LittleEndian>(table.global_seqno())?;
                 }
             }
         }
