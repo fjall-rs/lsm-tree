@@ -20,11 +20,13 @@ impl Slice {
     }
 
     #[doc(hidden)]
+    #[must_use]
     pub fn empty() -> Self {
         Self(ByteView::new(&[]))
     }
 
     #[doc(hidden)]
+    #[must_use]
     pub unsafe fn builder_unzeroed(len: usize) -> Builder {
         ByteView::builder_unzeroed(len)
     }
