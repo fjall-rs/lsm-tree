@@ -16,6 +16,8 @@ pub type RangeItem = crate::Result<KvPair>;
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
+    // TODO: fn() with Nuke compaction strategy (write lock) -> drop_range(..)
+
     /// Returns the number of cached table file descriptors.
     fn table_file_cache_size(&self) -> usize;
 
@@ -150,8 +152,6 @@ pub trait AbstractTree {
 
     /// Returns the approximate number of values reclaimable once weak tombstones can be GC'd.
     fn weak_tombstone_reclaimable_count(&self) -> u64;
-
-    // TODO: clear() with Nuke compaction strategy (write lock) -> drop_range(..)
 
     /// Drops tables that are fully contained in a given range.
     ///
