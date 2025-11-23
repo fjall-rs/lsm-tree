@@ -13,7 +13,7 @@ fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
     let snapshot_seqno = 1;
     assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
 
-    let mut ingest = tree.ingestion()?.with_seqno(seqno.next());
+    let mut ingest = tree.ingestion()?;
     ingest.write("b", "b")?;
     ingest.finish()?;
 

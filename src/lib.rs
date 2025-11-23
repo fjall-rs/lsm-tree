@@ -100,6 +100,7 @@ mod error;
 pub mod file;
 
 mod hash;
+mod ingestion;
 mod iter_guard;
 mod key;
 mod key_range;
@@ -170,8 +171,7 @@ pub use {
 };
 
 pub use {
-    any_tree::{AnyIngestion, AnyTree},
-    blob_tree::ingest::BlobIngestion,
+    any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,
     compression::CompressionType,
@@ -179,12 +179,12 @@ pub use {
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
+    ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::Memtable,
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     slice::Slice,
-    tree::ingest::Ingestion,
     tree::Tree,
     value::SeqNo,
     value_type::ValueType,

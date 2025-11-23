@@ -1,3 +1,7 @@
+// Copyright (c) 2024-present, fjall-rs
+// This source code is licensed under both the Apache 2.0 and MIT License
+// (found in the LICENSE-* files in the repository)
+
 use crate::{
     blob_tree::handle::BlobIndirection,
     file::BLOBS_FOLDER,
@@ -56,14 +60,6 @@ impl<'a> BlobIngestion<'a> {
             separation_threshold,
             last_key: None,
         })
-    }
-
-    /// Sets the ingestion seqno.
-    #[must_use]
-    pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
-        self.seqno = seqno;
-        self.table = self.table.with_seqno(seqno);
-        self
     }
 
     /// Writes a key-value pair.
@@ -139,7 +135,8 @@ impl<'a> BlobIngestion<'a> {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn finish(self) -> crate::Result<()> {
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn finish(self) -> crate::Result<SeqNo> {
         use crate::AbstractTree;
 
         let index = self.index().clone();
@@ -179,6 +176,12 @@ impl<'a> BlobIngestion<'a> {
         // indirections pointing to the blob files we just created.
         let results = self.table.writer.finish()?;
 
+        // Acquire locks for version registration on the index tree. We must
+        // hold both the compaction state lock and version history lock to
+        // safely modify the tree's version.
+        let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
+        let mut version_lock = index.version_history.write().expect("lock is poisoned");
+
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables, blob files, and the version that registers
         // them, ensuring consistent MVCC snapshots across the value log.
@@ -214,12 +217,6 @@ impl<'a> BlobIngestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Acquire locks for version registration on the index tree. We must
-        // hold both the compaction state lock and version history lock to
-        // safely modify the tree's version.
-        let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
-        let mut version_lock = index.version_history.write().expect("lock is poisoned");
-
         // Upgrade the version with our ingested tables and blob files, using
         // the global_seqno we allocated earlier. This ensures the version,
         // tables, and blob files all share the same sequence number, which is
@@ -247,7 +244,7 @@ impl<'a> BlobIngestion<'a> {
             log::warn!("Version GC failed: {e:?}");
         }
 
-        Ok(())
+        Ok(global_seqno)
     }
 
     #[inline]

@@ -10,7 +10,7 @@ fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
         tree.insert(key.as_bytes(), b"v", 0);
     }
 
-    let mut ingest = tree.ingestion()?.with_seqno(10);
+    let mut ingest = tree.ingestion()?;
     for i in 0..10u32 {
         let key = format!("k{:03}", i);
         ingest.write_tombstone(key)?;
@@ -34,7 +34,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
 
     // Older table value via ingestion (seqno 1)
     {
-        let mut ingest = tree.ingestion()?.with_seqno(1);
+        let mut ingest = tree.ingestion()?;
         ingest.write(b"k", b"old")?;
         ingest.finish()?;
     }
@@ -60,7 +60,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
 
     // Older table value via ingestion (seqno 1)
     {
-        let mut ingest = tree.ingestion()?.with_seqno(1);
+        let mut ingest = tree.ingestion()?;
         ingest.write(b"k", b"old")?;
         ingest.finish()?;
     }
@@ -83,12 +83,12 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
 
     // Two separate ingestions create two tables containing the same key at different seqnos
     {
-        let mut ingest = tree.ingestion()?.with_seqno(1);
+        let mut ingest = tree.ingestion()?;
         ingest.write(b"k", b"v1")?;
         ingest.finish()?;
     }
     {
-        let mut ingest = tree.ingestion()?.with_seqno(2);
+        let mut ingest = tree.ingestion()?;
         ingest.write(b"k", b"v2")?;
         ingest.finish()?;
     }
@@ -109,7 +109,7 @@ fn ingestion_enforces_order_standard_panics() {
         .open()
         .unwrap();
 
-    let mut ingest = tree.ingestion().unwrap().with_seqno(1);
+    let mut ingest = tree.ingestion().unwrap();
 
     // First write higher key, then lower to trigger ordering assertion
     ingest.write(b"k2", b"v").unwrap();
@@ -129,7 +129,7 @@ fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<(
 
     // Use a small value for the first write to avoid blob I/O
     let result = std::panic::catch_unwind(|| {
-        let mut ingest = tree.ingestion().unwrap().with_seqno(1);
+        let mut ingest = tree.ingestion().unwrap();
         ingest.write(b"k2", b"x").unwrap();
 
         // Second write would require blob I/O, but ordering check should fire before any blob write
@@ -151,14 +151,14 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
 
     // Older put written via ingestion to tables (seqno 1)
     {
-        let mut ingest = tree.ingestion()?.with_seqno(1);
+        let mut ingest = tree.ingestion()?;
         ingest.write(b"k", b"v1")?;
         ingest.finish()?;
     }
 
     // Newer tombstone written via ingestion to tables (seqno 2)
     {
-        let mut ingest = tree.ingestion()?.with_seqno(2);
+        let mut ingest = tree.ingestion()?;
         ingest.write_tombstone(b"k")?;
         ingest.finish()?;
     }
@@ -184,7 +184,7 @@ fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()>
         tree.insert(key.as_bytes(), b"x", 0);
     }
 
-    let mut ingest = tree.ingestion()?.with_seqno(10);
+    let mut ingest = tree.ingestion()?;
     for i in 0..8u32 {
         let key = format!("b{:03}", i);
         ingest.write_tombstone(key)?;
@@ -229,7 +229,7 @@ fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Resu
 
     let before_blobs = tree.blob_file_count();
 
-    let mut ingest = tree.ingestion()?.with_seqno(10);
+    let mut ingest = tree.ingestion()?;
     for i in 0..5u32 {
         let key = format!("d{:03}", i);
         ingest.write_tombstone(key)?;
@@ -276,7 +276,7 @@ fn blob_ingestion_separates_large_values_and_reads_ok() -> lsm_tree::Result<()> 
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(8)))
         .open()?;
 
-    let mut ingest = tree.ingestion()?.with_seqno(1);
+    let mut ingest = tree.ingestion()?;
     ingest.write("k_big1", [1u8; 16])?;
     ingest.write("k_big2", [2u8; 32])?;
     ingest.write("k_small", "abc")?;

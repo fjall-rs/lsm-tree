@@ -108,13 +108,6 @@ impl<'a> Ingestion<'a> {
         })
     }
 
-    /// Sets the ingestion seqno.
-    #[must_use]
-    pub fn with_seqno(mut self, seqno: SeqNo) -> Self {
-        self.seqno = seqno;
-        self
-    }
-
     /// Writes a key-value pair.
     ///
     /// # Errors
@@ -209,7 +202,8 @@ impl<'a> Ingestion<'a> {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn finish(self) -> crate::Result<()> {
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn finish(self) -> crate::Result<SeqNo> {
         use crate::{AbstractTree, Table};
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
@@ -242,6 +236,12 @@ impl<'a> Ingestion<'a> {
 
         log::info!("Finished ingestion writer");
 
+        // Acquire locks for version registration. We must hold both the
+        // compaction state lock and version history lock to safely modify
+        // the tree's version.
+        let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
+        let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
+
         // Allocate the next global sequence number. This seqno will be shared
         // by all ingested tables and the version that registers them, ensuring
         // consistent MVCC snapshots.
@@ -272,12 +272,6 @@ impl<'a> Ingestion<'a> {
             })
             .collect::<crate::Result<Vec<_>>>()?;
 
-        // Acquire locks for version registration. We must hold both the
-        // compaction state lock and version history lock to safely modify
-        // the tree's version.
-        let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
-        let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
-
         // Upgrade the version with our ingested tables, using the global_seqno
         // we allocated earlier. This ensures the version and all tables share
         // the same sequence number.
@@ -301,6 +295,6 @@ impl<'a> Ingestion<'a> {
             log::warn!("Version GC failed: {e:?}");
         }
 
-        Ok(())
+        Ok(global_seqno)
     }
 }

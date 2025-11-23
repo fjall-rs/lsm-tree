@@ -19,7 +19,7 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
     assert_eq!(sealed_before, 0);
 
     // Start ingestion (should auto-flush active)
-    tree.ingestion()?.with_seqno(10).finish()?;
+    tree.ingestion()?.finish()?;
 
     // After ingestion, data is in tables; no sealed memtables
     assert_eq!(tree.sealed_memtable_count(), 0);
@@ -53,7 +53,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     let tables_before = tree.table_count();
 
     // Ingestion should flush sealed memtables and register resulting tables
-    tree.ingestion()?.with_seqno(20).finish()?;
+    tree.ingestion()?.finish()?;
 
     assert_eq!(tree.sealed_memtable_count(), 0);
     assert!(tree.table_count() > tables_before);
@@ -75,7 +75,7 @@ fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
     let tree = Config::new(&folder, Default::default()).open()?;
 
     // Acquire ingestion and keep it active while another thread performs writes
-    let ingest = tree.ingestion()?.with_seqno(5);
+    let ingest = tree.ingestion()?;
 
     let (started_tx, started_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
@@ -123,7 +123,7 @@ fn blob_ingestion_honors_invariants_and_blocks_writes() -> lsm_tree::Result<()> 
     let (done_tx, done_rx) = mpsc::channel();
     let tree2 = tree.clone();
 
-    let ingest = tree.ingestion()?.with_seqno(30);
+    let ingest = tree.ingestion()?;
 
     let handle = thread::spawn(move || {
         started_tx.send(()).ok();
