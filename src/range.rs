@@ -69,7 +69,6 @@ pub struct IterState {
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
 
-// TODO: maybe we can lifetime TreeIter and then use InternalKeyRef everywhere to bound lifetime of iterators (no need to construct InternalKey then, can just use range)
 self_cell!(
     pub struct TreeIter {
         owner: IterState,
