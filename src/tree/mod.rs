@@ -19,8 +19,8 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Cache, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey,
-    UserValue, ValueType,
+    AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
+    ValueType,
 };
 use inner::{TreeId, TreeInner};
 use std::{
