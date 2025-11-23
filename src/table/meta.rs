@@ -139,8 +139,9 @@ impl ParsedMeta {
         let id = read_u64!(block, b"id");
         let item_count = read_u64!(block, b"item_count");
         let tombstone_count = read_u64!(block, b"tombstone_count");
-        let data_block_count = read_u64!(block, b"data_block_count");
-        let index_block_count = read_u64!(block, b"index_block_count");
+        let data_block_count = read_u64!(block, b"block_count#data");
+        let index_block_count = read_u64!(block, b"block_count#index");
+        let _filter_block_count = read_u64!(block, b"block_count#filter");
         let file_size = read_u64!(block, b"file_size");
         let weak_tombstone_count = read_u64!(block, b"weak_tombstone_count");
         let weak_tombstone_reclaimable = read_u64!(block, b"weak_tombstone_reclaimable");

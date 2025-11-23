@@ -393,6 +393,18 @@ impl Writer {
             }
 
             let meta_items = [
+                meta(
+                    "block_count#data",
+                    &(self.meta.data_block_count as u64).to_le_bytes(),
+                ),
+                meta(
+                    "block_count#filter",
+                    &(filter_block_count as u64).to_le_bytes(),
+                ),
+                meta(
+                    "block_count#index",
+                    &(index_block_count as u64).to_le_bytes(),
+                ),
                 meta("checksum_type", b"xxh3"),
                 meta(
                     "compression#data",
@@ -405,24 +417,12 @@ impl Writer {
                 meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
                 meta("created_at", &unix_timestamp().as_nanos().to_le_bytes()),
                 meta(
-                    "data_block_count",
-                    &(self.meta.data_block_count as u64).to_le_bytes(),
-                ),
-                meta(
                     "data_block_hash_ratio",
                     &self.data_block_hash_ratio.to_le_bytes(),
                 ),
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
-                meta(
-                    "filter_block_count",
-                    &(filter_block_count as u64).to_le_bytes(),
-                ),
                 meta("filter_hash_type", b"xxh3"),
                 meta("id", &self.table_id.to_le_bytes()),
-                meta(
-                    "index_block_count",
-                    &(index_block_count as u64).to_le_bytes(),
-                ),
                 meta("initial_level", &self.initial_level.to_le_bytes()),
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
