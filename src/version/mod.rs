@@ -615,7 +615,7 @@ impl Version {
 impl Version {
     pub(crate) fn encode_into(
         &self,
-        writer: &mut sfa::Writer<BufWriter<File>>,
+        writer: &mut sfa::Writer<impl std::io::Write + std::io::Seek>,
     ) -> Result<(), crate::Error> {
         use crate::FormatVersion;
         use byteorder::{LittleEndian, WriteBytesExt};
