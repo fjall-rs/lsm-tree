@@ -38,7 +38,7 @@ pub struct ParsedMeta {
     pub data_block_count: u64,
     pub index_block_count: u64,
     pub key_range: KeyRange,
-    pub seqnos: (SeqNo, SeqNo),
+    pub(super) seqnos: (SeqNo, SeqNo),
     pub file_size: u64,
     pub item_count: u64,
     pub tombstone_count: u64,

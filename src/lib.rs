@@ -100,6 +100,7 @@ mod error;
 pub mod file;
 
 mod hash;
+mod ingestion;
 mod iter_guard;
 mod key;
 mod key_range;
@@ -164,7 +165,6 @@ pub use {
     merge::BoxedIterator,
     slice::Builder,
     table::{GlobalTableId, Table, TableId},
-    tree::ingest::Ingestion,
     tree::inner::TreeId,
     tree::Guard as StandardGuard,
     value::InternalValue,
@@ -179,6 +179,7 @@ pub use {
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
+    ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::Memtable,
     r#abstract::AbstractTree,

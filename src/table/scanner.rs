@@ -5,7 +5,7 @@
 use super::{Block, DataBlock};
 use crate::{
     table::{block::BlockType, iter::OwnedDataBlockIter},
-    CompressionType, InternalValue,
+    CompressionType, InternalValue, SeqNo,
 };
 use std::{fs::File, io::BufReader, path::Path};
 
@@ -17,6 +17,8 @@ pub struct Scanner {
     compression: CompressionType,
     block_count: usize,
     read_count: usize,
+
+    global_seqno: SeqNo,
 }
 
 impl Scanner {
@@ -24,6 +26,7 @@ impl Scanner {
         path: &Path,
         block_count: usize,
         compression: CompressionType,
+        global_seqno: SeqNo,
     ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
         let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
@@ -38,6 +41,8 @@ impl Scanner {
             compression,
             block_count,
             read_count: 1,
+
+            global_seqno,
         })
     }
 
@@ -68,7 +73,8 @@ impl Iterator for Scanner {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(item) = self.iter.next() {
+            if let Some(mut item) = self.iter.next() {
+                item.key.seqno += self.global_seqno;
                 return Some(Ok(item));
             }
 
