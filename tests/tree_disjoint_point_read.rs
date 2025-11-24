@@ -1,11 +1,13 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
 fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -32,9 +34,9 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))

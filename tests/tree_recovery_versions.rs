@@ -1,10 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 #[ignore = "restore Version history maintenance"]
 fn tree_recovery_version_free_list() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     {

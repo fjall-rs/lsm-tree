@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_write_and_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder.clone(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
     tree.insert("b".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
@@ -28,7 +28,7 @@ fn tree_write_and_read() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     let item = tree.get_internal_entry(b"a", SeqNo::MAX)?.unwrap();
     assert_eq!(&*item.key.user_key, "a".as_bytes());

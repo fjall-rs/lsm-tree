@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let medium_value = b"a".repeat(500);

@@ -1,16 +1,18 @@
-use lsm_tree::{AbstractTree, Config, Guard, KvSeparationOptions, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100_000;
 
 #[test]
 fn tree_bulk_ingest() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(folder, seqno.clone()).open()?;
+    let tree = Config::new(&folder, seqno.clone()).open()?;
 
     let mut ingestion = tree.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -39,12 +41,12 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_copy() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let src = Config::new(folder, seqno.clone()).open()?;
+    let src = Config::new(&folder, seqno.clone()).open()?;
 
     let mut ingestion = src.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -68,8 +70,8 @@ fn tree_copy() -> lsm_tree::Result<()> {
         ITEM_COUNT,
     );
 
-    let folder = tempfile::tempdir()?;
-    let dest = Config::new(folder, seqno.clone()).open()?;
+    let folder = get_tmp_folder();
+    let dest = Config::new(&folder, seqno.clone()).open()?;
 
     let mut ingestion = dest.ingestion()?;
     for item in src.iter(SeqNo::MAX, None) {
@@ -97,12 +99,12 @@ fn tree_copy() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(folder, seqno.clone())
+    let tree = Config::new(&folder, seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -134,12 +136,12 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_copy() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let src = Config::new(folder, seqno.clone())
+    let src = Config::new(&folder, seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -166,8 +168,8 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     );
     assert_eq!(1, src.blob_file_count());
 
-    let folder = tempfile::tempdir()?;
-    let dest = Config::new(folder, seqno.clone())
+    let folder = get_tmp_folder();
+    let dest = Config::new(&folder, seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 

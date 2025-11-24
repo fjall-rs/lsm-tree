@@ -1,10 +1,12 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
 #[ignore]
 fn snapshot_404() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -42,7 +44,7 @@ fn snapshot_404() -> lsm_tree::Result<()> {
 fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
     let version_count = 600;
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -80,7 +82,7 @@ const BATCHES: usize = 10;
 
 #[test]
 fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -137,7 +139,7 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 
 #[test]
 fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

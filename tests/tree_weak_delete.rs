@@ -1,9 +1,10 @@
-use lsm_tree::{AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -29,7 +30,8 @@ fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -49,7 +51,8 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -71,7 +74,8 @@ fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -91,7 +95,8 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -113,7 +118,8 @@ fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_weak_delete_resurrection() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;

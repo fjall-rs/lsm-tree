@@ -1,10 +1,11 @@
-use lsm_tree::{AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -23,7 +24,8 @@ fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -42,7 +44,8 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
@@ -66,7 +69,8 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;

@@ -1,5 +1,6 @@
 use lsm_tree::{
-    config::BlockSizePolicy, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter,
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, Guard, SeqNo,
+    SequenceNumberCounter,
 };
 use test_log::test;
 
@@ -7,9 +8,9 @@ const ITEM_COUNT: usize = 1_000_000;
 
 #[test]
 fn a_lot_of_ranges() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -65,9 +66,9 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 
 #[test]
 fn table_range_last_back() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -100,9 +101,9 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
 
 #[test]
 fn table_range_last_back_2() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;

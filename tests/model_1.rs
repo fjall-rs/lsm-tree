@@ -1,12 +1,13 @@
 // Found by model testing
 
-use lsm_tree::{AbstractTree, Result, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Result, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
 #[test]
 fn model_1() -> Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;

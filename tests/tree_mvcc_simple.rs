@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a0", 0);
     tree.insert("a", "a1", 1);

@@ -1,11 +1,13 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())

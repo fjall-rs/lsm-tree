@@ -1,11 +1,12 @@
 use lsm_tree::{
-    compaction::Fifo, AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter,
+    compaction::Fifo, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
+    SequenceNumberCounter,
 };
 use std::sync::Arc;
 
 #[test]
 fn fifo_ttl_no_drop_when_recent_or_disabled() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
     let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
     // Two quick tables (both recent)
@@ -31,7 +32,7 @@ fn fifo_ttl_no_drop_when_recent_or_disabled() -> lsm_tree::Result<()> {
 
 #[test]
 fn fifo_below_limit_no_drop_standard() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
     let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..3u8 {
@@ -49,7 +50,7 @@ fn fifo_below_limit_no_drop_standard() -> lsm_tree::Result<()> {
 
 #[test]
 fn fifo_limit_considers_blob_bytes() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
     let tree = Config::new(dir.path(), SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
@@ -75,7 +76,7 @@ fn fifo_limit_considers_blob_bytes() -> lsm_tree::Result<()> {
 
 #[test]
 fn fifo_compact_empty_tree_noop() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
     let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
     let fifo = Arc::new(Fifo::new(1_000_000, Some(1)));
@@ -88,7 +89,7 @@ fn fifo_compact_empty_tree_noop() -> lsm_tree::Result<()> {
 
 #[test]
 fn fifo_idempotent_when_within_limits() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
     let tree = Config::new(dir.path(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..3u8 {

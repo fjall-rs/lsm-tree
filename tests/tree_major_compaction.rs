@@ -1,9 +1,10 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_major_compaction() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let seqno = SequenceNumberCounter::default();

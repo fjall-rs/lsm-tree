@@ -1,13 +1,13 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     let seqno = SequenceNumberCounter::default();
 
@@ -57,9 +57,9 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_delete_by_range() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     let value = "old".as_bytes();
     tree.insert("a".as_bytes(), value, 0);

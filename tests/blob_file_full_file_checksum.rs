@@ -1,10 +1,10 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;
 
 #[test]
 fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())
@@ -49,7 +49,7 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())

@@ -1,5 +1,5 @@
 use lsm_tree::{
-    config::CompressionPolicy, AbstractTree, Config, KvSeparationOptions, SeqNo,
+    config::CompressionPolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo,
     SequenceNumberCounter,
 };
 use test_log::test;
@@ -10,7 +10,7 @@ use test_log::test;
 // https://github.com/fjall-rs/lsm-tree/commit/79c6ead4b955051cbb4835913e21d08b8aeafba1
 #[test]
 fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

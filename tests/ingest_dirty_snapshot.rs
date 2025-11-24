@@ -1,8 +1,8 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 
 #[test]
 fn ingestion_dirty_snapshot() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
     let tree = Config::new(&folder, seqno.clone()).open()?;

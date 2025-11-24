@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 100;
 
 #[test]
 fn snapshot_basic() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

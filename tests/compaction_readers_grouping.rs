@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
 
 /// NOTE: Fix: https://github.com/fjall-rs/lsm-tree/commit/66a974ae6748646a40df475c291e04cf1dfbaece
 #[test]
 fn compaction_readers_grouping() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let seqno = SequenceNumberCounter::default();

@@ -1,4 +1,7 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, KvSeparationOptions, SequenceNumberCounter};
+use lsm_tree::{
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, KvSeparationOptions,
+    SequenceNumberCounter,
+};
 use test_log::test;
 
 // Force one block per table and one blob per block
@@ -8,7 +11,7 @@ use test_log::test;
 // See https://github.com/fjall-rs/lsm-tree/commit/0d2d7b2071c65f2538bb01e4512907892991dcbe
 #[test]
 fn blob_register_table_rotation() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
@@ -59,7 +62,7 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())

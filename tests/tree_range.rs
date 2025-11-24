@@ -1,13 +1,13 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_range_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
@@ -65,9 +65,9 @@ fn tree_range_count() -> lsm_tree::Result<()> {
 fn blob_tree_range_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

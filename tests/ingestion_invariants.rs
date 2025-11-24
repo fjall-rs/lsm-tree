@@ -1,11 +1,12 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SeqNo};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 #[test]
 fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, Default::default()).open()?;
 
     // Write to active memtable
@@ -39,7 +40,8 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
 
 #[test]
 fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, Default::default()).open()?;
 
     // Put items into active and seal them
@@ -71,7 +73,8 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
 
 #[test]
 fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, Default::default()).open()?;
 
     // Acquire ingestion and keep it active while another thread performs writes
@@ -108,7 +111,8 @@ fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_ingestion_honors_invariants_and_blocks_writes() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;

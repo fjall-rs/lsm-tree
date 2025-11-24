@@ -1,11 +1,13 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType,
+};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
 
 #[test]
 fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())
@@ -68,7 +70,7 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_reload() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

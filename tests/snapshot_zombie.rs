@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 5;
 
 #[test]
 fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -44,7 +44,7 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
 
 #[test]
 fn snapshot_zombie_table() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

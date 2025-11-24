@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 #[ignore]
 fn tree_multi_table_ids() -> lsm_tree::Result<()> {
-    let folder0 = tempfile::tempdir()?;
-    let folder1 = tempfile::tempdir()?;
+    let folder0 = get_tmp_folder();
+    let folder1 = get_tmp_folder();
 
     let tree0 = Config::new(&folder0, SequenceNumberCounter::default()).open()?;
     assert_eq!(tree0.id(), 0);

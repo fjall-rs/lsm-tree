@@ -2,13 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use lsm_tree::{AbstractTree, Config, Guard, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SequenceNumberCounter};
 use test_log::test;
 
 /// Test that iterators can be stored in a struct (proving they're 'static)
 #[test]
 fn static_iterator_ownership() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "value_a", 0);
@@ -40,7 +41,8 @@ fn static_iterator_ownership() -> lsm_tree::Result<()> {
 /// Test that iterator can be moved across threads
 #[test]
 fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
@@ -52,12 +54,10 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
     drop(tree);
 
     let handle = std::thread::spawn(move || {
-        let count = iter
-            .map(|guard| guard.key())
+        iter.map(|guard| guard.key())
             .collect::<lsm_tree::Result<Vec<_>>>()
             .unwrap()
-            .len();
-        count
+            .len()
     });
 
     let count = handle.join().unwrap();
@@ -69,7 +69,8 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
 /// Test static iterator with prefix
 #[test]
 fn static_iterator_prefix() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.insert("user:1:name", "Alice", 0);
@@ -95,7 +96,8 @@ fn static_iterator_prefix() -> lsm_tree::Result<()> {
 /// Test reverse iteration with static iterator
 #[test]
 fn static_iterator_reverse() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..10 {
@@ -121,7 +123,8 @@ fn static_iterator_reverse() -> lsm_tree::Result<()> {
 /// Test iterator with flushed segments (disk-based data)
 #[test]
 fn static_iterator_with_segments() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Write data and flush to disk
@@ -152,7 +155,8 @@ fn static_iterator_with_segments() -> lsm_tree::Result<()> {
 /// Test BlobTree static iterator
 #[test]
 fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
@@ -183,7 +187,8 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
 /// Test that iterator sees a consistent snapshot
 #[test]
 fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Initial data
@@ -218,7 +223,8 @@ fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
 /// Test multiple iterators alive at the same time
 #[test]
 fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
@@ -250,7 +256,8 @@ fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
 /// Test that iterator properly maintains Version reference preventing data loss
 #[test]
 fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // Create data and flush
@@ -276,7 +283,8 @@ fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
 /// Test iterator with tombstones
 #[test]
 fn static_iterator_with_tombstones() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for i in 0..20 {

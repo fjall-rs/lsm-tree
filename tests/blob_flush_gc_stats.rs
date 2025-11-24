@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn blob_tree_flush_gc_stats() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let big_value = b"neptune!".repeat(128_000);
@@ -34,7 +34,7 @@ fn blob_tree_flush_gc_stats() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_flush_gc_stats_tombstone() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let big_value = b"neptune!".repeat(128_000);

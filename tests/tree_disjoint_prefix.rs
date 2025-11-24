@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
 use test_log::test;
 
 macro_rules! iter_closed {
@@ -13,8 +13,9 @@ macro_rules! iter_closed {
 
 #[test]
 fn tree_disjoint_prefix() -> lsm_tree::Result<()> {
-    let tempdir = tempfile::tempdir()?;
-    let tree = crate::Config::new(&tempdir, SequenceNumberCounter::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = crate::Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     // IMPORTANT: Purposefully mangle the order of IDs
     // to make sure stuff is still getting read in the correct order

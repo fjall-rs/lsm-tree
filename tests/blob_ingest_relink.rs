@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn blob_tree_ingest_relink() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
     let path = folder.path();
 
     let big_value = b"neptune!".repeat(128_000);

@@ -1,12 +1,11 @@
-use lsm_tree::{AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_l0_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let path = folder.path();
+    let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(&folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

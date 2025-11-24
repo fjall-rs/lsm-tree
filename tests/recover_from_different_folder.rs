@@ -10,7 +10,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     let folder = ".test/asd";
 
     {
-        let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
         tree.insert("abc", "def", 0);
         tree.insert("wqewe", "def", 0);
@@ -24,7 +24,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     }
 
     {
-        let _tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+        let _tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
     }
 
     let absolute_folder = std::path::Path::new(folder).canonicalize()?;

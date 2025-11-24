@@ -1,9 +1,10 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 
 #[test]
 fn weak_tombstone_counts_single_pair() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder.path(), SequenceNumberCounter::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder.path(), SequenceNumberCounter::default()).open()?;
 
     tree.insert(b"a", b"old", 1);
     tree.remove_weak(b"a", 2);
@@ -17,8 +18,9 @@ fn weak_tombstone_counts_single_pair() -> lsm_tree::Result<()> {
 
 #[test]
 fn weak_tombstone_counts_multiple_keys() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder.path(), SequenceNumberCounter::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder.path(), SequenceNumberCounter::default()).open()?;
 
     tree.insert(b"a", b"old", 10);
     tree.remove_weak(b"a", 11);
@@ -39,8 +41,9 @@ fn weak_tombstone_counts_multiple_keys() -> lsm_tree::Result<()> {
 
 #[test]
 fn weak_tombstone_counts_multiple_weak() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder.path(), SequenceNumberCounter::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder.path(), SequenceNumberCounter::default()).open()?;
 
     tree.insert(b"a", b"old", 10);
     tree.remove_weak(b"a", 11);

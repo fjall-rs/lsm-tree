@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn latest_snapshot() -> lsm_tree::Result<()> {
-    let dir = tempfile::tempdir()?;
+    let dir = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

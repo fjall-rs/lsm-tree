@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -31,7 +31,7 @@ fn snapshot_after_compaction_simple() -> lsm_tree::Result<()> {
 fn snapshot_after_compaction_iters() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 100;
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

@@ -1,11 +1,13 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, TreeType,
+};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
 
 #[test]
 fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
@@ -29,7 +31,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let large_value = "a".repeat(10_000);
 
@@ -61,7 +63,7 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())
@@ -85,7 +87,7 @@ fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_reload_empty() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
@@ -156,7 +158,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_reload() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

@@ -1,9 +1,9 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
@@ -31,7 +31,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     {
         let tree = Config::new(&folder, SequenceNumberCounter::default())

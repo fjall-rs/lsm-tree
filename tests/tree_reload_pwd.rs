@@ -1,12 +1,12 @@
 use fs_extra::dir::CopyOptions;
-use lsm_tree::{AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;
 
 #[test]
 fn tree_reload_pwd() -> lsm_tree::Result<()> {
-    let folder_old = tempfile::tempdir()?;
+    let folder_old = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

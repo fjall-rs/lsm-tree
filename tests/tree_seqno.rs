@@ -1,11 +1,11 @@
-use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
 fn tree_highest_seqno() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.keep();
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
     assert_eq!(tree.get_highest_seqno(), None);
     assert_eq!(tree.get_highest_memtable_seqno(), None);
     assert_eq!(tree.get_highest_persisted_seqno(), None);

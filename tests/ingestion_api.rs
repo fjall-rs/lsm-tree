@@ -1,9 +1,10 @@
-use lsm_tree::{AbstractTree, Config, KvSeparationOptions, SeqNo};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo};
 
 #[test]
 fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default()).open()?;
 
     for i in 0..10u32 {
         let key = format!("k{:03}", i);
@@ -29,8 +30,9 @@ fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
 #[test]
 fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
-    let folder = tempfile::tempdir()?;
-    let tree = lsm_tree::Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = lsm_tree::Config::new(&folder, Default::default()).open()?;
 
     // Older table value via ingestion (seqno 1)
     {
@@ -55,8 +57,9 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
 #[test]
 fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
-    let folder = tempfile::tempdir()?;
-    let tree = lsm_tree::Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = lsm_tree::Config::new(&folder, Default::default()).open()?;
 
     // Older table value via ingestion (seqno 1)
     {
@@ -78,8 +81,9 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
 #[test]
 fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
-    let folder = tempfile::tempdir()?;
-    let tree = lsm_tree::Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = lsm_tree::Config::new(&folder, Default::default()).open()?;
 
     // Two separate ingestions create two tables containing the same key at different seqnos
     {
@@ -105,7 +109,7 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
 #[should_panic(expected = "next key in ingestion must be greater than last key")]
 fn ingestion_enforces_order_standard_panics() {
     let folder = tempfile::tempdir().unwrap();
-    let tree = lsm_tree::Config::new(folder, Default::default())
+    let tree = lsm_tree::Config::new(&folder, Default::default())
         .open()
         .unwrap();
 
@@ -120,8 +124,9 @@ fn ingestion_enforces_order_standard_panics() {
 
 #[test]
 fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = lsm_tree::Config::new(folder, Default::default())
+    let folder = get_tmp_folder();
+
+    let tree = lsm_tree::Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(8)))
         .open()?;
 
@@ -146,8 +151,9 @@ fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<(
 #[test]
 fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
-    let folder = tempfile::tempdir()?;
-    let tree = lsm_tree::Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = lsm_tree::Config::new(&folder, Default::default()).open()?;
 
     // Older put written via ingestion to tables (seqno 1)
     {
@@ -174,8 +180,9 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default())
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -202,8 +209,9 @@ fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()>
 
 #[test]
 fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default()).open()?;
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default()).open()?;
 
     let before_tables = tree.table_count();
     tree.ingestion()?.finish()?;
@@ -217,8 +225,9 @@ fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default())
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -249,8 +258,9 @@ fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Resu
 
 #[test]
 fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default())
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -271,8 +281,9 @@ fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 
 #[test]
 fn blob_ingestion_separates_large_values_and_reads_ok() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let tree = Config::new(folder, Default::default())
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(&folder, Default::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(8)))
         .open()?;
 

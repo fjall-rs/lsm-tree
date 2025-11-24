@@ -193,3 +193,15 @@ pub use {
 
 #[cfg(feature = "metrics")]
 pub use metrics::Metrics;
+
+#[doc(hidden)]
+#[must_use]
+#[allow(missing_docs, clippy::missing_errors_doc, clippy::unwrap_used)]
+pub fn get_tmp_folder() -> tempfile::TempDir {
+    if let Ok(p) = std::env::var("LSMT_TMP_FOLDER") {
+        tempfile::tempdir_in(p)
+    } else {
+        tempfile::tempdir()
+    }
+    .unwrap()
+}

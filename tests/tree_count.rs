@@ -1,13 +1,13 @@
-use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
+use lsm_tree::{get_tmp_folder, AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter, Slice};
 use test_log::test;
 
 const ITEM_COUNT: usize = 1_000;
 
 #[test]
 fn tree_memtable_count() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -33,9 +33,9 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flushed_count() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -63,9 +63,9 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
@@ -97,9 +97,9 @@ fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
 fn tree_non_locking_count() -> lsm_tree::Result<()> {
     use std::ops::Bound::{self, Excluded, Unbounded};
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
-    let tree = Config::new(folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();

@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, AnyTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, AnyTree, Config, SeqNo, SequenceNumberCounter};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
 fn populate_tables(tree: &AnyTree) -> lsm_tree::Result<()> {
@@ -11,7 +11,8 @@ fn populate_tables(tree: &AnyTree) -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_basic() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -35,7 +36,8 @@ fn tree_drop_range_basic() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     for key in ['a', 'b', 'c', 'd', 'e'] {
@@ -60,7 +62,8 @@ fn tree_drop_range_partial_table_overlap_kept() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -78,7 +81,8 @@ fn tree_drop_range_upper_exclusive() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -95,7 +99,8 @@ fn tree_drop_range_lower_exclusive() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -113,7 +118,8 @@ fn tree_drop_range_unbounded_lower_inclusive_upper() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -130,7 +136,8 @@ fn tree_drop_range_unbounded_lower_exclusive_upper() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -146,7 +153,8 @@ fn tree_drop_range_exclusive_empty_interval() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_empty_tree() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     tree.drop_range("a"..="c")?;
@@ -159,7 +167,8 @@ fn tree_drop_range_empty_tree() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_unbounded_upper() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -177,7 +186,8 @@ fn tree_drop_range_unbounded_upper() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;
@@ -194,7 +204,8 @@ fn tree_drop_range_clear_all() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_drop_range_inverted_bounds_is_noop() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
 
     populate_tables(&tree)?;

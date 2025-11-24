@@ -1,11 +1,13 @@
-use lsm_tree::{config::BlockSizePolicy, AbstractTree, Config, SequenceNumberCounter};
+use lsm_tree::{
+    config::BlockSizePolicy, get_tmp_folder, AbstractTree, Config, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
 fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 10_000;
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 
@@ -41,7 +43,7 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
 fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
     const ITEM_COUNT: usize = 1_000;
 
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();
 

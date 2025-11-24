@@ -3,6 +3,7 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 
 use lsm_tree::{
+    get_tmp_folder,
     AbstractTree, KvSeparationOptions, Result, SequenceNumberCounter, config::{BlockSizePolicy, CompressionPolicy}
 };
 use std::sync::Arc;
@@ -11,7 +12,8 @@ use test_log::test;
 // Yes this file is very large, it's hard to condense it to a more minimal repro
 #[test]
 fn model_6() -> Result<()> {
-    let folder = tempfile::tempdir()?;
+    let folder = get_tmp_folder();
+
     let path = folder.path();
 
     let tree = lsm_tree::Config::new(path,SequenceNumberCounter::default())
