@@ -101,7 +101,7 @@ fn pick_minimal_compaction(
     }
 }
 
-/// Levelled compaction strategy (LCS)
+/// Leveled compaction strategy (LCS)
 ///
 /// When a level reaches some threshold size, parts of it are merged into overlapping tables in the next level.
 ///
@@ -114,27 +114,12 @@ fn pick_minimal_compaction(
 /// More info here: <https://fjall-rs.github.io/post/lsm-leveling/>
 #[derive(Clone)]
 pub struct Strategy {
-    /// When the number of tables in L0 reaches this threshold,
-    /// they are merged into L1.
-    ///
-    /// Default = 4
-    ///
-    /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
     l0_threshold: u8,
 
     /// The target table size as disk (possibly compressed).
-    ///
-    /// Default = 64 MiB
-    ///
-    /// Same as `target_file_size_base` in `RocksDB`.
     target_size: u64,
 
     /// Size ratio between levels of the LSM tree (a.k.a fanout, growth rate)
-    ///
-    /// This is the exponential growth of the from one.
-    /// level to the next.
-    ///
-    /// Default = 10
     level_ratio_policy: Vec<f32>,
 }
 
@@ -151,7 +136,9 @@ impl Default for Strategy {
 impl Strategy {
     /// Sets the growth ratio between levels.
     ///
-    /// Default = 10.0
+    /// Same as `set_max_bytes_for_level_multiplier` in `RocksDB`.
+    ///
+    /// Default = [10.0]
     #[must_use]
     pub fn with_level_ratio_policy(mut self, policy: Vec<f32>) -> Self {
         self.level_ratio_policy = policy;
@@ -160,6 +147,11 @@ impl Strategy {
 
     /// Sets the L0 threshold.
     ///
+    /// When the number of tables in L0 reaches this threshold,
+    /// they are merged into L1.
+    ///
+    /// Same as `level0_file_num_compaction_trigger` in `RocksDB`.
+    ///
     /// Default = 4
     #[must_use]
     pub fn with_l0_threshold(mut self, threshold: u8) -> Self {
@@ -167,7 +159,9 @@ impl Strategy {
         self
     }
 
-    /// Sets the table target size.
+    /// Sets the table target size on disk (possibly compressed).
+    ///
+    /// Same as `target_file_size_base` in `RocksDB`.
     ///
     /// Default = 64 MiB
     #[must_use]
