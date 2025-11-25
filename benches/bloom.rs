@@ -14,14 +14,14 @@ fn fast_block_index(c: &mut Criterion) {
     c.bench_function("block index - mod", |b| {
         b.iter(|| {
             let h: u64 = rng.random();
-            criterion::black_box(h % (num_blocks as u64))
+            std::hint::black_box(h % (num_blocks as u64))
         });
     });
 
     c.bench_function("block index - fast", |b| {
         b.iter(|| {
             let h: u64 = rng.random();
-            criterion::black_box(fast_impl(h, num_blocks))
+            std::hint::black_box(fast_impl(h, num_blocks))
         });
     });
 }
