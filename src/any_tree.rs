@@ -3,8 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::ingest::BlobIngestion, tree::ingest::Ingestion, BlobTree, SeqNo, Tree, UserKey,
-    UserValue,
+    BlobTree, Tree,
 };
 use enum_dispatch::enum_dispatch;
 
