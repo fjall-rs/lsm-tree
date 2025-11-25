@@ -228,12 +228,6 @@ pub trait AbstractTree {
     /// Clears the active memtable atomically.
     fn clear_active_memtable(&self);
 
-    /// Sets the active memtable.
-    ///
-    /// May be used to restore the LSM-tree's in-memory state from a write-ahead log
-    /// after tree recovery.
-    fn set_active_memtable(&self, memtable: Memtable);
-
     /// Returns the number of sealed memtables.
     fn sealed_memtable_count(&self) -> usize;
 

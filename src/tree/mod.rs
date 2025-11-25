@@ -403,19 +403,25 @@ impl AbstractTree for Tree {
     }
 
     fn clear_active_memtable(&self) {
-        self.version_history
-            .write()
-            .expect("lock is poisoned")
-            .latest_version()
-            .active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
-    }
+        use crate::tree::sealed::SealedMemtables;
 
-    fn set_active_memtable(&self, memtable: Memtable) {
-        self.version_history
-            .write()
-            .expect("lock is poisoned")
-            .latest_version()
-            .active_memtable = Arc::new(memtable);
+        let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
+        let super_version = version_history_lock.latest_version();
+
+        if super_version.active_memtable.is_empty() {
+            return;
+        }
+
+        let mut copy = version_history_lock.latest_version();
+        copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+        copy.sealed_memtables = Arc::new(SealedMemtables::default());
+
+        // Rotate does not modify the memtable, so it cannot break snapshots
+        copy.seqno = super_version.seqno;
+
+        version_history_lock.append_version(copy);
+
+        log::trace!("cleared active memtable");
     }
 
     fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
@@ -454,7 +460,6 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .latest_version()
             .active_memtable
-            .clone()
     }
 
     fn tree_type(&self) -> crate::TreeType {
@@ -473,10 +478,12 @@ impl AbstractTree for Tree {
         let yanked_memtable = super_version.active_memtable;
 
         let mut copy = version_history_lock.latest_version();
-        copy.seqno = self.config.seqno.next();
         copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
         copy.sealed_memtables =
             Arc::new(super_version.sealed_memtables.add(yanked_memtable.clone()));
+
+        // Rotate does not modify the memtable so it cannot break snapshots
+        copy.seqno = super_version.seqno;
 
         version_history_lock.append_version(copy);
 
