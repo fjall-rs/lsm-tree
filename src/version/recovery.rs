@@ -35,6 +35,8 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
     let curr_version_id = get_current_version(folder)?;
     let version_file_path = folder.join(format!("v{curr_version_id}"));
 
+    // TODO: maybe validate current version using the checksum in "current"
+
     log::info!(
         "Recovering current manifest at {}",
         version_file_path.display(),

@@ -37,6 +37,7 @@ pub fn persist_version(folder: &Path, version: &Version) -> crate::Result<()> {
     let mut current_file_content = vec![];
     current_file_content.write_u64::<LittleEndian>(version.id())?;
     current_file_content.write_u128::<LittleEndian>(checksum.into_u128())?;
+    current_file_content.write_u8(0)?; // 0 = xxh3
 
     rewrite_atomic(&folder.join(CURRENT_VERSION_FILE), &current_file_content)?;
 
