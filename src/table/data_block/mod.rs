@@ -336,12 +336,15 @@ impl DataBlock {
         let mut reader = unwrap!(trailer.as_slice().get(offset..));
 
         let hash_index_len = unwrap!(reader.read_u32::<LittleEndian>());
+        let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
 
         if hash_index_len == 0 {
+            debug_assert_eq!(
+                0, hash_index_offset,
+                "hash index offset should be 0 if its length is 0"
+            );
             None
         } else {
-            let hash_index_offset = unwrap!(reader.read_u32::<LittleEndian>());
-
             Some(HashIndexReader::new(
                 &self.inner.data,
                 hash_index_offset,
@@ -823,6 +826,7 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
+        assert_eq!(4, data_block.binary_index_len());
 
         for needle in items {
             assert_eq!(
@@ -904,6 +908,7 @@ mod tests {
         });
 
         assert_eq!(data_block.len(), items.len());
+        assert!(data_block.get_hash_index_reader().is_none());
 
         assert_eq!(
             Some(items.get(1).cloned().unwrap()),

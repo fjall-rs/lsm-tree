@@ -99,13 +99,21 @@ impl BlockIndex for BlockIndexImpl {
             Self::Full(index) => index.forward_reader(needle).map(BlockIndexIterImpl::Full),
             Self::VolatileFull(index) => {
                 let mut it = index.iter();
-                it.seek_lower(needle);
-                Some(BlockIndexIterImpl::Volatile(it))
+
+                if it.seek_lower(needle) {
+                    Some(BlockIndexIterImpl::Volatile(it))
+                } else {
+                    None
+                }
             }
             Self::TwoLevel(index) => {
                 let mut it = index.iter();
-                it.seek_lower(needle);
-                Some(BlockIndexIterImpl::TwoLevel(it))
+
+                if it.seek_lower(needle) {
+                    Some(BlockIndexIterImpl::TwoLevel(it))
+                } else {
+                    None
+                }
             }
         }
     }
