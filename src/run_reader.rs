@@ -122,7 +122,6 @@ impl DoubleEndedIterator for RunReader {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, SequenceNumberCounter, Slice};
@@ -191,6 +190,22 @@ mod tests {
         let level = Arc::new(Run::new(tables));
 
         {
+            let multi_reader = RunReader::culled(level.clone(), .., (Some(1), None));
+            let mut iter = multi_reader.flatten();
+
+            assert_eq!(Slice::from(*b"d"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"e"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
+            assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
+        }
+
+        {
             let multi_reader = RunReader::new(level.clone(), ..).unwrap();
 
             let mut iter = multi_reader.flatten();
@@ -207,6 +222,7 @@ mod tests {
             assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         {
@@ -226,6 +242,7 @@ mod tests {
             assert_eq!(Slice::from(*b"c"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"b"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"a"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         {
@@ -245,6 +262,7 @@ mod tests {
             assert_eq!(Slice::from(*b"h"), iter.next_back().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"f"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"g"), iter.next_back().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         {
@@ -258,6 +276,7 @@ mod tests {
             assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         {
@@ -271,6 +290,7 @@ mod tests {
             assert_eq!(Slice::from(*b"i"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"h"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"g"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         Ok(())

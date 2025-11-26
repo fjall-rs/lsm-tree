@@ -64,7 +64,6 @@ impl Iterator for RunScanner {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, SequenceNumberCounter, Slice};
@@ -115,6 +114,7 @@ mod tests {
             assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         #[expect(clippy::unwrap_used)]
@@ -132,6 +132,7 @@ mod tests {
             assert_eq!(Slice::from(*b"j"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"k"), iter.next().unwrap().key.user_key);
             assert_eq!(Slice::from(*b"l"), iter.next().unwrap().key.user_key);
+            assert!(iter.next().is_none());
         }
 
         Ok(())
