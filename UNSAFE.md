@@ -24,5 +24,5 @@ cargo afl build && cargo afl fuzz -i in -o out target/debug/table_read
 ## Run mutation testing
 
 ```bash
-cargo-mutants mutants --test-tool=nextest
+cargo-mutants mutants
 ```

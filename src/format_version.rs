@@ -15,6 +15,7 @@ pub enum FormatVersion {
     V3,
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Display for FormatVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", u8::from(*self))

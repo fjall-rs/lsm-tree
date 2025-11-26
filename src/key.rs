@@ -31,6 +31,7 @@ impl std::hash::Hash for InternalKey {
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Debug for InternalKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

@@ -111,6 +111,7 @@ impl PartialOrd for InternalValue {
     }
 }
 
+#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Debug for InternalValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
