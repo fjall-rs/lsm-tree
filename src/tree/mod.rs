@@ -419,7 +419,7 @@ impl AbstractTree for Tree {
         // Rotate does not modify the memtable, so it cannot break snapshots
         copy.seqno = super_version.seqno;
 
-        version_history_lock.append_version(copy);
+        version_history_lock.replace_latest_version(copy);
 
         log::trace!("cleared active memtable");
     }
@@ -485,7 +485,7 @@ impl AbstractTree for Tree {
         // Rotate does not modify the memtable so it cannot break snapshots
         copy.seqno = super_version.seqno;
 
-        version_history_lock.append_version(copy);
+        version_history_lock.replace_latest_version(copy);
 
         log::trace!(
             "rotate: added memtable id={} to sealed memtables",

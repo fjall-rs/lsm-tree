@@ -66,8 +66,12 @@ impl SuperVersions {
         self.len().saturating_sub(1)
     }
 
-    pub(crate) fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+    pub fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
         if gc_watermark == 0 {
+            return Ok(());
+        }
+
+        if self.free_list_len() < 1 {
             return Ok(());
         }
 
@@ -138,6 +142,12 @@ impl SuperVersions {
 
     pub fn append_version(&mut self, version: SuperVersion) {
         self.0.push_back(version);
+    }
+
+    pub fn replace_latest_version(&mut self, version: SuperVersion) {
+        if self.0.pop_back().is_some() {
+            self.0.push_back(version);
+        }
     }
 
     pub fn latest_version(&self) -> SuperVersion {
