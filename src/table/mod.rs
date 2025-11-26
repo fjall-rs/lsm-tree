@@ -445,6 +445,7 @@ impl Table {
 
         log::debug!("Recovering table from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
+        let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
@@ -464,7 +465,7 @@ impl Table {
                 cache: cache.clone(),
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
-                path: file_path.clone(),
+                path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -486,7 +487,7 @@ impl Table {
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
                 handle: regions.tli,
-                path: file_path.clone(),
+                path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -537,7 +538,7 @@ impl Table {
         log::trace!("Table #{} recovered", metadata.id);
 
         Ok(Self(Arc::new(Inner {
-            path: Arc::new(file_path),
+            path: file_path,
             tree_id,
 
             metadata,

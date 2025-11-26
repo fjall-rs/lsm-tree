@@ -22,7 +22,7 @@ use crate::Metrics;
 pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
-    pub(crate) path: PathBuf,
+    pub(crate) path: Arc<PathBuf>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
@@ -63,7 +63,7 @@ pub struct Iter {
     hi: Option<UserKey>,
 
     table_id: GlobalTableId,
-    path: PathBuf,
+    path: Arc<PathBuf>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
