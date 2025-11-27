@@ -316,5 +316,76 @@ mod tests {
             let bounds = (Unbounded, Unbounded);
             assert!(key_range.overlaps_with_bounds(&bounds));
         }
+
+        #[test]
+        fn semi_open_0() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Unbounded, Excluded(b"key1" as &[u8]));
+            assert!(!key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_1() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Excluded(b"key5" as &[u8]), Unbounded);
+            assert!(!key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_2() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Unbounded, Included(b"key1" as &[u8]));
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_3() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Included(b"key5" as &[u8]), Unbounded);
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_4() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Unbounded, Included(b"key5" as &[u8]));
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_5() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Unbounded, Included(b"key6" as &[u8]));
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_6() {
+            let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+            let bounds = (Included(b"key0" as &[u8]), Unbounded);
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+
+        #[test]
+        fn semi_open_7() {
+            let key_range = KeyRange(UserKey::from("key5"), UserKey::from("key8"));
+            let bounds = (Unbounded, Excluded(b"key6" as &[u8]));
+            assert!(key_range.overlaps_with_bounds(&bounds));
+        }
+    }
+
+    #[test]
+    fn key_range_contains_key() {
+        let key_range = KeyRange(UserKey::from("key1"), UserKey::from("key5"));
+        assert!(!key_range.contains_key(b"key0"));
+        assert!(!key_range.contains_key(b"key01"));
+        assert!(key_range.contains_key(b"key1"));
+        assert!(key_range.contains_key(b"key2"));
+        assert!(key_range.contains_key(b"key3"));
+        assert!(key_range.contains_key(b"key4"));
+        assert!(key_range.contains_key(b"key4x"));
+        assert!(key_range.contains_key(b"key5"));
+        assert!(!key_range.contains_key(b"key5x"));
+        assert!(!key_range.contains_key(b"key6"));
     }
 }
