@@ -56,7 +56,6 @@ impl FragmentationMap {
         self.0.values().map(|x| x.on_disk_bytes).sum()
     }
 
-    // TODO: TEST: unit test
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.
     pub fn prune(&mut self, value_log: &BlobFileList) {
@@ -142,16 +141,18 @@ impl ExpiredKvCallback for FragmentationMap {
                 BlobIndirection::decode_from(&mut reader).expect("should parse BlobIndirection");
 
             let size = u64::from(vptr.size);
+            let on_disk_size = u64::from(vptr.vhandle.on_disk_size);
 
             self.0
                 .entry(vptr.vhandle.blob_file_id)
                 .and_modify(|counter| {
                     counter.len += 1;
                     counter.bytes += size;
+                    counter.on_disk_bytes += on_disk_size;
                 })
                 .or_insert_with(|| FragmentationEntry {
                     bytes: size,
-                    on_disk_bytes: u64::from(vptr.vhandle.on_disk_size),
+                    on_disk_bytes: on_disk_size,
                     len: 1,
                 });
         }

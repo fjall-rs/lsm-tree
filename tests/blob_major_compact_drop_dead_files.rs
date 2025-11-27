@@ -85,7 +85,6 @@ fn blob_tree_major_compact_drop_dead_files() -> lsm_tree::Result<()> {
 
         {
             let gc_stats = tree.current_version().gc_stats().clone();
-
             assert_eq!(&lsm_tree::HashMap::default(), &*gc_stats);
         }
 
