@@ -541,10 +541,6 @@ impl Version {
                 diff.merge_into(&mut copy);
             }
 
-            for id in &blob_files_to_drop {
-                copy.remove(id);
-            }
-
             copy.prune(&value_log);
 
             Arc::new(copy)
