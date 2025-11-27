@@ -43,7 +43,7 @@ impl Scanner {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ScanEntry {
     pub key: UserKey,
     pub seqno: SeqNo,

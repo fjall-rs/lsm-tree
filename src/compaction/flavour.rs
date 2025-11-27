@@ -10,10 +10,36 @@ use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
 use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
+use crate::vlog::blob_file::scanner::ScanEntry;
 use crate::vlog::{BlobFileId, BlobFileMergeScanner, BlobFileWriter};
 use crate::{BlobFile, HashSet, InternalValue, Table};
 use std::iter::Peekable;
 use std::time::Instant;
+
+/// Drains all blobs that come "before" the given vptr.
+fn drain_blobs<I: Iterator<Item = crate::Result<(ScanEntry, BlobFileId)>>>(
+    scanner: &mut Peekable<I>,
+    key: &[u8],
+    vptr: &BlobIndirection,
+) -> crate::Result<()> {
+    loop {
+        let Some(blob) = scanner.next_if(|x| match x {
+            Ok((entry, blob_file_id)) => {
+                entry.key != key
+                    || (*blob_file_id != vptr.vhandle.blob_file_id)
+                    || (entry.offset < vptr.vhandle.offset)
+            }
+            Err(_) => true,
+        }) else {
+            break;
+        };
+        let (entry, _) = blob?;
+
+        assert!(entry.key <= key, "vptr was not matched with blob");
+    }
+
+    Ok(())
+}
 
 pub(super) fn prepare_table_writer(
     version: &Version,
@@ -130,26 +156,8 @@ impl RelocatingCompaction {
     }
 
     // TODO: vvv validate/unit test this vvv
-
-    /// Drains all blobs that come "before" the given vptr.
-    fn drain_blobs(&mut self, key: &[u8], vptr: &BlobIndirection) -> crate::Result<()> {
-        loop {
-            let Some(blob) = self.blob_scanner.next_if(|x| match x {
-                Ok((entry, blob_file_id)) => {
-                    entry.key != key
-                        || (*blob_file_id != vptr.vhandle.blob_file_id)
-                        || (entry.offset < vptr.vhandle.offset)
-                }
-                Err(_) => true,
-            }) else {
-                break;
-            };
-            let (entry, _) = blob?;
-
-            assert!(entry.key <= key, "vptr was not matched with blob");
-        }
-
-        Ok(())
+    fn drain_blobs(&mut self, key: &[u8], indirection: &BlobIndirection) -> crate::Result<()> {
+        drain_blobs(&mut self.blob_scanner, key, indirection)
     }
 }
 
@@ -428,6 +436,91 @@ impl CompactionFlavour for StandardCompaction {
         for blob_file in blob_files_to_drop {
             blob_file.mark_as_deleted();
         }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::{vlog::ValueHandle, UserKey, UserValue};
+
+    #[expect(clippy::unnecessary_wraps)]
+    fn entry(
+        blob_file_id: BlobFileId,
+        key: &[u8],
+        offset: u64,
+    ) -> crate::Result<(ScanEntry, BlobFileId)> {
+        Ok((
+            ScanEntry {
+                key: UserKey::from(key),
+                offset,
+                seqno: 0,
+                uncompressed_len: 0,
+                value: UserValue::empty(),
+            },
+            blob_file_id,
+        ))
+    }
+
+    #[test]
+    fn drain_blobs_simple() -> crate::Result<()> {
+        let mut iter = [
+            entry(0, b"a", 0),
+            entry(0, b"a", 1),
+            entry(0, b"a", 2),
+            entry(0, b"a", 3),
+            entry(0, b"a", 4),
+        ]
+        .into_iter()
+        .peekable();
+
+        drain_blobs(
+            &mut iter,
+            b"a",
+            &BlobIndirection {
+                size: 0,
+                vhandle: ValueHandle {
+                    blob_file_id: 0,
+                    offset: 4,
+                    on_disk_size: 0,
+                },
+            },
+        )?;
+
+        assert_eq!(entry(0, b"a", 4)?, iter.next().unwrap()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn drain_blobs_multiple_keys() -> crate::Result<()> {
+        let mut iter = [
+            entry(0, b"a", 0),
+            entry(0, b"b", 0),
+            entry(0, b"c", 0),
+            entry(0, b"d", 0),
+            entry(0, b"e", 0),
+        ]
+        .into_iter()
+        .peekable();
+
+        drain_blobs(
+            &mut iter,
+            b"e",
+            &BlobIndirection {
+                size: 0,
+                vhandle: ValueHandle {
+                    blob_file_id: 0,
+                    offset: 0,
+                    on_disk_size: 0,
+                },
+            },
+        )?;
+
+        assert_eq!(entry(0, b"e", 0)?, iter.next().unwrap()?);
 
         Ok(())
     }
