@@ -4,9 +4,8 @@
 
 use super::run::Ranged;
 use crate::version::Run;
-use std::fmt::Debug;
 
-pub fn optimize_runs<T: Clone + Debug + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
+pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
     if runs.len() <= 1 {
         runs
     } else {
