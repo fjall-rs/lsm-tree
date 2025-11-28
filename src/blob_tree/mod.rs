@@ -269,6 +269,10 @@ impl AbstractTree for BlobTree {
         self.index.drop_range(range)
     }
 
+    fn clear(&self) -> crate::Result<()> {
+        self.index.clear()
+    }
+
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         self.index.major_compact(target_size, seqno_threshold)
     }

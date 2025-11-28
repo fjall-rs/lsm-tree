@@ -161,8 +161,15 @@ pub trait AbstractTree {
     ///
     /// # Errors
     ///
-    /// Will return `Err` only if an IO error occurs during compaction.
+    /// Will return `Err` only if an IO error occurs.
     fn drop_range<K: AsRef<[u8]>, R: RangeBounds<K>>(&self, range: R) -> crate::Result<()>;
+
+    /// Drops all tables and clears all memtables atomically.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` only if an IO error occurs.
+    fn clear(&self) -> crate::Result<()>;
 
     /// Performs major compaction, blocking the caller until it's done.
     ///

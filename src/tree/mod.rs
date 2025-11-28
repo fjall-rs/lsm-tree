@@ -208,6 +208,22 @@ impl AbstractTree for Tree {
         self.inner_compact(strategy, 0)
     }
 
+    fn clear(&self) -> crate::Result<()> {
+        let mut versions = self.get_version_history_lock();
+
+        versions.upgrade_version(
+            &self.config.path,
+            |v| {
+                let mut copy = v.clone();
+                copy.active_memtable = Arc::new(Memtable::new(self.memtable_id_counter.next()));
+                copy.sealed_memtables = Arc::default();
+                copy.version = Version::new(v.version.id() + 1, self.tree_type());
+                Ok(copy)
+            },
+            &self.config.seqno,
+        )
+    }
+
     #[doc(hidden)]
     fn major_compact(&self, target_size: u64, seqno_threshold: SeqNo) -> crate::Result<()> {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
