@@ -308,7 +308,7 @@ impl AbstractTree for BlobTree {
         self.current_version().gc_stats().stale_bytes()
     }
 
-    fn filter_size(&self) -> usize {
+    fn filter_size(&self) -> u64 {
         self.index.filter_size()
     }
 

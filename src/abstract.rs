@@ -179,7 +179,7 @@ pub trait AbstractTree {
     /// Gets the space usage of all filters in the tree.
     ///
     /// May not correspond to the actual memory size because filter blocks may be paged out.
-    fn filter_size(&self) -> usize;
+    fn filter_size(&self) -> u64;
 
     /// Gets the memory usage of all pinned filters in the tree.
     fn pinned_filter_size(&self) -> usize;

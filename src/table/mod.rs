@@ -171,8 +171,8 @@ impl Table {
     }
 
     #[must_use]
-    pub fn filter_size(&self) -> usize {
-        unimplemented!()
+    pub fn filter_size(&self) -> u32 {
+        self.regions.filter.map(|x| x.size()).unwrap_or_default()
     }
 
     #[must_use]

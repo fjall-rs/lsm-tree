@@ -235,10 +235,11 @@ impl AbstractTree for Tree {
         Ok(self.get(key, seqno)?.map(|x| x.len() as u32))
     }
 
-    fn filter_size(&self) -> usize {
+    fn filter_size(&self) -> u64 {
         self.current_version()
             .iter_tables()
             .map(Table::filter_size)
+            .map(u64::from)
             .sum()
     }
 
