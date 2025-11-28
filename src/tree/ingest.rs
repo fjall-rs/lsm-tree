@@ -4,8 +4,8 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry, table::multi_writer::MultiWriter, AbstractTree, BlobIndirection,
-    SeqNo, UserKey, UserValue,
+    config::FilterPolicyEntry, table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey,
+    UserValue,
 };
 use std::path::PathBuf;
 
