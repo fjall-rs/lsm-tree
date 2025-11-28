@@ -50,7 +50,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
     ) -> crate::Result<usize> {
         if self.bloom_hash_buffer.is_empty() {
-            log::trace!("Filter write has no buffered hashes - not building filter");
+            log::trace!("Filter writer has no buffered hashes - not building filter");
         } else {
             file_writer.start("filter")?;
 

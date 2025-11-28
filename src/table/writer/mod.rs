@@ -359,9 +359,11 @@ impl Writer {
         }
 
         // Write index
+        log::trace!("Finishing index writer");
         let index_block_count = self.index_writer.finish(&mut self.file_writer)?;
 
         // Write filter
+        log::trace!("Finishing filter writer");
         let filter_block_count = self.filter_writer.finish(&mut self.file_writer)?;
 
         if !self.linked_blob_files.is_empty() {

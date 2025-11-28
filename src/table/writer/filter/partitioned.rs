@@ -170,21 +170,24 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         mut self: Box<Self>,
         file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
     ) -> crate::Result<usize> {
-        if !self.bloom_hash_buffer.is_empty() {
+        if self.bloom_hash_buffer.is_empty() {
+            log::trace!("Filter writer has no buffered hashes - not building filter");
+            Ok(0)
+        } else {
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
+
+            let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
+
+            file_writer.start("filter")?;
+            file_writer.write_all(&self.final_filter_buffer)?;
+            log::trace!("Concatted filter partitions onto blocks file");
+
+            let block_count = self.tli_handles.len();
+
+            self.write_top_level_index(file_writer, index_base_offset)?;
+
+            Ok(block_count)
         }
-
-        let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
-
-        file_writer.start("filter")?;
-        file_writer.write_all(&self.final_filter_buffer)?;
-        log::trace!("Concatted filter partitions onto blocks file");
-
-        let block_count = self.tli_handles.len();
-
-        self.write_top_level_index(file_writer, index_base_offset)?;
-
-        Ok(block_count)
     }
 }
