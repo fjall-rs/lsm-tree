@@ -52,9 +52,10 @@ impl FilterPolicy {
 
     /// Constructs a custom block size policy.
     #[must_use]
-    pub fn new(policy: &[FilterPolicyEntry]) -> Self {
+    pub fn new(policy: impl Into<Vec<FilterPolicyEntry>>) -> Self {
+        let policy = policy.into();
         assert!(!policy.is_empty(), "compression policy may not be empty");
         assert!(policy.len() <= 255, "compression policy is too large");
-        Self(policy.into())
+        Self(policy)
     }
 }
