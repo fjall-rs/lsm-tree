@@ -21,21 +21,25 @@ use std::sync::{
 /// # let path = tempfile::tempdir()?;
 ///
 /// let seqno = SequenceNumberCounter::default();
+/// let visible_seqno = SequenceNumberCounter::default();
 ///
-/// let tree = Config::new(path, seqno.clone()).open()?;
+/// let tree = Config::new(path, seqno.clone(), visible_seqno.clone()).open()?;
 ///
 /// // Do some inserts...
-/// tree.insert("a".as_bytes(), "abc", seqno.next());
-/// tree.insert("b".as_bytes(), "abc", seqno.next());
-/// tree.insert("c".as_bytes(), "abc", seqno.next());
+/// for k in [b"a", b"b", b"c"] {
+///     let batch_seqno = seqno.next();
+///     tree.insert(k, "abc", batch_seqno);
+///     visible_seqno.fetch_max(batch_seqno + 1);
+/// }
 ///
 /// // Create a batch
 /// let batch_seqno = seqno.next();
 /// tree.remove("a".as_bytes(), batch_seqno);
 /// tree.remove("b".as_bytes(), batch_seqno);
 /// tree.remove("c".as_bytes(), batch_seqno);
+/// visible_seqno.fetch_max(batch_seqno + 1);
 /// #
-/// # assert!(tree.is_empty(batch_seqno + 1, None)?);
+/// # assert!(tree.is_empty(visible_seqno.get(), None)?);
 /// # Ok::<(), lsm_tree::Error>(())
 /// ```
 #[derive(Clone, Default, Debug)]
