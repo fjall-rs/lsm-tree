@@ -994,24 +994,6 @@ impl Tree {
         let table_folder_path = path.join(TABLES_FOLDER);
         create_dir_all(&table_folder_path)?;
 
-        // // Create manifest
-        // {
-        //     let mut writer = sfa::Writer::new_at_path(manifest_path)?;
-
-        //     Manifest {
-        //         version: FormatVersion::V3,
-        //         level_count: config.level_count,
-        //         tree_type: if config.kv_separation_opts.is_some() {
-        //             TreeType::Blob
-        //         } else {
-        //             TreeType::Standard
-        //         },
-        //     }
-        //     .encode_into(&mut writer)?;
-
-        //     writer.finish()?;
-        // }
-
         // IMPORTANT: fsync folders on Unix
         fsync_directory(&table_folder_path)?;
         fsync_directory(&path)?;
