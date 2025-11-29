@@ -4,7 +4,7 @@
 
 pub mod bit_array;
 pub mod block;
-pub mod blocked_bloom;
+// pub mod blocked_bloom;
 pub mod standard_bloom;
 
 use standard_bloom::Builder as StandardBloomFilterBuilder;

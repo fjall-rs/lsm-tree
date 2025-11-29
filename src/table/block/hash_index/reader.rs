@@ -28,16 +28,6 @@ impl<'a> Reader<'a> {
         self.0.len()
     }
 
-    /// Returns the number of empty slots in the hash index.
-    #[must_use]
-    #[expect(
-        clippy::naive_bytecount,
-        reason = "only used in metrics, so no need to be hyper-optimized"
-    )]
-    pub fn free_count(&self) -> usize {
-        self.0.iter().filter(|&&byte| byte == MARKER_FREE).count()
-    }
-
     /// Returns the number of conflict markers in the hash index.
     #[must_use]
     #[expect(
