@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a".as_bytes(), nanoid::nanoid!().as_bytes(), 0);
     tree.insert("f".as_bytes(), nanoid::nanoid!().as_bytes(), 1);
@@ -35,7 +35,7 @@ fn tree_guarded_range() -> lsm_tree::Result<()> {
 fn blob_tree_guarded_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 

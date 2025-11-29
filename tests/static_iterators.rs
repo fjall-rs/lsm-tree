@@ -10,7 +10,7 @@ use test_log::test;
 fn static_iterator_ownership() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "value_a", 0);
     tree.insert("b", "value_b", 1);
@@ -43,7 +43,7 @@ fn static_iterator_ownership() -> lsm_tree::Result<()> {
 fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("value_{}", i), i as u64);
@@ -71,7 +71,7 @@ fn static_iterator_send_to_thread() -> lsm_tree::Result<()> {
 fn static_iterator_prefix() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("user:1:name", "Alice", 0);
     tree.insert("user:1:age", "30", 1);
@@ -98,7 +98,7 @@ fn static_iterator_prefix() -> lsm_tree::Result<()> {
 fn static_iterator_reverse() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..10 {
         tree.insert(format!("key_{}", i), format!("value_{}", i), i as u64);
@@ -125,7 +125,7 @@ fn static_iterator_reverse() -> lsm_tree::Result<()> {
 fn static_iterator_with_segments() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     // Write data and flush to disk
     for i in 0..50 {
@@ -157,7 +157,7 @@ fn static_iterator_with_segments() -> lsm_tree::Result<()> {
 fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
@@ -189,7 +189,7 @@ fn static_iterator_blob_tree() -> lsm_tree::Result<()> {
 fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     // Initial data
     for i in 0..10 {
@@ -225,7 +225,7 @@ fn static_iterator_snapshot_isolation() -> lsm_tree::Result<()> {
 fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..100 {
         tree.insert(format!("key_{:03}", i), format!("val_{}", i), i as u64);
@@ -258,7 +258,7 @@ fn static_iterator_multiple_concurrent() -> lsm_tree::Result<()> {
 fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     // Create data and flush
     for i in 0..50 {
@@ -285,7 +285,7 @@ fn static_iterator_prevents_data_loss() -> lsm_tree::Result<()> {
 fn static_iterator_with_tombstones() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     for i in 0..20 {
         tree.insert(format!("key_{:02}", i), format!("val_{}", i), i as u64);

@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_builds_filters() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .expect_point_read_hits(false)
         .open()?;
 
@@ -24,7 +24,7 @@ fn tree_builds_filters() -> lsm_tree::Result<()> {
 fn tree_expect_point_read_hits() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .expect_point_read_hits(true)
         .open()?;
 

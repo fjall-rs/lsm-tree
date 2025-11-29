@@ -15,7 +15,7 @@ macro_rules! iter_closed {
 fn tree_disjoint_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = crate::Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = crate::Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     // IMPORTANT: Purposefully mangle the order of IDs
     // to make sure stuff is still getting read in the correct order

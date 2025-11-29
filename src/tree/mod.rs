@@ -221,6 +221,7 @@ impl AbstractTree for Tree {
                 Ok(copy)
             },
             &self.config.seqno,
+            &self.config.visible_seqno,
         )
     }
 
@@ -410,6 +411,7 @@ impl AbstractTree for Tree {
                 Ok(copy)
             },
             &self.config.seqno,
+            &self.config.visible_seqno,
         )?;
 
         if let Err(e) = version_lock.maintenance(&self.config.path, gc_watermark) {

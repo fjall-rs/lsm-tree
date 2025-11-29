@@ -272,10 +272,14 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-            .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+        .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+        .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a2".repeat(4_000), 1);
@@ -300,10 +304,14 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-            .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .data_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+        .index_block_compression_policy(CompressionPolicy::all(crate::CompressionType::None))
+        .open()?;
 
         tree.insert("a", "a1".repeat(4_000), 0);
         tree.insert("a", "a1".repeat(4_000), 1);

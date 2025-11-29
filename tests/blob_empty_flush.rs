@@ -8,9 +8,13 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
 
     let medium_value = b"a".repeat(500);
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+    let tree = lsm_tree::Config::new(
+        path,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(Default::default()))
+    .open()?;
 
     tree.insert("med", &medium_value, 0);
     tree.flush_active_memtable(0)?;

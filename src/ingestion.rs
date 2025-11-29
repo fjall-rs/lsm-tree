@@ -53,7 +53,7 @@ impl AnyIngestion<'_> {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn finish(self) -> crate::Result<SeqNo> {
+    pub fn finish(self) -> crate::Result<()> {
         match self {
             Self::Standard(i) => i.finish(),
             Self::Blob(b) => b.finish(),

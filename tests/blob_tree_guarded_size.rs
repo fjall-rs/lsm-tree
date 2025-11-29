@@ -5,9 +5,13 @@ use test_log::test;
 fn blob_tree_guarded_size() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(Default::default()))
+    .open()?;
 
     tree.insert("a".as_bytes(), "abc", 0);
     tree.insert("b".as_bytes(), "a".repeat(10_000), 0);

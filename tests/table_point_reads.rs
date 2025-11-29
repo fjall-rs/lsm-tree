@@ -10,7 +10,7 @@ const ITEM_COUNT: usize = 1_000;
 fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
@@ -33,7 +33,7 @@ fn table_point_reads() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
@@ -69,7 +69,7 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
 
@@ -113,7 +113,7 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;

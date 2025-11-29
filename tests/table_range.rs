@@ -10,7 +10,7 @@ const ITEM_COUNT: usize = 1_000_000;
 fn a_lot_of_ranges() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -68,7 +68,7 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 fn table_range_last_back() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -103,7 +103,7 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
 fn table_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;

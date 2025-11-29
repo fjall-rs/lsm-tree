@@ -13,7 +13,7 @@ fn model_4() -> Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
         .data_block_size_policy(BlockSizePolicy::all(100))
         .open()?;

@@ -7,7 +7,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "123", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);

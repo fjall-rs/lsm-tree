@@ -14,7 +14,7 @@ fn blob_register_table_rotation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1))
         .with_kv_separation(Some(
             KvSeparationOptions::default()
@@ -65,7 +65,7 @@ fn blob_register_table_rotation_relocation() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1))
         .with_kv_separation(Some(
             KvSeparationOptions::default()

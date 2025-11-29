@@ -36,6 +36,8 @@ pub struct Options {
 
     pub global_seqno: SequenceNumberCounter,
 
+    pub visible_seqno: SequenceNumberCounter,
+
     pub table_id_generator: SequenceNumberCounter,
 
     pub blob_file_id_generator: SequenceNumberCounter,
@@ -65,6 +67,7 @@ impl Options {
     pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
         Self {
             global_seqno: tree.config.seqno.clone(),
+            visible_seqno: tree.config.visible_seqno.clone(),
             tree_id: tree.id,
             table_id_generator: tree.table_id_counter.clone(),
             blob_file_id_generator: tree.blob_file_id_counter.clone(),
@@ -222,6 +225,7 @@ fn move_tables(
             Ok(copy)
         },
         &opts.global_seqno,
+        &opts.visible_seqno,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
@@ -569,6 +573,7 @@ fn drop_tables(
             Ok(copy)
         },
         &opts.global_seqno,
+        &opts.visible_seqno,
     )?;
 
     if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
@@ -611,7 +616,12 @@ mod tests {
     fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(folder, SequenceNumberCounter::default()).open()?;
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
@@ -656,16 +666,20 @@ mod tests {
 
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(folder, SequenceNumberCounter::default())
-            .data_block_size_policy(BlockSizePolicy::all(1))
-            .with_kv_separation(Some(
-                KvSeparationOptions::default()
-                    .separation_threshold(1)
-                    .age_cutoff(1.0)
-                    .staleness_threshold(0.01)
-                    .compression(crate::CompressionType::None),
-            ))
-            .open()?;
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .data_block_size_policy(BlockSizePolicy::all(1))
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .separation_threshold(1)
+                .age_cutoff(1.0)
+                .staleness_threshold(0.01)
+                .compression(crate::CompressionType::None),
+        ))
+        .open()?;
 
         tree.insert("a", "a", 0);
         tree.insert("b", "b", 0);

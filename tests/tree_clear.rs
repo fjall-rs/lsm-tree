@@ -5,20 +5,39 @@ use test_log::test;
 fn tree_clear() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let seqno = SequenceNumberCounter::default();
+    let visible_seqno = SequenceNumberCounter::default();
 
-    tree.insert("a", "a", 0);
+    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+
+    assert_eq!(0, tree.len(visible_seqno.get(), None)?);
+
+    {
+        let seqno = seqno.next();
+        tree.insert("a", "a", seqno);
+        visible_seqno.fetch_max(seqno + 1);
+    }
+
     assert!(tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(1, tree.len(visible_seqno.get(), None)?);
 
     tree.clear()?;
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(0, tree.len(visible_seqno.get(), None)?);
 
-    tree.insert("a", "a", 0);
+    {
+        let seqno = seqno.next();
+        tree.insert("a", "a", seqno);
+        visible_seqno.fetch_max(seqno + 1);
+    }
+
     tree.flush_active_memtable(0)?;
     assert!(tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(1, tree.len(visible_seqno.get(), None)?);
 
     tree.clear()?;
     assert!(!tree.contains_key("a", SeqNo::MAX)?);
+    assert_eq!(0, tree.len(visible_seqno.get(), None)?);
 
     Ok(())
 }

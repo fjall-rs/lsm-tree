@@ -9,7 +9,7 @@ fn blob_tree_ingest_relink() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
             .with_kv_separation(Some(
                 KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
             ))

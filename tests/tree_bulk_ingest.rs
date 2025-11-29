@@ -12,7 +12,7 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone()).open()?;
+    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
 
     let mut ingestion = tree.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -20,8 +20,9 @@ fn tree_bulk_ingest() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -46,7 +47,7 @@ fn tree_copy() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let src = Config::new(&folder, seqno.clone()).open()?;
+    let src = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
 
     let mut ingestion = src.ingestion()?;
     for x in 0..ITEM_COUNT as u64 {
@@ -54,8 +55,9 @@ fn tree_copy() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -71,15 +73,16 @@ fn tree_copy() -> lsm_tree::Result<()> {
     );
 
     let folder = get_tmp_folder();
-    let dest = Config::new(&folder, seqno.clone()).open()?;
+    let dest = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
 
     let mut ingestion = dest.ingestion()?;
     for item in src.iter(SeqNo::MAX, None) {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -104,7 +107,7 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone())
+    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -114,8 +117,9 @@ fn blob_tree_bulk_ingest() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -141,7 +145,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let src = Config::new(&folder, seqno.clone())
+    let src = Config::new(&folder, seqno.clone(), visible_seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -151,8 +155,9 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         let v = nanoid::nanoid!();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(src.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(
@@ -169,7 +174,7 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
     assert_eq!(1, src.blob_file_count());
 
     let folder = get_tmp_folder();
-    let dest = Config::new(&folder, seqno.clone())
+    let dest = Config::new(&folder, seqno.clone(), visible_seqno.clone())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
         .open()?;
 
@@ -178,8 +183,9 @@ fn blob_tree_copy() -> lsm_tree::Result<()> {
         let (k, v) = item.into_inner().unwrap();
         ingestion.write(k, v)?;
     }
-    let seq = ingestion.finish()?;
-    visible_seqno.fetch_max(seq + 1);
+    ingestion.finish()?;
+
+    assert_eq!(visible_seqno.get(), seqno.get());
 
     assert_eq!(dest.len(SeqNo::MAX, None)?, ITEM_COUNT);
     assert_eq!(

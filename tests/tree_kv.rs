@@ -6,7 +6,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
         assert!(tree.is_empty(SeqNo::MAX, None)?);
         assert_eq!(tree.first_key_value(SeqNo::MAX, None)?, None);
@@ -23,7 +23,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
         assert_eq!(1, tree.len(SeqNo::MAX, None)?);
 
         assert_eq!(b"b", &*tree.first_key_value(SeqNo::MAX, None)?.unwrap().0);
@@ -48,7 +48,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
         assert_eq!(3, tree.len(SeqNo::MAX, None)?);
 
         assert_eq!(b"a", &*tree.first_key_value(SeqNo::MAX, None)?.unwrap().0);

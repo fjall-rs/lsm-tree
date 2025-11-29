@@ -234,6 +234,8 @@ pub struct Config {
     ///
     /// Should be shared between multple trees of a database
     pub(crate) seqno: SequenceNumberCounter,
+
+    pub(crate) visible_seqno: SequenceNumberCounter,
 }
 
 // TODO: remove default?
@@ -243,6 +245,7 @@ impl Default for Config {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Arc::new(DescriptorTable::new(256)),
             seqno: SequenceNumberCounter::default(),
+            visible_seqno: SequenceNumberCounter::default(),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -293,10 +296,15 @@ impl Default for Config {
 
 impl Config {
     /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(path: P, seqno: SequenceNumberCounter) -> Self {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        seqno: SequenceNumberCounter,
+        visible_seqno: SequenceNumberCounter,
+    ) -> Self {
         Self {
             path: absolute_path(path.as_ref()),
             seqno,
+            visible_seqno,
             ..Default::default()
         }
     }

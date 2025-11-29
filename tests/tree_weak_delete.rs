@@ -7,7 +7,7 @@ fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -34,7 +34,7 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -55,7 +55,7 @@ fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);
@@ -78,7 +78,7 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -99,7 +99,7 @@ fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert!(tree.contains_key("a", SeqNo::MAX)?);
@@ -122,7 +122,7 @@ fn tree_weak_delete_resurrection() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "old", 0);
     assert_eq!(1, tree.len(SeqNo::MAX, None)?);

@@ -48,7 +48,7 @@ impl SequenceNumberCounter {
         Self(Arc::new(AtomicU64::new(prev)))
     }
 
-    /// Gets the next sequence number, without incrementing the counter.
+    /// Gets the would-be-next sequence number, without incrementing the counter.
     ///
     /// This should only be used when creating a snapshot.
     #[must_use]

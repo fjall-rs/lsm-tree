@@ -136,7 +136,7 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<SeqNo> {
+    pub fn finish(self) -> crate::Result<()> {
         use crate::AbstractTree;
 
         let index = self.index().clone();
@@ -236,6 +236,7 @@ impl<'a> BlobIngestion<'a> {
                 Ok(copy)
             },
             global_seqno,
+            &self.tree.index.config.visible_seqno,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).
@@ -244,7 +245,7 @@ impl<'a> BlobIngestion<'a> {
             log::warn!("Version GC failed: {e:?}");
         }
 
-        Ok(global_seqno)
+        Ok(())
     }
 
     #[inline]

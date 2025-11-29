@@ -32,11 +32,16 @@ mod tests {
     use test_log::test;
 
     #[test]
-    #[ignore]
+    #[ignore = "wip"]
     fn level_manifest_atomicity() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(folder, SequenceNumberCounter::default()).open()?;
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;

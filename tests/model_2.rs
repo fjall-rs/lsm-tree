@@ -10,7 +10,7 @@ fn model_2() -> Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(5)))
         .open()?;
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());

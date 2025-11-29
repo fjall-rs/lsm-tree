@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_highest_seqno() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
     assert_eq!(tree.get_highest_seqno(), None);
     assert_eq!(tree.get_highest_memtable_seqno(), None);
     assert_eq!(tree.get_highest_persisted_seqno(), None);

@@ -6,7 +6,12 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
 
@@ -20,7 +25,12 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("tables").join("0"))?;
 
     {
-        let _tree = Config::new(&folder, SequenceNumberCounter::default()).open()?;
+        let _tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         assert!(!folder.path().join("tables").join("0").try_exists()?);
         assert!(folder.path().join("tables").join("1").try_exists()?);
@@ -34,13 +44,17 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default()
-                    .age_cutoff(1.0)
-                    .staleness_threshold(0.01),
-            ))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .age_cutoff(1.0)
+                .staleness_threshold(0.01),
+        ))
+        .open()?;
 
         tree.insert("a", "a".repeat(10_000), 0);
         tree.insert("a", "a".repeat(10_000), 1);
@@ -60,9 +74,13 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("blobs").join("0"))?;
 
     {
-        let _tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let _tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         assert!(!folder.path().join("blobs").join("0").try_exists()?);
         assert!(folder.path().join("blobs").join("1").try_exists()?);

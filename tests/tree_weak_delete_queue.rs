@@ -7,7 +7,7 @@ fn tree_weak_delete_queue() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);
@@ -54,7 +54,7 @@ fn tree_weak_delete_queue_reverse() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("b", "b", 0);

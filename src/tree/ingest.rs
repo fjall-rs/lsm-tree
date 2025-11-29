@@ -203,7 +203,7 @@ impl<'a> Ingestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[allow(clippy::significant_drop_tightening)]
-    pub fn finish(self) -> crate::Result<SeqNo> {
+    pub fn finish(self) -> crate::Result<()> {
         use crate::{AbstractTree, Table};
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
@@ -287,6 +287,7 @@ impl<'a> Ingestion<'a> {
                 Ok(copy)
             },
             global_seqno,
+            &self.tree.config.visible_seqno,
         )?;
 
         // Perform maintenance on the version history (e.g., clean up old versions).
@@ -295,6 +296,6 @@ impl<'a> Ingestion<'a> {
             log::warn!("Version GC failed: {e:?}");
         }
 
-        Ok(global_seqno)
+        Ok(())
     }
 }

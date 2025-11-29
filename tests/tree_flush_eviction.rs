@@ -8,7 +8,7 @@ fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove_weak("a", 1);
@@ -28,7 +28,7 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove_weak("a", 1);
@@ -48,7 +48,7 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove("a", 1);
@@ -73,7 +73,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", 0);
     tree.remove("a", 1);

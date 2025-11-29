@@ -10,7 +10,7 @@ fn compaction_readers_grouping() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(path, seqno.clone()).open()?;
+    let tree = Config::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a".as_bytes(), "abc", seqno.next());
     tree.insert("b".as_bytes(), "abc", seqno.next());

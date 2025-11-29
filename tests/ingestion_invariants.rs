@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -7,7 +9,12 @@ use std::time::Duration;
 fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, Default::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     // Write to active memtable
     for i in 0..10u32 {
@@ -42,7 +49,12 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
 fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, Default::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     // Put items into active and seal them
     for i in 0..8u32 {
@@ -75,7 +87,12 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
 fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, Default::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     // Acquire ingestion and keep it active while another thread performs writes
     let ingest = tree.ingestion()?;
@@ -113,9 +130,13 @@ fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
 fn blob_ingestion_honors_invariants_and_blocks_writes() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, Default::default())
-        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+    .open()?;
 
     // Write small values into memtable and then start blob ingestion
     for i in 0..4u32 {

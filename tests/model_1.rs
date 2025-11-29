@@ -10,7 +10,12 @@ fn model_1() -> Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(
+        path,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
     let compaction = Arc::new(lsm_tree::compaction::Leveled::default());
 
     let value = b"hellohello";

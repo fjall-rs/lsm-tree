@@ -7,7 +7,7 @@ fn tree_weak_remove_flush_eviction() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default()).open()?;
+    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
 
     for (idx, c) in ('a'..='z').map(|x| (x as u8).to_be_bytes()).enumerate() {
         tree.insert(c, c, idx as SeqNo);

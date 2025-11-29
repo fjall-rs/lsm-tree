@@ -10,9 +10,13 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -28,9 +32,13 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -48,9 +56,13 @@ fn blob_tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
@@ -75,7 +87,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder, seqno.clone())
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
             .with_kv_separation(Some(Default::default()))
             .open()?;
 
@@ -110,7 +122,7 @@ fn blob_tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, seqno.clone())
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
             .with_kv_separation(Some(Default::default()))
             .open()?;
 

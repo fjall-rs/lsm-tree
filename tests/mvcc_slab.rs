@@ -11,7 +11,7 @@ fn table_reader_mvcc_slab() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone())
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
@@ -47,7 +47,7 @@ fn table_reader_mvcc_slab_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone())
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .with_kv_separation(Some(Default::default()))

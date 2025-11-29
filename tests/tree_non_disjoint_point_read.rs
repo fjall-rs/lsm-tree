@@ -7,7 +7,7 @@ use test_log::test;
 fn tree_non_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default())
+    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_size_policy(BlockSizePolicy::all(1_024))
         // .index_block_size_policy(BlockSizePolicy::all(1_024))
         .open()?;
