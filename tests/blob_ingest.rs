@@ -13,11 +13,15 @@ fn blob_ingest_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+        ))
+        .open()?;
 
         let mut ingestion = tree.ingestion()?;
         ingestion.write("big", &big_value)?;

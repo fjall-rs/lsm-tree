@@ -10,9 +10,13 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -47,9 +51,13 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         let value = tree.get("smol", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, b"small value");

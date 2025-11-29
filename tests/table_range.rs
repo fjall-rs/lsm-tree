@@ -10,10 +10,14 @@ const ITEM_COUNT: usize = 1_000_000;
 fn a_lot_of_ranges() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    // .index_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -68,10 +72,14 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 fn table_range_last_back() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    // .index_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
 
@@ -103,10 +111,14 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
 fn table_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    // .index_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     let value = (0..2_000).map(|_| 0).collect::<Vec<u8>>();
 

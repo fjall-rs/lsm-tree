@@ -13,11 +13,15 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -52,9 +56,13 @@ fn blob_tree_recover_gc_stats() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(Default::default()))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
         let gc_stats = tree.current_version().gc_stats().clone();
 

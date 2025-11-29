@@ -9,9 +9,13 @@ const ITEM_COUNT: usize = 100;
 fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     for key in ('h'..='o').map(|c| c.to_string()) {
         let value = nanoid::nanoid!();
@@ -32,9 +36,13 @@ fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
 fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    // .index_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();

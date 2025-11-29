@@ -7,10 +7,14 @@ use test_log::test;
 fn table_remove_weak_simple() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        // .index_block_size_policy(BlockSizePolicy::all(1_024))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    // .index_block_size_policy(BlockSizePolicy::all(1_024))
+    .open()?;
 
     tree.insert("a", "a", 0);
     tree.insert("a", "b", 1);

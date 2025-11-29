@@ -13,13 +13,17 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default()
-                    .compression(lsm_tree::CompressionType::None)
-                    .age_cutoff(1.0),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .compression(lsm_tree::CompressionType::None)
+                .age_cutoff(1.0),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -104,13 +108,17 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
     let very_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default()
-                    .compression(lsm_tree::CompressionType::None)
-                    .age_cutoff(1.0),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .compression(lsm_tree::CompressionType::None)
+                .age_cutoff(1.0),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("a", &big_value, 0);
@@ -213,13 +221,17 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(2_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default()
-                    .compression(lsm_tree::CompressionType::None)
-                    .age_cutoff(1.0),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default()
+                .compression(lsm_tree::CompressionType::None)
+                .age_cutoff(1.0),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("a", b"smol", 0);

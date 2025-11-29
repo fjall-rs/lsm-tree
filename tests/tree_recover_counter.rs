@@ -6,7 +6,12 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let counter_expected = {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
@@ -18,7 +23,12 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     };
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
         assert_eq!(counter_expected, tree.next_table_id());
     }
 

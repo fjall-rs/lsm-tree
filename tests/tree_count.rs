@@ -7,7 +7,12 @@ const ITEM_COUNT: usize = 1_000;
 fn tree_memtable_count() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -35,7 +40,12 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -65,9 +75,13 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(Default::default()))
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -99,7 +113,12 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();

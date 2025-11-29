@@ -5,7 +5,12 @@ use test_log::test;
 fn tree_read_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     tree.insert("a", "a0", 0);
     tree.insert("a", "a1", 1);

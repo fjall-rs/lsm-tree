@@ -5,7 +5,12 @@ use test_log::test;
 fn tree_range_memtable_only() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     tree.insert("a", "", 0);
     tree.insert("b", "", 0);

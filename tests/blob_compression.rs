@@ -9,15 +9,19 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .with_kv_separation(Some(
-            KvSeparationOptions::default()
-                .compression(lsm_tree::CompressionType::Lz4)
-                .separation_threshold(1)
-                .staleness_threshold(0.0000001)
-                .age_cutoff(1.0),
-        ))
-        .open()?;
+    let tree = lsm_tree::Config::new(
+        path,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(
+        KvSeparationOptions::default()
+            .compression(lsm_tree::CompressionType::Lz4)
+            .separation_threshold(1)
+            .staleness_threshold(0.0000001)
+            .age_cutoff(1.0),
+    ))
+    .open()?;
 
     let big_value = b"abc".repeat(50);
 

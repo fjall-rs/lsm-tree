@@ -7,9 +7,13 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
@@ -29,9 +33,13 @@ fn blob_file_full_file_checksum() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();
@@ -52,9 +60,13 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
         for key in ('a'..='z').map(|c| c.to_string()) {
             let value = nanoid::nanoid!();
@@ -74,9 +86,13 @@ fn blob_file_full_file_detect_corruption() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
-            .open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
+        .open()?;
 
         let version = tree.current_version();
         let blob_file = version.blob_files.iter().next().unwrap();

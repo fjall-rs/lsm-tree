@@ -6,7 +6,12 @@ fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
         tree.insert("a", "a", 0);
         tree.flush_active_memtable(0)?;
         assert_eq!(1, tree.table_count());
@@ -17,7 +22,12 @@ fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
     assert!(ds_store.try_exists()?);
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
         assert_eq!(1, tree.table_count());
     }
     assert!(ds_store.try_exists()?);

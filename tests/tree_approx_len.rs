@@ -5,7 +5,12 @@ use test_log::test;
 fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -36,9 +41,13 @@ fn tree_approx_len_sealed() -> lsm_tree::Result<()> {
 fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(Default::default()))
+    .open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -69,7 +78,12 @@ fn tree_approx_len_sealed_blob() -> lsm_tree::Result<()> {
 fn tree_approx_len() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);
@@ -132,9 +146,13 @@ fn tree_approx_len() -> lsm_tree::Result<()> {
 fn tree_approx_len_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-        .with_kv_separation(Some(Default::default()))
-        .open()?;
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(Default::default()))
+    .open()?;
 
     assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
     assert!(tree.is_empty(SeqNo::MAX, None)?);

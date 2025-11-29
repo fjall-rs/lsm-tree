@@ -6,7 +6,12 @@ fn guard_into_inner_if() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(&folder, SequenceNumberCounter::default(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         tree.insert("earth#name", "earth", 0);
         tree.insert("earth#color", "BLUE", 0);

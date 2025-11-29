@@ -12,11 +12,15 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
@@ -60,11 +64,15 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
-            .with_kv_separation(Some(
-                KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
-            ))
-            .open()?;
+        let tree = lsm_tree::Config::new(
+            path,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .with_kv_separation(Some(
+            KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
+        ))
+        .open()?;
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
