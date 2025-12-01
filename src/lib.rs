@@ -79,7 +79,8 @@ pub mod blob_tree;
 #[doc(hidden)]
 mod cache;
 
-mod checksum;
+#[doc(hidden)]
+pub mod checksum;
 
 #[doc(hidden)]
 pub mod coding;

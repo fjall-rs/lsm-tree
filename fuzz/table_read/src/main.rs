@@ -2,7 +2,7 @@
 extern crate afl;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
-use lsm_tree::{InternalValue, SeqNo, ValueType};
+use lsm_tree::{InternalValue, SeqNo, SequenceNumberCounter, ValueType};
 use std::sync::Arc;
 
 #[derive(Arbitrary, Eq, PartialEq, Debug, Copy, Clone)]
@@ -116,7 +116,7 @@ fn main() {
             eprintln!("================== {}. ", items.len());
         } */
 
-        let dir = tempfile::tempdir_in("/king").unwrap();
+        let dir = tempfile::tempdir_in("/king/fuzz").unwrap();
         let file = dir.path().join("table_fuzz");
 
         {
@@ -143,6 +143,7 @@ fn main() {
         let table = lsm_tree::Table::recover(
             file,
             lsm_tree::Checksum::from_raw(0),
+            0,
             0,
             Arc::new(lsm_tree::Cache::with_capacity_bytes(0)),
             Arc::new(lsm_tree::DescriptorTable::new(10)),
