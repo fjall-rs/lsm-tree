@@ -1422,4 +1422,36 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn data_block_seek_closed_range() -> crate::Result<()> {
+        let items = [
+            InternalValue::from_components(Slice::new(&[0, 161]), Slice::empty(), 1, Tombstone),
+            InternalValue::from_components(Slice::new(&[0, 161]), Slice::empty(), 0, Tombstone),
+            InternalValue::from_components(Slice::new(&[1]), Slice::empty(), 0, Value),
+        ];
+
+        let bytes = DataBlock::encode_into_vec(&items, 100, 0.0)?;
+
+        let data_block = DataBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                block_type: BlockType::Data,
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+            },
+        });
+
+        assert_eq!(data_block.len(), items.len());
+        assert_eq!(data_block.iter().count(), items.len());
+
+        let mut iter = data_block.iter();
+        iter.seek(&[0]);
+        iter.seek_upper(&[0]);
+
+        assert_eq!(0, iter.count());
+
+        Ok(())
+    }
 }
