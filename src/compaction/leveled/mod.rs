@@ -15,9 +15,6 @@ use crate::{
     HashSet, TableId,
 };
 
-#[doc(hidden)]
-pub const NAME: &str = "LeveledCompaction";
-
 /// Tries to find the most optimal compaction set from one level into the other.
 fn pick_minimal_compaction(
     curr_run: &Run<Table>,
@@ -103,6 +100,9 @@ fn pick_minimal_compaction(
         None
     }
 }
+
+#[doc(hidden)]
+pub const NAME: &str = "LeveledCompaction";
 
 /// Leveled compaction strategy (LCS)
 ///
