@@ -194,8 +194,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
             return None;
         }
 
-        let file_offset = unwrap!(reader.read_u64_varint());
-        let size = unwrap!(reader.read_u32_varint());
+        let handle = unwrap!(BlockHandle::decode_from(reader));
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
@@ -205,8 +204,8 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         Some(IndexBlockParsedItem {
             prefix: None,
             end_key: SliceIndexes(key_start, key_start + key_len),
-            offset: BlockOffset(file_offset),
-            size,
+            offset: handle.offset(),
+            size: handle.size(),
         })
     }
 
