@@ -368,7 +368,11 @@ pub trait AbstractTree {
     ///
     /// Will return `Err` if an IO error occurs.
     fn is_empty(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<bool> {
-        self.first_key_value(seqno, index).map(|x| x.is_none())
+        Ok(self
+            .first_key_value(seqno, index)
+            .map(crate::Guard::key)
+            .transpose()?
+            .is_none())
     }
 
     /// Returns the first key-value pair in the tree.
@@ -400,11 +404,8 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> crate::Result<Option<KvPair>> {
-        self.iter(seqno, index)
-            .next()
-            .map(Guard::into_inner)
-            .transpose()
+    ) -> Option<IterGuardImpl> {
+        self.iter(seqno, index).next()
     }
 
     /// Returns the last key-value pair in the tree.
@@ -436,11 +437,8 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> crate::Result<Option<KvPair>> {
-        self.iter(seqno, index)
-            .next_back()
-            .map(Guard::into_inner)
-            .transpose()
+    ) -> Option<IterGuardImpl> {
+        self.iter(seqno, index).next_back()
     }
 
     /// Returns the size of a value if it exists.
