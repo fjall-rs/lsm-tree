@@ -667,3 +667,419 @@ fn table_zero_bpk() -> crate::Result<()> {
         Some(|x: Writer| x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))),
     )
 }
+
+#[test]
+#[expect(
+    clippy::unreadable_literal,
+    clippy::unwrap_used,
+    clippy::indexing_slicing
+)]
+fn table_read_fuzz_1() -> crate::Result<()> {
+    use crate::Slice;
+    use crate::ValueType::{Tombstone, Value};
+
+    let items = [
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            18340908174618760209,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            18054235897395861447,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([103]),
+            17820711698989577060,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            17652351990810576660,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            17576667967203573449,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([30]),
+            16889403751796995588,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([186]),
+            15595956295177086731,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            15512796775024989213,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([188, 156, 59, 85, 13]),
+            15149465603839159843,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([174, 71]),
+            15102256701513339307,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([35, 148]),
+            15091160407760527013,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            14675333203365509622,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([245]),
+            14571905818510788533,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            14541113699969547298,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            14486387191240337417,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            14112006182482717758,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([159]),
+            13992512869528291746,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            13915106262991388976,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            13597506620670366065,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            13064400463180401957,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            12969967266897711474,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            12508372658468564628,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([138]),
+            11795269606598686255,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([18]),
+            10730214428751858128,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([236]),
+            10124645034840293700,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([216, 81]),
+            9559308046784608794,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([79]),
+            8607115510826103394,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            7963767336149785641,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            7882646634183551394,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            7719307175583565930,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([111]),
+            7522791039398476411,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([227, 164, 129]),
+            7410771579448817672,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            7003757491682295965,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            5723101273557106371,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            5581364419922287132,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([119, 29]),
+            5541782075650463683,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            5136199042703471864,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            5051972816573966850,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([162]),
+            5020119417385108821,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([69]),
+            4325966282181409009,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            4238714774310338082,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            4200824275757201410,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([92, 145, 251, 240, 133]),
+            3894954012280195585,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([14]),
+            3814525464013269105,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            3766663710061910506,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([129]),
+            3749655073597306832,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([231]),
+            3319226033273656005,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            3274394613296787928,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            2045761581956846404,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([78]),
+            1704041985603476880,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([]),
+            1441130125005023946,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([164, 136]),
+            1225420702887300153,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([55]),
+            974698856173325051,
+            Value,
+        ),
+        InternalValue::from_components(
+            Slice::from([0]),
+            Slice::from([238, 237]),
+            47340610649818236,
+            Value,
+        ),
+        InternalValue::from_components(Slice::from([0]), Slice::from([]), 0, Value),
+        InternalValue::from_components(
+            Slice::from([0, 161]),
+            Slice::from([]),
+            17872519117933825384,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([0, 161]),
+            Slice::from([]),
+            4494664966150999400,
+            Tombstone,
+        ),
+        InternalValue::from_components(
+            Slice::from([1]),
+            Slice::from([]),
+            15373275907316083975,
+            Value,
+        ),
+    ];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_fuzz");
+
+    let data_block_size = 97;
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+        .unwrap()
+        .use_data_block_size(data_block_size);
+
+    for item in items.iter().cloned() {
+        writer.write(item).unwrap();
+    }
+
+    let _trailer = writer.finish().unwrap();
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Arc::new(crate::DescriptorTable::new(10)),
+        true,
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(table.metadata.item_count as usize, items.len());
+
+    assert_eq!(items.len(), table.metadata.item_count as usize);
+    let items = items.into_iter().collect::<Vec<_>>();
+
+    assert_eq!(items, table.iter().collect::<Result<Vec<_>, _>>().unwrap());
+    assert_eq!(
+        items.iter().rev().cloned().collect::<Vec<_>>(),
+        table.iter().rev().collect::<Result<Vec<_>, _>>().unwrap(),
+    );
+
+    {
+        let lo = 0;
+        let hi = 54;
+
+        let lo_key = &items[lo].key.user_key;
+        let hi_key = &items[hi].key.user_key;
+
+        assert_eq!(lo_key, hi_key);
+
+        let expected_range: Vec<_> = items[lo..=hi].to_vec();
+
+        let iter = table.range(lo_key..=hi_key);
+
+        // eprintln!("{:#?}", expected_range);
+        // eprintln!("{:#?}", iter.collect::<Result<Vec<_>, _>>().unwrap());
+
+        assert_eq!(expected_range, iter.collect::<Result<Vec<_>, _>>().unwrap());
+    }
+
+    Ok(())
+}
