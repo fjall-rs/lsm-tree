@@ -443,6 +443,11 @@ impl Table {
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
 
+        #[cfg(feature = "metrics")]
+        metrics
+            .table_file_opened_uncached
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         log::debug!("Recovering table from file {}", file_path.display());
         let mut file = std::fs::File::open(&file_path)?;
         let file_path = Arc::new(file_path);
@@ -535,6 +540,8 @@ impl Table {
             None
         };
 
+        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
+
         log::trace!("Table #{} recovered", metadata.id);
 
         Ok(Self(Arc::new(Inner {
@@ -561,6 +568,7 @@ impl Table {
 
             #[cfg(feature = "metrics")]
             metrics,
+
             cached_blob_bytes: std::sync::OnceLock::new(),
         })))
     }

@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 #[derive(Debug, Default)]
 pub struct Metrics {
     /// Number of times a table file was opened using `fopen()`
-    pub(crate) table_file_opened: AtomicUsize,
+    pub(crate) table_file_opened_uncached: AtomicUsize,
 
     /// Number of times a table file was retrieved from descriptor cache
     pub(crate) table_file_opened_cached: AtomicUsize,
@@ -57,13 +57,13 @@ pub struct Metrics {
 impl Metrics {
     /// Returns the cache hit rate for file descriptors in percent (0.0 - 1.0).
     pub fn table_file_cache_hit_rate(&self) -> f64 {
-        let opened = self.table_file_opened.load(Relaxed) as f64;
+        let uncached = self.table_file_opened_uncached.load(Relaxed) as f64;
         let cached = self.table_file_opened_cached.load(Relaxed) as f64;
 
-        if opened == 0.0 {
+        if cached + uncached == 0.0 {
             1.0
         } else {
-            cached / opened
+            cached / (cached + uncached)
         }
     }
 

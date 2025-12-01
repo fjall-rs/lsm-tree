@@ -72,7 +72,7 @@ pub fn load_block(
         let fd = std::fs::File::open(path)?;
 
         #[cfg(feature = "metrics")]
-        metrics.table_file_opened.fetch_add(1, Relaxed);
+        metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
 
         Arc::new(fd)
     };
