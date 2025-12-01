@@ -382,7 +382,7 @@ pub trait AbstractTree {
     ///
     /// ```
     /// # use lsm_tree::Error as TreeError;
-    /// # use lsm_tree::{AbstractTree, Config, Tree};
+    /// # use lsm_tree::{AbstractTree, Config, Tree, Guard};
     /// #
     /// # let folder = tempfile::tempdir()?;
     /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
@@ -391,7 +391,7 @@ pub trait AbstractTree {
     /// tree.insert("3", "abc", 1);
     /// tree.insert("5", "abc", 2);
     ///
-    /// let (key, _) = tree.first_key_value(3, None)?.expect("item should exist");
+    /// let key = tree.first_key_value(3, None).expect("item should exist").key()?;
     /// assert_eq!(&*key, "1".as_bytes());
     /// #
     /// # Ok::<(), TreeError>(())
@@ -415,7 +415,7 @@ pub trait AbstractTree {
     ///
     /// ```
     /// # use lsm_tree::Error as TreeError;
-    /// # use lsm_tree::{AbstractTree, Config, Tree};
+    /// # use lsm_tree::{AbstractTree, Config, Tree, Guard};
     /// #
     /// # let folder = tempfile::tempdir()?;
     /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
@@ -424,7 +424,7 @@ pub trait AbstractTree {
     /// tree.insert("3", "abc", 1);
     /// tree.insert("5", "abc", 2);
     ///
-    /// let (key, _) = tree.last_key_value(3, None)?.expect("item should exist");
+    /// let key = tree.last_key_value(3, None).expect("item should exist").key()?;
     /// assert_eq!(&*key, "5".as_bytes());
     /// #
     /// # Ok::<(), TreeError>(())
