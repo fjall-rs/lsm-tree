@@ -17,7 +17,7 @@ use std::io::{Cursor, Seek};
 use varint_rs::{VarintReader, VarintWriter};
 
 /// Points to a block on file
-#[derive(Copy, Clone, Debug, Default, Eq)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct BlockHandle {
     /// Position of block in file
     offset: BlockOffset,
@@ -40,24 +40,6 @@ impl BlockHandle {
     #[must_use]
     pub fn offset(&self) -> BlockOffset {
         self.offset
-    }
-}
-
-impl PartialEq for BlockHandle {
-    fn eq(&self, other: &Self) -> bool {
-        self.offset == other.offset
-    }
-}
-
-impl Ord for BlockHandle {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.offset.cmp(&other.offset)
-    }
-}
-
-impl PartialOrd for BlockHandle {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -85,7 +67,7 @@ impl Decode for BlockHandle {
 }
 
 /// Points to a block on file
-#[derive(Clone, Debug, Eq)]
+#[derive(Clone, Debug)]
 pub struct KeyedBlockHandle {
     /// Key of last item in block
     end_key: UserKey,
@@ -138,21 +120,10 @@ impl KeyedBlockHandle {
     }
 }
 
+#[cfg(test)]
 impl PartialEq for KeyedBlockHandle {
     fn eq(&self, other: &Self) -> bool {
         self.offset() == other.offset()
-    }
-}
-
-impl Ord for KeyedBlockHandle {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.offset().cmp(&other.offset())
-    }
-}
-
-impl PartialOrd for KeyedBlockHandle {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 

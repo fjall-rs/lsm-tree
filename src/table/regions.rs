@@ -30,7 +30,7 @@ fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
 /// |--------------|
 /// |   trailer    | <- fixed size
 /// |--------------|
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct ParsedRegions {
     pub tli: BlockHandle,
     pub index: Option<BlockHandle>,
