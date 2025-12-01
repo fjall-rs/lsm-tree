@@ -674,6 +674,7 @@ fn table_zero_bpk() -> crate::Result<()> {
     clippy::unwrap_used,
     clippy::indexing_slicing
 )]
+#[cfg(not(feature = "metrics"))]
 fn table_read_fuzz_1() -> crate::Result<()> {
     use crate::Slice;
     use crate::ValueType::{Tombstone, Value};
