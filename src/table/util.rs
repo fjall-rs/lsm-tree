@@ -144,21 +144,20 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
 
     {
         #[expect(unsafe_code, reason = "We checked for max_pfx_len")]
-        let prefix_truncated = unsafe { prefix.get_unchecked(0..max_pfx_len) };
+        let prefix = unsafe { prefix.get_unchecked(0..max_pfx_len) };
 
         #[expect(unsafe_code, reason = "We checked for max_pfx_len")]
-        let needle_truncated = unsafe { needle.get_unchecked(0..max_pfx_len) };
+        let needle = unsafe { needle.get_unchecked(0..max_pfx_len) };
 
-        match prefix_truncated.cmp(needle_truncated) {
-            Equal => {
-                let rest_len = prefix.len().saturating_sub(needle.len());
-
-                if rest_len > 0 {
-                    return Greater;
-                }
-            }
+        match prefix.cmp(needle) {
+            Equal => {}
             ordering => return ordering,
         }
+    }
+
+    let rest_len = prefix.len().saturating_sub(needle.len());
+    if rest_len > 0 {
+        return Greater;
     }
 
     #[expect(
