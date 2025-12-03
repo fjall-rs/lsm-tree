@@ -119,3 +119,17 @@ pub fn recover_blob_files(
 
 /// The unique identifier for a value log blob file.
 pub type BlobFileId = u64;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn vlog_recovery_missing_blob_file() {
+        assert!(matches!(
+            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))]),
+            Err(crate::Error::Unrecoverable),
+        ));
+    }
+}
