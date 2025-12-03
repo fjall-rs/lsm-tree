@@ -25,38 +25,33 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
     {
+        let bytes_read: usize;
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::FileExt;
 
-            let bytes_read = file.read_at(&mut builder, offset)?;
-
-            assert_eq!(
-                bytes_read,
-                size,
-                "not enough bytes read: file has length {}",
-                file.metadata()?.len(),
-            );
+            bytes_read = file.read_at(&mut builder, offset)?;
         }
 
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileExt;
 
-            let bytes_read = file.seek_read(&mut builder, offset)?;
-
-            assert_eq!(
-                bytes_read,
-                size,
-                "not enough bytes read: file has length {}",
-                file.metadata()?.len(),
-            );
+            bytes_read = file.seek_read(&mut builder, offset)?;
         }
 
         #[cfg(not(any(unix, windows)))]
         {
             compile_error!("unsupported OS");
             unimplemented!();
+        }
+
+        if bytes_read != size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                format!("read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}", file.metadata()?.len()),
+            ));
         }
     }
 
