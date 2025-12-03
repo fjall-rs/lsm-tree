@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
