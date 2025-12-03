@@ -204,6 +204,7 @@ impl Writer {
 
         // Write metadata
         let metadata = Metadata {
+            id: self.blob_file_id,
             created_at: unix_timestamp().as_nanos(),
             item_count: self.item_count,
             total_compressed_bytes: self.written_blob_bytes,

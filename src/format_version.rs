@@ -6,7 +6,7 @@
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FormatVersion {
     /// Version for 1.x.x releases
-    V1,
+    V1 = 1,
 
     /// Version for 2.x.x releases
     V2,

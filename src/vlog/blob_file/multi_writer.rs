@@ -135,6 +135,7 @@ impl MultiWriter {
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
                 meta: Metadata {
+                    id: blob_file_id,
                     created_at: crate::time::unix_timestamp().as_nanos(),
                     item_count: metadata.item_count,
                     total_compressed_bytes: metadata.total_compressed_bytes,
