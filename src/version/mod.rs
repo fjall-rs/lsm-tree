@@ -74,18 +74,6 @@ impl<T: Ranged> GenericLevel<T> {
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<Run<T>>> {
         self.runs.iter()
     }
-
-    pub fn get_for_key<'a>(&'a self, key: &'a [u8]) -> impl Iterator<Item = &'a T> {
-        self.iter().filter_map(|x| x.get_for_key(key))
-    }
-
-    pub fn get_overlapping<'a>(&'a self, key_range: &'a KeyRange) -> impl Iterator<Item = &'a T> {
-        self.iter().flat_map(|x| x.get_overlapping(key_range))
-    }
-
-    pub fn get_contained<'a>(&'a self, key_range: &'a KeyRange) -> impl Iterator<Item = &'a T> {
-        self.iter().flat_map(|x| x.get_contained(key_range))
-    }
 }
 
 #[derive(Clone)]
