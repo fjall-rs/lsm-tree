@@ -513,3 +513,51 @@ impl Writer {
         Ok(Some((self.table_id, checksum)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn table_writer_count() -> crate::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("1");
+        let mut writer = Writer::new(path, 1, 0)?;
+
+        assert_eq!(0, writer.meta.key_count);
+        assert_eq!(0, writer.chunk_size);
+
+        writer.write(InternalValue::from_components(
+            b"a",
+            b"a",
+            0,
+            ValueType::Value,
+        ))?;
+        assert_eq!(1, writer.meta.key_count);
+        assert_eq!(2, writer.chunk_size);
+
+        writer.write(InternalValue::from_components(
+            b"b",
+            b"b",
+            0,
+            ValueType::Value,
+        ))?;
+        assert_eq!(2, writer.meta.key_count);
+        assert_eq!(4, writer.chunk_size);
+
+        writer.write(InternalValue::from_components(
+            b"c",
+            b"c",
+            0,
+            ValueType::Value,
+        ))?;
+        assert_eq!(3, writer.meta.key_count);
+        assert_eq!(6, writer.chunk_size);
+
+        writer.spill_block()?;
+        assert_eq!(0, writer.chunk_size);
+
+        Ok(())
+    }
+}
