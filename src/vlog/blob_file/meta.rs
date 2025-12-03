@@ -74,10 +74,10 @@ impl Metadata {
             meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
             meta("created_at", &self.created_at.to_le_bytes()),
             meta("file_size", &self.total_compressed_bytes.to_le_bytes()),
+            meta("id", &self.id.to_le_bytes()),
             meta("item_count", &self.item_count.to_le_bytes()),
             meta("key#max", self.key_range.max()),
             meta("key#min", self.key_range.min()),
-            meta("id", &self.id.to_le_bytes()),
             meta("uncompressed_size", &self.total_uncompressed_bytes.to_le_bytes()),
         ];
 
