@@ -88,7 +88,7 @@ impl Cache {
         #[expect(clippy::expect_used, reason = "nothing we can do if it fails")]
         let opts = quick_cache::OptionsBuilder::new()
             .weight_capacity(bytes)
-            .hot_allocation(0.9)
+            .hot_allocation(0.5)
             .estimated_items_capacity(1_000)
             .build()
             .expect("cache options should be valid");
