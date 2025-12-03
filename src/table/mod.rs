@@ -89,7 +89,6 @@ impl std::ops::Deref for Table {
     }
 }
 
-#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Debug for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)

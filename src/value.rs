@@ -99,19 +99,6 @@ impl PartialEq for InternalValue {
     }
 }
 
-impl Ord for InternalValue {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.key.cmp(&other.key)
-    }
-}
-
-impl PartialOrd for InternalValue {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[cfg_attr(test, mutants::skip)]
 impl std::fmt::Debug for InternalValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
