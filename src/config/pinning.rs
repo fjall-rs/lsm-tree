@@ -22,13 +22,19 @@ impl PinningPolicy {
             .unwrap_or_else(|| self.last().copied().expect("policy should not be empty"))
     }
 
-    /// Uses the same block size in every level.
+    /// Uses the same policy in every level.
     #[must_use]
     pub fn all(c: bool) -> Self {
         Self(vec![c])
     }
 
-    /// Constructs a custom block size policy.
+    /// Fully disables pinning.
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self::all(false)
+    }
+
+    /// Constructs a custom policy.
     #[must_use]
     pub fn new(policy: impl Into<Vec<bool>>) -> Self {
         let policy = policy.into();

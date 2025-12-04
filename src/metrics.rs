@@ -111,6 +111,11 @@ impl Metrics {
             + self.filter_block_load_io.load(Relaxed)
     }
 
+    /// Number of data blocks that were loaded from disk or OS page cache.
+    pub fn data_block_load_cached_count(&self) -> usize {
+        self.data_block_load_cached.load(Relaxed)
+    }
+
     /// Number of index blocks that were loaded from disk or OS page cache.
     pub fn index_block_load_cached_count(&self) -> usize {
         self.index_block_load_cached.load(Relaxed)
@@ -131,6 +136,18 @@ impl Metrics {
     /// Number of blocks that were accessed.
     pub fn block_loads(&self) -> usize {
         self.block_load_io_count() + self.block_load_cached_count()
+    }
+
+    /// Data block cache efficiency in percent (0.0 - 1.0).
+    pub fn data_block_cache_hit_rate(&self) -> f64 {
+        let queries = self.data_block_load_count() as f64;
+        let hits = self.data_block_load_cached_count() as f64;
+
+        if queries == 0.0 {
+            1.0
+        } else {
+            hits / queries
+        }
     }
 
     /// Filter block cache efficiency in percent (0.0 - 1.0).

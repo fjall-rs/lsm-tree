@@ -16,8 +16,8 @@ pub use hash_ratio::HashRatioPolicy;
 pub use pinning::PinningPolicy;
 pub use restart_interval::RestartIntervalPolicy;
 
-/// Partioning policy for indexes and filters
-pub type PartioningPolicy = PinningPolicy;
+/// Partitioning policy for indexes and filters
+pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
@@ -209,10 +209,10 @@ pub struct Config {
     pub data_block_hash_ratio_policy: HashRatioPolicy,
 
     /// Whether to partition index blocks
-    pub index_block_partitioning_policy: PartioningPolicy,
+    pub index_block_partitioning_policy: PartitioningPolicy,
 
     /// Whether to partition filter blocks
-    pub filter_block_partitioning_policy: PartioningPolicy,
+    pub filter_block_partitioning_policy: PartitioningPolicy,
 
     /// Partition size when using partitioned indexes
     pub index_block_partition_size_policy: BlockSizePolicy,
