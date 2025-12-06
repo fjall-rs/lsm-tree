@@ -145,6 +145,7 @@ pub mod util;
 
 mod value;
 mod value_type;
+mod verify;
 mod version;
 mod vlog;
 
@@ -189,6 +190,10 @@ pub use {
     tree::Tree,
     value::SeqNo,
     value_type::ValueType,
+    verify::{
+        CancellationToken, CorruptedFile, FileType, VerificationIoError, VerificationOptions,
+        VerificationProgress, VerificationResult,
+    },
     vlog::BlobFile,
 };
 
