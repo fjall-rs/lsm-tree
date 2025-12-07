@@ -206,6 +206,11 @@ impl<'a> Ingestion<'a> {
     pub fn finish(self) -> crate::Result<()> {
         use crate::{AbstractTree, Table};
 
+        if self.last_key.is_none() {
+            log::trace!("No data written to Ingestion, returning early");
+            return Ok(());
+        }
+
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
         //
         // We must ensure no concurrent writes interfere between flushing the

@@ -27,7 +27,9 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
     assert_eq!(sealed_before, 0);
 
     // Start ingestion (should auto-flush active)
-    tree.ingestion()?.finish()?;
+    let mut ingest = tree.ingestion()?;
+    ingest.write("a", "a")?;
+    ingest.finish()?;
 
     // After ingestion, data is in tables; no sealed memtables
     assert_eq!(tree.sealed_memtable_count(), 0);
@@ -67,7 +69,9 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     let tables_before = tree.table_count();
 
     // Ingestion should flush sealed memtables and register resulting tables
-    tree.ingestion()?.finish()?;
+    let mut ingest = tree.ingestion()?;
+    ingest.write("a", "a")?;
+    ingest.finish()?;
 
     assert_eq!(tree.sealed_memtable_count(), 0);
     assert!(tree.table_count() > tables_before);
