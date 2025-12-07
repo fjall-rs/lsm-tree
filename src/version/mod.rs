@@ -244,7 +244,9 @@ impl Version {
                             })
                             .collect::<crate::Result<Vec<_>>>()?;
 
-                        Ok(Arc::new(Run::new(run_tables)))
+                        Ok(Arc::new(
+                            Run::new(run_tables).expect("persisted runs should not be empty"),
+                        ))
                     })
                     .collect::<crate::Result<Vec<_>>>()?;
 
@@ -344,7 +346,11 @@ impl Version {
                 .collect::<Vec<_>>();
 
             let mut runs = Vec::with_capacity(prev_runs.len() + 1);
-            runs.push(Run::new(run.to_vec()));
+
+            if let Some(run) = Run::new(run.to_vec()) {
+                runs.push(run);
+            }
+
             runs.extend(prev_runs);
 
             let runs = optimize_runs(runs);
@@ -495,7 +501,9 @@ impl Version {
                 .collect::<Vec<_>>();
 
             if level_idx == dest_level {
-                runs.insert(0, Run::new(new_tables.to_vec()));
+                if let Some(run) = Run::new(new_tables.to_vec()) {
+                    runs.insert(0, run);
+                }
             }
 
             let runs = optimize_runs(runs);
@@ -574,7 +582,9 @@ impl Version {
                 .collect::<Vec<_>>();
 
             if level_idx == dest_level {
-                runs.insert(0, Run::new(affected_tables.clone()));
+                if let Some(run) = Run::new(affected_tables.clone()) {
+                    runs.insert(0, run);
+                }
             }
 
             let runs = optimize_runs(runs);

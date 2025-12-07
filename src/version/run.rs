@@ -61,8 +61,12 @@ impl<T: Ranged> std::ops::Deref for Run<T> {
 }
 
 impl<T: Ranged> Run<T> {
-    pub fn new(items: Vec<T>) -> Self {
-        Self(items)
+    pub fn new(items: Vec<T>) -> Option<Self> {
+        if items.is_empty() {
+            None
+        } else {
+            Some(Self(items))
+        }
     }
 
     pub fn inner_mut(&mut self) -> &mut Vec<T> {
