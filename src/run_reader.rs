@@ -122,6 +122,7 @@ impl DoubleEndedIterator for RunReader {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, SequenceNumberCounter, Slice};
@@ -157,7 +158,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(tables));
+        let level = Arc::new(Run::new(tables).unwrap());
 
         assert!(RunReader::new(level.clone(), UserKey::from("y")..=UserKey::from("z"),).is_none());
 
@@ -197,7 +198,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(tables));
+        let level = Arc::new(Run::new(tables).unwrap());
 
         {
             let multi_reader = RunReader::culled(level.clone(), .., (Some(1), None));

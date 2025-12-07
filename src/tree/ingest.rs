@@ -53,7 +53,9 @@ impl<'a> Ingestion<'a> {
             6,
         )?
         .use_bloom_policy({
-            if let FilterPolicyEntry::Bloom(p) =
+            if tree.config.expect_point_read_hits {
+                crate::config::BloomConstructionPolicy::BitsPerKey(0.0)
+            } else if let FilterPolicyEntry::Bloom(p) =
                 tree.config.filter_policy.get(INITIAL_CANONICAL_LEVEL)
             {
                 p
@@ -205,6 +207,11 @@ impl<'a> Ingestion<'a> {
     #[allow(clippy::significant_drop_tightening)]
     pub fn finish(self) -> crate::Result<()> {
         use crate::{AbstractTree, Table};
+
+        if self.last_key.is_none() {
+            log::trace!("No data written to Ingestion, returning early");
+            return Ok(());
+        }
 
         // CRITICAL SECTION: Atomic flush + seqno allocation + registration
         //

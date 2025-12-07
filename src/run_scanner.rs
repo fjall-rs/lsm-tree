@@ -64,6 +64,7 @@ impl Iterator for RunScanner {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{AbstractTree, SequenceNumberCounter, Slice};
@@ -99,7 +100,7 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
 
-        let level = Arc::new(Run::new(tables));
+        let level = Arc::new(Run::new(tables).unwrap());
 
         #[expect(clippy::unwrap_used)]
         {

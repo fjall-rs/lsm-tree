@@ -23,7 +23,10 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
                     }
                 }
 
-                new_runs.insert(0, Run::new(vec![table.clone()]));
+                new_runs.insert(
+                    0,
+                    Run::new(vec![table.clone()]).expect("run should not be empty"),
+                );
             }
         }
 
@@ -32,6 +35,7 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::KeyRange;
@@ -66,24 +70,24 @@ mod tests {
 
     #[test]
     fn optimize_runs_one() {
-        let runs = vec![Run::new(vec![s(0, "a", "b")])];
+        let runs = vec![Run::new(vec![s(0, "a", "b")]).unwrap()];
         let runs = optimize_runs::<FakeTable>(runs);
 
-        assert_eq!(vec![Run::new(vec![s(0, "a", "b")])], &*runs);
+        assert_eq!(vec![Run::new(vec![s(0, "a", "b")]).unwrap()], &*runs);
     }
 
     #[test]
     fn optimize_runs_two_overlap() {
         let runs = vec![
-            Run::new(vec![s(0, "a", "b")]),
-            Run::new(vec![s(1, "a", "b")]),
+            Run::new(vec![s(0, "a", "b")]).unwrap(),
+            Run::new(vec![s(1, "a", "b")]).unwrap(),
         ];
         let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
-                Run::new(vec![s(0, "a", "b")]),
-                Run::new(vec![s(1, "a", "b")])
+                Run::new(vec![s(0, "a", "b")]).unwrap(),
+                Run::new(vec![s(1, "a", "b")]).unwrap(),
             ],
             &*runs
         );
@@ -92,15 +96,15 @@ mod tests {
     #[test]
     fn optimize_runs_two_overlap_2() {
         let runs = vec![
-            Run::new(vec![s(0, "a", "z")]),
-            Run::new(vec![s(1, "c", "f")]),
+            Run::new(vec![s(0, "a", "z")]).unwrap(),
+            Run::new(vec![s(1, "c", "f")]).unwrap(),
         ];
         let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
-                Run::new(vec![s(0, "a", "z")]),
-                Run::new(vec![s(1, "c", "f")])
+                Run::new(vec![s(0, "a", "z")]).unwrap(),
+                Run::new(vec![s(1, "c", "f")]).unwrap(),
             ],
             &*runs
         );
@@ -109,15 +113,15 @@ mod tests {
     #[test]
     fn optimize_runs_two_overlap_3() {
         let runs = vec![
-            Run::new(vec![s(0, "c", "f")]),
-            Run::new(vec![s(1, "a", "z")]),
+            Run::new(vec![s(0, "c", "f")]).unwrap(),
+            Run::new(vec![s(1, "a", "z")]).unwrap(),
         ];
         let runs = optimize_runs::<FakeTable>(runs);
 
         assert_eq!(
             vec![
-                Run::new(vec![s(0, "c", "f")]),
-                Run::new(vec![s(1, "a", "z")])
+                Run::new(vec![s(0, "c", "f")]).unwrap(),
+                Run::new(vec![s(1, "a", "z")]).unwrap()
             ],
             &*runs
         );
@@ -126,22 +130,28 @@ mod tests {
     #[test]
     fn optimize_runs_two_disjoint() {
         let runs = vec![
-            Run::new(vec![s(0, "a", "c")]),
-            Run::new(vec![s(1, "d", "f")]),
+            Run::new(vec![s(0, "a", "c")]).unwrap(),
+            Run::new(vec![s(1, "d", "f")]).unwrap(),
         ];
         let runs = optimize_runs::<FakeTable>(runs);
 
-        assert_eq!(vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")])], &*runs);
+        assert_eq!(
+            vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")]).unwrap()],
+            &*runs,
+        );
     }
 
     #[test]
     fn optimize_runs_two_disjoint_2() {
         let runs = vec![
-            Run::new(vec![s(1, "d", "f")]),
-            Run::new(vec![s(0, "a", "c")]),
+            Run::new(vec![s(1, "d", "f")]).unwrap(),
+            Run::new(vec![s(0, "a", "c")]).unwrap(),
         ];
         let runs = optimize_runs::<FakeTable>(runs);
 
-        assert_eq!(vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")])], &*runs);
+        assert_eq!(
+            vec![Run::new(vec![s(0, "a", "c"), s(1, "d", "f")]).unwrap()],
+            &*runs,
+        );
     }
 }
