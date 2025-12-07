@@ -54,13 +54,6 @@ use util::load_block;
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-// TODO: table iter:
-// TODO:    we only need to truncate items from blocks that are not the first and last block
-// TODO:    because any block inbetween must (trivially) only contain relevant items
-
-// TODO: in Leveled compaction, compact tables that live very long and have
-// many versions (possibly unnecessary space usage of old, stale versions)
-
 pub type TableInner = Inner;
 
 /// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk
@@ -252,7 +245,7 @@ impl Table {
             Some(Cow::Borrowed(block))
         } else if let Some(filter_idx) = &self.pinned_filter_index {
             let mut iter = filter_idx.iter();
-            iter.seek(key);
+            iter.seek(key, seqno);
 
             if let Some(filter_block_handle) = iter.next() {
                 let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
@@ -303,7 +296,7 @@ impl Table {
     // TODO: we would need to return something like ValueType + Value
     // TODO: so the caller can decide whether to return the value or not
     fn point_read(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
-        let Some(iter) = self.block_index.forward_reader(key) else {
+        let Some(iter) = self.block_index.forward_reader(key, seqno) else {
             return Ok(None);
         };
 

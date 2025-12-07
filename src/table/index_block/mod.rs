@@ -12,11 +12,14 @@ use super::{
     block::{BlockOffset, Encoder, Trailer},
     Block,
 };
-use crate::table::{
-    block::{Decoder, ParsedItem},
-    util::{compare_prefixed_slice, SliceIndexes},
-};
 use crate::Slice;
+use crate::{
+    table::{
+        block::{Decoder, ParsedItem},
+        util::{compare_prefixed_slice, SliceIndexes},
+    },
+    SeqNo,
+};
 
 #[derive(Debug)]
 pub struct IndexBlockParsedItem {
@@ -24,6 +27,7 @@ pub struct IndexBlockParsedItem {
     pub size: u32,
     pub prefix: Option<SliceIndexes>,
     pub end_key: SliceIndexes,
+    pub seqno: SeqNo,
 }
 
 impl ParsedItem<KeyedBlockHandle> for IndexBlockParsedItem {
@@ -53,7 +57,7 @@ impl ParsedItem<KeyedBlockHandle> for IndexBlockParsedItem {
             bytes.slice(self.end_key.0..self.end_key.1)
         };
 
-        KeyedBlockHandle::new(key, self.offset, self.size)
+        KeyedBlockHandle::new(key, self.seqno, BlockHandle::new(self.offset, self.size))
     }
 }
 
@@ -103,19 +107,15 @@ impl IndexBlock {
     /// # Panics
     ///
     /// Panics if the given item array if empty.
-    pub fn encode_into(
-        writer: &mut Vec<u8>,
-        items: &[KeyedBlockHandle],
-        // restart_interval: u8, // TODO: support prefix truncation + delta encoding
-    ) -> crate::Result<()> {
+    pub fn encode_into(writer: &mut Vec<u8>, items: &[KeyedBlockHandle]) -> crate::Result<()> {
         #[expect(clippy::expect_used)]
         let first_key = items.first().expect("chunk should not be empty").end_key();
 
         let mut serializer = Encoder::<'_, BlockOffset, KeyedBlockHandle>::new(
             writer,
             items.len(),
-            /* TODO: hard-coded for now */ 1,
-            /* Index blocks do not support hash index */ 0.0,
+            1,   // hard-coded for now, TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
+            0.0, // Index blocks do not support hash index
             first_key,
         );
 

@@ -12,15 +12,16 @@ pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
 use super::KeyedBlockHandle;
+use crate::SeqNo;
 
 pub trait BlockIndex {
-    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl>;
+    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl>;
     fn iter(&self) -> BlockIndexIterImpl;
 }
 
 pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHandle>> {
-    fn seek_lower(&mut self, key: &[u8]) -> bool;
-    fn seek_upper(&mut self, key: &[u8]) -> bool;
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool;
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool;
 }
 
 pub enum BlockIndexIterImpl {
@@ -30,19 +31,19 @@ pub enum BlockIndexIterImpl {
 }
 
 impl BlockIndexIter for BlockIndexIterImpl {
-    fn seek_lower(&mut self, key: &[u8]) -> bool {
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
         match self {
-            Self::Full(i) => i.seek_lower(key),
-            Self::Volatile(i) => i.seek_lower(key),
-            Self::TwoLevel(i) => i.seek_lower(key),
+            Self::Full(i) => i.seek_lower(key, seqno),
+            Self::Volatile(i) => i.seek_lower(key, seqno),
+            Self::TwoLevel(i) => i.seek_lower(key, seqno),
         }
     }
 
-    fn seek_upper(&mut self, key: &[u8]) -> bool {
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool {
         match self {
-            Self::Full(i) => i.seek_upper(key),
-            Self::Volatile(i) => i.seek_upper(key),
-            Self::TwoLevel(i) => i.seek_upper(key),
+            Self::Full(i) => i.seek_upper(key, seqno),
+            Self::Volatile(i) => i.seek_upper(key, seqno),
+            Self::TwoLevel(i) => i.seek_upper(key, seqno),
         }
     }
 }
@@ -94,13 +95,15 @@ pub enum BlockIndexImpl {
 }
 
 impl BlockIndex for BlockIndexImpl {
-    fn forward_reader(&self, needle: &[u8]) -> Option<BlockIndexIterImpl> {
+    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl> {
         match self {
-            Self::Full(index) => index.forward_reader(needle).map(BlockIndexIterImpl::Full),
+            Self::Full(index) => index
+                .forward_reader(needle, seqno)
+                .map(BlockIndexIterImpl::Full),
             Self::VolatileFull(index) => {
                 let mut it = index.iter();
 
-                if it.seek_lower(needle) {
+                if it.seek_lower(needle, seqno) {
                     Some(BlockIndexIterImpl::Volatile(it))
                 } else {
                     None
@@ -109,7 +112,7 @@ impl BlockIndex for BlockIndexImpl {
             Self::TwoLevel(index) => {
                 let mut it = index.iter();
 
-                if it.seek_lower(needle) {
+                if it.seek_lower(needle, seqno) {
                     Some(BlockIndexIterImpl::TwoLevel(it))
                 } else {
                     None
