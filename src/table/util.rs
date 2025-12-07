@@ -51,7 +51,7 @@ pub fn load_block(
             BlockType::Index => {
                 metrics.index_block_load_cached.fetch_add(1, Relaxed);
             }
-            BlockType::Data => {
+            BlockType::Data | BlockType::Meta => {
                 metrics.data_block_load_cached.fetch_add(1, Relaxed);
             }
             _ => {}
@@ -102,7 +102,7 @@ pub fn load_block(
                 .index_block_io_requested
                 .fetch_add(handle.size().into(), Relaxed);
         }
-        BlockType::Data => {
+        BlockType::Data | BlockType::Meta => {
             metrics.data_block_load_io.fetch_add(1, Relaxed);
 
             metrics
