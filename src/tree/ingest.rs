@@ -53,7 +53,9 @@ impl<'a> Ingestion<'a> {
             6,
         )?
         .use_bloom_policy({
-            if let FilterPolicyEntry::Bloom(p) =
+            if tree.config.expect_point_read_hits {
+                crate::config::BloomConstructionPolicy::BitsPerKey(0.0)
+            } else if let FilterPolicyEntry::Bloom(p) =
                 tree.config.filter_policy.get(INITIAL_CANONICAL_LEVEL)
             {
                 p
