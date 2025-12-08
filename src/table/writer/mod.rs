@@ -428,7 +428,7 @@ impl Writer {
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
                 meta("filter_hash_type", b"xxh3"),
                 meta("id", &self.table_id.to_le_bytes()),
-                meta("index_keys_have_seqno", &[0x0]),
+                meta("index_keys_have_seqno", &[0x1]),
                 meta("initial_level", &self.initial_level.to_le_bytes()),
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(
