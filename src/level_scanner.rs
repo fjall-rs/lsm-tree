@@ -136,7 +136,7 @@ mod tests {
         {
             let multi_reader = LevelScanner::from_indexes(
                 tempdir.path().join("segments"),
-                level.clone(),
+                level,
                 (Some(1), None),
             )?;
 

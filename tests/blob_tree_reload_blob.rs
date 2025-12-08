@@ -1,5 +1,4 @@
 use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, TreeType};
-use std::fs::File;
 use test_log::test;
 
 const ITEM_COUNT: usize = 10_000;

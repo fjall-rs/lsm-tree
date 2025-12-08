@@ -243,7 +243,7 @@ impl TreeIter {
             drop(level_manifest);
 
             // Sealed memtables
-            for memtable in lock.sealed.iter() {
+            for memtable in &lock.sealed {
                 let iter = memtable.range(range.clone());
 
                 if let Some(seqno) = seqno {

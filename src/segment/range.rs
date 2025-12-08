@@ -270,7 +270,7 @@ mod tests {
     fn segment_range_reader_lower_bound() -> crate::Result<()> {
         let chars = (b'a'..=b'z').collect::<Vec<_>>();
 
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)]
     fn segment_range_reader_unbounded() -> crate::Result<()> {
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let mut writer = Writer::new(Options {
             segment_id: 0,
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn segment_range_reader_bounded_ranges() -> crate::Result<()> {
         for data_block_size in [1, 10, 100, 200, 500, 1_000, 4_096] {
-            let folder = tempfile::tempdir()?.into_path();
+            let folder = tempfile::tempdir()?.keep();
 
             let mut writer = Writer::new(Options {
                 segment_id: 0,
@@ -675,7 +675,7 @@ mod tests {
     fn segment_range_reader_char_ranges() -> crate::Result<()> {
         let chars = (b'a'..=b'z').collect::<Vec<_>>();
 
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let mut writer = Writer::new(Options {
             segment_id: 0,

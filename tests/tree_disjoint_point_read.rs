@@ -4,7 +4,7 @@ use test_log::test;
 
 #[test]
 fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -33,7 +33,7 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -62,7 +62,7 @@ fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)
@@ -116,7 +116,7 @@ fn tree_disjoint_point_read_multiple_levels() -> lsm_tree::Result<()> {
 
 #[test]
 fn tree_disjoint_point_read_multiple_levels_blob() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?.into_path();
+    let folder = tempfile::tempdir()?.keep();
 
     let tree = Config::new(folder)
         .data_block_size(1_024)

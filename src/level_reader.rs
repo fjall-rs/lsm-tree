@@ -189,7 +189,7 @@ mod tests {
         .is_none());
 
         assert!(LevelReader::new(
-            level.clone(),
+            level,
             &(Included(b"y".into()), Unbounded),
             CachePolicy::Read
         )

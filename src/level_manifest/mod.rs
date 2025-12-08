@@ -431,7 +431,7 @@ impl LevelManifest {
 
 struct Runs<'a>(&'a [Level]);
 
-impl<'a> std::ops::Deref for Runs<'a> {
+impl std::ops::Deref for Runs<'_> {
     type Target = [Level];
 
     fn deref(&self) -> &Self::Target {
@@ -439,7 +439,7 @@ impl<'a> std::ops::Deref for Runs<'a> {
     }
 }
 
-impl<'a> Encode for Runs<'a> {
+impl Encode for Runs<'_> {
     fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), EncodeError> {
         // Write header
         writer.write_all(&MAGIC_BYTES)?;

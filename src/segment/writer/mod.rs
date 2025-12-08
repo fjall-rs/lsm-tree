@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn segment_writer_seqnos() -> crate::Result<()> {
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let segment_id = 532;
 
@@ -412,7 +412,7 @@ mod tests {
     fn segment_writer_zero_bpk() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let segment_id = 532;
 
@@ -450,7 +450,7 @@ mod tests {
     fn segment_writer_write_read() -> crate::Result<()> {
         const ITEM_COUNT: u64 = 100;
 
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let segment_id = 532;
 
@@ -520,7 +520,7 @@ mod tests {
         const ITEM_COUNT: u64 = 1_000;
         const VERSION_COUNT: u64 = 5;
 
-        let folder = tempfile::tempdir()?.into_path();
+        let folder = tempfile::tempdir()?.keep();
 
         let segment_id = 532;
 

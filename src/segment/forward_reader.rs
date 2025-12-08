@@ -88,7 +88,7 @@ impl<'a> ForwardReader<'a> {
     }
 }
 
-impl<'a> Iterator for ForwardReader<'a> {
+impl Iterator for ForwardReader<'_> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {

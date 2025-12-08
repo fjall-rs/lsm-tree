@@ -229,7 +229,7 @@ impl BlobTree {
         else {
             return Ok(None);
         };
-        self.register_segments(&[segment.clone()])?;
+        self.register_segments(std::slice::from_ref(&segment))?;
 
         Ok(Some(segment))
     }

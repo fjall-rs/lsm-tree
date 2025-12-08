@@ -44,7 +44,7 @@ pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
+pub fn fsync_directory(_path: &Path) -> std::io::Result<()> {
     // Cannot fsync directory on Windows
     Ok(())
 }
