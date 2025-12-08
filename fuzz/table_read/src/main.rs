@@ -35,14 +35,30 @@ impl Into<ValueType> for FuzzyValueType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct FuzzyValue(InternalValue);
+
+impl Ord for FuzzyValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.key.cmp(&other.0.key)
+    }
+}
+
+impl PartialOrd for FuzzyValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.key.partial_cmp(&other.0.key)
+    }
+}
 
 impl<'a> Arbitrary<'a> for FuzzyValue {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let key = Vec::<u8>::arbitrary(u)?;
         let value = Vec::<u8>::arbitrary(u)?;
+
+        // Seqnos never have a leading 1 (they are 63-bit numbers, not 64)
         let seqno = u64::arbitrary(u)?;
+        let seqno = seqno & 0x7FFF_FFFF_FFFF_FFFF;
+
         let vtype = FuzzyValueType::arbitrary(u)?;
 
         let key = if key.is_empty() { vec![0] } else { key };
@@ -57,8 +73,8 @@ impl<'a> Arbitrary<'a> for FuzzyValue {
 }
 
 fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
-    use rand::prelude::*;
     use rand::SeedableRng;
+    use rand::prelude::*;
     use rand_chacha::ChaCha8Rng;
 
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -66,8 +82,8 @@ fn generate_ping_pong_code(seed: u64, len: usize) -> Vec<u8> {
 }
 
 fn main() {
-    use rand::prelude::*;
     use rand::SeedableRng;
+    use rand::prelude::*;
 
     fuzz!(|data: &[u8]| {
         /*  let data = &[
@@ -311,8 +327,8 @@ fn main() {
         }
 
         {
-            use rand::prelude::*;
             use rand::SeedableRng;
+            use rand::prelude::*;
             use rand_chacha::ChaCha8Rng;
 
             let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -323,38 +339,19 @@ fn main() {
                 std::mem::swap(&mut lo, &mut hi);
             }
 
-            // NOTE: If there is A:1, A:2, B:1
-            // And we select lo as A:2
-            // Our data block will seek to A:1 (correct)
-            // But our model won't...
-            // So seek to the first occurence of a key
-            loop {
-                if lo == 0 {
-                    break;
-                }
-
-                if items[lo - 1].key.user_key == items[lo].key.user_key {
-                    lo -= 1;
-                } else {
-                    break;
-                }
-            }
-
-            // NOTE: Similar to lo
-            loop {
-                if hi == items.len() - 1 {
-                    break;
-                }
-
-                if items[hi + 1].key.user_key == items[hi].key.user_key {
-                    hi += 1;
-                } else {
-                    break;
-                }
-            }
-
+            // Expand `lo` backward to the first entry with the same key
             let lo_key = &items[lo].key.user_key;
+            let lo = items
+                .iter()
+                .position(|it| &it.key.user_key == lo_key)
+                .unwrap();
+
+            // Expand `hi` forward to the last entry with the same key
             let hi_key = &items[hi].key.user_key;
+            let hi = items
+                .iter()
+                .rposition(|it| &it.key.user_key == hi_key)
+                .unwrap();
 
             let expected_range: Vec<_> = items[lo..=hi].iter().cloned().collect();
 
