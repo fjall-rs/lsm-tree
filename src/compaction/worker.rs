@@ -388,7 +388,9 @@ fn merge_tables(
     // That way we don't resurrect data beneath the tombstone
     let is_last_level = payload.dest_level == last_level;
 
-    merge_iter = merge_iter.evict_tombstones(is_last_level);
+    merge_iter = merge_iter
+        .evict_tombstones(is_last_level)
+        .zero_seqnos(false);
 
     let table_writer =
         super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
