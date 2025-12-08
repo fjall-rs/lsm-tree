@@ -29,6 +29,8 @@ pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
     expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
 
     evict_tombstones: bool,
+
+    zero_seqnos: bool,
 }
 
 impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
@@ -42,6 +44,7 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
             gc_seqno_threshold,
             expiration_callback: None,
             evict_tombstones: false,
+            zero_seqnos: false,
         }
     }
 
@@ -53,6 +56,14 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     /// Installs a callback that receives all expired KVs.
     pub fn with_expiration_callback(mut self, cb: &'a mut dyn ExpiredKvCallback) -> Self {
         self.expiration_callback = Some(cb);
+        self
+    }
+
+    /// NOTE: Convert sequence number to zero if it is below the snapshot watermark.
+    ///
+    /// This can save a lot of space, because "0" only takes 1 byte, and sequence numbers are monotonically increasing.
+    pub fn zero_seqnos(mut self, b: bool) -> Self {
+        self.zero_seqnos = b;
         self
     }
 
@@ -87,7 +98,7 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let head = fail_iter!(self.inner.next()?);
+            let mut head = fail_iter!(self.inner.next()?);
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
@@ -132,13 +143,9 @@ impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
                 continue;
             }
 
-            // TODO: look at how this plays with blob GC
-            // // NOTE: Convert sequence number to zero if it is below the snapshot watermark.
-            // //
-            // // This can save a lot of space, because "0" only takes 1 byte.
-            // if head.key.seqno < self.gc_seqno_threshold {
-            //     head.key.seqno = 0;
-            // }
+            if self.zero_seqnos && head.key.seqno < self.gc_seqno_threshold {
+                head.key.seqno = 0;
+            }
 
             return Some(Ok(head));
         }
@@ -211,7 +218,6 @@ mod tests {
         let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
 
         assert_eq!(
-            // TODO: Seqno is normally reset to 0
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
         );
@@ -230,20 +236,19 @@ mod tests {
 
     #[test]
     #[expect(clippy::unwrap_used)]
-    #[ignore = "wip"]
     fn compaction_stream_seqno_zeroing_1() -> crate::Result<()> {
         #[rustfmt::skip]
         let vec = stream![
-          "a", "", "T",
-          "a", "", "T",
-          "a", "", "T",
+          "a", "3", "V",
+          "a", "2", "V",
+          "a", "1", "V",
         ];
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, 1_000);
+        let mut iter = CompactionStream::new(iter, 1_000).zero_seqnos(true);
 
         assert_eq!(
-            InternalValue::from_components(*b"a", *b"", 0, ValueType::Tombstone),
+            InternalValue::from_components(*b"a", *b"3", 0, ValueType::Value),
             iter.next().unwrap()?,
         );
         iter_closed!(iter);
@@ -283,7 +288,6 @@ mod tests {
         let iter = vec.iter().cloned().map(Ok);
         let mut iter = CompactionStream::new(iter, 1_000_000);
 
-        // TODO: Seqno is normally reset to 0
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
             iter.next().unwrap()?,
@@ -418,7 +422,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::unwrap_used)]
     fn compaction_stream_weak_tombstone_evict() {
         #[rustfmt::skip]
         let vec = stream![
