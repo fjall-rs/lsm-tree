@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
-use crate::{coding::Decode, table::block::BlockType, CompressionType, KeyRange, SeqNo, TableId};
+use crate::{
+    checksum::ChecksumType, coding::Decode, table::block::BlockType, CompressionType, KeyRange,
+    SeqNo, TableId,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 
@@ -109,7 +112,7 @@ impl ParsedMeta {
                 .value;
 
             assert_eq!(
-                b"xxh3",
+                &[u8::from(ChecksumType::Xxh3)],
                 &*hash_type,
                 "invalid hash type: {:?}",
                 std::str::from_utf8(&hash_type),
@@ -123,7 +126,7 @@ impl ParsedMeta {
                 .value;
 
             assert_eq!(
-                b"xxh3",
+                &[u8::from(ChecksumType::Xxh3)],
                 &*hash_type,
                 "invalid checksum type: {:?}",
                 std::str::from_utf8(&hash_type),
