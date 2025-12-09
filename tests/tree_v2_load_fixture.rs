@@ -6,7 +6,7 @@ fn tree_load_v2() -> lsm_tree::Result<()> {
     let folder = "test_fixture/v2_tree";
 
     let result = Config::new(
-        &folder,
+        folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
@@ -22,7 +22,7 @@ fn tree_load_v2_corrupt() -> lsm_tree::Result<()> {
     let folder = "test_fixture/v2_tree_corrupt";
 
     let result = Config::new(
-        &folder,
+        folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
