@@ -27,10 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust_version }}
-          components: llvm-tools-preview
       - name: Add rustfmt
         run: rustup component add rustfmt
       - name: Add clippy
@@ -39,9 +38,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ runner.os }}-cargo
-      - name: Install cargo-all-features
-        run: cargo install cargo-all-features
-      - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
       - name: Format
         run: cargo fmt --all -- --check
@@ -50,18 +46,9 @@ jobs:
       - name: Build permutations
         run: cargo build-all-features
       - name: Run tests
-        run: cargo llvm-cov --no-report nextest --all-features
+        run: cargo nextest run --all-features
       - name: Run doc tests
-        run: cargo llvm-cov --no-report --doc --features lz4
-      - name: Create code coverage report
-        run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
-      - name: Upload coverage data to codecov
-        uses: codecov/codecov-action@v3
-        if: runner.os == 'Linux'
-        with:
-          files: lcov.info
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: cargo test --doc --features lz4
   cross:
     timeout-minutes: 15
     name: cross
