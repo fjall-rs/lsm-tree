@@ -254,9 +254,6 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
-        // let all_data_size_sum = version.iter_tables().map(Table::file_size).sum::<u64>();
-        // let lmax_target_size = ((all_data_size_sum as f64) * 0.9) as u64;
-
         // Find the level that corresponds to L1
         #[expect(clippy::map_unwrap_or)]
         let first_non_empty_level = version
@@ -448,12 +445,6 @@ impl CompactionStrategy for Strategy {
                 target_size: self.target_size,
             };
 
-            /* eprintln!(
-                "merge {} tables, L0->L1: {:?}",
-                choice.table_ids.len(),
-                choice.table_ids,
-            ); */
-
             if target_level_overlapping_table_ids.is_empty() && first_level.is_disjoint() {
                 return Choice::Move(choice);
             }
@@ -495,15 +486,6 @@ impl CompactionStrategy for Strategy {
             canonical_level: next_level_index - (level_shift as u8),
             target_size: self.target_size,
         };
-
-        // eprintln!("source level size: {}B", level.size());
-        // eprintln!(
-        //     "{} {} tables, L{}->L{next_level_index}: {:?} (overshoot: {overshoot_bytes}B)",
-        //     if can_trivial_move { "move" } else { "merge" },
-        //     choice.table_ids.len(),
-        //     next_level_index - 1,
-        //     choice.table_ids,
-        // );
 
         if can_trivial_move && level.is_disjoint() {
             return Choice::Move(choice);
