@@ -28,20 +28,22 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         reader: &mut Cursor<&[u8]>,
         offset: usize,
         data: &'a [u8],
-    ) -> Option<&'a [u8]> {
+    ) -> Option<(&'a [u8], SeqNo)> {
         let value_type = unwrap!(reader.read_u8());
 
         if value_type == TRAILER_START_MARKER {
             return None;
         }
 
-        let _seqno = unwrap!(reader.read_u64_varint());
+        let seqno = unwrap!(reader.read_u64_varint());
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
         unwrap!(reader.seek_relative(key_len as i64));
 
-        data.get(key_start..(key_start + key_len))
+        let key = data.get(key_start..(key_start + key_len));
+
+        key.map(|k| (k, seqno))
     }
 
     fn parse_full(reader: &mut Cursor<&[u8]>, offset: usize) -> Option<DataBlockParsedItem> {
@@ -269,6 +271,7 @@ impl ParsedItem<InternalValue> for DataBlockParsedItem {
 // TODO: allow disabling binary index (for meta block)
 // -> saves space in metadata blocks
 // -> point reads then need to use iter().find() to find stuff (which is fine)
+// see https://github.com/fjall-rs/lsm-tree/issues/185
 
 /// Block that contains key-value pairs (user data)
 #[derive(Clone)]

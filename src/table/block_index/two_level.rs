@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::table::{IndexBlock, KeyedBlockHandle};
+use crate::SeqNo;
 use crate::{
     table::{
         block::BlockType,
@@ -59,8 +60,8 @@ pub struct Iter {
     lo_consumer: Option<OwnedIndexBlockIter>,
     hi_consumer: Option<OwnedIndexBlockIter>,
 
-    lo: Option<UserKey>,
-    hi: Option<UserKey>,
+    lo: Option<(UserKey, SeqNo)>,
+    hi: Option<(UserKey, SeqNo)>,
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
@@ -76,13 +77,13 @@ impl Iter {
     fn init_tli(&mut self) -> bool {
         let mut iter = OwnedIndexBlockIter::new(self.tli_block.clone(), IndexBlock::iter);
 
-        if let Some(lo) = &self.lo {
-            if !iter.seek_lower(lo) {
+        if let Some((lo_key, lo_seqno)) = &self.lo {
+            if !iter.seek_lower(lo_key, *lo_seqno) {
                 return false;
             }
         }
-        if let Some(hi) = &self.hi {
-            if !iter.seek_upper(hi) {
+        if let Some((hi_key, hi_seqno)) = &self.hi {
+            if !iter.seek_upper(hi_key, *hi_seqno) {
                 return false;
             }
         }
@@ -94,13 +95,13 @@ impl Iter {
 }
 
 impl BlockIndexIter for Iter {
-    fn seek_lower(&mut self, key: &[u8]) -> bool {
-        self.lo = Some(key.into());
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        self.lo = Some((key.into(), seqno));
         true
     }
 
-    fn seek_upper(&mut self, key: &[u8]) -> bool {
-        self.hi = Some(key.into());
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        self.hi = Some((key.into(), seqno));
         true
     }
 }
@@ -138,13 +139,13 @@ impl Iterator for Iter {
 
                 let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
 
-                if let Some(lo) = &self.lo {
-                    if !iter.seek_lower(lo) {
+                if let Some((lo_key, lo_seqno)) = &self.lo {
+                    if !iter.seek_lower(lo_key, *lo_seqno) {
                         return None;
                     }
                 }
-                if let Some(hi) = &self.hi {
-                    if !iter.seek_upper(hi) {
+                if let Some((hi_key, hi_seqno)) = &self.hi {
+                    if !iter.seek_upper(hi_key, *hi_seqno) {
                         return None;
                     }
                 }
@@ -201,13 +202,13 @@ impl DoubleEndedIterator for Iter {
 
                 let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
 
-                if let Some(lo) = &self.lo {
-                    if !iter.seek_lower(lo) {
+                if let Some((lo_key, lo_seqno)) = &self.lo {
+                    if !iter.seek_lower(lo_key, *lo_seqno) {
                         return None;
                     }
                 }
-                if let Some(hi) = &self.hi {
-                    if !iter.seek_upper(hi) {
+                if let Some((hi_key, hi_seqno)) = &self.hi {
+                    if !iter.seek_upper(hi_key, *hi_seqno) {
                         return None;
                     }
                 }

@@ -41,7 +41,7 @@ impl<'a> Iter<'a> {
         if !self
             .decoder
             .inner_mut()
-            .seek(|head_key| head_key < needle, false)
+            .seek(|head_key, _| head_key < needle, false)
         {
             return false;
         }
@@ -77,7 +77,7 @@ impl<'a> Iter<'a> {
         if !self
             .decoder
             .inner_mut()
-            .seek_upper(|head_key| head_key <= needle, false)
+            .seek_upper(|head_key, _| head_key <= needle, false)
         {
             return false;
         }
@@ -111,7 +111,7 @@ impl<'a> Iter<'a> {
         if !self
             .decoder
             .inner_mut()
-            .seek(|head_key| head_key < needle, false)
+            .seek(|head_key, _| head_key < needle, false)
         {
             return false;
         }
@@ -138,7 +138,7 @@ impl<'a> Iter<'a> {
         if !self
             .decoder
             .inner_mut()
-            .seek_upper(|head_key| head_key <= needle, false)
+            .seek_upper(|head_key, _| head_key <= needle, false)
         {
             return false;
         }

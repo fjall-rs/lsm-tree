@@ -194,7 +194,7 @@ impl Iterator for Iter {
                 let key = match bound {
                     Bound::Included(k) | Bound::Excluded(k) => k,
                 };
-                ok = self.index_iter.seek_lower(key);
+                ok = self.index_iter.seek_lower(key, u64::MAX);
             }
 
             if ok {
@@ -204,7 +204,7 @@ impl Iterator for Iter {
                     let key = match bound {
                         Bound::Included(k) | Bound::Excluded(k) => k,
                     };
-                    ok = self.index_iter.seek_upper(key);
+                    ok = self.index_iter.seek_upper(key, u64::MAX);
                 }
             }
 
@@ -318,7 +318,7 @@ impl DoubleEndedIterator for Iter {
                 let key = match bound {
                     Bound::Included(k) | Bound::Excluded(k) => k,
                 };
-                ok = self.index_iter.seek_lower(key);
+                ok = self.index_iter.seek_lower(key, u64::MAX);
             }
 
             if ok {
@@ -326,7 +326,7 @@ impl DoubleEndedIterator for Iter {
                     let key = match bound {
                         Bound::Included(k) | Bound::Excluded(k) => k,
                     };
-                    ok = self.index_iter.seek_upper(key);
+                    ok = self.index_iter.seek_upper(key, u64::MAX);
                 }
             }
 
