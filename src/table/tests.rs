@@ -1318,6 +1318,8 @@ fn table_global_seqno() -> crate::Result<()> {
         Arc::new(crate::DescriptorTable::new(10)),
         true,
         true,
+        #[cfg(feature = "metrics")]
+        Default::default(),
     )
     .unwrap();
 
