@@ -95,8 +95,6 @@ impl ParsedMeta {
                 .expect("Table version should exist")
                 .value;
 
-            assert_eq!(1, table_version.len(), "invalid table version byte array");
-
             assert_eq!(
                 [3u8],
                 &*table_version,
