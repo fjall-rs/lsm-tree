@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    checksum::ChecksumType,
     coding::{Decode, Encode},
     table::{Block, DataBlock},
     vlog::BlobFileId,
@@ -69,7 +70,7 @@ impl Metadata {
         #[rustfmt::skip]
         let meta_items = [
             meta("blob_file_version", &[0x3]),
-            meta("checksum_type", b"xxh3"),
+            meta("checksum_type", &[u8::from(ChecksumType::Xxh3)]),
             meta("compression", &self.compression.encode_into_vec()),
             meta("crate_version", env!("CARGO_PKG_VERSION").as_bytes()),
             meta("created_at", &self.created_at.to_le_bytes()),

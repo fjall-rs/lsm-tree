@@ -666,27 +666,13 @@ impl Tree {
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
         let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
 
-        for level in version.iter_levels() {
-            for run in level.iter() {
-                // NOTE: Based on benchmarking, binary search is only worth it with ~4 tables
-                if run.len() >= 4 {
-                    if let Some(table) = run.get_for_key(key) {
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                    }
-                } else {
-                    // NOTE: Fallback to linear search
-                    for table in run.iter() {
-                        if !table.is_key_in_key_range(key) {
-                            continue;
-                        }
-
-                        if let Some(item) = table.get(key, seqno, key_hash)? {
-                            return Ok(ignore_tombstone_value(item));
-                        }
-                    }
-                }
+        for table in version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .filter_map(|run| run.get_for_key(key))
+        {
+            if let Some(item) = table.get(key, seqno, key_hash)? {
+                return Ok(ignore_tombstone_value(item));
             }
         }
 

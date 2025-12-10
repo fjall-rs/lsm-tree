@@ -5,6 +5,7 @@
 use crate::{
     double_ended_peekable::{DoubleEndedPeekable, DoubleEndedPeekableExt},
     table::{block::Decoder, index_block::IndexBlockParsedItem, KeyedBlockHandle},
+    SeqNo,
 };
 
 pub struct Iter<'a> {
@@ -21,16 +22,21 @@ impl<'a> Iter<'a> {
         Self { decoder }
     }
 
-    pub fn seek(&mut self, needle: &[u8]) -> bool {
-        self.decoder
-            .inner_mut()
-            .seek(|end_key| end_key < needle, true)
+    pub fn seek(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.decoder.inner_mut().seek(
+            |end_key, s| match end_key.cmp(needle) {
+                std::cmp::Ordering::Greater => false,
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => s >= seqno,
+            },
+            true,
+        )
     }
 
-    pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
+    pub fn seek_upper(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.decoder
             .inner_mut()
-            .seek_upper(|end_key| end_key <= needle, true)
+            .seek_upper(|end_key, s| end_key <= needle, true)
     }
 }
 
@@ -53,7 +59,7 @@ mod tests {
     use crate::{
         table::{
             block::{BlockType, Header, ParsedItem},
-            Block, BlockOffset, IndexBlock, KeyedBlockHandle,
+            Block, BlockHandle, BlockOffset, IndexBlock, KeyedBlockHandle,
         },
         Checksum,
     };
@@ -62,9 +68,17 @@ mod tests {
     #[test]
     fn index_block_iter_seek_before_start() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -82,7 +96,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek(b"a"), "should seek");
+        assert!(iter.seek(b"a", 0), "should seek");
 
         let iter = index_block
             .iter()
@@ -98,9 +112,17 @@ mod tests {
     #[test]
     fn index_block_iter_seek_start() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -118,7 +140,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek(b"b"), "should seek");
+        assert!(iter.seek(b"b", 1), "should seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -132,9 +154,17 @@ mod tests {
     #[test]
     fn index_block_iter_seek_middle() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -152,7 +182,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek(b"c"), "should seek");
+        assert!(iter.seek(b"c", 0), "should seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -169,9 +199,17 @@ mod tests {
     #[test]
     fn index_block_iter_rev_seek() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -189,7 +227,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek_upper(b"c"), "should seek");
+        assert!(iter.seek_upper(b"c", 0), "should seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -203,9 +241,17 @@ mod tests {
     #[test]
     fn index_block_iter_rev_seek_2() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -223,7 +269,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek_upper(b"e"), "should seek");
+        assert!(iter.seek_upper(b"e", 0), "should seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -237,9 +283,17 @@ mod tests {
     #[test]
     fn index_block_iter_rev_seek_3() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -257,7 +311,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(iter.seek_upper(b"b"), "should seek");
+        assert!(iter.seek_upper(b"b", 1), "should seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -274,9 +328,17 @@ mod tests {
     #[test]
     fn index_block_iter_too_far() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -294,7 +356,7 @@ mod tests {
         assert_eq!(index_block.len(), items.len());
 
         let mut iter = index_block.iter();
-        assert!(!iter.seek(b"zzz"), "should not seek");
+        assert!(!iter.seek(b"zzz", 0), "should not seek");
 
         let real_items: Vec<_> = iter
             .map(|item| item.materialize(&index_block.inner.data))
@@ -308,9 +370,17 @@ mod tests {
     #[test]
     fn index_block_iter_too_far_next_back() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"bcdef".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"def".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(
+                b"bcdef".into(),
+                0,
+                BlockHandle::new(BlockOffset(6_000), 7_000),
+            ),
+            KeyedBlockHandle::new(
+                b"def".into(),
+                0,
+                BlockHandle::new(BlockOffset(13_000), 5_000),
+            ),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -326,7 +396,7 @@ mod tests {
         });
 
         let mut iter = index_block.iter();
-        assert!(!iter.seek(b"zzz"), "should not seek");
+        assert!(!iter.seek(b"zzz", 0), "should not seek");
 
         assert!(iter.next().is_none(), "iterator should be exhausted");
         assert!(
@@ -338,11 +408,11 @@ mod tests {
     }
 
     #[test]
-    fn index_block_iter_span() -> crate::Result<()> {
+    fn index_block_mvcc_slab() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"a".into(), 3, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(b"a".into(), 1, BlockHandle::new(BlockOffset(6_000), 7_000)),
+            KeyedBlockHandle::new(b"b".into(), 4, BlockHandle::new(BlockOffset(13_000), 5_000)),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -361,7 +431,110 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek(b"a"), "should seek");
+            assert!(iter.seek(b"a", 5), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(items, &*real_items);
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 4), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(items, &*real_items);
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 3), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 2), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items.iter().skip(1).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 1), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items.iter().skip(2).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 0), "should seek");
+
+            let real_items: Vec<_> = iter
+                .map(|item| item.materialize(&index_block.inner.data))
+                .collect();
+
+            assert_eq!(
+                items.iter().skip(2).cloned().collect::<Vec<_>>(),
+                &*real_items,
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn index_block_iter_span() -> crate::Result<()> {
+        let items = [
+            KeyedBlockHandle::new(b"a".into(), 1, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(b"a".into(), 0, BlockHandle::new(BlockOffset(6_000), 7_000)),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
+        ];
+
+        let bytes = IndexBlock::encode_into_vec(&items)?;
+
+        let index_block = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                block_type: BlockType::Index,
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+            },
+        });
+
+        assert_eq!(index_block.len(), items.len());
+
+        {
+            let mut iter = index_block.iter();
+            assert!(iter.seek(b"a", 2), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))
@@ -372,7 +545,7 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek(b"b"), "should seek");
+            assert!(iter.seek(b"b", 1), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))
@@ -390,9 +563,9 @@ mod tests {
     #[test]
     fn index_block_iter_rev_span() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"a".into(), BlockOffset(6_000), 7_000),
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"a".into(), 1, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(b"a".into(), 0, BlockHandle::new(BlockOffset(6_000), 7_000)),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -411,7 +584,7 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek_upper(b"a"), "should seek");
+            assert!(iter.seek_upper(b"a", 2), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))
@@ -422,7 +595,7 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek_upper(b"b"), "should seek");
+            assert!(iter.seek_upper(b"b", 1), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))
@@ -437,11 +610,11 @@ mod tests {
     #[test]
     fn index_block_iter_range_1() -> crate::Result<()> {
         let items = [
-            KeyedBlockHandle::new(b"a".into(), BlockOffset(0), 6_000),
-            KeyedBlockHandle::new(b"b".into(), BlockOffset(13_000), 5_000),
-            KeyedBlockHandle::new(b"c".into(), BlockOffset(13_000), 5_000),
-            KeyedBlockHandle::new(b"d".into(), BlockOffset(13_000), 5_000),
-            KeyedBlockHandle::new(b"e".into(), BlockOffset(13_000), 5_000),
+            KeyedBlockHandle::new(b"a".into(), 0, BlockHandle::new(BlockOffset(0), 6_000)),
+            KeyedBlockHandle::new(b"b".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
+            KeyedBlockHandle::new(b"c".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
+            KeyedBlockHandle::new(b"d".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
+            KeyedBlockHandle::new(b"e".into(), 0, BlockHandle::new(BlockOffset(13_000), 5_000)),
         ];
 
         let bytes = IndexBlock::encode_into_vec(&items)?;
@@ -460,8 +633,8 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek(b"b"), "should seek");
-            assert!(iter.seek_upper(b"c"), "should seek");
+            assert!(iter.seek(b"b", 1), "should seek");
+            assert!(iter.seek_upper(b"c", 1), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))
@@ -475,8 +648,8 @@ mod tests {
 
         {
             let mut iter = index_block.iter();
-            assert!(iter.seek(b"b"), "should seek");
-            assert!(iter.seek_upper(b"c"), "should seek");
+            assert!(iter.seek(b"b", 1), "should seek");
+            assert!(iter.seek_upper(b"c", 1), "should seek");
 
             let real_items: Vec<_> = iter
                 .map(|item| item.materialize(&index_block.inner.data))

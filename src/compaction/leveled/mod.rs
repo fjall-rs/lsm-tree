@@ -20,7 +20,7 @@ fn pick_minimal_compaction(
     curr_run: &Run<Table>,
     next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
-    _overshoot: u64,
+    overshoot: u64,
     table_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
@@ -70,9 +70,9 @@ fn pick_minimal_compaction(
 
                 let curr_level_size = curr_level_pull_in.iter().map(Table::file_size).sum::<u64>();
 
-                // if curr_level_size < overshoot {
-                //     return None;
-                // }
+                if curr_level_size < overshoot {
+                    return None;
+                }
 
                 if hidden_set.is_blocked(curr_level_pull_in.iter().map(Table::id)) {
                     // IMPORTANT: Compaction is blocked because of other
@@ -82,16 +82,16 @@ fn pick_minimal_compaction(
 
                 let next_level_size = window.iter().map(Table::file_size).sum::<u64>();
 
-                //  let compaction_bytes = curr_level_size + next_level_size;
+                let compaction_bytes = curr_level_size + next_level_size;
 
                 #[expect(clippy::cast_precision_loss)]
                 let write_amp = (next_level_size as f32) / (curr_level_size as f32);
 
-                Some((window, curr_level_pull_in, write_amp))
+                Some((window, curr_level_pull_in, write_amp, compaction_bytes))
             })
-            // Find the compaction with the smallest write amplification factor
-            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(window, curr_level_pull_in, _)| {
+            // Find the compaction with the smallest write set
+            .min_by_key(|(_, _, _waf, bytes)| *bytes)
+            .map(|(window, curr_level_pull_in, _, _)| {
                 let mut ids: HashSet<_> = window.iter().map(Table::id).collect();
                 ids.extend(curr_level_pull_in.iter().map(Table::id));
                 (ids, false)
@@ -256,13 +256,15 @@ impl CompactionStrategy for Strategy {
 
         // Find the level that corresponds to L1
         #[expect(clippy::map_unwrap_or)]
-        let mut canonical_l1_idx = version
+        let first_non_empty_level = version
             .iter_levels()
             .enumerate()
             .skip(1)
             .find(|(_, lvl)| !lvl.is_empty())
             .map(|(idx, _)| idx)
             .unwrap_or_else(|| version.level_count() - 1);
+
+        let mut canonical_l1_idx = first_non_empty_level;
 
         // Number of levels we have to shift to get from the actual level idx to the canonical
         let mut level_shift = canonical_l1_idx - 1;
@@ -298,15 +300,16 @@ impl CompactionStrategy for Strategy {
         // Trivial move into L1
         'trivial: {
             let first_level = version.l0();
+            let target_level_idx = first_non_empty_level.min(canonical_l1_idx);
 
             if first_level.run_count() == 1 {
                 if version.level_is_busy(0, state.hidden_set())
-                    || version.level_is_busy(canonical_l1_idx, state.hidden_set())
+                    || version.level_is_busy(target_level_idx, state.hidden_set())
                 {
                     break 'trivial;
                 }
 
-                let Some(target_level) = &version.level(canonical_l1_idx) else {
+                let Some(target_level) = &version.level(target_level_idx) else {
                     break 'trivial;
                 };
 
@@ -326,7 +329,7 @@ impl CompactionStrategy for Strategy {
                 if get_overlapping.is_none() && first_level.is_disjoint() {
                     return Choice::Move(CompactionInput {
                         table_ids: first_level.list_ids(),
-                        dest_level: canonical_l1_idx as u8,
+                        dest_level: target_level_idx as u8,
                         canonical_level: 1,
                         target_size: self.target_size,
                     });
@@ -343,10 +346,8 @@ impl CompactionStrategy for Strategy {
             // decisions can prioritize tables that would free the most reclaimable values.
 
             // Score first level
-
             let first_level = version.l0();
 
-            // TODO: use run_count instead? but be careful because of version free list GC thingy
             if first_level.table_count() >= usize::from(self.l0_threshold) {
                 let ratio = (first_level.table_count() as f64) / f64::from(self.l0_threshold);
                 scores[0] = (ratio, 0);
@@ -444,12 +445,6 @@ impl CompactionStrategy for Strategy {
                 target_size: self.target_size,
             };
 
-            /* eprintln!(
-                "merge {} tables, L0->L1: {:?}",
-                choice.segment_ids.len(),
-                choice.segment_ids,
-            ); */
-
             if target_level_overlapping_table_ids.is_empty() && first_level.is_disjoint() {
                 return Choice::Move(choice);
             }
@@ -491,14 +486,6 @@ impl CompactionStrategy for Strategy {
             canonical_level: next_level_index - (level_shift as u8),
             target_size: self.target_size,
         };
-
-        /* eprintln!(
-            "{} {} tables, L{}->L{next_level_index}: {:?}",
-            if can_trivial_move { "move" } else { "merge" },
-            choice.segment_ids.len(),
-            next_level_index - 1,
-            choice.segment_ids,
-        ); */
 
         if can_trivial_move && level.is_disjoint() {
             return Choice::Move(choice);

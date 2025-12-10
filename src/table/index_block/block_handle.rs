@@ -2,7 +2,6 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::UserKey;
 use crate::{
     coding::{Decode, Encode},
     table::{
@@ -12,6 +11,7 @@ use crate::{
     },
     unwrap,
 };
+use crate::{SeqNo, UserKey};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Seek};
 use varint_rs::{VarintReader, VarintWriter};
@@ -72,6 +72,9 @@ pub struct KeyedBlockHandle {
     /// Key of last item in block
     end_key: UserKey,
 
+    /// Seqno of last item in block
+    seqno: SeqNo,
+
     inner: BlockHandle,
 }
 
@@ -88,11 +91,16 @@ impl KeyedBlockHandle {
     }
 
     #[must_use]
-    pub fn new(end_key: UserKey, offset: BlockOffset, size: u32) -> Self {
+    pub fn new(end_key: UserKey, seqno: SeqNo, handle: BlockHandle) -> Self {
         Self {
             end_key,
-            inner: BlockHandle::new(offset, size),
+            seqno,
+            inner: handle,
         }
+    }
+
+    pub fn seqno(&self) -> SeqNo {
+        self.seqno
     }
 
     pub fn shift(&mut self, delta: BlockOffset) {
@@ -134,16 +142,18 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
         state: &mut BlockOffset,
     ) -> crate::Result<()> {
         // We encode restart markers as:
-        // [marker=0] [offset] [size] [key len] [end key]
-        // 1          2        3      4         5
+        // [marker=0] [offset] [size] [seqno] [key len] [end key]
+        // 1          2        3      4       5         6
 
         writer.write_u8(0)?; // 1
 
         self.inner.encode_into(writer)?; // 2, 3
 
+        unwrap!(writer.write_u64_varint(self.seqno)); // 4
+
         #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
-        writer.write_u16_varint(self.end_key.len() as u16)?; // 4
-        writer.write_all(&self.end_key)?; // 5
+        writer.write_u16_varint(self.end_key.len() as u16)?; // 5
+        writer.write_all(&self.end_key)?; // 6
 
         *state = BlockOffset(*self.offset() + u64::from(self.size()));
 
@@ -152,33 +162,12 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
 
     fn encode_truncated_into<W: std::io::Write>(
         &self,
-        writer: &mut W,
-        state: &mut BlockOffset,
-        shared_len: usize,
+        _writer: &mut W,
+        _state: &mut BlockOffset,
+        _shared_len: usize,
     ) -> crate::Result<()> {
-        // We encode truncated handles as:
-        // [marker=0] [size] [shared prefix len] [rest key len] [rest key]
-        // 1          2      3                   4              5
-
-        writer.write_u8(0)?; // 1
-
-        writer.write_u32_varint(self.size())?; // 2
-
-        // TODO: maybe we can skip this varint altogether if prefix truncation = false
-        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
-        writer.write_u16_varint(shared_len as u16)?; // 3
-
-        let rest_len = self.end_key.len() - shared_len;
-
-        #[expect(clippy::cast_possible_truncation, reason = "keys are u16 long max")]
-        writer.write_u16_varint(rest_len as u16)?; // 4
-
-        let truncated_user_key = self.end_key.get(shared_len..).expect("should be in bounds");
-        writer.write_all(truncated_user_key)?; // 5
-
-        *state += u64::from(self.size());
-
-        Ok(())
+        // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
+        unimplemented!()
     }
 
     fn key(&self) -> &[u8] {
@@ -195,6 +184,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         }
 
         let handle = unwrap!(BlockHandle::decode_from(reader));
+        let seqno = unwrap!(reader.read_u64_varint());
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
@@ -206,6 +196,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
             end_key: SliceIndexes(key_start, key_start + key_len),
             offset: handle.offset(),
             size: handle.size(),
+            seqno,
         })
     }
 
@@ -213,7 +204,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         reader: &mut Cursor<&[u8]>,
         offset: usize,
         data: &'a [u8],
-    ) -> Option<&'a [u8]> {
+    ) -> Option<(&'a [u8], SeqNo)> {
         let marker = unwrap!(reader.read_u8());
 
         if marker == TRAILER_START_MARKER {
@@ -222,13 +213,16 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
 
         let _file_offset = unwrap!(reader.read_u64_varint());
         let _size = unwrap!(reader.read_u32_varint());
+        let seqno = unwrap!(reader.read_u64_varint());
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         let key_start = offset + reader.position() as usize;
 
         unwrap!(reader.seek_relative(key_len as i64));
 
-        data.get(key_start..(key_start + key_len))
+        let key = data.get(key_start..(key_start + key_len));
+
+        key.map(|k| (k, seqno))
     }
 
     fn parse_truncated(
@@ -236,6 +230,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         _offset: usize,
         _base_key_offset: usize,
     ) -> Option<IndexBlockParsedItem> {
+        // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
         unimplemented!()
     }
 }

@@ -7,8 +7,8 @@ use crate::{
     checksum::ChecksummedWriter,
     config::BloomConstructionPolicy,
     table::{
-        block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockOffset,
-        IndexBlock, KeyedBlockHandle,
+        block::Header as BlockHeader, filter::standard_bloom::Builder, Block, BlockHandle,
+        BlockOffset, IndexBlock, KeyedBlockHandle,
     },
     CompressionType, UserKey,
 };
@@ -75,12 +75,16 @@ impl PartitionedFilterWriter {
             CompressionType::None,
         )?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "data length never gets even close to 4 GiB"
+        )]
         let bytes_written = (header.data_length as usize + BlockHeader::serialized_len()) as u32;
 
         self.tli_handles.push(KeyedBlockHandle::new(
             key.clone(),
-            BlockOffset(self.relative_file_pos),
-            bytes_written,
+            0,
+            BlockHandle::new(BlockOffset(self.relative_file_pos), bytes_written),
         ));
 
         self.bloom_hash_buffer.clear();

@@ -11,12 +11,15 @@ use super::{
     KeyedBlockHandle,
 };
 use crate::{
-    checksum::ChecksummedWriter,
+    checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
-    table::writer::{
-        filter::{FilterWriter, FullFilterWriter},
-        index::FullIndexWriter,
+    table::{
+        writer::{
+            filter::{FilterWriter, FullFilterWriter},
+            index::FullIndexWriter,
+        },
+        BlockHandle,
     },
     time::unix_timestamp,
     vlog::BlobFileId,
@@ -313,8 +316,8 @@ impl Writer {
         self.index_writer
             .register_data_block(KeyedBlockHandle::new(
                 last.key.user_key.clone(),
-                self.meta.file_pos,
-                bytes_written,
+                last.key.seqno,
+                BlockHandle::new(self.meta.file_pos, bytes_written),
             ))?;
 
         // Adjust metadata
@@ -407,7 +410,7 @@ impl Writer {
                     "block_count#index",
                     &(index_block_count as u64).to_le_bytes(),
                 ),
-                meta("checksum_type", b"xxh3"),
+                meta("checksum_type", &[u8::from(ChecksumType::Xxh3)]),
                 meta(
                     "compression#data",
                     &self.data_block_compression.encode_into_vec(),
@@ -423,8 +426,9 @@ impl Writer {
                     &self.data_block_hash_ratio.to_le_bytes(),
                 ),
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
-                meta("filter_hash_type", b"xxh3"),
+                meta("filter_hash_type", &[u8::from(ChecksumType::Xxh3)]),
                 meta("id", &self.table_id.to_le_bytes()),
+                meta("index_keys_have_seqno", &[0x1]),
                 meta("initial_level", &self.initial_level.to_le_bytes()),
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
                 meta(

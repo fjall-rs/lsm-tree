@@ -2,6 +2,19 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum ChecksumType {
+    Xxh3,
+}
+
+impl From<ChecksumType> for u8 {
+    fn from(val: ChecksumType) -> Self {
+        match val {
+            ChecksumType::Xxh3 => 0,
+        }
+    }
+}
+
 /// An 128-bit checksum
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Checksum(u128);

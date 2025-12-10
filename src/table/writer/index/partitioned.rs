@@ -6,7 +6,7 @@ use crate::{
     checksum::ChecksummedWriter,
     table::{
         block::Header as BlockHeader, index_block::KeyedBlockHandle,
-        writer::index::BlockIndexWriter, Block, BlockOffset, IndexBlock,
+        writer::index::BlockIndexWriter, Block, BlockHandle, BlockOffset, IndexBlock,
     },
     CompressionType,
 };
@@ -79,8 +79,8 @@ impl PartitionedIndexWriter {
 
         let index_block_handle = KeyedBlockHandle::new(
             last.end_key().clone(),
-            BlockOffset(self.relative_file_pos),
-            bytes_written,
+            last.seqno(),
+            BlockHandle::new(BlockOffset(self.relative_file_pos), bytes_written),
         );
 
         self.tli_handles.push(index_block_handle);

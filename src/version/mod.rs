@@ -15,6 +15,7 @@ pub use run::Run;
 pub use super_version::{SuperVersion, SuperVersions};
 
 use crate::blob_tree::{FragmentationEntry, FragmentationMap};
+use crate::checksum::ChecksumType;
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
 use crate::version::recovery::Recovery;
@@ -630,7 +631,7 @@ impl Version {
         writer.write_u8(self.level_count() as u8)?;
 
         writer.start("filter_hash_type")?;
-        writer.write_all(b"xxh3")?;
+        writer.write_u8(u8::from(ChecksumType::Xxh3))?;
 
         //
         // Levels

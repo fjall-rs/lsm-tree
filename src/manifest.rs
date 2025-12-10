@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{FormatVersion, TreeType};
+use crate::{checksum::ChecksumType, FormatVersion, TreeType};
 use byteorder::ReadBytesExt;
 use std::{io::Read, path::Path};
 
@@ -64,7 +64,8 @@ impl Manifest {
 
             // Only one supported right now (and probably forever)
             assert_eq!(
-                b"xxh3", &*filter_hash_type,
+                &[u8::from(ChecksumType::Xxh3)],
+                &*filter_hash_type,
                 "filter_hash_type should be XXH3"
             );
         }

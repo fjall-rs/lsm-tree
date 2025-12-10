@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
-use crate::{coding::Decode, table::block::BlockType, CompressionType, KeyRange, SeqNo, TableId};
+use crate::{
+    checksum::ChecksumType, coding::Decode, table::block::BlockType, CompressionType, KeyRange,
+    SeqNo, TableId,
+};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{fs::File, ops::Deref};
 
@@ -92,8 +95,6 @@ impl ParsedMeta {
                 .expect("Table version should exist")
                 .value;
 
-            assert_eq!(1, table_version.len(), "invalid table version byte array");
-
             assert_eq!(
                 [3u8],
                 &*table_version,
@@ -109,7 +110,7 @@ impl ParsedMeta {
                 .value;
 
             assert_eq!(
-                b"xxh3",
+                &[u8::from(ChecksumType::Xxh3)],
                 &*hash_type,
                 "invalid hash type: {:?}",
                 std::str::from_utf8(&hash_type),
@@ -123,7 +124,7 @@ impl ParsedMeta {
                 .value;
 
             assert_eq!(
-                b"xxh3",
+                &[u8::from(ChecksumType::Xxh3)],
                 &*hash_type,
                 "invalid checksum type: {:?}",
                 std::str::from_utf8(&hash_type),
