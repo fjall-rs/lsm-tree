@@ -483,6 +483,17 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>>;
 
+    /// Todo
+    fn get_many_unsorted<'a>(
+        &'a self,
+        keys: impl IntoIterator<Item = &'a [u8]>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        std::hint::black_box(keys);
+        std::hint::black_box(seqno);
+        todo!()
+    }
+
     /// Returns `true` if the tree contains the specified key.
     ///
     /// # Examples
