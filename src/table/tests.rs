@@ -1282,3 +1282,57 @@ fn table_partitioned_index() -> crate::Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_global_seqno() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a0", "a0", 0, Value),
+        InternalValue::from_components("a1", "a1", 1, Value),
+        InternalValue::from_components("b", "b", 8, Value),
+    ];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_fuzz");
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+        .unwrap()
+        .use_partitioned_filter()
+        .use_data_block_size(1)
+        .use_meta_partition_size(1);
+
+    for item in items.iter().cloned() {
+        writer.write(item).unwrap();
+    }
+
+    let _trailer = writer.finish().unwrap();
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        7,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Arc::new(crate::DescriptorTable::new(10)),
+        true,
+        true,
+    )
+    .unwrap();
+
+    // global seqno is 7, so a1 is = 8 -> can not be read by snapshot=8
+    assert!(table
+        .get(b"a1", 8, BloomBuilder::get_hash(b"a1"))?
+        .is_none());
+
+    assert_eq!(
+        b"a0",
+        &*table
+            .get(b"a0", 8, BloomBuilder::get_hash(b"a0"))?
+            .unwrap()
+            .value,
+    );
+
+    Ok(())
+}
