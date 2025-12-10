@@ -46,6 +46,8 @@ pub struct Writer {
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
 
+    meta_partition_size: u32,
+
     data_block_size: u32,
 
     data_block_hash_ratio: f32,
@@ -110,6 +112,8 @@ impl Writer {
             index_block_restart_interval: 1,
 
             data_block_hash_ratio: 0.0,
+
+            meta_partition_size: 4_096,
 
             data_block_size: 4_096,
 
@@ -193,6 +197,18 @@ impl Writer {
             "data block size must be <= 4 MiB",
         );
         self.data_block_size = size;
+        self
+    }
+
+    #[must_use]
+    pub fn use_meta_partition_size(mut self, size: u32) -> Self {
+        assert!(
+            size <= 4 * 1_024 * 1_024,
+            "data block size must be <= 4 MiB",
+        );
+        self.meta_partition_size = size;
+        self.index_writer = self.index_writer.use_partition_size(size);
+        self.filter_writer = self.filter_writer.use_partition_size(size);
         self
     }
 

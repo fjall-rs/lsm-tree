@@ -87,14 +87,15 @@ impl PartitionedFilterWriter {
             BlockHandle::new(BlockOffset(self.relative_file_pos), bytes_written),
         ));
 
+        log::trace!(
+            "Built Bloom filter partition ({}B) with end_key={key:?} at +{:#X?}",
+            filter_bytes.len(),
+            self.relative_file_pos,
+        );
+
         self.bloom_hash_buffer.clear();
         self.approx_filter_size = 0;
         self.relative_file_pos += u64::from(bytes_written);
-
-        log::trace!(
-            "Built Bloom filter partition ({} B) with end_key={key:?}",
-            filter_bytes.len(),
-        );
 
         Ok(())
     }
@@ -129,7 +130,7 @@ impl PartitionedFilterWriter {
         debug_assert!(bytes_written > 0, "Top level index should never be empty");
 
         log::trace!(
-            "Written filter top level index, with {} pointers ({bytes_written} bytes)",
+            "Written filter top level index, with {} pointers ({bytes_written} bytes) at {index_base_offset:#X?}",
             self.tli_handles.len(),
         );
 
@@ -138,6 +139,11 @@ impl PartitionedFilterWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWriter {
+    fn use_partition_size(mut self: Box<Self>, size: u32) -> Box<dyn FilterWriter<W>> {
+        self.partition_size = size;
+        self
+    }
+
     fn use_tli_compression(
         mut self: Box<Self>,
         compression: CompressionType,
@@ -174,24 +180,26 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         mut self: Box<Self>,
         file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
     ) -> crate::Result<usize> {
-        if self.bloom_hash_buffer.is_empty() {
-            log::trace!("Filter writer has no buffered hashes - not building filter");
-            Ok(0)
-        } else {
+        if self.last_key.is_none() {
+            log::trace!("Filter writer has not seen any writes - not building filter");
+            return Ok(0);
+        }
+
+        if !self.bloom_hash_buffer.is_empty() {
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
-
-            let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
-
-            file_writer.start("filter")?;
-            file_writer.write_all(&self.final_filter_buffer)?;
-            log::trace!("Concatted filter partitions onto blocks file");
-
-            let block_count = self.tli_handles.len();
-
-            self.write_top_level_index(file_writer, index_base_offset)?;
-
-            Ok(block_count)
         }
+
+        let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
+
+        file_writer.start("filter")?;
+        file_writer.write_all(&self.final_filter_buffer)?;
+        log::trace!("Concatted filter partitions onto blocks file");
+
+        let block_count = self.tli_handles.len();
+
+        self.write_top_level_index(file_writer, index_base_offset)?;
+
+        Ok(block_count)
     }
 }

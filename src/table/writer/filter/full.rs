@@ -28,6 +28,10 @@ impl FullFilterWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
+    fn use_partition_size(self: Box<Self>, _: u32) -> Box<dyn FilterWriter<W>> {
+        self
+    }
+
     fn use_tli_compression(self: Box<Self>, _: CompressionType) -> Box<dyn FilterWriter<W>> {
         self
     }
@@ -74,7 +78,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
             };
 
             log::trace!(
-                "Built Bloom filter ({} B) in {:?}",
+                "Built Bloom filter ({}B) in {:?}",
                 filter_bytes.len(),
                 start.elapsed(),
             );

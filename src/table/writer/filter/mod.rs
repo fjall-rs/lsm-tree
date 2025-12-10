@@ -36,4 +36,6 @@ pub trait FilterWriter<W: std::io::Write> {
         self: Box<Self>,
         compression: CompressionType,
     ) -> Box<dyn FilterWriter<W>>;
+
+    fn use_partition_size(self: Box<Self>, size: u32) -> Box<dyn FilterWriter<W>>;
 }

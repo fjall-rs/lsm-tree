@@ -237,7 +237,10 @@ impl Table {
         #[cfg(feature = "metrics")]
         use std::sync::atomic::Ordering::Relaxed;
 
-        if (self.metadata.seqnos.0 + self.global_seqno()) >= seqno {
+        // Translate seqno to "our" seqno
+        let seqno = seqno.saturating_sub(self.global_seqno());
+
+        if self.metadata.seqnos.0 >= seqno {
             return Ok(None);
         }
 
@@ -299,8 +302,6 @@ impl Table {
         let Some(iter) = self.block_index.forward_reader(key, seqno) else {
             return Ok(None);
         };
-
-        let seqno = seqno.saturating_sub(self.global_seqno());
 
         for block_handle in iter {
             let block_handle = block_handle?;
