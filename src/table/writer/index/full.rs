@@ -27,6 +27,10 @@ impl FullIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter {
+    fn use_partition_size(self: Box<Self>, _: u32) -> Box<dyn BlockIndexWriter<W>> {
+        self
+    }
+
     fn use_compression(
         mut self: Box<Self>,
         compression: CompressionType,
@@ -69,6 +73,8 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
             reason = "blocks never even approach u32 size"
         )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
+
+        debug_assert!(bytes_written > 0, "Block index should never be empty");
 
         log::trace!(
             "Written top level index, with {} pointers ({bytes_written}B)",
