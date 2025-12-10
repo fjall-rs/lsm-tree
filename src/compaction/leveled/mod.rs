@@ -217,7 +217,7 @@ impl Strategy {
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
-                reason = "size is always positive and truncation is acceptable"
+                reason = "size is always positive and will never even come close to u64::MAX"
             )]
             {
                 size as u64
