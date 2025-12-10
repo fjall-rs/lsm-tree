@@ -20,7 +20,10 @@ impl Builder {
         // NOTE: We check if the pointers may fit in 16-bits
         // If so, we halve the index size by storing u16 instead of u32
         let step_size = {
-            #[expect(clippy::expect_used, reason = "vec is expected to not be empty")]
+            #[expect(
+                clippy::expect_used,
+                reason = "blocks are never empty, so the binary seek index cannot be empty either"
+            )]
             if u16::try_from(*self.0.last().expect("should not be empty")).is_ok() {
                 2
             } else {
@@ -35,7 +38,7 @@ impl Builder {
             for &offset in &self.0 {
                 #[expect(
                     clippy::cast_possible_truncation,
-                    reason = "truncation is not expected to happen"
+                    reason = "above we check that the last (highest) pointer still fits into u16"
                 )]
                 let offset = offset as u16;
                 writer.write_u16::<LittleEndian>(offset)?;
