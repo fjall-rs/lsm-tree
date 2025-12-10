@@ -40,13 +40,13 @@ impl RunReader {
         let hi = hi.unwrap_or(run.len() - 1);
 
         // TODO: lazily init readers?
-        #[expect(clippy::expect_used, reason = "lo is expected to exist in the run")]
+        #[expect(clippy::expect_used, reason = "we trust the caller to pass valid indexes")]
         let lo_table = run.deref().get(lo).expect("should exist");
         let lo_reader = lo_table.range(range.clone());
 
         // TODO: lazily init readers?
         let hi_reader = if hi > lo {
-            #[expect(clippy::expect_used, reason = "hi is expected to exist in the run")]
+            #[expect(clippy::expect_used, reason = "we trust the caller to pass valid indexes")]
             let hi_table = run.deref().get(hi).expect("should exist");
             Some(hi_table.range(range))
         } else {
@@ -81,7 +81,7 @@ impl Iterator for RunReader {
                     self.lo_reader = Some(Box::new(
                         #[expect(
                             clippy::expect_used,
-                            reason = "lo is expected to exist in the run"
+                            reason = "hi is at most equal to the last slot; so because 0 <= lo < hi, it must be a valid index"
                         )]
                         self.run.get(self.lo).expect("should exist").iter(),
                     ));
@@ -112,10 +112,7 @@ impl DoubleEndedIterator for RunReader {
 
                 if self.lo < self.hi {
                     self.hi_reader = Some(Box::new(
-                        #[expect(
-                            clippy::expect_used,
-                            reason = "hi is expected to exist in the run"
-                        )]
+                        #[expect(clippy::expect_used, reason = "because 0 <= lo <= hi, and hi monotonically decreases, hi must be a valid index")]
                         self.run.get(self.hi).expect("should exist").iter(),
                     ));
                 }
