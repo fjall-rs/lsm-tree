@@ -83,6 +83,12 @@ impl PartitionedIndexWriter {
             BlockHandle::new(BlockOffset(self.relative_file_pos), bytes_written),
         );
 
+        log::trace!(
+            "Built Bloom filter partition ({bytes_written}B) with end_key={:?} at +{:#X?}",
+            last.end_key(),
+            self.relative_file_pos,
+        );
+
         self.tli_handles.push(index_block_handle);
         self.final_write_buffer.append(&mut self.block_buffer);
 

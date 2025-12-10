@@ -1169,3 +1169,116 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_partitioned_index() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a", "a7", 7, Value),
+        InternalValue::from_components("a", "a6", 6, Value),
+        InternalValue::from_components("a", "a5", 5, Value),
+        InternalValue::from_components("a", "a4", 4, Value),
+        InternalValue::from_components("a", "a3", 3, Value),
+        InternalValue::from_components("b", "b5", 5, Value),
+        InternalValue::from_components("c", "c8", 8, Value),
+        InternalValue::from_components("d", "d10", 10, Value),
+    ];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_fuzz");
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+        .unwrap()
+        .use_partitioned_index()
+        .use_data_block_size(5)
+        .use_meta_partition_size(3);
+
+    for item in items.iter().cloned() {
+        writer.write(item).unwrap();
+    }
+
+    let _trailer = writer.finish().unwrap();
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Arc::new(crate::DescriptorTable::new(10)),
+        true,
+        true,
+    )
+    .unwrap();
+
+    assert!(
+        table.regions.index.is_some(),
+        "2nd-level index should exist",
+    );
+
+    assert!(
+        table.metadata.index_block_count > 1,
+        "should use partitioned index",
+    );
+
+    assert_eq!(
+        b"a7",
+        &*table
+            .get(b"a", 8, BloomBuilder::get_hash(b"a"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"a6",
+        &*table
+            .get(b"a", 7, BloomBuilder::get_hash(b"a"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"a5",
+        &*table
+            .get(b"a", 6, BloomBuilder::get_hash(b"a"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"a4",
+        &*table
+            .get(b"a", 5, BloomBuilder::get_hash(b"a"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"a3",
+        &*table
+            .get(b"a", 4, BloomBuilder::get_hash(b"a"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"b5",
+        &*table
+            .get(b"b", 6, BloomBuilder::get_hash(b"b"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"c8",
+        &*table
+            .get(b"c", 9, BloomBuilder::get_hash(b"c"))?
+            .unwrap()
+            .value,
+    );
+    assert_eq!(
+        b"d10",
+        &*table
+            .get(b"d", 11, BloomBuilder::get_hash(b"d"))?
+            .unwrap()
+            .value,
+    );
+
+    Ok(())
+}
