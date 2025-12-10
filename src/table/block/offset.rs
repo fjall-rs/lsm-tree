@@ -25,9 +25,3 @@ impl std::ops::AddAssign<u64> for BlockOffset {
         self.0 += rhs;
     }
 }
-
-impl std::fmt::Display for BlockOffset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}

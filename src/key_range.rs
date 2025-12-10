@@ -16,17 +16,6 @@ use std::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange(UserKey, UserKey);
 
-impl std::fmt::Display for KeyRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "[{}<=>{}]",
-            String::from_utf8_lossy(self.min()),
-            String::from_utf8_lossy(self.max())
-        )
-    }
-}
-
 impl KeyRange {
     /// Creates a new key range.
     #[must_use]

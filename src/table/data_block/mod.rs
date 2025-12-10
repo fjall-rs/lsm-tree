@@ -295,12 +295,6 @@ impl DataBlock {
         &self.inner.data
     }
 
-    /// Returns the uncompressed block size in bytes.
-    #[must_use]
-    pub fn size(&self) -> usize {
-        self.inner.size()
-    }
-
     pub(crate) fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
         use std::mem::size_of;
 

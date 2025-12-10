@@ -68,12 +68,6 @@ pub type TableInner = Inner;
 #[derive(Clone)]
 pub struct Table(Arc<Inner>);
 
-impl From<Inner> for Table {
-    fn from(value: Inner) -> Self {
-        Self(Arc::new(value))
-    }
-}
-
 impl std::ops::Deref for Table {
     type Target = Inner;
 
@@ -82,6 +76,7 @@ impl std::ops::Deref for Table {
     }
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for Table {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
@@ -575,11 +570,6 @@ impl Table {
         self.0
             .is_deleted
             .store(true, std::sync::atomic::Ordering::Release);
-    }
-
-    #[must_use]
-    pub fn is_key_in_key_range(&self, key: &[u8]) -> bool {
-        self.metadata.key_range.contains_key(key)
     }
 
     /// Checks if a key range is (partially or fully) contained in this table.
