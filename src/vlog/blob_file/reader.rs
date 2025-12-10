@@ -31,6 +31,10 @@ impl<'a> Reader<'a> {
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "32 architectures are not supported"
+        )]
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,
@@ -58,6 +62,10 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "32 architectures are not supported"
+        )]
         let raw_data = value.slice((add_size as usize)..);
 
         {

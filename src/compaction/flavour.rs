@@ -86,6 +86,7 @@ pub(super) fn prepare_table_writer(
         table_writer = table_writer.use_partitioned_filter();
     }
 
+    #[expect(clippy::cast_possible_truncation, reason = "max key size = u16")]
     let last_level = (version.level_count() - 1) as u8;
     let is_last_level = payload.dest_level == last_level;
 
@@ -183,6 +184,7 @@ impl CompactionFlavour for RelocatingCompaction {
             {
                 self.drain_blobs(&item.key.user_key, &indirection)?;
 
+                #[expect(clippy::expect_used, reason = "vptr is expected to match with blob")]
                 let (blob_entry, blob_file_id) = self
                     .blob_scanner
                     .next()
@@ -287,7 +289,7 @@ impl CompactionFlavour for RelocatingCompaction {
                         Some(blob_frag_map_diff)
                     },
                     created_blob_files,
-                    blob_files_to_drop
+                    &blob_files_to_drop
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),
@@ -416,7 +418,7 @@ impl CompactionFlavour for StandardCompaction {
                         Some(blob_frag_map)
                     },
                     Vec::default(),
-                    blob_files_to_drop
+                    &blob_files_to_drop
                         .iter()
                         .map(BlobFile::id)
                         .collect::<HashSet<_>>(),

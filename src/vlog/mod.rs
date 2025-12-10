@@ -83,6 +83,10 @@ pub fn recover_blob_files(
                 })?;
 
                 let file = std::fs::File::open(&blob_file_path)?;
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "32 architectures are not supported"
+                )]
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),

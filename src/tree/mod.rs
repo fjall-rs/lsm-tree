@@ -91,6 +91,7 @@ impl AbstractTree for Tree {
     fn get_version_history_lock(
         &self,
     ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history.write().expect("lock is poisoned")
     }
 
@@ -107,6 +108,7 @@ impl AbstractTree for Tree {
     }
 
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .version_history
             .read()
@@ -117,6 +119,7 @@ impl AbstractTree for Tree {
     }
 
     fn current_version(&self) -> Version {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("poisoned")
@@ -125,6 +128,7 @@ impl AbstractTree for Tree {
     }
 
     fn get_flush_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.flush_lock.lock().expect("lock is poisoned")
     }
 
@@ -134,6 +138,7 @@ impl AbstractTree for Tree {
     }
 
     fn version_free_list_len(&self) -> usize {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("lock is poisoned")
@@ -198,6 +203,7 @@ impl AbstractTree for Tree {
         let strategy = Arc::new(crate::compaction::drop_range::Strategy::new(bounds));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let _lock = self
             .0
             .major_compaction_lock
@@ -230,6 +236,7 @@ impl AbstractTree for Tree {
         let strategy = Arc::new(crate::compaction::major::Strategy::new(target_size));
 
         // IMPORTANT: Write lock so we can be the only compaction going on
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let _lock = self
             .0
             .major_compaction_lock
@@ -275,6 +282,7 @@ impl AbstractTree for Tree {
     }
 
     fn sealed_memtable_count(&self) -> usize {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("lock is poisoned")
@@ -389,7 +397,9 @@ impl AbstractTree for Tree {
             blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
         );
 
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = self.compaction_state.lock().expect("lock is poisoned");
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
         version_lock.upgrade_version(
@@ -424,6 +434,7 @@ impl AbstractTree for Tree {
     fn clear_active_memtable(&self) {
         use crate::tree::sealed::SealedMemtables;
 
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
         let super_version = version_history_lock.latest_version();
 
@@ -444,6 +455,7 @@ impl AbstractTree for Tree {
     }
 
     fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
         version_lock.append_sealed_memtable(memtable);
     }
@@ -456,6 +468,7 @@ impl AbstractTree for Tree {
         // NOTE: Read lock major compaction lock
         // That way, if a major compaction is running, we cannot proceed
         // But in general, parallel (non-major) compactions can occur
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let _lock = self
             .0
             .major_compaction_lock
@@ -474,6 +487,7 @@ impl AbstractTree for Tree {
     }
 
     fn active_memtable(&self) -> Arc<Memtable> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("lock is poisoned")
@@ -487,6 +501,7 @@ impl AbstractTree for Tree {
 
     #[expect(clippy::significant_drop_tightening)]
     fn rotate_memtable(&self) -> Option<Arc<Memtable>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_history_lock = self.version_history.write().expect("lock is poisoned");
         let super_version = version_history_lock.latest_version();
 
@@ -523,6 +538,7 @@ impl AbstractTree for Tree {
     }
 
     fn approximate_len(&self) -> usize {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .version_history
             .read()
@@ -542,6 +558,7 @@ impl AbstractTree for Tree {
             .map(|mt| mt.len())
             .sum::<usize>() as u64;
 
+        #[expect(clippy::expect_used, reason = "result should fit into usize")]
         (memtable_count + sealed_count + tables_item_count)
             .try_into()
             .expect("should not be too large")
@@ -555,6 +572,7 @@ impl AbstractTree for Tree {
     }
 
     fn get_highest_memtable_seqno(&self) -> Option<SeqNo> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let version = self
             .version_history
             .read()
@@ -694,6 +712,7 @@ impl Tree {
     }
 
     pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("lock is poisoned")
@@ -767,6 +786,7 @@ impl Tree {
         Ok(tree)
     }
 
+    #[expect(dead_code, reason = "this will be called in the future")]
     pub(crate) fn consume_writer(
         &self,
         writer: crate::table::Writer,
@@ -804,6 +824,7 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn is_compacting(&self) -> bool {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         !self
             .compaction_state
             .lock()
@@ -846,8 +867,12 @@ impl Tree {
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
-        let version_history_lock = self.version_history.read().expect("lock is poisoned");
-        let super_version = version_history_lock.get_version_for_snapshot(seqno);
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
 
         Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
@@ -874,6 +899,7 @@ impl Tree {
     #[doc(hidden)]
     #[must_use]
     pub fn append_entry(&self, value: InternalValue) -> (u64, u64) {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
             .expect("lock is poisoned")
@@ -989,6 +1015,10 @@ impl Tree {
     }
 
     /// Recovers the level manifest, loading all tables from disk.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this function currently has too many lines, will be refactored in future"
+    )]
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,

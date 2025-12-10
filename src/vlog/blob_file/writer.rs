@@ -196,6 +196,10 @@ impl Writer {
     ///
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
     pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "value is expected to not be greater than 2^32"
+        )]
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
@@ -209,6 +213,7 @@ impl Writer {
             item_count: self.item_count,
             total_compressed_bytes: self.written_blob_bytes,
             total_uncompressed_bytes: self.uncompressed_bytes,
+            #[expect(clippy::expect_used, reason = "should have written at least 1 item")]
             key_range: KeyRange::new((
                 self.first_key
                     .clone()

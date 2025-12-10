@@ -12,6 +12,10 @@ pub trait Encode {
     /// Serializes into vector.
     fn encode_into_vec(&self) -> Vec<u8> {
         let mut v = vec![];
+        #[expect(
+            clippy::expect_used,
+            reason = "encoding into a vec is not expected to fail"
+        )]
         self.encode_into(&mut v).expect("cannot fail");
         v
     }

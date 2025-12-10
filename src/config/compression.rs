@@ -18,6 +18,7 @@ impl std::ops::Deref for CompressionPolicy {
 
 impl CompressionPolicy {
     pub(crate) fn get(&self, level: usize) -> CompressionType {
+        #[expect(clippy::expect_used, reason = "policy is expected not to be empty")]
         self.0
             .get(level)
             .copied()
@@ -37,6 +38,10 @@ impl CompressionPolicy {
     }
 
     /// Constructs a custom compression policy.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy is empty or contains more than 255 elements.
     #[must_use]
     pub fn new(policy: impl Into<Vec<CompressionType>>) -> Self {
         let policy = policy.into();

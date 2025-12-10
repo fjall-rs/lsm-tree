@@ -101,6 +101,10 @@ impl Encode for Header {
             writer.checksum()
         };
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         // Write 2-byte checksum
         writer.write_u16::<LE>(checksum.into_u128() as u16)?;
 
@@ -135,6 +139,10 @@ impl Decode for Header {
         // Read data length
         let uncompressed_length = protected_reader.read_u32::<LE>()?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         // Get header checksum
         let got_checksum = protected_reader.checksum().into_u128() as u16;
         let got_checksum = Checksum::from_raw(u128::from(got_checksum));

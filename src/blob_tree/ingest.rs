@@ -33,6 +33,10 @@ impl<'a> BlobIngestion<'a> {
     ///
     /// Will return `Err` if an IO error occurs.
     pub fn new(tree: &'a crate::BlobTree) -> crate::Result<Self> {
+        #[expect(
+            clippy::expect_used,
+            reason = "kv separation option is expected to exist"
+        )]
         let kv = tree
             .index
             .config
@@ -179,7 +183,9 @@ impl<'a> BlobIngestion<'a> {
         // Acquire locks for version registration on the index tree. We must
         // hold both the compaction state lock and version history lock to
         // safely modify the tree's version.
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = index.compaction_state.lock().expect("lock is poisoned");
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = index.version_history.write().expect("lock is poisoned");
 
         // Allocate the next global sequence number. This seqno will be shared

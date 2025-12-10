@@ -197,6 +197,10 @@ impl Strategy {
             // u64::from(self.target_size)
             self.level_base_size()
         } else {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "precision loss is acceptable for level size calculations"
+            )]
             let mut size = self.level_base_size() as f32;
 
             // NOTE: Minus 2 because |{L0, L1}|
@@ -210,7 +214,14 @@ impl Strategy {
                 size *= ratio;
             }
 
-            size as u64
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "size is always positive and truncation is acceptable"
+            )]
+            {
+                size as u64
+            }
         }
     }
 }
@@ -237,10 +248,19 @@ impl CompactionStrategy for Strategy {
 
                     let mut v = vec![];
 
+                    #[expect(
+                        clippy::expect_used,
+                        clippy::cast_possible_truncation,
+                        reason = "writing a u8 is not expected to fail, policy length truncation is acceptable"
+                    )]
                     v.write_u8(self.level_ratio_policy.len() as u8)
                         .expect("cannot fail");
 
                     for &f in &self.level_ratio_policy {
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "writing a policy is not expected to fail"
+                        )]
                         v.write_f32::<LittleEndian>(f).expect("cannot fail");
                     }
 
@@ -285,6 +305,10 @@ impl CompactionStrategy for Strategy {
                         .map(Table::file_size)
                         .sum::<u64>();
 
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "level index is bounded by level count (7)"
+                    )]
                     let target_size = self.level_target_size((idx - level_shift) as u8);
 
                     level_size > target_size
@@ -327,6 +351,10 @@ impl CompactionStrategy for Strategy {
                     .next();
 
                 if get_overlapping.is_none() && first_level.is_disjoint() {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "level index is bounded by level count (7)"
+                    )]
                     return Choice::Move(CompactionInput {
                         table_ids: first_level.list_ids(),
                         dest_level: target_level_idx as u8,
@@ -349,6 +377,10 @@ impl CompactionStrategy for Strategy {
             let first_level = version.l0();
 
             if first_level.table_count() >= usize::from(self.l0_threshold) {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "precision loss is acceptable for scoring calculations"
+                )]
                 let ratio = (first_level.table_count() as f64) / f64::from(self.l0_threshold);
                 scores[0] = (ratio, 0);
             }
@@ -368,15 +400,21 @@ impl CompactionStrategy for Strategy {
                     .map(Table::file_size)
                     .sum::<u64>();
 
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "level index is bounded by level count (7)"
+                )]
                 let target_size = self.level_target_size((idx - level_shift) as u8);
 
                 // NOTE: We check for level length above
                 #[expect(clippy::indexing_slicing)]
                 if level_size > target_size {
-                    scores[idx] = (
-                        level_size as f64 / target_size as f64,
-                        level_size - target_size,
-                    );
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "precision loss is acceptable for scoring calculations"
+                    )]
+                    let score = level_size as f64 / target_size as f64;
+                    scores[idx] = (score, level_size - target_size);
 
                     // NOTE: Force a trivial move
                     if version
@@ -395,6 +433,7 @@ impl CompactionStrategy for Strategy {
         }
 
         // Choose compaction
+        #[expect(clippy::expect_used, reason = "highest score is expected to exist")]
         let (level_idx_with_highest_score, (score, overshoot_bytes)) = scores
             .into_iter()
             .enumerate()
@@ -438,6 +477,10 @@ impl CompactionStrategy for Strategy {
 
             table_ids.extend(&target_level_overlapping_table_ids);
 
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "level index is bounded by level count (7)"
+            )]
             let choice = CompactionInput {
                 table_ids,
                 dest_level: canonical_l1_idx as u8,
@@ -470,6 +513,7 @@ impl CompactionStrategy for Strategy {
         debug_assert!(level.is_disjoint(), "level should be disjoint");
         debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
 
+        #[expect(clippy::expect_used, reason = "first run is expected to exist")]
         let Some((table_ids, can_trivial_move)) = pick_minimal_compaction(
             level.first_run().expect("should have exactly one run"),
             next_level.first_run().map(std::ops::Deref::deref),
@@ -480,6 +524,10 @@ impl CompactionStrategy for Strategy {
             return Choice::DoNothing;
         };
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "level shift is bounded by level count (7)"
+        )]
         let choice = CompactionInput {
             table_ids,
             dest_level: next_level_index,

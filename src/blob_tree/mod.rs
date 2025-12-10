@@ -332,6 +332,10 @@ impl AbstractTree for BlobTree {
         self.index.get_flush_lock()
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this function currently has too many lines, will be refactored in future"
+    )]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
@@ -390,6 +394,10 @@ impl AbstractTree for BlobTree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "kv separation option is expected to exist"
+        )]
         let kv_opts = self
             .index
             .config
@@ -403,6 +411,7 @@ impl AbstractTree for BlobTree {
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(
+            #[expect(clippy::expect_used, reason = "blob option is expected to exist")]
             self.index
                 .config
                 .kv_separation_opts
@@ -594,6 +603,7 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
+        #[expect(clippy::expect_used, reason = "option is expected to exist")]
         let super_version = self
             .index
             .version_history

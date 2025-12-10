@@ -156,9 +156,13 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
         // SAFETY: pos is always retrieved from the binary index,
         // which we consider to be trustworthy
-        #[warn(unsafe_code)]
+        #[expect(
+            unsafe_code,
+            reason = "pos is always retrieved from the binary index which is trustworthy"
+        )]
         let mut cursor = Cursor::new(unsafe { bytes.get_unchecked(pos..) });
 
+        #[expect(clippy::expect_used, reason = "restart key is expected to exist")]
         Item::parse_restart_key(&mut cursor, pos, bytes).expect("should exist")
     }
 
@@ -353,6 +357,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         if is_restart {
             Item::parse_full(reader, offset)
         } else {
+            #[expect(clippy::expect_used, reason = "base key offset is expected to exist")]
             Item::parse_truncated(reader, offset, base_key_offset.expect("should exist"))
         }
     }
@@ -367,9 +372,16 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
             // SAFETY: The cursor is advanced by read_ operations which check for EOF,
             // And the cursor starts at 0 - the slice is never empty
-            #[warn(unsafe_code)]
+            #[expect(
+                unsafe_code,
+                reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
+            )]
             let mut reader = Cursor::new(unsafe { self.block.data.get_unchecked(offset..) });
 
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "truncation is not expected to happen"
+            )]
             if Item::parse_full(&mut reader, offset)
                 .inspect(|item| {
                     self.hi_scanner.offset += reader.position() as usize;
@@ -386,9 +398,17 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
             // SAFETY: The cursor is advanced by read_ operations which check for EOF,
             // And the cursor starts at 0 - the slice is never empty
-            #[warn(unsafe_code)]
+            #[expect(
+                unsafe_code,
+                reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
+            )]
             let mut reader = Cursor::new(unsafe { self.block.data.get_unchecked(offset..) });
 
+            #[expect(clippy::expect_used, reason = "base key offset is expected to exist")]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "truncation is not expected to happen"
+            )]
             if Item::parse_truncated(
                 &mut reader,
                 offset,
@@ -419,7 +439,10 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
         // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
+        #[expect(
+            unsafe_code,
+            reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
+        )]
         let mut reader = Cursor::new(unsafe { self.block.data.get_unchecked(offset..) });
 
         Self::parse_current_item(
@@ -445,10 +468,17 @@ impl<Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Iterator for Decoder<'_,
 
         // SAFETY: The cursor is advanced by read_ operations which check for EOF,
         // And the cursor starts at 0 - the slice is never empty
-        #[warn(unsafe_code)]
+        #[expect(
+            unsafe_code,
+            reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
+        )]
         let mut reader =
             Cursor::new(unsafe { self.block.data.get_unchecked(self.lo_scanner.offset..) });
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let item = Self::parse_current_item(
             &mut reader,
             self.lo_scanner.offset,

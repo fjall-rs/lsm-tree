@@ -14,7 +14,9 @@ use crate::metrics::Metrics;
 
 #[must_use]
 pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+    #[expect(clippy::expect_used, reason = "run is expected to not be empty")]
     let lo = tables.first().expect("run should never be empty");
+    #[expect(clippy::expect_used, reason = "run is expected to not be empty")]
     let hi = tables.last().expect("run should never be empty");
     KeyRange::new((lo.key_range().min().clone(), hi.key_range().max().clone()))
 }

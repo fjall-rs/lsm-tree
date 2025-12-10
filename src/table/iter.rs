@@ -186,16 +186,16 @@ impl Iterator for Iter {
             // Lazily initialize the index iterator here (not in `new`) so callers can set bounds
             // before we incur any seek or I/O cost. Bounds exclusivity is enforced at the data-
             // block level; index seeks only narrow the span of blocks to touch.
-            let mut ok = true;
-
-            if let Some(bound) = &self.range.0 {
+            let mut ok = if let Some(bound) = &self.range.0 {
                 // Seek to the first block whose end key is ≥ lower bound.
                 // If this fails we can immediately conclude the range is empty.
                 let key = match bound {
                     Bound::Included(k) | Bound::Excluded(k) => k,
                 };
-                ok = self.index_iter.seek_lower(key, u64::MAX);
-            }
+                self.index_iter.seek_lower(key, u64::MAX)
+            } else {
+                true
+            };
 
             if ok {
                 // Apply an upper-bound seek to cap the block span, but keep exact high-key
@@ -312,14 +312,14 @@ impl DoubleEndedIterator for Iter {
             // Mirror forward iteration: initialize lazily so bounds can be applied up-front. The
             // index only restricts which blocks we consider; tight bound enforcement happens in
             // the data block readers below.
-            let mut ok = true;
-
-            if let Some(bound) = &self.range.0 {
+            let mut ok = if let Some(bound) = &self.range.0 {
                 let key = match bound {
                     Bound::Included(k) | Bound::Excluded(k) => k,
                 };
-                ok = self.index_iter.seek_lower(key, u64::MAX);
-            }
+                self.index_iter.seek_lower(key, u64::MAX)
+            } else {
+                true
+            };
 
             if ok {
                 if let Some(bound) = &self.range.1 {

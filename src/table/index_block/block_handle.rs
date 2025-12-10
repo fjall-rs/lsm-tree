@@ -99,6 +99,7 @@ impl KeyedBlockHandle {
         }
     }
 
+    #[must_use]
     pub fn seqno(&self) -> SeqNo {
         self.seqno
     }
@@ -187,9 +188,18 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let seqno = unwrap!(reader.read_u64_varint());
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let key_start = offset + reader.position() as usize;
 
-        unwrap!(reader.seek_relative(key_len as i64));
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "key_len is bounded by u16::MAX, no wrap expected"
+        )]
+        let offset_i64 = key_len as i64;
+        unwrap!(reader.seek_relative(offset_i64));
 
         Some(IndexBlockParsedItem {
             prefix: None,
@@ -216,9 +226,18 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let seqno = unwrap!(reader.read_u64_varint());
 
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let key_start = offset + reader.position() as usize;
 
-        unwrap!(reader.seek_relative(key_len as i64));
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "key_len is bounded by u16::MAX, no wrap expected"
+        )]
+        let key_len_i64 = key_len as i64;
+        unwrap!(reader.seek_relative(key_len_i64));
 
         let key = data.get(key_start..(key_start + key_len));
 

@@ -8,6 +8,10 @@ use std::{io::Read, path::Path};
 
 pub struct Manifest {
     pub version: FormatVersion,
+    #[expect(
+        dead_code,
+        reason = "tree_type is not currently used, but needed in future"
+    )]
     pub tree_type: TreeType,
     pub level_count: u8,
 }
@@ -17,6 +21,10 @@ impl Manifest {
         let toc = reader.toc();
 
         let version = {
+            #[expect(
+                clippy::expect_used,
+                reason = "format_version section must exist in manifest"
+            )]
             let section = toc
                 .section(b"format_version")
                 .expect("format_version section must exist in manifest");
@@ -27,6 +35,10 @@ impl Manifest {
         };
 
         let tree_type = {
+            #[expect(
+                clippy::expect_used,
+                reason = "tree_type section must exist in manifest"
+            )]
             let section = toc
                 .section(b"tree_type")
                 .expect("tree_type section must exist in manifest");
@@ -39,6 +51,10 @@ impl Manifest {
         };
 
         let level_count = {
+            #[expect(
+                clippy::expect_used,
+                reason = "level_count section must exist in manifest"
+            )]
             let section = toc
                 .section(b"level_count")
                 .expect("level_count section must exist in manifest");
@@ -52,6 +68,10 @@ impl Manifest {
 
         {
             let filter_hash_type = {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "filter_hash_type section must exist in manifest"
+                )]
                 let section = toc
                     .section(b"filter_hash_type")
                     .expect("filter_hash_type section must exist in manifest");

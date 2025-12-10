@@ -6,6 +6,10 @@ use super::{BlockHandle, BlockOffset};
 use sfa::TocEntry;
 
 fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "truncation is not expected to happen"
+    )]
     BlockHandle::new(BlockOffset(entry.pos()), entry.len() as u32)
 }
 

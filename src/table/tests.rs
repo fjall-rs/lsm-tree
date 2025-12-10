@@ -1052,9 +1052,14 @@ fn table_read_fuzz_1() -> crate::Result<()> {
     )
     .unwrap();
 
-    assert_eq!(table.metadata.item_count as usize, items.len());
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "truncation is not expected to happen"
+    )]
+    let item_count_usize = table.metadata.item_count as usize;
+    assert_eq!(item_count_usize, items.len());
 
-    assert_eq!(items.len(), table.metadata.item_count as usize);
+    assert_eq!(items.len(), item_count_usize);
     let items = items.into_iter().collect::<Vec<_>>();
 
     assert_eq!(items, table.iter().collect::<Result<Vec<_>, _>>().unwrap());
