@@ -27,6 +27,10 @@ impl FullIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter {
+    fn use_partition_size(self: Box<Self>, _: u32) -> Box<dyn BlockIndexWriter<W>> {
+        self
+    }
+
     fn use_compression(
         mut self: Box<Self>,
         compression: CompressionType,

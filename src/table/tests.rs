@@ -624,6 +624,94 @@ fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
 }
 
 #[test]
+#[expect(clippy::unwrap_used)]
+fn table_partitioned_filter() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a", "a7", 7, Value),
+        InternalValue::from_components("a", "a6", 6, Value),
+        InternalValue::from_components("a", "a5", 5, Value),
+        InternalValue::from_components("a", "a4", 4, Value),
+        InternalValue::from_components("a", "a3", 3, Value),
+        InternalValue::from_components("b", "b5", 5, Value),
+        InternalValue::from_components("c", "c8", 8, Value),
+        InternalValue::from_components("d", "d10", 10, Value),
+    ];
+
+    test_with_table(
+        &items,
+        |table| {
+            assert!(table.regions.filter.is_some(), "filter should exist");
+            assert!(
+                table.regions.filter_tli.is_some(),
+                "filter TLI should exist"
+            );
+
+            assert_eq!(
+                b"a7",
+                &*table
+                    .get(b"a", 8, BloomBuilder::get_hash(b"a"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"a6",
+                &*table
+                    .get(b"a", 7, BloomBuilder::get_hash(b"a"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"a5",
+                &*table
+                    .get(b"a", 6, BloomBuilder::get_hash(b"a"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"a4",
+                &*table
+                    .get(b"a", 5, BloomBuilder::get_hash(b"a"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"a3",
+                &*table
+                    .get(b"a", 4, BloomBuilder::get_hash(b"a"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"b5",
+                &*table
+                    .get(b"b", 6, BloomBuilder::get_hash(b"b"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"c8",
+                &*table
+                    .get(b"c", 9, BloomBuilder::get_hash(b"c"))?
+                    .unwrap()
+                    .value,
+            );
+            assert_eq!(
+                b"d10",
+                &*table
+                    .get(b"d", 11, BloomBuilder::get_hash(b"d"))?
+                    .unwrap()
+                    .value,
+            );
+            Ok(())
+        },
+        None,
+        Some(|x: Writer| x.use_partitioned_filter().use_meta_partition_size(3)),
+    )
+}
+
+#[test]
 fn table_seqnos() -> crate::Result<()> {
     use crate::ValueType::Value;
 
@@ -1075,9 +1163,6 @@ fn table_read_fuzz_1() -> crate::Result<()> {
         let expected_range: Vec<_> = items[lo..=hi].to_vec();
 
         let iter = table.range(lo_key..=hi_key);
-
-        // eprintln!("{:#?}", expected_range);
-        // eprintln!("{:#?}", iter.collect::<Result<Vec<_>, _>>().unwrap());
 
         assert_eq!(expected_range, iter.collect::<Result<Vec<_>, _>>().unwrap());
     }

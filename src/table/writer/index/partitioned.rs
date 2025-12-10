@@ -23,8 +23,8 @@ pub struct PartitionedIndexWriter {
     tli_handles: Vec<KeyedBlockHandle>,
     data_block_handles: Vec<KeyedBlockHandle>,
 
-    buffer_size: u64,
-    block_size: u64,
+    buffer_size: u32,
+    partition_size: u32,
 
     index_block_count: usize,
 
@@ -40,7 +40,7 @@ impl PartitionedIndexWriter {
             buffer_size: 0,
             index_block_count: 0,
 
-            block_size: 4_096, // TODO: allow to set this
+            partition_size: 4_096,
             compression: CompressionType::None,
 
             tli_handles: Vec::new(),
@@ -136,6 +136,11 @@ impl PartitionedIndexWriter {
 }
 
 impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndexWriter {
+    fn use_partition_size(mut self: Box<Self>, size: u32) -> Box<dyn BlockIndexWriter<W>> {
+        self.partition_size = size;
+        self
+    }
+
     fn use_compression(
         mut self: Box<Self>,
         compression: CompressionType,
@@ -159,11 +164,11 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for PartitionedIndex
         let block_handle_size =
             (block_handle.end_key().len() + std::mem::size_of::<KeyedBlockHandle>()) as u32;
 
-        self.buffer_size += u64::from(block_handle_size);
+        self.buffer_size += block_handle_size;
 
         self.data_block_handles.push(block_handle);
 
-        if self.buffer_size >= self.block_size {
+        if self.buffer_size >= self.partition_size {
             self.cut_index_block()?;
         }
 
