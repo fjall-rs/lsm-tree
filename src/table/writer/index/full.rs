@@ -70,6 +70,8 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
         )]
         let bytes_written = BlockHeader::serialized_len() as u32 + header.data_length;
 
+        debug_assert!(bytes_written > 0, "Block index should never be empty");
+
         log::trace!(
             "Written top level index, with {} pointers ({bytes_written}B)",
             self.block_handles.len(),

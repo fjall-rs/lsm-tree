@@ -92,7 +92,7 @@ impl PartitionedFilterWriter {
         self.relative_file_pos += u64::from(bytes_written);
 
         log::trace!(
-            "Built Bloom filter partition ({} B) with end_key={key:?}",
+            "Built Bloom filter partition ({}B) with end_key={key:?}",
             filter_bytes.len(),
         );
 
