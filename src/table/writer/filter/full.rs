@@ -74,7 +74,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
             };
 
             log::trace!(
-                "Built Bloom filter ({} B) in {:?}",
+                "Built Bloom filter ({}B) in {:?}",
                 filter_bytes.len(),
                 start.elapsed(),
             );
