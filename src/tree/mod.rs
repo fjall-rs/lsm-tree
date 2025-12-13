@@ -786,7 +786,6 @@ impl Tree {
         Ok(tree)
     }
 
-    #[expect(dead_code, reason = "this will be called in the future")]
     pub(crate) fn consume_writer(
         &self,
         writer: crate::table::Writer,
