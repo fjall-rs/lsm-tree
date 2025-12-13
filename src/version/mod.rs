@@ -248,7 +248,7 @@ impl Version {
                         Ok(Arc::new(
                             #[expect(
                                 clippy::expect_used,
-                                reason = "persisted runs are not expected to be empty"
+                                reason = "empty runs should not exist, so there should not be any empty persisted runs"
                             )]
                             Run::new(run_tables).expect("persisted runs should not be empty"),
                         ))
