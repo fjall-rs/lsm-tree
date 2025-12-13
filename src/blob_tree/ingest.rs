@@ -35,7 +35,7 @@ impl<'a> BlobIngestion<'a> {
     pub fn new(tree: &'a crate::BlobTree) -> crate::Result<Self> {
         #[expect(
             clippy::expect_used,
-            reason = "kv separation option is expected to exist"
+            reason = "cannot define blob tree without kv separation options"
         )]
         let kv = tree
             .index
