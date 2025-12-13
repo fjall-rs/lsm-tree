@@ -107,7 +107,15 @@ impl BlobFile {
     /// Returns `true` if the blob file is stale (based on the given staleness threshold).
     pub(crate) fn is_stale(&self, frag_map: &FragmentationMap, threshold: f32) -> bool {
         frag_map.get(&self.id()).is_some_and(|x| {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "ok to lose precision as this is an approximate calculation"
+            )]
             let stale_bytes = x.bytes as f32;
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "ok to lose precision as this is an approximate calculation"
+            )]
             let all_bytes = self.0.meta.total_uncompressed_bytes as f32;
             let ratio = stale_bytes / all_bytes;
             ratio >= threshold

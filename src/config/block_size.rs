@@ -16,6 +16,7 @@ impl std::ops::Deref for BlockSizePolicy {
 
 impl BlockSizePolicy {
     pub(crate) fn get(&self, level: usize) -> u32 {
+        #[expect(clippy::expect_used, reason = "policy is expected not to be empty")]
         self.0
             .get(level)
             .copied()
@@ -29,6 +30,10 @@ impl BlockSizePolicy {
     }
 
     /// Constructs a custom block size policy.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy is empty or contains more than 255 elements.
     #[must_use]
     pub fn new(policy: impl Into<Vec<u32>>) -> Self {
         let policy = policy.into();

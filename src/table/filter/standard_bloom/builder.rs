@@ -65,6 +65,15 @@ impl Builder {
 
         let m = Self::calculate_m(n, fpr);
         let bpk = m / n;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
+        #[expect(clippy::cast_sign_loss, reason = "sign loss not expected to happen")]
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss is not expected to happen"
+        )]
         let k = (((bpk as f32) * LN_2) as usize).max(1);
 
         Self {
@@ -85,10 +94,27 @@ impl Builder {
         assert!(bpk > 0.0);
         assert!(n > 0);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation or sign loss is not expected to happen"
+        )]
         let m = n * (bpk as usize);
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation or sign loss is not expected to happen"
+        )]
         let k = ((bpk * LN_2) as usize).max(1);
 
         // NOTE: Round up so we don't get too little bits
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "truncation sign or precision loss is not expected to happen"
+        )]
         let bytes = (m as f32 / 8.0).ceil() as usize;
 
         Self {
@@ -101,14 +127,24 @@ impl Builder {
     pub(crate) fn calculate_m(n: usize, fp_rate: f32) -> usize {
         use std::f32::consts::LN_2;
 
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "precision loss is not expected to happen"
+        )]
         let n = n as f32;
         let ln2_squared = LN_2.powi(2);
 
         let numerator = n * fp_rate.ln();
         let m = -(numerator / ln2_squared);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation or sign loss is not expected to happen"
+        )]
         // Round up to next byte
-        ((m / 8.0).ceil() * 8.0) as usize
+        let result = ((m / 8.0).ceil() * 8.0) as usize;
+        result
     }
 
     /// Adds the key to the filter.

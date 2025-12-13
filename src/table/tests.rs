@@ -760,7 +760,8 @@ fn table_zero_bpk() -> crate::Result<()> {
 #[expect(
     clippy::unreadable_literal,
     clippy::unwrap_used,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation
 )]
 #[cfg(not(feature = "metrics"))]
 fn table_read_fuzz_1() -> crate::Result<()> {
@@ -1140,9 +1141,10 @@ fn table_read_fuzz_1() -> crate::Result<()> {
     )
     .unwrap();
 
-    assert_eq!(table.metadata.item_count as usize, items.len());
+    let item_count_usize = table.metadata.item_count as usize;
+    assert_eq!(item_count_usize, items.len());
 
-    assert_eq!(items.len(), table.metadata.item_count as usize);
+    assert_eq!(items.len(), item_count_usize);
     let items = items.into_iter().collect::<Vec<_>>();
 
     assert_eq!(items, table.iter().collect::<Result<Vec<_>, _>>().unwrap());

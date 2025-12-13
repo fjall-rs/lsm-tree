@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::{calculate_bucket_position, MARKER_CONFLICT, MARKER_FREE};
+use super::{calculate_bucket_position, MARKER_CONFLICT};
 
 /// Helper to read from an embedded block hash index
 pub struct Reader<'a>(&'a [u8]);

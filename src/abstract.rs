@@ -13,6 +13,8 @@ use std::{
 
 pub type RangeItem = crate::Result<KvPair>;
 
+type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
@@ -216,7 +218,7 @@ pub trait AbstractTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>>;
+    ) -> crate::Result<Option<FlushToTablesResult>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///

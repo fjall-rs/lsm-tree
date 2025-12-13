@@ -137,6 +137,10 @@ impl Table {
                 let bytes = reader.read_u64::<LE>()?;
                 let on_disk_bytes = reader.read_u64::<LE>()?;
 
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "truncation is not expected to happen"
+                )]
                 blob_files.push(LinkedFile {
                     blob_file_id,
                     bytes,
@@ -330,6 +334,7 @@ impl Table {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     pub fn scan(&self) -> crate::Result<Scanner> {
+        #[expect(clippy::expect_used, reason = "data block count is expected to fit")]
         let block_count = self
             .metadata
             .data_block_count
@@ -415,7 +420,11 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
-    #[warn(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "will be refactored later"
+    )]
     pub fn recover(
         file_path: PathBuf,
         checksum: Checksum,

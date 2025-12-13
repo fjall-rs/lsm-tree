@@ -23,6 +23,10 @@ impl RunScanner {
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
 
+        #[expect(
+            clippy::expect_used,
+            reason = "we trust the caller to pass valid indexes"
+        )]
         let lo_table = run.get(lo).expect("should exist");
 
         let lo_reader = lo_table.scan()?;
@@ -51,6 +55,10 @@ impl Iterator for RunScanner {
                 self.lo += 1;
 
                 if self.lo <= self.hi {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "hi is at most equal to the last slot; so because 0 <= lo <= hi, it must be a valid index"
+                    )]
                     let scanner =
                         fail_iter!(self.tables.get(self.lo).expect("should exist").scan());
 

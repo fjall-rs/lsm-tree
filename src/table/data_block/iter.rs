@@ -65,6 +65,7 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Less => {
                     // Continue
 
+                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
                     self.decoder.next().expect("should exist");
                 }
             }
@@ -98,6 +99,7 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Greater => {
                     // Continue
 
+                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
                     self.decoder.next_back().expect("should exist");
                 }
             }
@@ -126,6 +128,7 @@ impl<'a> Iter<'a> {
                     return true;
                 }
                 std::cmp::Ordering::Equal | std::cmp::Ordering::Less => {
+                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
                     self.decoder.next().expect("should exist");
                 }
             }
@@ -153,6 +156,7 @@ impl<'a> Iter<'a> {
                     return true;
                 }
                 std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
+                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
                     self.decoder.next_back().expect("should exist");
                 }
             }

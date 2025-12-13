@@ -59,11 +59,27 @@ impl<'a> StandardBloomFilterReader<'a> {
         let hash_type = reader.read_u8()?;
         assert_eq!(0, hash_type, "Invalid bloom hash type");
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let m = reader.read_u64::<LittleEndian>()? as usize;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let k = reader.read_u64::<LittleEndian>()? as usize;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "truncation is not expected to happen"
+        )]
         let offset = reader.position() as usize;
 
+        #[expect(
+            clippy::expect_used,
+            reason = "offset is expected to be with slice bounds"
+        )]
         Ok(Self {
             k,
             m,
@@ -88,6 +104,10 @@ impl<'a> StandardBloomFilterReader<'a> {
         for i in 1..=(self.k as u64) {
             let idx = h1 % (self.m as u64);
 
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "truncation is not expected to happen"
+            )]
             if !self.has_bit(idx as usize) {
                 return false;
             }

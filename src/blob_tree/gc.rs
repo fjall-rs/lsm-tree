@@ -137,6 +137,10 @@ impl ExpiredKvCallback for FragmentationMap {
         if kv.key.value_type.is_indirection() {
             let mut reader = &kv.value[..];
 
+            #[expect(
+                clippy::expect_used,
+                reason = "data is read and checked for corruption, so we expect to be able to deserialize BlobIndirection fine"
+            )]
             let vptr =
                 BlobIndirection::decode_from(&mut reader).expect("should parse BlobIndirection");
 
