@@ -786,39 +786,6 @@ impl Tree {
         Ok(tree)
     }
 
-    pub(crate) fn consume_writer(
-        &self,
-        writer: crate::table::Writer,
-    ) -> crate::Result<Option<Table>> {
-        let table_file_path = writer.path.clone();
-
-        let Some((_, checksum)) = writer.finish()? else {
-            return Ok(None);
-        };
-
-        log::debug!("Finalized table write at {}", table_file_path.display());
-
-        let pin_filter = self.config.filter_block_pinning_policy.get(0);
-        let pin_index = self.config.index_block_pinning_policy.get(0);
-
-        let created_table = Table::recover(
-            table_file_path,
-            checksum,
-            0,
-            self.id,
-            self.config.cache.clone(),
-            self.config.descriptor_table.clone(),
-            pin_filter,
-            pin_index,
-            #[cfg(feature = "metrics")]
-            self.metrics.clone(),
-        )?;
-
-        log::debug!("Flushed table to {:?}", created_table.path);
-
-        Ok(Some(created_table))
-    }
-
     /// Returns `true` if there are some tables that are being compacted.
     #[doc(hidden)]
     #[must_use]
