@@ -406,12 +406,7 @@ impl AbstractTree for BlobTree {
             self.index.config.path.join(BLOBS_FOLDER),
         )?
         .use_target_size(kv_opts.file_target_size)
-        .use_compression(
-            kv_opts
-                .as_ref()
-                .expect("blob options should exist")
-                .compression,
-        );
+        .use_compression(kv_opts.compression);
 
         let separation_threshold = kv_opts.separation_threshold;
 
