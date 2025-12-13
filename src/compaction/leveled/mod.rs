@@ -251,16 +251,13 @@ impl CompactionStrategy for Strategy {
                     #[expect(
                         clippy::expect_used,
                         clippy::cast_possible_truncation,
-                        reason = "writing a u8 is not expected to fail, policy length truncation is acceptable"
+                        reason = "writing into Vec should not fail; policies have length of 255 max"
                     )]
                     v.write_u8(self.level_ratio_policy.len() as u8)
                         .expect("cannot fail");
 
                     for &f in &self.level_ratio_policy {
-                        #[expect(
-                            clippy::expect_used,
-                            reason = "writing a policy is not expected to fail"
-                        )]
+                        #[expect(clippy::expect_used, reason = "writing into Vec should not fail")]
                         v.write_f32::<LittleEndian>(f).expect("cannot fail");
                     }
 
@@ -307,7 +304,7 @@ impl CompactionStrategy for Strategy {
 
                     #[expect(
                         clippy::cast_possible_truncation,
-                        reason = "level index is bounded by level count (7)"
+                        reason = "level index is bounded by level count (7, technically 255)"
                     )]
                     let target_size = self.level_target_size((idx - level_shift) as u8);
 
@@ -402,7 +399,7 @@ impl CompactionStrategy for Strategy {
 
                 #[expect(
                     clippy::cast_possible_truncation,
-                    reason = "level index is bounded by level count (7)"
+                    reason = "level index is bounded by level count (7, technically 255)"
                 )]
                 let target_size = self.level_target_size((idx - level_shift) as u8);
 
@@ -479,7 +476,7 @@ impl CompactionStrategy for Strategy {
 
             #[expect(
                 clippy::cast_possible_truncation,
-                reason = "level index is bounded by level count (7)"
+                reason = "level index is bounded by level count (7, technically 255)"
             )]
             let choice = CompactionInput {
                 table_ids,
@@ -513,7 +510,7 @@ impl CompactionStrategy for Strategy {
         debug_assert!(level.is_disjoint(), "level should be disjoint");
         debug_assert!(next_level.is_disjoint(), "next level should be disjoint");
 
-        #[expect(clippy::expect_used, reason = "first run is expected to exist")]
+        #[expect(clippy::expect_used, reason = "first run should exist because score is >0.0")]
         let Some((table_ids, can_trivial_move)) = pick_minimal_compaction(
             level.first_run().expect("should have exactly one run"),
             next_level.first_run().map(std::ops::Deref::deref),
@@ -526,7 +523,7 @@ impl CompactionStrategy for Strategy {
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "level shift is bounded by level count (7)"
+            reason = "level shift is bounded by level count (7, technically 255)"
         )]
         let choice = CompactionInput {
             table_ids,
