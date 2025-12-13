@@ -192,7 +192,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         }
 
         if !self.bloom_hash_buffer.is_empty() {
-            #[expect(clippy::expect_used, reason = "last key must exist because of initial check")]
+            #[expect(
+                clippy::expect_used,
+                reason = "last key must exist because of initial check"
+            )]
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
         }

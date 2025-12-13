@@ -761,7 +761,7 @@ fn table_zero_bpk() -> crate::Result<()> {
     clippy::unreadable_literal,
     clippy::unwrap_used,
     clippy::indexing_slicing,
-    clippy::cast_possible_truncation,
+    clippy::cast_possible_truncation
 )]
 #[cfg(not(feature = "metrics"))]
 fn table_read_fuzz_1() -> crate::Result<()> {

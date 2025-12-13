@@ -139,8 +139,8 @@ impl ExpiredKvCallback for FragmentationMap {
 
             #[expect(
                 clippy::expect_used,
-                reason = "data is read and checked for corruption, so we expect to be able to deserialize BlobIndirection fine")
-            ]
+                reason = "data is read and checked for corruption, so we expect to be able to deserialize BlobIndirection fine"
+            )]
             let vptr =
                 BlobIndirection::decode_from(&mut reader).expect("should parse BlobIndirection");
 
