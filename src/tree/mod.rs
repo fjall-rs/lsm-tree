@@ -6,6 +6,11 @@ pub mod ingest;
 pub mod inner;
 pub mod sealed;
 
+#[cfg(target_os = "linux")]
+mod multi_get_linux;
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 use crate::{
     compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
@@ -23,14 +28,12 @@ use crate::{
     ValueType,
 };
 use inner::{TreeId, TreeInner};
+use rustc_hash::FxHashMap;
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
     sync::{Arc, Mutex, RwLock},
 };
-
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
 
 /// Iterator value guard
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
@@ -713,7 +716,7 @@ impl Tree {
             &super_version.version,
             &needs_resolution,
             seqno,
-            |value, idx| result[idx] = Some(mapper(value)),
+            |value, idx| result[idx] = ignore_tombstone_value(value).map(mapper),
         )?;
         Ok(result)
     }
@@ -746,10 +749,10 @@ impl Tree {
         seqno: SeqNo,
         mut resolve: impl FnMut(InternalValue, usize),
     ) -> crate::Result<()> {
-        // #[cfg(target_os = "linux")]
-        // {
-        //
-        // }
+        #[cfg(target_os = "linux")]
+        {
+            multi_get_linux::multi_get(version, keys_and_indices, seqno, &mut resolve)
+        }
         // todo actually windows also supports IoRing https://learn.microsoft.com/en-us/windows/win32/api/ioringapi/
         #[cfg(not(target_os = "linux"))]
         {
@@ -761,9 +764,8 @@ impl Tree {
                         resolve(value, *idx)
                     }
                     Ok(())
-                })?;
+                })
         }
-        Ok(())
     }
 
     fn get_internal_entry_from_sealed_memtables(

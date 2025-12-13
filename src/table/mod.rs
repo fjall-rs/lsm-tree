@@ -49,7 +49,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use util::load_block;
+use util::{load_block, load_block_pure, BlockOutput};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -157,7 +157,7 @@ impl Table {
 
     /// Gets the global table ID.
     #[must_use]
-    fn global_id(&self) -> GlobalTableId {
+    pub(crate) fn global_id(&self) -> GlobalTableId {
         (self.tree_id, self.id()).into()
     }
 
@@ -208,6 +208,18 @@ impl Table {
             handle,
             block_type,
             compression,
+            #[cfg(feature = "metrics")]
+            &self.metrics,
+        )
+    }
+
+    fn load_block_pure(&self, handle: &BlockHandle, block_type: BlockType) -> BlockOutput {
+        load_block_pure(
+            self.global_id(),
+            &self.descriptor_table,
+            &self.cache,
+            handle,
+            block_type,
             #[cfg(feature = "metrics")]
             &self.metrics,
         )
@@ -623,5 +635,90 @@ impl Table {
         todo!()
 
         //  self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+    }
+}
+
+pub use pure::*;
+
+pub mod pure {
+    use super::*;
+    use crate::table::Io::{FilterBlockFd, FilterBlockRead};
+
+    #[derive(Debug, Clone)]
+    pub enum Io {
+        FilterBlockFd {
+            block_handle: BlockHandle,
+        },
+        FilterBlockRead {
+            block_handle: BlockHandle,
+            file: Arc<File>,
+        },
+        PointRead,
+    }
+
+    pub enum Output {
+        Pure(Option<InternalValue>),
+        Io(Io),
+    }
+
+    impl Table {
+        pub fn pure_get(&self, key: &[u8], seqno: SeqNo, key_hash: u64) -> crate::Result<Output> {
+            #[cfg(feature = "metrics")]
+            use std::sync::atomic::Ordering::Relaxed;
+            if (self.metadata.seqnos.0 + self.global_seqno()) >= seqno {
+                return Ok(Output::Pure(None));
+            }
+
+            let handle_loadable_filter = |handle: BlockHandle| -> crate::Result<_> {
+                match self.load_block_pure(&handle, BlockType::Filter) {
+                    BlockOutput::Block(block) => {
+                        let block = FilterBlock::new(block);
+                        if !block.maybe_contains_hash(key_hash)? {
+                            #[cfg(feature = "metrics")]
+                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+
+                            Ok(Output::Pure(None))
+                        } else {
+                            Ok(Output::Io(Io::PointRead))
+                        }
+                    }
+                    BlockOutput::OpenFd => Ok(Output::Io(FilterBlockFd {
+                        block_handle: handle,
+                    })),
+                    BlockOutput::ReadFile(file) => Ok(Output::Io(FilterBlockRead {
+                        block_handle: handle,
+                        file,
+                    })),
+                }
+            };
+
+            if let Some(filter_block) = &self.pinned_filter_block {
+                #[cfg(feature = "metrics")]
+                self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                if !filter_block.maybe_contains_hash(key_hash)? {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+
+                    return Ok(Output::Pure(None));
+                }
+            } else if let Some(filter_idx) = &self.pinned_filter_index {
+                let mut iter = filter_idx.iter();
+                iter.seek(key, seqno);
+
+                if let Some(filter_block_handle) = iter.next() {
+                    let filter_block_handle =
+                        filter_block_handle.materialize(filter_idx.as_slice());
+                    let handle = filter_block_handle.into_inner();
+                    return handle_loadable_filter(handle);
+                }
+            } else if let Some(_filter_tli_handle) = &self.regions.filter_tli {
+                unimplemented!("unpinned filter TLI not supported");
+            } else if let Some(filter_block_handle) = &self.regions.filter {
+                return handle_loadable_filter(*filter_block_handle);
+            }
+
+            Ok(Output::Io(Io::PointRead))
+        }
     }
 }

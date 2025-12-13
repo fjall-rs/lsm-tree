@@ -170,6 +170,68 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
     suffix.cmp(needle)
 }
 
+mod pure {
+    use crate::table::block::BlockType;
+    use crate::table::{Block, BlockHandle};
+    use crate::{Cache, DescriptorTable, GlobalTableId};
+    use std::sync::Arc;
+
+    pub enum Output {
+        Block(Block),
+        OpenFd,
+        ReadFile(Arc<std::fs::File>),
+    }
+
+    pub fn load_block_pure(
+        table_id: GlobalTableId,
+        // path: &Path,
+        descriptor_table: &DescriptorTable,
+        cache: &Cache,
+        handle: &BlockHandle,
+        block_type: BlockType,
+        // compression: CompressionType,
+        #[cfg(feature = "metrics")] metrics: &crate::metrics::Metrics,
+    ) -> Output {
+        #[cfg(feature = "metrics")]
+        use std::sync::atomic::Ordering::Relaxed;
+
+        log::trace!("load {block_type:?} block {handle:?}");
+
+        if let Some(block) = cache.get_block(table_id, handle.offset()) {
+            #[cfg(feature = "metrics")]
+            match block_type {
+                BlockType::Filter => {
+                    metrics.filter_block_load_cached.fetch_add(1, Relaxed);
+                }
+                BlockType::Index => {
+                    metrics.index_block_load_cached.fetch_add(1, Relaxed);
+                }
+                BlockType::Data | BlockType::Meta => {
+                    metrics.data_block_load_cached.fetch_add(1, Relaxed);
+                }
+                _ => {}
+            }
+
+            return Output::Block(block);
+        }
+
+        let cached_fd = descriptor_table.access_for_table(&table_id);
+        if let Some(fd) = cached_fd {
+            #[cfg(feature = "metrics")]
+            metrics.table_file_opened_cached.fetch_add(1, Relaxed);
+
+            Output::ReadFile(fd)
+        } else {
+            #[cfg(feature = "metrics")]
+            metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
+
+            Output::OpenFd
+        }
+    }
+}
+
+pub use pure::{load_block_pure, Output as BlockOutput};
+
 #[cfg(test)]
 mod tests {
     use super::*;
