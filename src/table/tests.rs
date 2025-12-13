@@ -760,7 +760,8 @@ fn table_zero_bpk() -> crate::Result<()> {
 #[expect(
     clippy::unreadable_literal,
     clippy::unwrap_used,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
 )]
 #[cfg(not(feature = "metrics"))]
 fn table_read_fuzz_1() -> crate::Result<()> {
@@ -1140,10 +1141,6 @@ fn table_read_fuzz_1() -> crate::Result<()> {
     )
     .unwrap();
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "truncation is not expected to happen"
-    )]
     let item_count_usize = table.metadata.item_count as usize;
     assert_eq!(item_count_usize, items.len());
 
