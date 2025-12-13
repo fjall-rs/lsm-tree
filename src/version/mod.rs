@@ -634,7 +634,7 @@ impl Version {
         writer.start("level_count")?;
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "level_count() fits in a u8"
+            reason = "level count is bounded by 255"
         )]
         writer.write_u8(self.level_count() as u8)?;
 
