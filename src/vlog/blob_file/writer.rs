@@ -196,10 +196,7 @@ impl Writer {
     ///
     /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
     pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "value is expected to not be greater than 2^32"
-        )]
+        #[expect(clippy::cast_possible_truncation, reason = "values are u32 max")]
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
