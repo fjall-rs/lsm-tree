@@ -561,7 +561,7 @@ impl AbstractTree for Tree {
         #[expect(clippy::expect_used, reason = "result should fit into usize")]
         (memtable_count + sealed_count + tables_item_count)
             .try_into()
-            .expect("should not be too large")
+            .expect("approximate_len too large for usize")
     }
 
     fn disk_space(&self) -> u64 {
