@@ -44,7 +44,7 @@ impl BloomConstructionPolicy {
     pub fn estimated_key_bits(&self, n: usize) -> f32 {
         #[expect(
             clippy::cast_precision_loss,
-            reason = "precision loss is not expected to happen"
+            reason = "truncation is fine because this is an estimation"
         )]
         match self {
             Self::BitsPerKey(bpk) => *bpk,
