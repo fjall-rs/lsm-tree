@@ -158,4 +158,14 @@ mod tests {
             Excluded(&UserKey::new(&[b'a', b'b', b'c', u8::MAX]))
         );
     }
+
+    #[test]
+    fn prefixed_range_7() {
+        let prefix = "abc";
+
+        let range = prefixed_range::<_, &[u8], _>(prefix, ..);
+
+        assert_eq!(range.start_bound(), Included(&UserKey::new(b"abc")));
+        assert_eq!(range.end_bound(), Excluded(&UserKey::new(b"abd")));
+    }
 }
