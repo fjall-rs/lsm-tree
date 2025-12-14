@@ -334,7 +334,10 @@ impl Table {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     pub fn scan(&self) -> crate::Result<Scanner> {
-        #[expect(clippy::expect_used, reason = "data block count is expected to fit")]
+        #[expect(
+            clippy::expect_used,
+            reason = "there shouldn't be 4 billion data blocks in a single table"
+        )]
         let block_count = self
             .metadata
             .data_block_count
