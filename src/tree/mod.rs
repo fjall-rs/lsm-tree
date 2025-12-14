@@ -941,7 +941,7 @@ impl Tree {
             blob_file_id_counter: SequenceNumberCounter::default(),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
-            config,
+            config: Arc::new(config),
             major_compaction_lock: RwLock::default(),
             flush_lock: Mutex::default(),
             compaction_state: Arc::new(Mutex::new(CompactionState::default())),

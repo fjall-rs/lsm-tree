@@ -43,7 +43,7 @@ pub struct Options {
     pub blob_file_id_generator: SequenceNumberCounter,
 
     /// Configuration of tree.
-    pub config: Config,
+    pub config: Arc<Config>,
 
     pub version_history: Arc<RwLock<SuperVersions>>,
 

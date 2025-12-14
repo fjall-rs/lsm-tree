@@ -51,7 +51,7 @@ pub struct TreeInner {
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
     /// Tree configuration
-    pub config: Config,
+    pub config: Arc<Config>,
 
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
@@ -87,7 +87,7 @@ impl TreeInner {
             memtable_id_counter: SequenceNumberCounter::default(),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_counter: SequenceNumberCounter::default(),
-            config,
+            config: Arc::new(config),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
             stop_signal: StopSignal::default(),
             major_compaction_lock: RwLock::default(),
