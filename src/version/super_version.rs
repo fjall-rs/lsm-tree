@@ -155,6 +155,7 @@ impl SuperVersions {
     }
 
     pub fn latest_version(&self) -> SuperVersion {
+        #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
         self.0
             .iter()
             .last()
@@ -164,6 +165,7 @@ impl SuperVersions {
 
     pub fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
         if seqno == 0 {
+            #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
             return self
                 .0
                 .front()
@@ -187,6 +189,7 @@ impl SuperVersions {
             }
         }
 
+        #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
         version.expect("should always find a SuperVersion")
     }
 }

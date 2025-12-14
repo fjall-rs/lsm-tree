@@ -16,6 +16,7 @@ impl std::ops::Deref for PinningPolicy {
 
 impl PinningPolicy {
     pub(crate) fn get(&self, level: usize) -> bool {
+        #[expect(clippy::expect_used, reason = "policy is expected not to be empty")]
         self.0
             .get(level)
             .copied()
@@ -35,6 +36,10 @@ impl PinningPolicy {
     }
 
     /// Constructs a custom policy.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the policy is empty or contains more than 255 elements.
     #[must_use]
     pub fn new(policy: impl Into<Vec<bool>>) -> Self {
         let policy = policy.into();

@@ -64,8 +64,19 @@ impl Builder {
         let fpr = fpr.max(0.000_000_1);
 
         let m = Self::calculate_m(n, fpr);
-        let bpk = m / n;
-        let k = (((bpk as f32) * LN_2) as usize).max(1);
+
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "bpk tends to be in the range of 0-50, so easily fits into u32"
+        )]
+        let bpk = (m / n) as f32;
+
+        #[expect(
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation,
+            reason = "bpk easily fits into u32 and LN_2 < 1.0, so should still fit into a usize as well"
+        )]
+        let k = ((bpk * LN_2) as usize).max(1);
 
         Self {
             inner: BitArrayBuilder::with_capacity(m / 8),
@@ -85,10 +96,27 @@ impl Builder {
         assert!(bpk > 0.0);
         assert!(n > 0);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "bpk tends to be in the range of 0-50, so easily fits into usize"
+        )]
         let m = n * (bpk as usize);
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "bpk easily fits into usize and LN_2 < 1.0, so should still fit into a usize as well"
+        )]
         let k = ((bpk * LN_2) as usize).max(1);
 
         // NOTE: Round up so we don't get too little bits
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "m already fits, and because we divide, it should definitely fit into usize"
+        )]
         let bytes = (m as f32 / 8.0).ceil() as usize;
 
         Self {
@@ -101,14 +129,24 @@ impl Builder {
     pub(crate) fn calculate_m(n: usize, fp_rate: f32) -> usize {
         use std::f32::consts::LN_2;
 
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "n tends to be in the single millions at most, so f32 should be precise enough"
+        )]
         let n = n as f32;
         let ln2_squared = LN_2.powi(2);
 
         let numerator = n * fp_rate.ln();
         let m = -(numerator / ln2_squared);
 
-        // Round up to next byte
-        ((m / 8.0).ceil() * 8.0) as usize
+        // NOTE: Round up to next byte
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "m already fits, and because we divide, it should definitely fit into usize"
+        )]
+        let result = ((m / 8.0).ceil() * 8.0) as usize;
+        result
     }
 
     /// Adds the key to the filter.

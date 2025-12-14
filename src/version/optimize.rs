@@ -23,6 +23,10 @@ pub fn optimize_runs<T: Clone + Ranged>(runs: Vec<Run<T>>) -> Vec<Run<T>> {
                     }
                 }
 
+                #[expect(
+                    clippy::expect_used,
+                    reason = "we pass in a table, so the run cannot be None"
+                )]
                 new_runs.insert(
                     0,
                     Run::new(vec![table.clone()]).expect("run should not be empty"),

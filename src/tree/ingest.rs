@@ -246,7 +246,9 @@ impl<'a> Ingestion<'a> {
         // Acquire locks for version registration. We must hold both the
         // compaction state lock and version history lock to safely modify
         // the tree's version.
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
 
         // Allocate the next global sequence number. This seqno will be shared

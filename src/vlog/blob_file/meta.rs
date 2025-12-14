@@ -124,19 +124,22 @@ impl Metadata {
         let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size");
 
         let compression = {
+            #[expect(clippy::expect_used, reason = "compression is expected to exist")]
             let bytes = block
                 .point_read(b"compression", SeqNo::MAX)
-                .expect("size should exist");
+                .expect("compression should exist");
 
             let mut bytes = &bytes.value[..];
             CompressionType::decode_from(&mut bytes)?
         };
 
         let key_range = KeyRange::new((
+            #[expect(clippy::expect_used, reason = "key min is expected to exist")]
             block
                 .point_read(b"key#min", SeqNo::MAX)
                 .expect("key min should exist")
                 .value,
+            #[expect(clippy::expect_used, reason = "key max is expected to exist")]
             block
                 .point_read(b"key#max", SeqNo::MAX)
                 .expect("key max should exist")

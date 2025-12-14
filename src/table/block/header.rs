@@ -72,7 +72,7 @@ impl Header {
             // Uncompressed data length
             + std::mem::size_of::<u32>()
             // Checksum
-            + std::mem::size_of::<u16>()
+            + std::mem::size_of::<u32>()
     }
 }
 
@@ -101,8 +101,12 @@ impl Encode for Header {
             writer.checksum()
         };
 
-        // Write 2-byte checksum
-        writer.write_u16::<LE>(checksum.into_u128() as u16)?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we purposefully only use the lower 4 bytes as checksum"
+        )]
+        // Write 4-byte checksum
+        writer.write_u32::<LE>(checksum.into_u128() as u32)?;
 
         Ok(())
     }
@@ -135,14 +139,18 @@ impl Decode for Header {
         // Read data length
         let uncompressed_length = protected_reader.read_u32::<LE>()?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "we purposefully only use the lower 4 bytes as checksum"
+        )]
         // Get header checksum
-        let got_checksum = protected_reader.checksum().into_u128() as u16;
+        let got_checksum = protected_reader.checksum().into_u128() as u32;
         let got_checksum = Checksum::from_raw(u128::from(got_checksum));
 
         let reader = protected_reader.into_inner();
 
         // Read & check checksum
-        let header_checksum: u128 = reader.read_u16::<LE>()?.into();
+        let header_checksum: u128 = reader.read_u32::<LE>()?.into();
         let header_checksum = Checksum::from_raw(header_checksum);
 
         if header_checksum != got_checksum {

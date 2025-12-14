@@ -163,9 +163,16 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
-        self.approx_filter_size +=
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation is fine because this is an estimation"
+        )]
+        let estimated_key_bits =
             self.bloom_policy
                 .estimated_key_bits(self.bloom_hash_buffer.len()) as usize;
+
+        self.approx_filter_size += estimated_key_bits;
 
         self.last_key = Some(key.clone());
 
@@ -186,6 +193,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         }
 
         if !self.bloom_hash_buffer.is_empty() {
+            #[expect(
+                clippy::expect_used,
+                reason = "last key must exist because of initial check"
+            )]
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
         }

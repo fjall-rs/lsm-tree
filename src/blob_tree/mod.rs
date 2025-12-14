@@ -390,6 +390,10 @@ impl AbstractTree for BlobTree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "cannot create blob tree without defining kv separation options"
+        )]
         let kv_opts = self
             .index
             .config
@@ -402,14 +406,7 @@ impl AbstractTree for BlobTree {
             self.index.config.path.join(BLOBS_FOLDER),
         )?
         .use_target_size(kv_opts.file_target_size)
-        .use_compression(
-            self.index
-                .config
-                .kv_separation_opts
-                .as_ref()
-                .expect("blob options should exist")
-                .compression,
-        );
+        .use_compression(kv_opts.compression);
 
         let separation_threshold = kv_opts.separation_threshold;
 
@@ -590,6 +587,7 @@ impl AbstractTree for BlobTree {
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<crate::UserValue>> {
         let key = key.as_ref();
 
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .index
             .version_history

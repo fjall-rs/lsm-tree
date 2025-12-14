@@ -246,6 +246,10 @@ impl Version {
                             .collect::<crate::Result<Vec<_>>>()?;
 
                         Ok(Arc::new(
+                            #[expect(
+                                clippy::expect_used,
+                                reason = "empty runs should not exist, so there should not be any empty persisted runs"
+                            )]
                             Run::new(run_tables).expect("persisted runs should not be empty"),
                         ))
                     })
@@ -482,7 +486,7 @@ impl Version {
         dest_level: usize,
         diff: Option<FragmentationMap>,
         new_blob_files: Vec<BlobFile>,
-        blob_files_to_drop: HashSet<BlobFileId>,
+        blob_files_to_drop: &HashSet<BlobFileId>,
     ) -> Self {
         let id = self.id + 1;
 
@@ -522,7 +526,7 @@ impl Version {
                 copy.insert(blob_file.id(), blob_file);
             }
 
-            for &id in &blob_files_to_drop {
+            for &id in blob_files_to_drop {
                 copy.remove(id);
             }
 
@@ -628,6 +632,10 @@ impl Version {
         writer.write_u8(self.tree_type.into())?;
 
         writer.start("level_count")?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "level count is bounded by 255"
+        )]
         writer.write_u8(self.level_count() as u8)?;
 
         writer.start("filter_hash_type")?;

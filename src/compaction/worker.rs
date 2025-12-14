@@ -89,8 +89,10 @@ impl Options {
 ///
 /// This will block until the compactor is fully finished.
 pub fn do_compaction(opts: &Options) -> crate::Result<()> {
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let version_history_lock = opts.version_history.read().expect("lock is poisoned");
 
     let start = Instant::now();
@@ -113,7 +115,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         Choice::Move(payload) => {
             drop(version_history_lock);
 
-            move_tables(compaction_state, opts, &payload)
+            move_tables(&compaction_state, opts, &payload)
         }
         Choice::Drop(payload) => {
             drop(version_history_lock);
@@ -145,6 +147,7 @@ fn create_compaction_stream<'a>(
         }
 
         if level.is_disjoint() && level.len() > 1 {
+            #[expect(clippy::expect_used, reason = "we check for level length > 1 above")]
             let run = level.first().expect("run should exist");
 
             let Some(lo) = run
@@ -193,10 +196,11 @@ fn create_compaction_stream<'a>(
 }
 
 fn move_tables(
-    compaction_state: MutexGuard<'_, CompactionState>,
+    compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
@@ -282,6 +286,12 @@ fn pick_blob_files_to_rewrite(
 
     linked_blob_files.sort_by_key(|a| a.id());
 
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "precision loss and truncation are acceptable for cutoff calculation"
+    )]
     let cutoff_point = {
         let len = linked_blob_files.len() as f32;
         (len * blob_opts.age_cutoff) as usize
@@ -320,6 +330,7 @@ fn hidden_guard(
         log::error!("Compaction failed: {e:?}");
 
         // IMPORTANT: We need to show tables again on error
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
         compaction_state
@@ -476,9 +487,11 @@ fn merge_tables(
         Ok(())
     })?;
 
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
     log::trace!("Acquiring super version write lock");
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
     log::trace!("Acquired super version write lock");
 
@@ -525,6 +538,7 @@ fn drop_tables(
     opts: &Options,
     ids_to_drop: &[TableId],
 ) -> crate::Result<()> {
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut version_history_lock = opts.version_history.write().expect("lock is poisoned");
 
     // Fail-safe for buggy compaction strategies
