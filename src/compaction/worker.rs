@@ -115,7 +115,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
         Choice::Move(payload) => {
             drop(version_history_lock);
 
-            move_tables(compaction_state, opts, &payload)
+            move_tables(&compaction_state, opts, &payload)
         }
         Choice::Drop(payload) => {
             drop(version_history_lock);
@@ -147,7 +147,7 @@ fn create_compaction_stream<'a>(
         }
 
         if level.is_disjoint() && level.len() > 1 {
-            #[expect(clippy::expect_used, reason = "first level is expected to exist")]
+            #[expect(clippy::expect_used, reason = "we check for level length > 1 above")]
             let run = level.first().expect("run should exist");
 
             let Some(lo) = run
@@ -195,13 +195,8 @@ fn create_compaction_stream<'a>(
     })
 }
 
-#[expect(
-    clippy::needless_pass_by_value,
-    clippy::significant_drop_tightening,
-    reason = "compaction_state guard must be held during the entire operation, lock must be held for entire scope"
-)]
 fn move_tables(
-    compaction_state: MutexGuard<'_, CompactionState>,
+    compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
