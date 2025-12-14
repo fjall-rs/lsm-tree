@@ -61,18 +61,19 @@ impl<'a> StandardBloomFilterReader<'a> {
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "filters in a single table tend to be a couple of megabits of data at most, so easily fits into usize"
         )]
         let m = reader.read_u64::<LittleEndian>()? as usize;
+
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "k easily fits into any integer"
         )]
         let k = reader.read_u64::<LittleEndian>()? as usize;
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "filters in a single table tend to be a couple of megabytes of data at most, so easily fits into usize"
         )]
         let offset = reader.position() as usize;
 
@@ -106,7 +107,7 @@ impl<'a> StandardBloomFilterReader<'a> {
 
             #[expect(
                 clippy::cast_possible_truncation,
-                reason = "truncation is not expected to happen"
+                reason = "filters in a single table tend to be a couple of megabytes of data at most, so easily fits into usize"
             )]
             if !self.has_bit(idx as usize) {
                 return false;
