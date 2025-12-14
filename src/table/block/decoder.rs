@@ -125,23 +125,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         }
     }
 
-    #[must_use]
-    pub fn block(&self) -> &Block {
-        self.block
-    }
-
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.block.data
-    }
-
-    /// Returns the number of items in the block.
-    #[must_use]
-    #[expect(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        Trailer::new(self.block).item_count()
-    }
-
     fn get_binary_index_reader(&self) -> BinaryIndexReader<'_> {
         BinaryIndexReader::new(
             &self.block.data,

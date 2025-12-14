@@ -95,7 +95,7 @@ impl<T: Ranged> Run<T> {
         self.0.remove(idx)
     }
 
-    /// Returns the table tha'a,t possibly contains the key.
+    /// Returns the table that may possibly contains the given key.
     pub fn get_for_key(&self, key: &[u8]) -> Option<&T> {
         let idx = self.partition_point(|x| x.key_range().max() < &key);
 

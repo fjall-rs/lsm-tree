@@ -122,11 +122,6 @@ impl KeyedBlockHandle {
     pub fn end_key(&self) -> &UserKey {
         &self.end_key
     }
-
-    #[must_use]
-    pub fn into_end_key(self) -> UserKey {
-        self.end_key
-    }
 }
 
 #[cfg(test)]
@@ -161,13 +156,14 @@ impl Encodable<BlockOffset> for KeyedBlockHandle {
         Ok(())
     }
 
+    // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn encode_truncated_into<W: std::io::Write>(
         &self,
         _writer: &mut W,
         _state: &mut BlockOffset,
         _shared_len: usize,
     ) -> crate::Result<()> {
-        // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
         unimplemented!()
     }
 
@@ -244,12 +240,13 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         key.map(|k| (k, seqno))
     }
 
+    // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn parse_truncated(
         _reader: &mut Cursor<&[u8]>,
         _offset: usize,
         _base_key_offset: usize,
     ) -> Option<IndexBlockParsedItem> {
-        // TODO: see https://github.com/fjall-rs/lsm-tree/issues/184
         unimplemented!()
     }
 }

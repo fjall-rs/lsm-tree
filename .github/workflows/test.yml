@@ -30,6 +30,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust_version }}
+      - name: Add cargo-all-features
+        run: cargo install cargo-all-features
       - name: Add rustfmt
         run: rustup component add rustfmt
       - name: Add clippy

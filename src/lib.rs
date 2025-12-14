@@ -43,9 +43,7 @@
 #![warn(clippy::multiple_crate_versions)]
 #![allow(clippy::option_if_let_else)]
 #![warn(clippy::redundant_feature_names)]
-// the bytes feature uses unsafe to improve from_reader performance; so we need to relax this lint
-// #![cfg_attr(feature = "bytes", deny(unsafe_code))]
-// #![cfg_attr(not(feature = "bytes"), forbid(unsafe_code))]
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 #[doc(hidden)]
 pub type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;

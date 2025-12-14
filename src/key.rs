@@ -12,25 +12,13 @@ pub struct InternalKey {
     pub value_type: ValueType,
 }
 
-impl AsRef<[u8]> for InternalKey {
-    fn as_ref(&self) -> &[u8] {
-        &self.user_key
-    }
-}
-
 impl PartialEq for InternalKey {
     fn eq(&self, other: &Self) -> bool {
         self.user_key == other.user_key && self.seqno == other.seqno
     }
 }
 
-impl std::hash::Hash for InternalKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.user_key);
-        state.write_u64(self.seqno);
-    }
-}
-
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for InternalKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

@@ -47,6 +47,11 @@ rand = "0.9.2"
 strum = { version = "0.27.2", features = ["derive"] }
 test-log = "0.2.18"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage,coverage_nightly)',
+] }
+
 [package.metadata.cargo-all-features]
 denylist = []
 

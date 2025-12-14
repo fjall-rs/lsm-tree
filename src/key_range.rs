@@ -2,30 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    coding::{Decode, Encode},
-    Slice, UserKey,
-};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::{
-    io::{Read, Write},
-    ops::Bound,
-};
+use crate::{Slice, UserKey};
+use std::ops::Bound;
 
 /// A key range in the format of [min, max] (inclusive on both sides)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange(UserKey, UserKey);
-
-impl std::fmt::Display for KeyRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "[{}<=>{}]",
-            String::from_utf8_lossy(self.min()),
-            String::from_utf8_lossy(self.max())
-        )
-    }
-}
 
 impl KeyRange {
     /// Creates a new key range.
@@ -156,35 +138,6 @@ impl KeyRange {
         }
 
         Self(min.clone(), max.clone())
-    }
-}
-
-impl Encode for KeyRange {
-    fn encode_into<W: Write>(&self, writer: &mut W) -> Result<(), crate::Error> {
-        let min = self.min();
-        let max = self.max();
-
-        #[expect(clippy::cast_possible_truncation, reason = "max key size = u16")]
-        writer.write_u16::<LittleEndian>(min.len() as u16)?;
-        writer.write_all(min)?;
-
-        #[expect(clippy::cast_possible_truncation, reason = "max key size = u16")]
-        writer.write_u16::<LittleEndian>(max.len() as u16)?;
-        writer.write_all(max)?;
-
-        Ok(())
-    }
-}
-
-impl Decode for KeyRange {
-    fn decode_from<R: Read>(reader: &mut R) -> Result<Self, crate::Error> {
-        let key_min_len = reader.read_u16::<LittleEndian>()?;
-        let key_min: UserKey = Slice::from_reader(reader, key_min_len.into())?;
-
-        let key_max_len = reader.read_u16::<LittleEndian>()?;
-        let key_max: UserKey = Slice::from_reader(reader, key_max_len.into())?;
-
-        Ok(Self::new((key_min, key_max)))
     }
 }
 
