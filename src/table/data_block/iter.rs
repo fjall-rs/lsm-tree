@@ -65,7 +65,10 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Less => {
                     // Continue
 
-                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we peeked a value successfully, so there must be a next item in the stream"
+                    )]
                     self.decoder.next().expect("should exist");
                 }
             }
@@ -99,7 +102,10 @@ impl<'a> Iter<'a> {
                 std::cmp::Ordering::Greater => {
                     // Continue
 
-                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we peeked a value successfully, so there must be a next item in the stream"
+                    )]
                     self.decoder.next_back().expect("should exist");
                 }
             }
@@ -128,7 +134,10 @@ impl<'a> Iter<'a> {
                     return true;
                 }
                 std::cmp::Ordering::Equal | std::cmp::Ordering::Less => {
-                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we peeked a value successfully, so there must be a next item in the stream"
+                    )]
                     self.decoder.next().expect("should exist");
                 }
             }
@@ -156,7 +165,10 @@ impl<'a> Iter<'a> {
                     return true;
                 }
                 std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {
-                    #[expect(clippy::expect_used, reason = "decoder is expected to exist")]
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "we peeked a value successfully, so there must be a next item in the stream"
+                    )]
                     self.decoder.next_back().expect("should exist");
                 }
             }
