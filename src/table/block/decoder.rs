@@ -137,16 +137,17 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
     fn get_key_at(&self, pos: usize) -> (&[u8], SeqNo) {
         let bytes = &self.block.data;
 
-        // SAFETY: pos is always retrieved from the binary index,
-        // which we consider to be trustworthy
         #[expect(
             unsafe_code,
-            reason = "pos is always retrieved from the binary index which is trustworthy"
+            reason = "pos is always retrieved from the binary index which we consider to be trustworthy"
         )]
         let mut cursor = Cursor::new(unsafe { bytes.get_unchecked(pos..) });
 
-        #[expect(clippy::expect_used, reason = "restart key is expected to exist")]
-        Item::parse_restart_key(&mut cursor, pos, bytes).expect("should exist")
+        #[expect(
+            clippy::expect_used,
+            reason = "restart key should be parsed, see reason above"
+        )]
+        Item::parse_restart_key(&mut cursor, pos, bytes).expect("should parse restart key")
     }
 
     fn partition_point<F>(&self, pred: F) -> Option<(/* offset */ usize, /* idx */ usize)>
@@ -340,8 +341,12 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         if is_restart {
             Item::parse_full(reader, offset)
         } else {
-            #[expect(clippy::expect_used, reason = "base key offset is expected to exist")]
-            Item::parse_truncated(reader, offset, base_key_offset.expect("should exist"))
+            #[expect(clippy::expect_used, reason = "we trust the is_restart flag")]
+            Item::parse_truncated(
+                reader,
+                offset,
+                base_key_offset.expect("should parse truncated item"),
+            )
         }
     }
 
@@ -353,8 +358,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
             let offset = self.hi_scanner.offset;
 
-            // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-            // And the cursor starts at 0 - the slice is never empty
             #[expect(
                 unsafe_code,
                 reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
@@ -363,7 +366,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
             #[expect(
                 clippy::cast_possible_truncation,
-                reason = "truncation is not expected to happen"
+                reason = "blocks do not even come close to 4 GiB in size"
             )]
             if Item::parse_full(&mut reader, offset)
                 .inspect(|item| {
@@ -379,8 +382,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
         for _ in 1..self.restart_interval {
             let offset = self.hi_scanner.offset;
 
-            // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-            // And the cursor starts at 0 - the slice is never empty
             #[expect(
                 unsafe_code,
                 reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
@@ -390,7 +391,7 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
             #[expect(clippy::expect_used, reason = "base key offset is expected to exist")]
             #[expect(
                 clippy::cast_possible_truncation,
-                reason = "truncation is not expected to happen"
+                reason = "blocks do not even come close to 4 GiB in size"
             )]
             if Item::parse_truncated(
                 &mut reader,
@@ -420,8 +421,6 @@ impl<'a, Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Decoder<'a, Item, Pa
 
         let is_restart = self.hi_scanner.stack.is_empty();
 
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
         #[expect(
             unsafe_code,
             reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
@@ -449,8 +448,6 @@ impl<Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Iterator for Decoder<'_,
 
         let is_restart: bool = self.lo_scanner.remaining_in_interval == 0;
 
-        // SAFETY: The cursor is advanced by read_ operations which check for EOF,
-        // And the cursor starts at 0 - the slice is never empty
         #[expect(
             unsafe_code,
             reason = "cursor is advanced by read_ operations which check for EOF, and the cursor starts at 0 - the slice is never empty"
@@ -460,7 +457,7 @@ impl<Item: Decodable<Parsed>, Parsed: ParsedItem<Item>> Iterator for Decoder<'_,
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "blocks do not even come close to 4 GiB in size"
         )]
         let item = Self::parse_current_item(
             &mut reader,
