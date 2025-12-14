@@ -137,7 +137,7 @@ impl ParsedMeta {
             "index block restart intervals >1 are not supported for this version",
         );
 
-        let id = read_u64!(block, b"id");
+        let id = read_u64!(block, b"table_id");
         let item_count = read_u64!(block, b"item_count");
         let tombstone_count = read_u64!(block, b"tombstone_count");
         let data_block_count = read_u64!(block, b"block_count#data");

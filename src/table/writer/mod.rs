@@ -369,6 +369,8 @@ impl Writer {
     #[expect(clippy::too_many_lines)]
     /// Finishes the table, making sure all data is written durably
     pub fn finish(mut self) -> crate::Result<Option<(TableId, Checksum)>> {
+        use std::io::Write;
+
         self.spill_block()?;
 
         // No items written! Just delete table file and return nothing
@@ -404,6 +406,9 @@ impl Writer {
                 self.file_writer.write_u64::<LE>(file.on_disk_bytes)?;
             }
         }
+
+        self.file_writer.start("table_version")?;
+        self.file_writer.write_all(&[0x3])?;
 
         // Write metadata
         self.file_writer.start("meta")?;
@@ -443,7 +448,6 @@ impl Writer {
                 ),
                 meta("file_size", &self.meta.file_pos.to_le_bytes()),
                 meta("filter_hash_type", &[u8::from(ChecksumType::Xxh3)]),
-                meta("id", &self.table_id.to_le_bytes()),
                 meta("index_keys_have_seqno", &[0x1]),
                 meta("initial_level", &self.initial_level.to_le_bytes()),
                 meta("item_count", &(self.meta.item_count as u64).to_le_bytes()),
@@ -472,6 +476,7 @@ impl Writer {
                 ),
                 meta("seqno#max", &self.meta.highest_seqno.to_le_bytes()),
                 meta("seqno#min", &self.meta.lowest_seqno.to_le_bytes()),
+                meta("table_id", &self.table_id.to_le_bytes()),
                 meta("table_version", &[3u8]),
                 meta(
                     "tombstone_count",
