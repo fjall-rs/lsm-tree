@@ -21,10 +21,6 @@ impl BlobFileList {
         self.0.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     pub fn extend<I: IntoIterator<Item = (BlobFileId, BlobFile)>>(&mut self, iter: I) {
         self.0.extend(iter);
     }
