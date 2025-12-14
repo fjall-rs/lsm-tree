@@ -32,12 +32,19 @@ impl Builder {
 
         if hash_ratio > 0.0 {
             #[expect(
-                clippy::cast_possible_truncation,
                 clippy::cast_precision_loss,
-                reason = "truncation or precision loss is not expected to happen"
+                reason = "item count should easily fit into f32"
             )]
-            #[expect(clippy::cast_sign_loss, reason = "sign loss is not expected to happen")]
-            ((item_count as f32 * hash_ratio) as u32).max(1)
+            let item_count = item_count as f32;
+
+            #[expect(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                reason = "buckets tend to be in the range of a couple of hundreds to thousands, so easily fits into u32"
+            )]
+            let bucket_count = (item_count * hash_ratio) as u32;
+
+            1.max(bucket_count)
         } else {
             0
         }
