@@ -186,7 +186,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "blocks tend to be some megabytes in size at most, so position should fit into usize"
         )]
         let key_start = offset + reader.position() as usize;
 
@@ -224,7 +224,7 @@ impl Decodable<IndexBlockParsedItem> for KeyedBlockHandle {
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "blocks tend to be some megabytes in size at most, so position should fit into usize"
         )]
         let key_start = offset + reader.position() as usize;
 
