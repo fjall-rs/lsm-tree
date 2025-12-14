@@ -975,10 +975,6 @@ impl Tree {
     }
 
     /// Recovers the level manifest, loading all tables from disk.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "this function currently has too many lines, will be refactored in future"
-    )]
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
