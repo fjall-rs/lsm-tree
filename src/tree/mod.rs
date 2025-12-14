@@ -443,11 +443,6 @@ impl AbstractTree for Tree {
         log::trace!("cleared active memtable");
     }
 
-    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
-        let mut version_lock = self.version_history.write().expect("lock is poisoned");
-        version_lock.append_sealed_memtable(memtable);
-    }
-
     fn compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,

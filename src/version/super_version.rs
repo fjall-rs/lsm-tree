@@ -189,12 +189,6 @@ impl SuperVersions {
 
         version.expect("should always find a SuperVersion")
     }
-
-    pub fn append_sealed_memtable(&mut self, memtable: Arc<Memtable>) {
-        let mut copy = self.latest_version();
-        copy.sealed_memtables = Arc::new(copy.sealed_memtables.add(memtable));
-        self.0.push_back(copy);
-    }
 }
 
 #[cfg(test)]

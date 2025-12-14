@@ -13,8 +13,8 @@ fn leveled_empty_levels() -> crate::Result<()> {
     )
     .open()?;
 
-    let fifo = Arc::new(Strategy::default());
-    tree.compact(fifo, 0)?;
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
 
     assert_eq!(0, tree.table_count());
     Ok(())
@@ -38,8 +38,8 @@ fn leveled_l0_below_limit() -> crate::Result<()> {
     let before = tree.table_count();
     assert_eq!(3, before);
 
-    let fifo = Arc::new(Strategy::default());
-    tree.compact(fifo, 0)?;
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
 
     assert_eq!(before, tree.table_count());
 
@@ -66,8 +66,8 @@ fn leveled_l0_reached_limit() -> crate::Result<()> {
 
     assert_eq!(4, tree.table_count());
 
-    let fifo = Arc::new(Strategy::default());
-    tree.compact(fifo, 0)?;
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
 
     assert_eq!(1, tree.table_count());
 
@@ -91,8 +91,8 @@ fn leveled_l0_reached_limit_disjoint() -> crate::Result<()> {
 
     assert_eq!(4, tree.table_count());
 
-    let fifo = Arc::new(Strategy::default());
-    tree.compact(fifo, 0)?;
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
 
     assert_eq!(4, tree.table_count());
 
@@ -128,10 +128,37 @@ fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
 
     assert_eq!(5, tree.table_count());
 
-    let fifo = Arc::new(Strategy::default());
-    tree.compact(fifo, 0)?;
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
 
     assert_eq!(5, tree.table_count());
+
+    Ok(())
+}
+
+#[test]
+fn leveled_sequential_inserts() -> crate::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let tree = Config::new(
+        dir.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    for (table_count, k) in ('a'..='z').enumerate() {
+        let table_count = table_count + 1;
+
+        // NOTE: Tables need to overlap
+        tree.insert(k.to_string(), "", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(table_count, tree.table_count());
+
+        let strategy = Arc::new(Strategy::default());
+        tree.compact(strategy, 0)?;
+        assert_eq!(table_count, tree.table_count());
+    }
 
     Ok(())
 }

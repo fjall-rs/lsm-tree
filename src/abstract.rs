@@ -238,11 +238,6 @@ pub trait AbstractTree {
     /// Returns the number of sealed memtables.
     fn sealed_memtable_count(&self) -> usize;
 
-    /// Adds a sealed memtables.
-    ///
-    /// May be used to restore the LSM-tree's in-memory state from some journals.
-    fn add_sealed_memtable(&self, memtable: Arc<Memtable>);
-
     /// Performs compaction on the tree's levels, blocking the caller until it's done.
     ///
     /// # Errors

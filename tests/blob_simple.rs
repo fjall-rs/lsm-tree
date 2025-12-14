@@ -24,6 +24,10 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
+        assert_eq!(
+            big_value.len(),
+            tree.size_of("big", SeqNo::MAX)?.unwrap() as usize,
+        );
 
         tree.flush_active_memtable(0)?;
 

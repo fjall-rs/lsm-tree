@@ -503,10 +503,6 @@ impl AbstractTree for BlobTree {
         )
     }
 
-    fn add_sealed_memtable(&self, memtable: Arc<Memtable>) {
-        self.index.add_sealed_memtable(memtable);
-    }
-
     fn compact(
         &self,
         strategy: Arc<dyn crate::compaction::CompactionStrategy>,
