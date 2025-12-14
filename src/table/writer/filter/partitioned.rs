@@ -166,11 +166,12 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
-            reason = "truncation or sign loss is not expected to happen"
+            reason = "truncation is fine because this is an estimation"
         )]
         let estimated_key_bits =
             self.bloom_policy
                 .estimated_key_bits(self.bloom_hash_buffer.len()) as usize;
+
         self.approx_filter_size += estimated_key_bits;
 
         self.last_key = Some(key.clone());
