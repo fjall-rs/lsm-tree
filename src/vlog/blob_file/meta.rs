@@ -124,10 +124,10 @@ impl Metadata {
         let total_uncompressed_bytes = read_u64!(block, b"uncompressed_size");
 
         let compression = {
-            #[expect(clippy::expect_used, reason = "size is expected to exist")]
+            #[expect(clippy::expect_used, reason = "compression is expected to exist")]
             let bytes = block
                 .point_read(b"compression", SeqNo::MAX)
-                .expect("size should exist");
+                .expect("compression should exist");
 
             let mut bytes = &bytes.value[..];
             CompressionType::decode_from(&mut bytes)?

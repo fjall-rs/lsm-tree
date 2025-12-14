@@ -138,7 +138,6 @@ impl<T: Ranged> Run<T> {
             // find last index where pred holds
             let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
 
-            #[expect(clippy::expect_used, reason = "element is expected to be in range")]
             s.get(start..end).expect("should be in range")
         }
 
