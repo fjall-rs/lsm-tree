@@ -33,7 +33,7 @@ impl Builder {
         if hash_ratio > 0.0 {
             #[expect(
                 clippy::cast_precision_loss,
-                reason = "item count should easily fit into f32"
+                reason = "item count tends to be some thousands at most, so f32 should be precise enough"
             )]
             let item_count = item_count as f32;
 
