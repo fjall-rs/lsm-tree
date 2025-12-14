@@ -544,7 +544,7 @@ impl AbstractTree for Tree {
 
         (memtable_count + sealed_count + tables_item_count)
             .try_into()
-            .expect("should not be too large")
+            .expect("approximate_len too large for usize")
     }
 
     fn disk_space(&self) -> u64 {
