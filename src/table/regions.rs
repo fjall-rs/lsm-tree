@@ -5,12 +5,19 @@
 use super::{BlockHandle, BlockOffset};
 use sfa::TocEntry;
 
+/// Converts a [`sfa::TocEntry`] to our [`BlockHandle`] struct.
 fn toc_entry_to_handle(entry: &TocEntry) -> BlockHandle {
     #[expect(
-        clippy::cast_possible_truncation,
-        reason = "truncation is not expected to happen"
+        clippy::expect_used,
+        reason = "Function is only used for regions that do not exceed >= 4 GiB"
     )]
-    BlockHandle::new(BlockOffset(entry.pos()), entry.len() as u32)
+    BlockHandle::new(
+        BlockOffset(entry.pos()),
+        entry
+            .len()
+            .try_into()
+            .expect("region should not exceed 4 GiB"),
+    )
 }
 
 /// The regions block stores offsets to the different table file "regions"
