@@ -40,7 +40,7 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "position fits within block bounds"
+            reason = "blocks tend to be some megabytes in size at most, so position should fit into usize"
         )]
         let key_start = offset + reader.position() as usize;
         #[expect(
@@ -60,6 +60,7 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         if value_type == TRAILER_START_MARKER {
             return None;
         }
+
         #[expect(clippy::expect_used, reason = "value_type is expected to be valid")]
         let value_type = ValueType::try_from(value_type).expect("should be valid value type");
 
@@ -68,7 +69,7 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         let key_len: usize = unwrap!(reader.read_u16_varint()).into();
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "blocks tend to be some megabytes in size at most, so position should fit into usize"
         )]
         let key_start = offset + reader.position() as usize;
         #[expect(
@@ -87,12 +88,12 @@ impl Decodable<DataBlockParsedItem> for InternalValue {
         };
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "truncation is not expected to happen"
+            reason = "blocks tend to be some megabytes in size at most, so position should fit into usize"
         )]
         let val_offset = offset + reader.position() as usize;
         #[expect(
             clippy::cast_possible_wrap,
-            reason = "val_len is bounded by u16::MAX, no wrap expected"
+            reason = "val_len is bounded by u32::MAX, no wrap expected"
         )]
         let val_len_i64 = val_len as i64;
         unwrap!(reader.seek_relative(val_len_i64));
