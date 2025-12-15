@@ -6,6 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
+        filter::{CompactionFilter, StreamFilterAdapter},
         flavour::{RelocatingCompaction, StandardCompaction},
         state::CompactionState,
         stream::CompactionStream,
@@ -57,6 +58,9 @@ pub struct Options {
     /// Evicts items that are older than this seqno (MVCC GC).
     pub mvcc_gc_watermark: u64,
 
+    /// Compaction filter to exclude items during table merge.
+    pub filter: Mutex<Option<Box<dyn CompactionFilter>>>,
+
     pub compaction_state: Arc<Mutex<CompactionState>>,
 
     #[cfg(feature = "metrics")]
@@ -76,6 +80,7 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             mvcc_gc_watermark: 0,
+            filter: Mutex::new(None),
 
             compaction_state: tree.compaction_state.clone(),
 
@@ -388,6 +393,22 @@ fn merge_tables(
         .evict_tombstones(is_last_level)
         .zero_seqnos(false);
 
+    let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
+
+    // grab the filter so we can use it mutably
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+    let mut compaction_filter = {
+        let mut filter_lock = opts.filter.lock().expect("lock is poisoned");
+        filter_lock.take()
+    };
+
+    let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter {
+        filter: compaction_filter.as_deref_mut(),
+        opts,
+        version: &current_super_version.version,
+        blobs_folder: &blobs_folder,
+    });
+
     let table_writer =
         super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
 
@@ -424,12 +445,10 @@ fn merge_tables(
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
-                let writer = BlobFileWriter::new(
-                    opts.blob_file_id_generator.clone(),
-                    opts.config.path.join(BLOBS_FOLDER),
-                )?
-                .use_target_size(blob_opts.file_target_size)
-                .use_passthrough_compression(blob_opts.compression);
+                let writer =
+                    BlobFileWriter::new(opts.blob_file_id_generator.clone(), &blobs_folder)?
+                        .use_target_size(blob_opts.file_target_size)
+                        .use_passthrough_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, tables);
 
@@ -471,6 +490,12 @@ fn merge_tables(
 
         Ok(())
     })?;
+
+    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+    {
+        let mut filter_lock = opts.filter.lock().expect("lock is poisoned");
+        *filter_lock = compaction_filter;
+    }
 
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");

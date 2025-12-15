@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{InternalValue, SeqNo, UserKey, ValueType};
+use crate::{InternalValue, SeqNo, Slice, UserKey, ValueType};
 use std::iter::Peekable;
 
 type Item = crate::Result<InternalValue>;
@@ -11,14 +11,28 @@ type Item = crate::Result<InternalValue>;
 ///
 /// Used for counting blobs that are not referenced anymore because of
 /// vHandles that are being dropped through compaction.
-pub trait ExpiredKvCallback {
-    fn on_expired(&mut self, kv: &InternalValue);
+pub trait DroppedKvCallback {
+    fn on_dropped(&mut self, kv: &InternalValue);
+}
+
+/// A callback for filtering out KVs from the stream.
+pub trait StreamFilter {
+    fn should_remove(&mut self, item: &InternalValue) -> bool;
+}
+
+/// A [`StreamFilter`] that does not filter anything out.
+pub struct NoFilter;
+
+impl StreamFilter for NoFilter {
+    fn should_remove(&mut self, _item: &InternalValue) -> bool {
+        false
+    }
 }
 
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
-pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
+pub struct CompactionStream<'a, I: Iterator<Item = Item>, F: StreamFilter = NoFilter> {
     /// KV stream
     inner: Peekable<I>,
 
@@ -26,14 +40,17 @@ pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
     gc_seqno_threshold: SeqNo,
 
     /// Event emitter that receives all expired KVs
-    expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
+    dropped_callback: Option<&'a mut dyn DroppedKvCallback>,
+
+    /// Stream filter
+    filter: F,
 
     evict_tombstones: bool,
 
     zero_seqnos: bool,
 }
 
-impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
+impl<I: Iterator<Item = Item>> CompactionStream<'_, I, NoFilter> {
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I, gc_seqno_threshold: SeqNo) -> Self {
@@ -42,9 +59,24 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
         Self {
             inner: iter,
             gc_seqno_threshold,
-            expiration_callback: None,
+            dropped_callback: None,
+            filter: NoFilter,
             evict_tombstones: false,
             zero_seqnos: false,
+        }
+    }
+}
+
+impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I, F> {
+    /// Installs a filter into this stream
+    pub fn with_filter<NF: StreamFilter>(self, filter: NF) -> CompactionStream<'a, I, NF> {
+        CompactionStream {
+            inner: self.inner,
+            gc_seqno_threshold: self.gc_seqno_threshold,
+            dropped_callback: self.dropped_callback,
+            filter,
+            evict_tombstones: self.evict_tombstones,
+            zero_seqnos: self.zero_seqnos,
         }
     }
 
@@ -54,8 +86,8 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     }
 
     /// Installs a callback that receives all expired KVs.
-    pub fn with_expiration_callback(mut self, cb: &'a mut dyn ExpiredKvCallback) -> Self {
-        self.expiration_callback = Some(cb);
+    pub fn with_expiration_callback(mut self, cb: &'a mut dyn DroppedKvCallback) -> Self {
+        self.dropped_callback = Some(cb);
         self
     }
 
@@ -75,8 +107,8 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
                     let expired = kv.key.user_key == key;
 
                     if expired {
-                        if let Some(watcher) = &mut self.expiration_callback {
-                            watcher.on_expired(kv);
+                        if let Some(watcher) = &mut self.dropped_callback {
+                            watcher.on_dropped(kv);
                         }
                     }
 
@@ -93,12 +125,22 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     }
 }
 
-impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
+impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for CompactionStream<'a, I, F> {
     type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let mut head = fail_iter!(self.inner.next()?);
+
+            if !head.is_tombstone() && self.filter.should_remove(&head) {
+                // filter wants to drop this kv, replace with tombstone
+                if let Some(watcher) = &mut self.dropped_callback {
+                    watcher.on_dropped(&head);
+                }
+
+                head.key.value_type = ValueType::Tombstone;
+                head.value = Slice::empty();
+            }
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
@@ -199,8 +241,8 @@ mod tests {
             items: Vec<InternalValue>,
         }
 
-        impl ExpiredKvCallback for MyCallback {
-            fn on_expired(&mut self, kv: &InternalValue) {
+        impl DroppedKvCallback for MyCallback {
+            fn on_dropped(&mut self, kv: &InternalValue) {
                 self.items.push(kv.clone());
             }
         }

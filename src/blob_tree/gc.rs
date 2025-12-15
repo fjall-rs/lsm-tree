@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::ExpiredKvCallback,
+    blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::DroppedKvCallback,
     version::BlobFileList, vlog::BlobFileId,
 };
 
@@ -132,8 +132,8 @@ impl crate::coding::Decode for FragmentationMap {
     }
 }
 
-impl ExpiredKvCallback for FragmentationMap {
-    fn on_expired(&mut self, kv: &crate::InternalValue) {
+impl DroppedKvCallback for FragmentationMap {
+    fn on_dropped(&mut self, kv: &crate::InternalValue) {
         if kv.key.value_type.is_indirection() {
             let mut reader = &kv.value[..];
 
