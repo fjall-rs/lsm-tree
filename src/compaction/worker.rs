@@ -16,9 +16,9 @@ use crate::{
     run_scanner::RunScanner,
     stop_signal::StopSignal,
     tree::inner::TreeId,
-    version::{SuperVersions, Version},
+    version::{Run, SuperVersions, Version},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
-    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, TableId,
+    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, Table, TableId,
 };
 use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
@@ -133,6 +133,18 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
+fn pick_run_indexes(run: &Run<Table>, to_compact: &[TableId]) -> Option<(usize, usize)> {
+    let lo = run
+        .iter()
+        .position(|table| to_compact.contains(&table.id()))?;
+
+    let hi = run
+        .iter()
+        .rposition(|table| to_compact.contains(&table.id()))?;
+
+    Some((lo, hi))
+}
+
 fn create_compaction_stream<'a>(
     version: &Version,
     to_compact: &[TableId],
@@ -141,32 +153,9 @@ fn create_compaction_stream<'a>(
     let mut readers: Vec<CompactionReader<'_>> = vec![];
     let mut found = 0;
 
-    for level in version.iter_levels() {
-        if level.is_empty() {
-            continue;
-        }
-
-        if level.is_disjoint() && level.len() > 1 {
-            #[expect(clippy::expect_used, reason = "we check for level length > 1 above")]
-            let run = level.first().expect("run should exist");
-
-            let Some(lo) = run
-                .iter()
-                .enumerate()
-                .filter(|(_, table)| to_compact.contains(&table.id()))
-                .min_by(|(a, _), (b, _)| a.cmp(b))
-                .map(|(idx, _)| idx)
-            else {
-                continue;
-            };
-
-            let Some(hi) = run
-                .iter()
-                .enumerate()
-                .filter(|(_, table)| to_compact.contains(&table.id()))
-                .max_by(|(a, _), (b, _)| a.cmp(b))
-                .map(|(idx, _)| idx)
-            else {
+    for run in version.iter_levels().flat_map(|lvl| lvl.iter()) {
+        if run.len() > 1 {
+            let Some((lo, hi)) = pick_run_indexes(run, to_compact) else {
                 continue;
             };
 
@@ -177,11 +166,7 @@ fn create_compaction_stream<'a>(
 
             found += hi - lo + 1;
         } else {
-            for table in level
-                .iter()
-                .flat_map(|x| x.iter())
-                .filter(|x| to_compact.contains(&x.metadata.id))
-            {
+            for table in run.iter().filter(|x| to_compact.contains(&x.metadata.id)) {
                 found += 1;
                 readers.push(Box::new(table.scan()?));
             }
@@ -620,13 +605,163 @@ fn drop_tables(
 #[cfg(test)]
 mod tests {
     use crate::{
-        compaction::{state::CompactionState, Choice, CompactionStrategy, Input},
+        compaction::{
+            state::CompactionState, worker::pick_run_indexes, Choice, CompactionStrategy, Input,
+        },
         config::BlockSizePolicy,
         version::Version,
         AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter, TableId,
     };
     use std::sync::Arc;
     use test_log::test;
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_run() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("b", "b", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("c", "c", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            Some((0, 2)),
+            pick_run_indexes(
+                tree.current_version()
+                    .level(0)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap(),
+                &[0, 1, 2],
+            )
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_run_2() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("b", "b", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("c", "c", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            Some((0, 0)),
+            pick_run_indexes(
+                tree.current_version()
+                    .level(0)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap(),
+                &[0],
+            )
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_run_3() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("b", "b", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("c", "c", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            Some((2, 2)),
+            pick_run_indexes(
+                tree.current_version()
+                    .level(0)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap(),
+                &[2],
+            )
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn compaction_stream_run_4() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("b", "b", 0);
+        tree.flush_active_memtable(0)?;
+
+        tree.insert("c", "c", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert_eq!(
+            None,
+            pick_run_indexes(
+                tree.current_version()
+                    .level(0)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap(),
+                &[4],
+            )
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn compaction_drop_tables() -> crate::Result<()> {
