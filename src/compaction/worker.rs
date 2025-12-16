@@ -604,16 +604,34 @@ fn drop_tables(
 
 #[cfg(test)]
 mod tests {
+    use super::{create_compaction_stream, pick_run_indexes};
     use crate::{
-        compaction::{
-            state::CompactionState, worker::pick_run_indexes, Choice, CompactionStrategy, Input,
-        },
+        compaction::{state::CompactionState, Choice, CompactionStrategy, Input},
         config::BlockSizePolicy,
         version::Version,
         AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter, TableId,
     };
     use std::sync::Arc;
     use test_log::test;
+
+    #[test]
+    fn compaction_stream_run_not_found() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+
+        let tree = crate::Config::new(
+            folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        tree.insert("a", "a", 0);
+        tree.flush_active_memtable(0)?;
+
+        assert!(create_compaction_stream(&tree.current_version(), &[666], 0)?.is_none());
+
+        Ok(())
+    }
 
     #[test]
     #[expect(clippy::unwrap_used)]
