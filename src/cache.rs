@@ -5,8 +5,8 @@
 use crate::table::block::Header;
 use crate::table::{Block, BlockOffset};
 use crate::{GlobalTableId, UserValue};
+use quick_cache::sync::Cache as QuickCache;
 use quick_cache::Weighter;
-use quick_cache::{sync::Cache as QuickCache, Equivalent};
 
 const TAG_BLOCK: u8 = 0;
 const TAG_BLOB: u8 = 1;
@@ -19,12 +19,6 @@ enum Item {
 
 #[derive(Eq, std::hash::Hash, PartialEq)]
 struct CacheKey(u8, u64, u64, u64);
-
-impl Equivalent<CacheKey> for (u8, u64, u64, u64) {
-    fn equivalent(&self, key: &CacheKey) -> bool {
-        self.0 == key.0 && self.1 == key.1 && self.2 == key.2 && self.3 == key.3
-    }
-}
 
 impl From<(u8, u64, u64, u64)> for CacheKey {
     fn from((tag, root_id, table_id, offset): (u8, u64, u64, u64)) -> Self {
