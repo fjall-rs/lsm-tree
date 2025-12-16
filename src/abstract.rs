@@ -18,8 +18,6 @@ type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
-    // TODO: fn() with Nuke compaction strategy (write lock) -> drop_range(..)
-
     /// Returns the number of cached table file descriptors.
     fn table_file_cache_size(&self) -> usize;
 
