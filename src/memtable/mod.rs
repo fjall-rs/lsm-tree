@@ -3,14 +3,15 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::key::InternalKey;
-use crate::tree::inner::MemtableId;
 use crate::{
     value::{InternalValue, SeqNo, UserValue},
     ValueType,
 };
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+
+pub use crate::tree::inner::MemtableId;
 
 /// The memtable serves as an intermediary, ephemeral, sorted storage for new items
 ///
@@ -32,9 +33,28 @@ pub struct Memtable {
     ///
     /// This is used so that `get_highest_seqno` has O(1) complexity.
     pub(crate) highest_seqno: AtomicU64,
+
+    pub(crate) requested_rotation: AtomicBool,
 }
 
 impl Memtable {
+    /// Returns the memtable ID.
+    pub fn id(&self) -> MemtableId {
+        self.id
+    }
+
+    /// Returns `true` if the memtable was already flagged for rotation.
+    pub fn is_flagged_for_rotation(&self) -> bool {
+        self.requested_rotation
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Flags the memtable as requested for rotation.
+    pub fn flag_rotated(&self) {
+        self.requested_rotation
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub fn new(id: MemtableId) -> Self {
@@ -43,6 +63,7 @@ impl Memtable {
             items: SkipMap::default(),
             approximate_size: AtomicU64::default(),
             highest_seqno: AtomicU64::default(),
+            requested_rotation: AtomicBool::default(),
         }
     }
 
