@@ -56,6 +56,7 @@ fn blob_tree_major_compact_gc_stats() -> lsm_tree::Result<()> {
             },
             &*gc_stats,
         );
+        assert_eq!(big_value.len() as u64, tree.stale_blob_bytes());
     }
 
     Ok(())

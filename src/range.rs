@@ -23,12 +23,15 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
     item_seqno < seqno
 }
 
+/// Calculates the prefix's upper range.
+///
+/// # Panics
+///
+/// Panics if the prefix is empty.
 pub(crate) fn prefix_upper_range(prefix: &[u8]) -> Bound<UserKey> {
     use std::ops::Bound::{Excluded, Unbounded};
 
-    if prefix.is_empty() {
-        return Unbounded;
-    }
+    assert!(!prefix.is_empty(), "prefix may not be empty");
 
     let mut end = prefix.to_vec();
     let len = end.len();
