@@ -695,7 +695,7 @@ impl Tree {
         super_version: &SuperVersion,
         keys: &[&[u8]], // keys must be sorted
         seqno: SeqNo,
-        mut mapper: impl FnMut(InternalValue) -> V + Copy,
+        mapper: impl FnMut(InternalValue) -> V + Copy,
     ) -> crate::Result<Vec<Option<V>>> {
         let mut result = vec![None; keys.len()];
         let mut needs_resolution = Vec::with_capacity(keys.len());

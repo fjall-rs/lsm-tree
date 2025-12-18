@@ -8,7 +8,6 @@ use crate::{CompressionType, InternalValue, SeqNo, Slice, Table};
 use byteview::{Builder, ByteView};
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::Error;
 use std::sync::Arc;
 
 pub enum PendingIoVariant {
@@ -30,6 +29,22 @@ pub struct PendingIo<'a> {
     variant: PendingIoVariant,
 }
 
+enum KeyState {
+    Searching,            // Still looking, need more table candidates
+    Found(InternalValue), // Value found
+    NotFound,             // Exhausted all candidates, not found
+    Error(crate::Error),  // Error occurred
+}
+
+impl KeyState {
+    fn is_finished(&self) -> bool {
+        matches!(
+            self,
+            KeyState::Found(_) | KeyState::NotFound | KeyState::Error(_)
+        )
+    }
+}
+
 pub(crate) fn multi_get(
     version: &Version,
     keys_and_indices: &[(usize, &[u8])],
@@ -40,51 +55,66 @@ pub(crate) fn multi_get(
     if num_keys > u16::MAX as usize {
         panic!("too many keys to multi-get"); // todo return normal error
     }
-    let mut resolved = vec![false; num_keys];
+
+    let mut key_states: Vec<KeyState> = {
+        let mut v = Vec::with_capacity(num_keys);
+        v.extend(std::iter::repeat_with(|| KeyState::Searching).take(num_keys));
+        v
+    };
     let mut io_queues: Vec<VecDeque<PendingIo>> = {
         let mut v = Vec::with_capacity(num_keys);
         v.extend(std::iter::repeat_with(VecDeque::new).take(num_keys));
         v
     };
-    let mut resolved_count: usize = 0;
-    let mut readings_in_flight: usize = 0;
+    let mut io_in_flight: usize = 0;
     let mut table_iter = version.iter_levels().flat_map(|lvl| lvl.iter());
+
     increase_request_id();
-    while !resolved
+
+    while !key_states
         .iter()
         .zip(&io_queues)
-        .all(|(&resolved, queue)| resolved || !queue.is_empty())
+        .all(|(state, queue)| state.is_finished() || !queue.is_empty())
     {
         let Some(table) = table_iter.next() else {
-            wait_all_pending(resolved, &mut io_queues, &mut resolved_count, resolve);
-            return Ok(());
+            // Wait for any remaining IO to complete
+            return match wait_all_pending(
+                keys_and_indices,
+                &mut key_states,
+                &mut io_queues,
+                &mut io_in_flight,
+            ) {
+                Ok(_) | Err(BatchError::Completion) => {
+                    finalize_results(key_states, keys_and_indices, resolve)
+                }
+                Err(BatchError::Submit(err)) => Err(err.into()),
+            };
         };
-        // Probe table for EVERY unresolved key and queue if it's a candidate
-        // We must do this for all keys because we won't get another chance
-        // when this table iterator position is consumed
-        for (((external_idx, key), io_queue), key_is_resolved) in keys_and_indices
+
+        // Probe table for EVERY unfinished key and queue if it's a candidate
+        for ((external_idx, key), (io_queue, key_state)) in keys_and_indices
             .iter()
-            .zip(io_queues.iter_mut())
-            .zip(resolved.iter_mut())
+            .zip(io_queues.iter_mut().zip(key_states.iter_mut()))
         {
-            // First check if table may contain the key
+            // Skip if already finished
+            if key_state.is_finished() {
+                continue;
+            }
+
+            // Check if table may contain the key
             let Some(table) = table.get_for_key(key) else {
                 continue;
             };
-            // NOTE: Create key hash for hash sharing
-            // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
+
             let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
             match table.pure_get(key, seqno, key_hash)? {
                 Output::Pure(Some(value)) => {
-                    *key_is_resolved = true;
-                    resolved_count += 1;
+                    *key_state = KeyState::Found(value.clone());
                     resolve(value, *external_idx);
-                    // clear any queued IO for that key
                     io_queue.clear();
                 }
                 Output::Pure(None) => {
                     continue;
-                    // Table was a candidate but doesn't contain key, new candidate table will be queried in next iteration
                 }
                 Output::Io(Io::FilterBlockFd { block_handle }) => {
                     io_queue.push_back(PendingIo {
@@ -115,34 +145,113 @@ pub(crate) fn multi_get(
             }
         }
 
-        if resolved_count < num_keys {
-            match batch_io(
-                keys_and_indices,
-                &mut resolved,
-                &mut io_queues,
-                &mut resolved_count,
-                &mut readings_in_flight,
-            ) {
-                Ok(BatchAction::AllResolved) => break,
-                Ok(BatchAction::NeedsTable(_usize)) => continue,
-                Err(err) => {
-                    todo!("wait for all pending IO reads before returning from the function to ensure no vectors passed to iouring are not dropped before completion");
-                    return Err(err.into());
-                }
+        match batch_io(
+            keys_and_indices,
+            &mut key_states,
+            &mut io_queues,
+            &mut io_in_flight,
+            false,
+        ) {
+            Ok(BatchAction::AllResolved) => break,
+            Ok(BatchAction::NeedsTable(_key_idx)) => {
+                // Empty queue for this key - need more table candidates
+                // Already handled by outer loop continuing
+                continue;
+            }
+            Err(BatchError::Submit(err)) => {
+                // Drain all in-flight operations before returning
+                drain_in_flight(&mut io_queues, &mut io_in_flight);
+                return Err(err.into());
+            }
+
+            Err(BatchError::Completion) => {
+                // Drain all in-flight operations before returning
+                drain_in_flight(&mut io_queues, &mut io_in_flight);
+                return finalize_results(key_states, keys_and_indices, resolve);
             }
         }
     }
 
+    finalize_results(key_states, keys_and_indices, resolve)
+}
+
+fn drain_in_flight(io_queues: &mut [VecDeque<PendingIo>], io_in_flight: &mut usize) {
+    // Wait for all in-flight operations to complete
+    while *io_in_flight > 0 {
+        iouring::on_completion(|output| match output {
+            CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd } => {
+                *io_in_flight -= 1;
+                // Must store fd in cache to avoid leaking
+                if let Ok(fd) = fd {
+                    if let Some(slot) = io_queues[key_idx as usize].front() {
+                        let file = Arc::new(fd);
+                        slot.table
+                            .descriptor_table
+                            .insert_for_table(slot.table.global_id(), file);
+                    }
+                }
+                io_queues[key_idx as usize].pop_front();
+            }
+            CompletionOutput::MultiGetFilterReadBlock { .. } => {
+                *io_in_flight -= 1;
+                // Just complete and forget
+            }
+        });
+        iouring::sync_completion();
+    }
+}
+
+fn finalize_results(
+    key_states: Vec<KeyState>,
+    keys_and_indices: &[(usize, &[u8])],
+    mut resolve: impl FnMut(InternalValue, usize),
+) -> crate::Result<()> {
+    // Process final states and resolve any values we haven't resolved yet
+    for (state, (external_idx, _)) in key_states.into_iter().zip(keys_and_indices.iter()) {
+        match state {
+            KeyState::Found(value) => {
+                resolve(value, *external_idx);
+            }
+            KeyState::NotFound => {
+                // Key not found - caller handles this
+            }
+            KeyState::Error(err) => {
+                // Return first error
+                return Err(err);
+            }
+            KeyState::Searching => {
+                // Should not happen - all Searching should become NotFound or Error
+                unreachable!("Key still in Searching state at finalization")
+            }
+        }
+    }
     Ok(())
 }
 
+enum BatchError {
+    Submit(std::io::Error),
+    Completion,
+}
+
 fn wait_all_pending(
-    _resolved: Vec<bool>,
-    _io_queues: &mut Vec<VecDeque<PendingIo>>,
-    _resolved_count: &mut usize,
-    _resolve: impl FnMut(InternalValue, usize),
-) {
-    todo!()
+    keys_and_indices: &[(usize, &[u8])],
+    key_states: &mut [KeyState],
+    io_queues: &mut Vec<VecDeque<PendingIo>>,
+    io_in_flight: &mut usize,
+) -> Result<(), BatchError> {
+    loop {
+        match batch_io(keys_and_indices, key_states, io_queues, io_in_flight, true) {
+            Ok(BatchAction::AllResolved) => return Ok(()),
+            Ok(BatchAction::NeedsTable(_key_idx)) => {
+                unreachable!()
+            }
+            Err(err) => {
+                // Drain all in-flight operations before returning
+                drain_in_flight(io_queues, io_in_flight);
+                return Err(err);
+            }
+        }
+    }
 }
 
 enum BatchAction {
@@ -152,26 +261,38 @@ enum BatchAction {
 
 fn batch_io(
     keys_and_indices: &[(usize, &[u8])],
-    resolved: &mut [bool],
+    key_states: &mut [KeyState],
     io_queues: &mut [VecDeque<PendingIo>],
-    resolved_count: &mut usize,
-    readings_in_flight: &mut usize,
-) -> crate::Result<BatchAction> {
+    io_in_flight: &mut usize,
+    no_more_tables: bool,
+) -> Result<BatchAction, BatchError> {
     loop {
         let mut need_submit = false;
-        for (q, idx) in io_queues
-            .iter_mut()
-            .zip(keys_and_indices.iter())
-            .zip(resolved.iter())
-            .enumerate()
-            .filter_map(|(idx, ((q, (_external_idx, _key)), resolved))| {
-                (!resolved && q.front().is_some_and(|q| !q.submitted)).then_some((q, idx))
-            })
-        {
-            let Some(q) = q.front_mut() else {
-                return Ok(BatchAction::NeedsTable(idx));
+        let mut finished_count = 0;
+        for (idx, (queue, state)) in io_queues.iter_mut().zip(key_states.iter_mut()).enumerate() {
+            // Skip if finished
+            if state.is_finished() {
+                finished_count += 1;
+                continue;
+            }
+
+            let pending = match queue.front_mut() {
+                None if no_more_tables => {
+                    *state = KeyState::NotFound;
+                    finished_count += 1;
+                    continue;
+                }
+                // If queue is empty, need more table candidates
+                None => return Ok(BatchAction::NeedsTable(idx)),
+                Some(pending) => pending,
             };
-            match q {
+
+            // Skip if already submitted
+            if pending.submitted {
+                continue;
+            }
+
+            match pending {
                 PendingIo {
                     table,
                     submitted,
@@ -180,11 +301,11 @@ fn batch_io(
                     if iouring::push_multi_get_filter_table_open_fd(idx as u16, &table.path).is_ok()
                     {
                         *submitted = true;
+                        *io_in_flight += 1;
                         need_submit = true;
                     }
                 }
                 PendingIo {
-                    table: _,
                     submitted,
                     variant:
                         PendingIoVariant::FilterBlockRead {
@@ -193,64 +314,81 @@ fn batch_io(
                             buf,
                             read,
                         },
+                    ..
                 } => {
                     if push_multi_get_filter_read_block(
                         idx as u16,
-                        &file,
+                        file,
                         block_handle.offset().0 + *read as u64,
                         &mut buf[*read as usize..],
                     )
                     .is_ok()
                     {
                         *submitted = true;
-                        *readings_in_flight += 1;
+                        *io_in_flight += 1;
                         need_submit = true;
                     }
                 }
-
                 _ => unimplemented!(),
             }
         }
-        let mut batch_status = None;
-        let mut err: Option<crate::Error> = None;
-        let mut continue_top = false;
-        while batch_status.is_none() && err.is_none() && !continue_top {
+        if finished_count == keys_and_indices.len() {
+            return Ok(BatchAction::AllResolved);
+        }
+
+        let mut batch_error = None;
+        let mut break_completion_loop = false;
+
+        // Wait for completions
+        while batch_error.is_none() && !break_completion_loop {
             if need_submit {
-                match submit_and_wait(1)? {
-                    iouring::SubmitStatus::Submitted => need_submit = false,
-                    iouring::SubmitStatus::NeedDrainCompletion => {}
+                match submit_and_wait(1) {
+                    Err(err) => return Err(BatchError::Submit(err)),
+                    Ok(iouring::SubmitStatus::Submitted) => need_submit = false,
+                    Ok(iouring::SubmitStatus::NeedDrainCompletion) => {}
                 }
             }
+
             iouring::on_completion(|output| match output {
-                CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd } => match fd {
-                    Err(error) => err = Some(error.into()),
-                    Ok(fd) => {
-                        let slot = io_queues[key_idx as usize].front_mut().unwrap();
-                        let PendingIoVariant::FilterBlockOpenFd { block_handle } = slot.variant
-                        else {
-                            unreachable!()
-                        };
+                CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd } => {
+                    *io_in_flight -= 1;
+                    match fd {
+                        Err(error) => {
+                            key_states[key_idx as usize] = KeyState::Error(error.into());
+                            batch_error = Some(BatchError::Completion)
+                        }
+                        Ok(fd) => {
+                            let slot = io_queues[key_idx as usize].front_mut().unwrap();
+                            let PendingIoVariant::FilterBlockOpenFd { block_handle } = slot.variant
+                            else {
+                                unreachable!()
+                            };
 
-                        let file = Arc::new(fd);
-                        slot.table
-                            .descriptor_table
-                            .insert_for_table(slot.table.global_id(), file.clone());
+                            let file = Arc::new(fd);
+                            slot.table
+                                .descriptor_table
+                                .insert_for_table(slot.table.global_id(), file.clone());
 
-                        let buf = unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
-                        slot.submitted = false;
-                        slot.variant = PendingIoVariant::FilterBlockRead {
-                            block_handle,
-                            file,
-                            buf,
-                            read: 0,
-                        };
-                        continue_top = true;
+                            let buf =
+                                unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
+                            slot.submitted = false;
+                            slot.variant = PendingIoVariant::FilterBlockRead {
+                                block_handle,
+                                file,
+                                buf,
+                                read: 0,
+                            };
+                            break_completion_loop = true;
+                        }
                     }
-                },
+                }
                 CompletionOutput::MultiGetFilterReadBlock { key_idx, read } => {
-                    *readings_in_flight -= 1;
+                    *io_in_flight -= 1;
                     match read {
-                        Err(error) => err = Some(error.into()),
+                        Err(error) => {
+                            key_states[key_idx as usize] = KeyState::Error(error.into());
+                            batch_error = Some(BatchError::Completion)
+                        }
                         Ok(comp_read) => {
                             let slot = io_queues[key_idx as usize].front_mut().unwrap();
                             let PendingIoVariant::FilterBlockRead {
@@ -265,14 +403,16 @@ fn batch_io(
                             *read += comp_read;
                             if block_handle.size() != *read {
                                 slot.submitted = false;
-                                continue_top = true;
+                                break_completion_loop = true;
                                 return;
                             }
                             let builder = std::mem::replace(buf, Builder::new(ByteView::new(&[])));
                             let slice = builder.freeze().into();
-                            // NOTE: We never write a filter block with compression
                             match Block::from_slice(slice, *block_handle, CompressionType::None) {
-                                Err(error) => err = Some(error),
+                                Err(error) => {
+                                    key_states[key_idx as usize] = KeyState::Error(error.into());
+                                    batch_error = Some(BatchError::Completion)
+                                }
                                 Ok(block) => {
                                     slot.table.cache.insert_block(
                                         slot.table.global_id(),
@@ -280,21 +420,28 @@ fn batch_io(
                                         block.clone(),
                                     );
                                     let block = FilterBlock::new(block);
-                                    // NOTE: Create key hash for hash sharing
-                                    // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
                                     let key_hash =
                                         crate::table::filter::standard_bloom::Builder::get_hash(
                                             keys_and_indices[key_idx as usize].1,
                                         );
                                     match block.maybe_contains_hash(key_hash) {
-                                        Err(error) => err = Some(error.into()),
+                                        Err(error) => {
+                                            key_states[key_idx as usize] =
+                                                KeyState::Error(error.into());
+                                            batch_error = Some(BatchError::Completion)
+                                        }
                                         Ok(false) => {
                                             #[cfg(feature = "metrics")]
-                                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                                            slot.table
+                                                .metrics
+                                                .io_skipped_by_filter
+                                                .fetch_add(1, Relaxed);
                                             io_queues[key_idx as usize].pop_front();
-                                            continue_top = true;
+                                            break_completion_loop = true;
                                         }
                                         Ok(true) => {
+                                            std::hint::black_box(&mut batch_error);
+                                            std::hint::black_box(&mut break_completion_loop); // if finished count == num keys - return status all resolved
                                             todo!("point read")
                                         }
                                     }
@@ -306,10 +453,10 @@ fn batch_io(
             });
             iouring::sync_completion();
         }
-        match (batch_status, err, continue_top) {
-            (_, Some(error), _) => return Err(error),
-            (Some(status), _, _) => return Ok(status),
-            (_, _, true) => continue, // continues top loop
+
+        match (batch_error, break_completion_loop) {
+            (Some(err), _) => return Err(err),
+            (_, true) => continue,
             _ => unreachable!(),
         }
     }
@@ -359,7 +506,6 @@ mod iouring {
         NeedDrainCompletion,
     }
 
-    // Define a thread-local variable that holds a Lazy<IoUring>
     std::thread_local! {
         static IO_URING: LazyCell<IoUring> = LazyCell::new(|| {
             IoUring::new(256).expect("Failed to create io_uring instance")
@@ -379,6 +525,7 @@ mod iouring {
         MULTI_GET_REQUEST_ID.get() - 1
     }
 
+    #[allow(unused)]
     pub fn submit() -> std::io::Result<SubmitStatus> {
         submit_and_wait(0)
     }
@@ -386,11 +533,8 @@ mod iouring {
     pub fn submit_and_wait(want: usize) -> std::io::Result<SubmitStatus> {
         IO_URING.with(|ring| match ring.submitter().submit_and_wait(want) {
             Ok(_) => Ok(SubmitStatus::Submitted),
-
             Err(e) if e == Errno::BUSY => Ok(SubmitStatus::NeedDrainCompletion),
-
             Err(e) if e == Errno::INTR => Ok(SubmitStatus::Submitted),
-
             Err(e) => Err(std::io::Error::from_raw_os_error(e.raw_os_error())),
         })
     }
@@ -460,19 +604,18 @@ mod iouring {
         IO_URING.with(|io_uring| {
             unsafe { io_uring.completion_shared() }.for_each(|cqe| {
                 let user_data = cqe.user_data().u64_().to_le_bytes();
-                let op = Op::from_u8(user_data[0]).expect("unknown completion"); // todo must be revisit if the same ring is used across codebase {
+                let op = Op::from_u8(user_data[0]).expect("unknown completion");
                 match op {
                     Op::OpMultiGetFilterTableOpenFd => {
                         let loc_request_id =
                             u32::from_le_bytes(*user_data[1..5].first_chunk().unwrap());
-                        // skip completions from previous requests
                         if loc_request_id != request_id() {
                             return;
                         }
 
                         let key_idx = u16::from_le_bytes(user_data[5..7].try_into().unwrap());
                         let res = cqe.raw_result();
-                        let fd = if cqe.raw_result() >= 0 {
+                        let fd = if res >= 0 {
                             Ok(unsafe { std::fs::File::from_raw_fd(res) })
                         } else {
                             Err(std::io::Error::from_raw_os_error(-res))
@@ -482,8 +625,6 @@ mod iouring {
                     Op::OpMultiGetFilterReadBlock => {
                         let loc_request_id =
                             u32::from_le_bytes(*user_data[1..5].first_chunk().unwrap());
-
-                        // skip completions from previous requests
                         if loc_request_id != request_id() {
                             return;
                         }
