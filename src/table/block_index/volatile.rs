@@ -2,7 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use super::KeyedBlockHandle;
+use super::{BlockIndexPureIter, KeyedBlockHandle, PureItem};
+use crate::table::util::{load_block_pure, pure};
+use crate::table::Block;
+#[cfg(feature = "metrics")]
+use crate::Metrics;
 use crate::{
     table::{
         block::BlockType,
@@ -12,10 +16,8 @@ use crate::{
     },
     Cache, CompressionType, DescriptorTable, GlobalTableId, SeqNo, UserKey,
 };
+use std::fs::File;
 use std::{path::PathBuf, sync::Arc};
-
-#[cfg(feature = "metrics")]
-use crate::Metrics;
 
 /// Index that translates item keys to data block handles
 ///
@@ -171,5 +173,265 @@ impl DoubleEndedIterator for Iter {
 
             next_item
         }
+    }
+}
+
+enum StateKind {
+    Ready,
+    ExpectingFile,
+    ExpectingBlock,
+    NeedsToCheckBlock(Block),
+}
+
+// Add PureIter struct
+pub struct PureIter {
+    state: StateKind,
+    iter: Iter,
+    handle: BlockHandle,
+}
+
+impl PureIter {
+    pub fn new(iter: Iter, handle: BlockHandle) -> Self {
+        Self {
+            state: StateKind::Ready,
+            iter,
+            handle,
+        }
+    }
+
+    pub fn supply_file(&mut self, file: Arc<File>) {
+        if !matches!(self.state, StateKind::ExpectingFile) {
+            panic!("unexpected call to supply_file while not expecting file to be open");
+        }
+        self.iter
+            .descriptor_table
+            .insert_for_table(self.iter.table_id, file);
+        self.state = StateKind::ExpectingBlock;
+    }
+
+    pub fn supply_block(&mut self, handle: BlockHandle, block: Block) {
+        if !matches!(self.state, StateKind::ExpectingBlock) {
+            panic!("unexpected call to supply_block while not expecting block to be read");
+        }
+        self.iter
+            .cache
+            .insert_block(self.iter.table_id, handle.offset(), block.clone());
+        self.state = StateKind::NeedsToCheckBlock(block);
+    }
+}
+
+impl Iterator for PureIter {
+    type Item = crate::Result<PureItem>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut compute = || -> (StateKind, Option<Self::Item>) {
+            match std::mem::replace(&mut self.state, StateKind::Ready) {
+                StateKind::Ready => {
+                    if let Some(inner) = &mut self.iter.inner {
+                        if let Some(item) = inner.next() {
+                            return (StateKind::Ready, Some(Ok(PureItem::KeyedBlockHandle(item))));
+                        }
+                        return (StateKind::Ready, None);
+                    }
+
+                    match load_block_pure(
+                        self.iter.table_id,
+                        &self.iter.descriptor_table,
+                        &self.iter.cache,
+                        &self.handle,
+                        BlockType::Index,
+                        #[cfg(feature = "metrics")]
+                        &self.iter.metrics,
+                    ) {
+                        pure::Output::Block(block) => {
+                            let index_block = IndexBlock::new(block);
+                            let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+
+                            if let Some((lo_key, lo_seqno)) = &self.iter.lo {
+                                if !iter.seek_lower(lo_key, *lo_seqno) {
+                                    return (StateKind::Ready, None);
+                                }
+                            }
+                            if let Some((hi_key, hi_seqno)) = &self.iter.hi {
+                                if !iter.seek_upper(hi_key, *hi_seqno) {
+                                    return (StateKind::Ready, None);
+                                }
+                            }
+
+                            let next_item = iter.next();
+                            self.iter.inner = Some(iter);
+
+                            if let Some(item) = next_item {
+                                return (
+                                    StateKind::Ready,
+                                    Some(Ok(PureItem::KeyedBlockHandle(item))),
+                                );
+                            }
+                            (StateKind::Ready, None)
+                        }
+                        pure::Output::OpenFd => {
+                            (StateKind::ExpectingFile, Some(Ok(PureItem::ExpectFileOpen)))
+                        }
+                        pure::Output::ReadBlock(file) => (
+                            StateKind::ExpectingBlock,
+                            Some(Ok(PureItem::ExpectBlockRead {
+                                block_handle: self.handle,
+                                file,
+                            })),
+                        ),
+                    }
+                }
+                StateKind::ExpectingFile => {
+                    panic!("unexpected call to next while expecting file to be open")
+                }
+                StateKind::ExpectingBlock => {
+                    panic!("unexpected call to next while expecting block to be read")
+                }
+                StateKind::NeedsToCheckBlock(block) => {
+                    let index_block = IndexBlock::new(block);
+                    let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+
+                    if let Some((lo_key, lo_seqno)) = &self.iter.lo {
+                        if !iter.seek_lower(lo_key, *lo_seqno) {
+                            return (StateKind::Ready, None);
+                        }
+                    }
+                    if let Some((hi_key, hi_seqno)) = &self.iter.hi {
+                        if !iter.seek_upper(hi_key, *hi_seqno) {
+                            return (StateKind::Ready, None);
+                        }
+                    }
+
+                    let next_item = iter.next();
+                    self.iter.inner = Some(iter);
+
+                    if let Some(item) = next_item {
+                        return (StateKind::Ready, Some(Ok(PureItem::KeyedBlockHandle(item))));
+                    }
+                    (StateKind::Ready, None)
+                }
+            }
+        };
+
+        let (new_state, item) = compute();
+        self.state = new_state;
+        item
+    }
+}
+
+impl DoubleEndedIterator for PureIter {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let mut compute = || -> (StateKind, Option<Self::Item>) {
+            match std::mem::replace(&mut self.state, StateKind::Ready) {
+                StateKind::Ready => {
+                    if let Some(inner) = &mut self.iter.inner {
+                        if let Some(item) = inner.next_back() {
+                            return (StateKind::Ready, Some(Ok(PureItem::KeyedBlockHandle(item))));
+                        }
+                        return (StateKind::Ready, None);
+                    }
+
+                    match load_block_pure(
+                        self.iter.table_id,
+                        &self.iter.descriptor_table,
+                        &self.iter.cache,
+                        &self.handle,
+                        BlockType::Index,
+                        #[cfg(feature = "metrics")]
+                        &self.iter.metrics,
+                    ) {
+                        pure::Output::Block(block) => {
+                            let index_block = IndexBlock::new(block);
+                            let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+
+                            if let Some((lo_key, lo_seqno)) = &self.iter.lo {
+                                if !iter.seek_lower(lo_key, *lo_seqno) {
+                                    return (StateKind::Ready, None);
+                                }
+                            }
+                            if let Some((hi_key, hi_seqno)) = &self.iter.hi {
+                                if !iter.seek_upper(hi_key, *hi_seqno) {
+                                    return (StateKind::Ready, None);
+                                }
+                            }
+
+                            let next_item = iter.next_back();
+                            self.iter.inner = Some(iter);
+
+                            if let Some(item) = next_item {
+                                return (
+                                    StateKind::Ready,
+                                    Some(Ok(PureItem::KeyedBlockHandle(item))),
+                                );
+                            }
+                            (StateKind::Ready, None)
+                        }
+                        pure::Output::OpenFd => {
+                            (StateKind::ExpectingFile, Some(Ok(PureItem::ExpectFileOpen)))
+                        }
+                        pure::Output::ReadBlock(file) => (
+                            StateKind::ExpectingBlock,
+                            Some(Ok(PureItem::ExpectBlockRead {
+                                block_handle: self.handle,
+                                file,
+                            })),
+                        ),
+                    }
+                }
+                StateKind::ExpectingFile => {
+                    panic!("unexpected call to next_back while expecting file to be open")
+                }
+                StateKind::ExpectingBlock => {
+                    panic!("unexpected call to next_back while expecting block to be read")
+                }
+                StateKind::NeedsToCheckBlock(block) => {
+                    let index_block = IndexBlock::new(block);
+                    let mut iter = OwnedIndexBlockIter::new(index_block, IndexBlock::iter);
+
+                    if let Some((lo_key, lo_seqno)) = &self.iter.lo {
+                        if !iter.seek_lower(lo_key, *lo_seqno) {
+                            return (StateKind::Ready, None);
+                        }
+                    }
+                    if let Some((hi_key, hi_seqno)) = &self.iter.hi {
+                        if !iter.seek_upper(hi_key, *hi_seqno) {
+                            return (StateKind::Ready, None);
+                        }
+                    }
+
+                    let next_item = iter.next_back();
+                    self.iter.inner = Some(iter);
+
+                    if let Some(item) = next_item {
+                        return (StateKind::Ready, Some(Ok(PureItem::KeyedBlockHandle(item))));
+                    }
+                    (StateKind::Ready, None)
+                }
+            }
+        };
+
+        let (new_state, item) = compute();
+        self.state = new_state;
+        item
+    }
+}
+
+impl BlockIndexPureIter for PureIter {
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        self.iter.lo = Some((key.into(), seqno));
+        true
+    }
+
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        self.iter.hi = Some((key.into(), seqno));
+        true
+    }
+
+    fn supply_file(&mut self, file: Arc<File>) {
+        self.supply_file(file)
+    }
+
+    fn supply_block(&mut self, handle: BlockHandle, block: Block) {
+        self.supply_block(handle, block)
     }
 }
