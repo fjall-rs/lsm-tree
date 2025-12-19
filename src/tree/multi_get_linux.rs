@@ -538,23 +538,30 @@ mod iouring {
         })
     }
 
+    fn pack_user_data(domain: Domain, op: MultiGetOp, key_idx: u32) -> u64 {
+        let domain = domain as u64;
+        let op = op as u64;
+        let key_idx = key_idx as u64;
+
+        (key_idx << 32) | (op << 8) | domain
+    }
+
+    fn parse_user_data<F, T>(user_data: u64, mut f: F) -> T
+    where
+        F: FnMut(Domain, u64) -> T,
+    {
+        let domain = Domain::from_u8((user_data & 0xFF) as u8).expect("unknown domain");
+        f(domain, user_data)
+    }
+
     pub fn push_multi_get_filter_table_open_fd(
         key_idx: u32,
         path: &PathBuf,
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
-            let key_idx = key_idx.to_le_bytes();
-            let user_data = [
-                Domain::MultiGet as u8,
-                MultiGetOp::FilterTableOpenFd as u8,
-                0,
-                0,
-                key_idx[0],
-                key_idx[1],
-                key_idx[2],
-                key_idx[3],
-            ];
-            let user_data = u64::from_le_bytes(user_data);
+            let user_data =
+                pack_user_data(Domain::MultiGet, MultiGetOp::FilterTableOpenFd, key_idx);
+
             let open_sqe = opcode::OpenAt::new(
                 types::Fd(CWD.as_raw_fd()),
                 path.as_os_str().as_bytes().as_ptr().cast(),
@@ -573,18 +580,9 @@ mod iouring {
         buf: &mut [u8],
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
-            let key_idx = key_idx.to_le_bytes();
-            let user_data = [
-                Domain::MultiGet as u8,
-                MultiGetOp::FilterReadBlock as u8,
-                0,
-                0,
-                key_idx[0],
-                key_idx[1],
-                key_idx[2],
-                key_idx[3],
-            ];
-            let user_data = u64::from_le_bytes(user_data);
+            let user_data =
+                pack_user_data(Domain::MultiGet, MultiGetOp::FilterReadBlock, key_idx);
+
             let open_sqe = opcode::Read::new(
                 types::Fd(file.as_raw_fd()),
                 buf.as_mut_ptr(),
@@ -600,15 +598,16 @@ mod iouring {
     pub fn on_completion(mut cb: impl FnMut(CompletionOutput)) {
         IO_URING.with(|io_uring| {
             unsafe { io_uring.completion_shared() }.for_each(|cqe| {
-                let user_data = cqe.user_data().u64_().to_le_bytes();
-                let domain = Domain::from_u8(user_data[0]).expect("unknown domain");
-                match domain {
+                let user_data = cqe.user_data().u64_();
+
+                parse_user_data(user_data, |domain, user_data| match domain {
                     Domain::MultiGet => {
-                        let op = MultiGetOp::from_u8(user_data[1]).expect("unknown op");
+                        let op =
+                            MultiGetOp::from_u8(((user_data >> 8) & 0xFF) as u8).expect("unknown op");
+                        let key_idx = (user_data >> 32) as u32;
+
                         match op {
                             MultiGetOp::FilterTableOpenFd => {
-                                let key_idx =
-                                    u32::from_le_bytes(user_data[4..8].try_into().unwrap());
                                 let res = cqe.raw_result();
                                 let fd = if res >= 0 {
                                     Ok(unsafe { std::fs::File::from_raw_fd(res) })
@@ -618,8 +617,6 @@ mod iouring {
                                 cb(CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd })
                             }
                             MultiGetOp::FilterReadBlock => {
-                                let key_idx =
-                                    u32::from_le_bytes(user_data[4..8].try_into().unwrap());
                                 let res = cqe.raw_result();
 
                                 if res >= 0 {
@@ -636,7 +633,7 @@ mod iouring {
                             }
                         }
                     }
-                }
+                });
             })
         })
     }
