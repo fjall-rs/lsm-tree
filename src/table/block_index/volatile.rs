@@ -44,6 +44,16 @@ impl VolatileBlockIndex {
     pub fn iter(&self) -> Iter {
         Iter::new(self)
     }
+
+    pub fn forward_reader_pure(&self, needle: &[u8], seqno: SeqNo) -> PureIter {
+        let mut iter = PureIter::new(Iter::new(self));
+        iter.seek_lower(needle, seqno);
+        iter
+    }
+
+    pub fn iter_pure(&self) -> PureIter {
+        PureIter::new(Iter::new(self))
+    }
 }
 
 pub struct Iter {
@@ -187,15 +197,13 @@ enum StateKind {
 pub struct PureIter {
     state: StateKind,
     iter: Iter,
-    handle: BlockHandle,
 }
 
 impl PureIter {
-    pub fn new(iter: Iter, handle: BlockHandle) -> Self {
+    pub fn new(iter: Iter) -> Self {
         Self {
             state: StateKind::Ready,
             iter,
-            handle,
         }
     }
 
@@ -238,7 +246,7 @@ impl Iterator for PureIter {
                         self.iter.table_id,
                         &self.iter.descriptor_table,
                         &self.iter.cache,
-                        &self.handle,
+                        &self.iter.handle,
                         BlockType::Index,
                         #[cfg(feature = "metrics")]
                         &self.iter.metrics,
@@ -275,7 +283,7 @@ impl Iterator for PureIter {
                         pure::Output::ReadBlock(file) => (
                             StateKind::ExpectingBlock,
                             Some(Ok(PureItem::ExpectBlockRead {
-                                block_handle: self.handle,
+                                block_handle: self.iter.handle,
                                 file,
                             })),
                         ),
@@ -335,7 +343,7 @@ impl DoubleEndedIterator for PureIter {
                         self.iter.table_id,
                         &self.iter.descriptor_table,
                         &self.iter.cache,
-                        &self.handle,
+                        &self.iter.handle,
                         BlockType::Index,
                         #[cfg(feature = "metrics")]
                         &self.iter.metrics,
@@ -372,7 +380,7 @@ impl DoubleEndedIterator for PureIter {
                         pure::Output::ReadBlock(file) => (
                             StateKind::ExpectingBlock,
                             Some(Ok(PureItem::ExpectBlockRead {
-                                block_handle: self.handle,
+                                block_handle: self.iter.handle,
                                 file,
                             })),
                         ),

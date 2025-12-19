@@ -53,6 +53,10 @@ impl TwoLevelBlockIndex {
             metrics: self.metrics.clone(),
         }
     }
+
+    pub fn iter_pure(&self) -> PureIter {
+        PureIter::new(self.iter())
+    }
 }
 
 pub struct Iter {

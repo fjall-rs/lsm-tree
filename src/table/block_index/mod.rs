@@ -148,3 +148,106 @@ pub trait BlockIndexPureIter: DoubleEndedIterator<Item = crate::Result<PureItem>
     fn supply_file(&mut self, file: Arc<File>);
     fn supply_block(&mut self, handle: BlockHandle, block: Block);
 }
+
+pub trait BlockIndexPure {
+    fn forward_reader_pure(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexPureIterImpl>;
+    fn iter_pure(&self) -> BlockIndexPureIterImpl;
+}
+
+pub enum BlockIndexPureIterImpl {
+    Full(self::full::PureIter),
+    Volatile(self::volatile::PureIter),
+    TwoLevel(self::two_level::PureIter),
+}
+
+impl Iterator for BlockIndexPureIterImpl {
+    type Item = crate::Result<PureItem>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Full(i) => i.next(),
+            Self::Volatile(i) => i.next(),
+            Self::TwoLevel(i) => i.next(),
+        }
+    }
+}
+
+impl DoubleEndedIterator for BlockIndexPureIterImpl {
+    fn next_back(&mut self) -> Option<<Self as Iterator>::Item> {
+        match self {
+            Self::Full(i) => i.next_back(),
+            Self::Volatile(i) => i.next_back(),
+            Self::TwoLevel(i) => i.next_back(),
+        }
+    }
+}
+
+impl BlockIndexPureIter for BlockIndexPureIterImpl {
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        match self {
+            Self::Full(i) => i.seek_lower(key, seqno),
+            Self::Volatile(i) => i.seek_lower(key, seqno),
+            Self::TwoLevel(i) => i.seek_lower(key, seqno),
+        }
+    }
+
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool {
+        match self {
+            Self::Full(i) => i.seek_upper(key, seqno),
+            Self::Volatile(i) => i.seek_upper(key, seqno),
+            Self::TwoLevel(i) => i.seek_upper(key, seqno),
+        }
+    }
+
+    fn supply_file(&mut self, file: Arc<File>) {
+        match self {
+            Self::Full(i) => i.supply_file(file),
+            Self::Volatile(i) => i.supply_file(file),
+            Self::TwoLevel(i) => i.supply_file(file),
+        }
+    }
+
+    fn supply_block(&mut self, handle: BlockHandle, block: Block) {
+        match self {
+            Self::Full(i) => i.supply_block(handle, block),
+            Self::Volatile(i) => i.supply_block(handle, block),
+            Self::TwoLevel(i) => i.supply_block(handle, block),
+        }
+    }
+}
+
+impl BlockIndexPure for BlockIndexImpl {
+    fn forward_reader_pure(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexPureIterImpl> {
+        match self {
+            Self::Full(index) => index
+                .forward_reader_pure(needle, seqno)
+                .map(BlockIndexPureIterImpl::Full),
+            Self::VolatileFull(index) => {
+                let mut it = index.iter_pure();
+
+                if it.seek_lower(needle, seqno) {
+                    Some(BlockIndexPureIterImpl::Volatile(it))
+                } else {
+                    None
+                }
+            }
+            Self::TwoLevel(index) => {
+                let mut it = index.iter_pure();
+
+                if it.seek_lower(needle, seqno) {
+                    Some(BlockIndexPureIterImpl::TwoLevel(it))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn iter_pure(&self) -> BlockIndexPureIterImpl {
+        match self {
+            Self::Full(index) => BlockIndexPureIterImpl::Full(index.iter_pure()),
+            Self::VolatileFull(index) => BlockIndexPureIterImpl::Volatile(index.iter_pure()),
+            Self::TwoLevel(index) => BlockIndexPureIterImpl::TwoLevel(index.iter_pure()),
+        }
+    }
+}
