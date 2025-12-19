@@ -580,8 +580,7 @@ mod iouring {
         buf: &mut [u8],
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
-            let user_data =
-                pack_user_data(Domain::MultiGet, MultiGetOp::FilterReadBlock, key_idx);
+            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::FilterReadBlock, key_idx);
 
             let open_sqe = opcode::Read::new(
                 types::Fd(file.as_raw_fd()),
@@ -602,8 +601,8 @@ mod iouring {
 
                 parse_user_data(user_data, |domain, user_data| match domain {
                     Domain::MultiGet => {
-                        let op =
-                            MultiGetOp::from_u8(((user_data >> 8) & 0xFF) as u8).expect("unknown op");
+                        let op = MultiGetOp::from_u8(((user_data >> 8) & 0xFF) as u8)
+                            .expect("unknown op");
                         let key_idx = (user_data >> 32) as u32;
 
                         match op {

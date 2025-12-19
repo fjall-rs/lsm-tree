@@ -8,10 +8,12 @@ mod two_level;
 mod volatile;
 
 pub use full::FullBlockIndex;
+use std::fs::File;
+use std::sync::Arc;
 pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
-use super::KeyedBlockHandle;
+use super::{Block, BlockHandle, KeyedBlockHandle};
 use crate::SeqNo;
 
 pub trait BlockIndex {
@@ -128,4 +130,21 @@ impl BlockIndex for BlockIndexImpl {
             Self::TwoLevel(index) => BlockIndexIterImpl::TwoLevel(index.iter()),
         }
     }
+}
+
+pub enum PureItem {
+    KeyedBlockHandle(KeyedBlockHandle),
+    ExpectFileOpen,
+    ExpectBlockRead {
+        block_handle: BlockHandle,
+        file: Arc<File>,
+    },
+}
+
+pub trait BlockIndexPureIter: DoubleEndedIterator<Item = crate::Result<PureItem>> {
+    fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool;
+    fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool;
+
+    fn supply_file(&mut self, file: Arc<File>);
+    fn supply_block(&mut self, handle: BlockHandle, block: Block);
 }

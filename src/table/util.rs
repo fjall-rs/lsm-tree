@@ -170,7 +170,7 @@ pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> st
     suffix.cmp(needle)
 }
 
-mod pure {
+pub(crate) mod pure {
     use crate::table::block::BlockType;
     use crate::table::{Block, BlockHandle};
     use crate::{Cache, DescriptorTable, GlobalTableId};
@@ -179,7 +179,7 @@ mod pure {
     pub enum Output {
         Block(Block),
         OpenFd,
-        ReadFile(Arc<std::fs::File>),
+        ReadBlock(Arc<std::fs::File>),
     }
 
     pub fn load_block_pure(
@@ -220,7 +220,7 @@ mod pure {
             #[cfg(feature = "metrics")]
             metrics.table_file_opened_cached.fetch_add(1, Relaxed);
 
-            Output::ReadFile(fd)
+            Output::ReadBlock(fd)
         } else {
             #[cfg(feature = "metrics")]
             metrics.table_file_opened_uncached.fetch_add(1, Relaxed);

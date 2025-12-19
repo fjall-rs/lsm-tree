@@ -685,7 +685,7 @@ pub mod pure {
                     BlockOutput::OpenFd => Ok(Output::Io(FilterBlockFd {
                         block_handle: handle,
                     })),
-                    BlockOutput::ReadFile(file) => Ok(Output::Io(FilterBlockRead {
+                    BlockOutput::ReadBlock(file) => Ok(Output::Io(FilterBlockRead {
                         block_handle: handle,
                         file,
                     })),
