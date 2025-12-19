@@ -1058,8 +1058,6 @@ impl Tree {
             let table_file_path = dirent.path();
             assert!(!table_file_path.is_dir());
 
-            log::debug!("Recovering table from {}", table_file_path.display());
-
             let table_id = table_file_name.parse::<TableId>().map_err(|e| {
                 log::error!("invalid table file name {table_file_name:?}: {e:?}");
                 crate::Error::Unrecoverable
@@ -1081,8 +1079,6 @@ impl Tree {
                     #[cfg(feature = "metrics")]
                     metrics.clone(),
                 )?;
-
-                log::debug!("Recovered table from {:?}", table.path);
 
                 tables.push(table);
 
