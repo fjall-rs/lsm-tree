@@ -1,7 +1,7 @@
 use crate::table::filter::block::FilterBlock;
 use crate::table::{Block, BlockHandle, Io, Output};
 use crate::tree::multi_get_linux::iouring::{
-    increase_request_id, push_multi_get_filter_read_block, submit_and_wait, CompletionOutput,
+    push_multi_get_filter_read_block, submit_and_wait, CompletionOutput,
 };
 use crate::version::Version;
 use crate::{CompressionType, InternalValue, SeqNo, Slice, Table};
@@ -52,7 +52,7 @@ pub(crate) fn multi_get(
     mut resolve: impl FnMut(InternalValue, usize),
 ) -> crate::Result<()> {
     let num_keys = keys_and_indices.len();
-    if num_keys > u16::MAX as usize {
+    if num_keys > u32::MAX as usize {
         panic!("too many keys to multi-get"); // todo return normal error
     }
 
@@ -68,8 +68,6 @@ pub(crate) fn multi_get(
     };
     let mut io_in_flight: usize = 0;
     let mut table_iter = version.iter_levels().flat_map(|lvl| lvl.iter());
-
-    increase_request_id();
 
     while !key_states
         .iter()
@@ -298,7 +296,7 @@ fn batch_io(
                     submitted,
                     variant: PendingIoVariant::FilterBlockOpenFd { .. },
                 } => {
-                    if iouring::push_multi_get_filter_table_open_fd(idx as u16, &table.path).is_ok()
+                    if iouring::push_multi_get_filter_table_open_fd(idx as u32, &table.path).is_ok()
                     {
                         *submitted = true;
                         *io_in_flight += 1;
@@ -317,7 +315,7 @@ fn batch_io(
                     ..
                 } => {
                     if push_multi_get_filter_read_block(
-                        idx as u16,
+                        idx as u32,
                         file,
                         block_handle.offset().0 + *read as u64,
                         &mut buf[*read as usize..],
@@ -468,23 +466,37 @@ mod iouring {
     use rustix_uring::squeue::PushError;
     use rustix_uring::types::OFlags;
     use rustix_uring::{opcode, types, IoUring};
-    use std::cell::{Cell, LazyCell};
+    use std::cell::LazyCell;
     use std::fs::File;
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
 
     #[repr(u8)]
-    pub enum Op {
-        OpMultiGetFilterTableOpenFd = 0,
-        OpMultiGetFilterReadBlock = 1,
+    pub enum Domain {
+        MultiGet = 0,
     }
 
-    impl Op {
+    impl Domain {
         const fn from_u8(v: u8) -> Option<Self> {
             match v {
-                0 => Some(Op::OpMultiGetFilterTableOpenFd),
-                1 => Some(Op::OpMultiGetFilterReadBlock),
+                0 => Some(Domain::MultiGet),
+                _ => None,
+            }
+        }
+    }
+
+    #[repr(u8)]
+    pub enum MultiGetOp {
+        FilterTableOpenFd = 0,
+        FilterReadBlock = 1,
+    }
+
+    impl MultiGetOp {
+        const fn from_u8(v: u8) -> Option<Self> {
+            match v {
+                0 => Some(MultiGetOp::FilterTableOpenFd),
+                1 => Some(MultiGetOp::FilterReadBlock),
                 _ => None,
             }
         }
@@ -492,11 +504,11 @@ mod iouring {
 
     pub enum CompletionOutput {
         MultiGetFilterTableOpenFd {
-            key_idx: u16,
+            key_idx: u32,
             fd: Result<std::fs::File, std::io::Error>,
         },
         MultiGetFilterReadBlock {
-            key_idx: u16,
+            key_idx: u32,
             read: Result<u32, std::io::Error>,
         },
     }
@@ -510,19 +522,6 @@ mod iouring {
         static IO_URING: LazyCell<IoUring> = LazyCell::new(|| {
             IoUring::new(256).expect("Failed to create io_uring instance")
         });
-        static MULTI_GET_REQUEST_ID: Cell<u32> = Cell::new(0);
-    }
-
-    pub fn increase_request_id() -> u32 {
-        MULTI_GET_REQUEST_ID.with(|id| {
-            let res = id.get();
-            id.replace(res.wrapping_add(1));
-            res
-        })
-    }
-
-    fn request_id() -> u32 {
-        MULTI_GET_REQUEST_ID.get() - 1
     }
 
     #[allow(unused)]
@@ -540,21 +539,20 @@ mod iouring {
     }
 
     pub fn push_multi_get_filter_table_open_fd(
-        key_idx: u16,
+        key_idx: u32,
         path: &PathBuf,
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
             let key_idx = key_idx.to_le_bytes();
-            let request_id = request_id().to_le_bytes();
             let user_data = [
-                Op::OpMultiGetFilterTableOpenFd as u8,
-                request_id[0],
-                request_id[1],
-                request_id[2],
-                request_id[3],
+                Domain::MultiGet as u8,
+                MultiGetOp::FilterTableOpenFd as u8,
+                0,
+                0,
                 key_idx[0],
                 key_idx[1],
-                0,
+                key_idx[2],
+                key_idx[3],
             ];
             let user_data = u64::from_le_bytes(user_data);
             let open_sqe = opcode::OpenAt::new(
@@ -569,23 +567,22 @@ mod iouring {
     }
 
     pub fn push_multi_get_filter_read_block(
-        key_idx: u16,
+        key_idx: u32,
         file: &File,
         offset: u64,
         buf: &mut [u8],
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
             let key_idx = key_idx.to_le_bytes();
-            let request_id = request_id().to_le_bytes();
             let user_data = [
-                Op::OpMultiGetFilterReadBlock as u8,
-                request_id[0],
-                request_id[1],
-                request_id[2],
-                request_id[3],
+                Domain::MultiGet as u8,
+                MultiGetOp::FilterReadBlock as u8,
+                0,
+                0,
                 key_idx[0],
                 key_idx[1],
-                0,
+                key_idx[2],
+                key_idx[3],
             ];
             let user_data = u64::from_le_bytes(user_data);
             let open_sqe = opcode::Read::new(
@@ -604,44 +601,39 @@ mod iouring {
         IO_URING.with(|io_uring| {
             unsafe { io_uring.completion_shared() }.for_each(|cqe| {
                 let user_data = cqe.user_data().u64_().to_le_bytes();
-                let op = Op::from_u8(user_data[0]).expect("unknown completion");
-                match op {
-                    Op::OpMultiGetFilterTableOpenFd => {
-                        let loc_request_id =
-                            u32::from_le_bytes(*user_data[1..5].first_chunk().unwrap());
-                        if loc_request_id != request_id() {
-                            return;
-                        }
+                let domain = Domain::from_u8(user_data[0]).expect("unknown domain");
+                match domain {
+                    Domain::MultiGet => {
+                        let op = MultiGetOp::from_u8(user_data[1]).expect("unknown op");
+                        match op {
+                            MultiGetOp::FilterTableOpenFd => {
+                                let key_idx =
+                                    u32::from_le_bytes(user_data[4..8].try_into().unwrap());
+                                let res = cqe.raw_result();
+                                let fd = if res >= 0 {
+                                    Ok(unsafe { std::fs::File::from_raw_fd(res) })
+                                } else {
+                                    Err(std::io::Error::from_raw_os_error(-res))
+                                };
+                                cb(CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd })
+                            }
+                            MultiGetOp::FilterReadBlock => {
+                                let key_idx =
+                                    u32::from_le_bytes(user_data[4..8].try_into().unwrap());
+                                let res = cqe.raw_result();
 
-                        let key_idx = u16::from_le_bytes(user_data[5..7].try_into().unwrap());
-                        let res = cqe.raw_result();
-                        let fd = if res >= 0 {
-                            Ok(unsafe { std::fs::File::from_raw_fd(res) })
-                        } else {
-                            Err(std::io::Error::from_raw_os_error(-res))
-                        };
-                        cb(CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd })
-                    }
-                    Op::OpMultiGetFilterReadBlock => {
-                        let loc_request_id =
-                            u32::from_le_bytes(*user_data[1..5].first_chunk().unwrap());
-                        if loc_request_id != request_id() {
-                            return;
-                        }
-
-                        let key_idx = u16::from_le_bytes(user_data[5..7].try_into().unwrap());
-                        let res = cqe.raw_result();
-
-                        if res >= 0 {
-                            cb(CompletionOutput::MultiGetFilterReadBlock {
-                                key_idx,
-                                read: Ok(res as u32),
-                            })
-                        } else {
-                            cb(CompletionOutput::MultiGetFilterReadBlock {
-                                key_idx,
-                                read: Err(std::io::Error::from_raw_os_error(-res)),
-                            });
+                                if res >= 0 {
+                                    cb(CompletionOutput::MultiGetFilterReadBlock {
+                                        key_idx,
+                                        read: Ok(res as u32),
+                                    })
+                                } else {
+                                    cb(CompletionOutput::MultiGetFilterReadBlock {
+                                        key_idx,
+                                        read: Err(std::io::Error::from_raw_os_error(-res)),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
