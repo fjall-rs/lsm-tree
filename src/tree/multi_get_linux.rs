@@ -172,7 +172,10 @@ pub(crate) fn multi_get(
                         submitted: false,
                     });
                 }
-                _ => unimplemented!("point read"),
+                PureGetOutput::Io(PureGetIo::PointRead(point_read_io)) => {
+                    todo!()
+                }
+
                 // PureGetOutput::Io(Io::PointRead) => {
                 //
                 //     op_queue.push_back(PendingOp {

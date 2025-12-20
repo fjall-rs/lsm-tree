@@ -695,8 +695,12 @@ pub mod pure {
         ) -> crate::Result<PureGetOutput> {
             #[cfg(feature = "metrics")]
             use std::sync::atomic::Ordering::Relaxed;
-            if (self.metadata.seqnos.0 + self.global_seqno()) >= seqno {
-                return Ok(PureGetOutput::Pure(None));
+
+            // Translate seqno to "our" seqno
+            let seqno = seqno.saturating_sub(self.global_seqno());
+
+            if self.metadata.seqnos.0 >= seqno {
+                return  Ok(PureGetOutput::Pure(None));
             }
 
             let handle_loadable_filter = |handle: BlockHandle| -> crate::Result<_> {
