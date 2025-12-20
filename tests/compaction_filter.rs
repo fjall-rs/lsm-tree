@@ -3,7 +3,7 @@ use std::u64;
 
 use lsm_tree::compaction::filter::{CompactionFilter, FilterVerdict, ItemAccessor};
 use lsm_tree::compaction::{CompactionOptions, PullDown};
-use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 
 fn u32_s(n: u32) -> [u8; 4] {
     n.to_be_bytes()
@@ -38,6 +38,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
                 state.saw_value = true;
                 FilterVerdict::Keep
             } else {
+                assert_eq!(item.value().expect("failed fetch"), b"a");
                 if key < state.drop_threshold {
                     FilterVerdict::Drop
                 } else {
@@ -54,7 +55,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
-    .with_kv_separation(Some(Default::default()));
+    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(2)));
     config.level_count = 3;
     let tree = config.open()?;
 
@@ -66,7 +67,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
     tree.major_compact(u64::MAX, CompactionOptions::from_seqno(SeqNo::MAX))?;
 
     for i in 0u32..16 {
-        tree.insert(u32_s(i), "", 0);
+        tree.insert(u32_s(i), "a", 0);
         tree.insert(u32_s(i | 0xff000000), u32_s(i), 0);
     }
 

@@ -69,7 +69,7 @@ impl<'a> ItemAccessor<'a> {
     pub fn value(&self) -> crate::Result<Slice> {
         match self.item.key.value_type {
             crate::ValueType::Value => Ok(self.item.value.clone()),
-            crate::ValueType::Tombstone => {
+            crate::ValueType::Indirection => {
                 // resolve and read the value from a blob
                 let mut reader = &self.item.value[..];
                 let indirection = BlobIndirection::decode_from(&mut reader)?;
@@ -95,7 +95,7 @@ impl<'a> ItemAccessor<'a> {
                     Err(crate::Error::Unrecoverable)
                 }
             }
-            crate::ValueType::WeakTombstone | crate::ValueType::Indirection => {
+            crate::ValueType::WeakTombstone | crate::ValueType::Tombstone => {
                 unreachable!("tombstones are filtered out before calling filter")
             }
         }
