@@ -213,7 +213,7 @@ impl Table {
         )
     }
 
-    fn load_block_pure(&self, handle: &BlockHandle, block_type: BlockType) -> BlockOutput {
+    pub fn load_block_pure(&self, handle: &BlockHandle, block_type: BlockType) -> BlockOutput {
         load_block_pure(
             self.global_id(),
             &self.descriptor_table,
@@ -656,16 +656,16 @@ pub mod pure {
         },
         ExpectDataFileOpen {
             pure_iter: BlockIndexPureIterImpl,
-            block_handle: BlockHandle, // data block handler
+            block_handle: KeyedBlockHandle, // data block handler
         },
         ExpectDataBlockRead {
             pure_iter: BlockIndexPureIterImpl,
-            block_handle: BlockHandle, // data block handler
+            block_handle: KeyedBlockHandle, // data block handler
             file: Arc<File>,
         },
     }
 
-    pub(crate) enum PointReadPureOutput {
+    pub enum PointReadPureOutput {
         Value(InternalValue),
         Io(PointReadIo),
     }
@@ -700,7 +700,7 @@ pub mod pure {
             let seqno = seqno.saturating_sub(self.global_seqno());
 
             if self.metadata.seqnos.0 >= seqno {
-                return  Ok(PureGetOutput::Pure(None));
+                return Ok(PureGetOutput::Pure(None));
             }
 
             let handle_loadable_filter = |handle: BlockHandle| -> crate::Result<_> {
@@ -773,17 +773,29 @@ pub mod pure {
         // TODO: because we just want to return the value
         // TODO: we would need to return something like ValueType + Value
         // TODO: so the caller can decide whether to return the value or not
-        fn point_read_pure(
+        pub fn point_read_pure(
             &self,
             key: &[u8],
             seqno: SeqNo,
         ) -> crate::Result<Option<PointReadPureOutput>> {
-            let Some(mut pure_iter) = self.block_index.forward_reader_pure(key, seqno) else {
-                return Ok(None);
-            };
+            let pure_iter = self.block_index.forward_reader_pure(key, seqno);
+            match pure_iter {
+                None => Ok(None),
+                Some(pure_iter) => self.resume_point_read_pure(pure_iter, key, seqno),
+            }
+        }
 
-            for block_handle in &mut pure_iter {
-                let pure_item = block_handle?;
+        pub fn resume_point_read_pure(
+            &self,
+            mut pure_iter: BlockIndexPureIterImpl,
+            key: &[u8],
+            seqno: SeqNo,
+        ) -> crate::Result<Option<PointReadPureOutput>> {
+            loop {
+                let pure_item = match pure_iter.next() {
+                    None => return Ok(None),
+                    Some(res) => res?,
+                };
                 match pure_item {
                     PureItem::ExpectFileOpen => {
                         return Ok(Some(PointReadPureOutput::Io(
@@ -793,8 +805,8 @@ pub mod pure {
                     PureItem::ExpectBlockRead { block_handle, file } => {
                         return Ok(Some(PointReadPureOutput::Io(
                             PointReadIo::ExpectIndexBlockRead {
-                                block_handle,
                                 pure_iter,
+                                block_handle,
                                 file,
                             },
                         )))
@@ -814,7 +826,7 @@ pub mod pure {
                             BlockOutput::OpenFd => {
                                 return Ok(Some(PointReadPureOutput::Io(
                                     PointReadIo::ExpectDataFileOpen {
-                                        block_handle: block_handle.into_inner(),
+                                        block_handle,
                                         pure_iter,
                                     },
                                 )))
@@ -822,7 +834,7 @@ pub mod pure {
                             BlockOutput::ReadBlock(file) => {
                                 return Ok(Some(PointReadPureOutput::Io(
                                     PointReadIo::ExpectDataBlockRead {
-                                        block_handle: block_handle.into_inner(),
+                                        block_handle,
                                         pure_iter,
                                         file,
                                     },
@@ -832,7 +844,6 @@ pub mod pure {
                     }
                 }
             }
-            Ok(None)
         }
     }
 }

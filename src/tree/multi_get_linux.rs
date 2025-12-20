@@ -1,8 +1,12 @@
+use crate::table::block::BlockType;
+use crate::table::block_index::{BlockIndexPureIter, BlockIndexPureIterImpl};
 use crate::table::filter::block::FilterBlock;
+use crate::table::pure::{PointReadIo, PointReadPureOutput};
+use crate::table::util::BlockOutput;
+use crate::table::DataBlock;
+use crate::table::KeyedBlockHandle;
 use crate::table::{Block, BlockHandle, PureGetIo, PureGetOutput};
-use crate::tree::multi_get_linux::iouring::{
-    push_multi_get_filter_read_block, submit_and_wait, CompletionOutput,
-};
+use crate::tree::multi_get_linux::iouring::{submit_and_wait, CompletionOutput};
 use crate::value::{UserKey, UserValue};
 use crate::version::Version;
 use crate::{CompressionType, InternalValue, SeqNo, Slice, Table};
@@ -21,7 +25,27 @@ pub enum PendingOpVariant {
         buf: Builder,
         read: u32,
     },
-    PointRead {},
+    PointIndexOpen {
+        pure_iter: Option<Box<BlockIndexPureIterImpl>>,
+    },
+    PointIndexRead {
+        pure_iter: Option<Box<BlockIndexPureIterImpl>>,
+        block_handle: BlockHandle,
+        file: Arc<File>,
+        buf: Builder,
+        read: u32,
+    },
+    PointDataOpen {
+        pure_iter: Option<Box<BlockIndexPureIterImpl>>,
+        block_handle: KeyedBlockHandle,
+    },
+    PointDataRead {
+        pure_iter: Option<Box<BlockIndexPureIterImpl>>,
+        block_handle: KeyedBlockHandle,
+        file: Arc<File>,
+        buf: Builder,
+        read: u32,
+    },
     ReadyValue {
         value: InternalValue,
     },
@@ -77,6 +101,7 @@ pub(crate) fn multi_get(
         // Process queues
         match batch_process(
             keys_and_indices,
+            seqno,
             &mut key_states,
             &mut op_queues,
             &mut ops_in_flight,
@@ -107,6 +132,7 @@ pub(crate) fn multi_get(
             // No more tables - wait for remaining operations
             return match wait_all_pending(
                 keys_and_indices,
+                seqno,
                 &mut key_states,
                 &mut op_queues,
                 &mut ops_in_flight,
@@ -172,18 +198,57 @@ pub(crate) fn multi_get(
                         submitted: false,
                     });
                 }
-                PureGetOutput::Io(PureGetIo::PointRead(point_read_io)) => {
-                    todo!()
+                PureGetOutput::Io(PureGetIo::PointRead(point_io)) => {
+                    let variant = match point_io {
+                        PointReadIo::ExpectIndexFileOpen { pure_iter } => {
+                            PendingOpVariant::PointIndexOpen {
+                                pure_iter: Some(Box::new(pure_iter)),
+                            }
+                        }
+                        PointReadIo::ExpectIndexBlockRead {
+                            pure_iter,
+                            block_handle,
+                            file,
+                        } => {
+                            let buf =
+                                unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
+                            PendingOpVariant::PointIndexRead {
+                                pure_iter: Some(Box::new(pure_iter)),
+                                block_handle,
+                                file,
+                                buf,
+                                read: 0,
+                            }
+                        }
+                        PointReadIo::ExpectDataFileOpen {
+                            pure_iter,
+                            block_handle,
+                        } => PendingOpVariant::PointDataOpen {
+                            pure_iter: Some(Box::new(pure_iter)),
+                            block_handle,
+                        },
+                        PointReadIo::ExpectDataBlockRead {
+                            pure_iter,
+                            block_handle,
+                            file,
+                        } => {
+                            let buf =
+                                unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
+                            PendingOpVariant::PointDataRead {
+                                pure_iter: Some(Box::new(pure_iter)),
+                                block_handle,
+                                file,
+                                buf,
+                                read: 0,
+                            }
+                        }
+                    };
+                    op_queue.push_back(PendingOp {
+                        table,
+                        submitted: false,
+                        variant,
+                    });
                 }
-
-                // PureGetOutput::Io(Io::PointRead) => {
-                //
-                //     op_queue.push_back(PendingOp {
-                //         table,
-                //         variant: PendingOpVariant::PointRead {},
-                //         submitted: false,
-                //     });
-                // }
             }
         }
     }
@@ -192,7 +257,7 @@ pub(crate) fn multi_get(
 fn drain_in_flight(op_queues: &mut [VecDeque<PendingOp>], ops_in_flight: &mut usize) {
     while *ops_in_flight > 0 {
         iouring::on_completion(|output| match output {
-            CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd } => {
+            CompletionOutput::MultiGetOpenFd { key_idx, fd } => {
                 *ops_in_flight -= 1;
                 if let Ok(fd) = fd {
                     if let Some(slot) = op_queues[key_idx as usize].front() {
@@ -203,7 +268,80 @@ fn drain_in_flight(op_queues: &mut [VecDeque<PendingOp>], ops_in_flight: &mut us
                     }
                 }
             }
-            CompletionOutput::MultiGetFilterReadBlock { .. } => {
+            CompletionOutput::MultiGetReadBlock { read: Err(_), .. } => {
+                *ops_in_flight -= 1;
+            }
+            CompletionOutput::MultiGetReadBlock {
+                key_idx,
+                read: Ok(read),
+            } => {
+                let Some(slot) = op_queues[key_idx as usize].pop_front() else {
+                    unreachable!()
+                };
+                match slot.variant {
+                    PendingOpVariant::FilterBlockOpenFd { .. }
+                    | PendingOpVariant::PointIndexOpen { .. }
+                    | PendingOpVariant::PointDataOpen { .. }
+                    | PendingOpVariant::ReadyValue { .. } => unreachable!(),
+
+                    PendingOpVariant::FilterBlockRead {
+                        block_handle,
+                        buf,
+                        read: curr_read,
+                        ..
+                    } if curr_read + read == block_handle.size() => {
+                        let slice = buf.freeze().into();
+                        if let Ok(block) =
+                            Block::from_slice(slice, block_handle, CompressionType::None)
+                        {
+                            slot.table.cache.insert_block(
+                                slot.table.global_id(),
+                                block_handle.offset(),
+                                block.clone(),
+                            );
+                        }
+                    }
+                    PendingOpVariant::PointDataRead {
+                        block_handle,
+                        buf,
+                        read: curr_read,
+                        ..
+                    } if curr_read + read == block_handle.size() => {
+                        let slice = buf.freeze().into();
+                        let offset = block_handle.offset();
+                        if let Ok(block) = Block::from_slice(
+                            slice,
+                            block_handle.into_inner(),
+                            slot.table.metadata.data_block_compression,
+                        ) {
+                            slot.table.cache.insert_block(
+                                slot.table.global_id(),
+                                offset,
+                                block.clone(),
+                            );
+                        }
+                    }
+                    PendingOpVariant::PointIndexRead {
+                        block_handle,
+                        buf,
+                        read: curr_read,
+                        ..
+                    } if curr_read + read == block_handle.size() => {
+                        let slice = buf.freeze().into();
+                        if let Ok(block) = Block::from_slice(
+                            slice,
+                            block_handle,
+                            slot.table.metadata.index_block_compression,
+                        ) {
+                            slot.table.cache.insert_block(
+                                slot.table.global_id(),
+                                block_handle.offset(),
+                                block.clone(),
+                            );
+                        }
+                    }
+                    _ => {}
+                }
                 *ops_in_flight -= 1;
             }
         });
@@ -245,12 +383,20 @@ enum BatchError {
 
 fn wait_all_pending(
     keys_and_indices: &[(usize, &[u8])],
+    seqno: SeqNo,
     key_states: &mut [KeyState],
     op_queues: &mut Vec<VecDeque<PendingOp>>,
     ops_in_flight: &mut usize,
 ) -> Result<(), BatchError> {
     loop {
-        match batch_process(keys_and_indices, key_states, op_queues, ops_in_flight, true) {
+        match batch_process(
+            keys_and_indices,
+            seqno,
+            key_states,
+            op_queues,
+            ops_in_flight,
+            true,
+        ) {
             Ok(BatchAction::AllResolved) => return Ok(()),
             Ok(BatchAction::NeedsTable(_key_idx)) => {
                 unreachable!()
@@ -270,6 +416,7 @@ enum BatchAction {
 
 fn batch_process(
     keys_and_indices: &[(usize, &[u8])],
+    seqno: SeqNo,
     key_states: &mut [KeyState],
     op_queues: &mut [VecDeque<PendingOp>],
     ops_in_flight: &mut usize,
@@ -317,31 +464,24 @@ fn batch_process(
                 continue;
             }
 
-            match pending {
-                PendingOp {
-                    table,
-                    submitted,
-                    variant: PendingOpVariant::FilterBlockOpenFd { .. },
-                } => {
-                    if iouring::push_multi_get_filter_table_open_fd(idx as u32, &table.path).is_ok()
-                    {
-                        *submitted = true;
+            match &mut pending.variant {
+                PendingOpVariant::FilterBlockOpenFd { .. }
+                | PendingOpVariant::PointIndexOpen { .. }
+                | PendingOpVariant::PointDataOpen { .. } => {
+                    if iouring::push_multi_get_open_fd(idx as u32, &pending.table.path).is_ok() {
+                        pending.submitted = true;
                         *ops_in_flight += 1;
                         need_submit = true;
                     }
                 }
-                PendingOp {
-                    submitted,
-                    variant:
-                        PendingOpVariant::FilterBlockRead {
-                            block_handle,
-                            file,
-                            buf,
-                            read,
-                        },
+                PendingOpVariant::FilterBlockRead {
+                    block_handle,
+                    file,
+                    buf,
+                    read,
                     ..
                 } => {
-                    if push_multi_get_filter_read_block(
+                    if iouring::push_multi_get_read_block(
                         idx as u32,
                         file,
                         block_handle.offset().0 + *read as u64,
@@ -349,12 +489,52 @@ fn batch_process(
                     )
                     .is_ok()
                     {
-                        *submitted = true;
+                        pending.submitted = true;
                         *ops_in_flight += 1;
                         need_submit = true;
                     }
                 }
-                _ => unimplemented!(),
+                PendingOpVariant::PointIndexRead {
+                    block_handle,
+                    file,
+                    buf,
+                    read,
+                    ..
+                } => {
+                    if iouring::push_multi_get_read_block(
+                        idx as u32,
+                        file,
+                        block_handle.offset().0 + *read as u64,
+                        &mut buf[*read as usize..],
+                    )
+                    .is_ok()
+                    {
+                        pending.submitted = true;
+                        *ops_in_flight += 1;
+                        need_submit = true;
+                    }
+                }
+                PendingOpVariant::PointDataRead {
+                    block_handle,
+                    file,
+                    buf,
+                    read,
+                    ..
+                } => {
+                    if iouring::push_multi_get_read_block(
+                        idx as u32,
+                        file,
+                        block_handle.offset().0 + *read as u64,
+                        &mut buf[*read as usize..],
+                    )
+                    .is_ok()
+                    {
+                        pending.submitted = true;
+                        *ops_in_flight += 1;
+                        need_submit = true;
+                    }
+                }
+                _ => unreachable!(),
             }
         }
         if finished_count == keys_and_indices.len() {
@@ -374,103 +554,587 @@ fn batch_process(
             }
 
             iouring::on_completion(|output| match output {
-                CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd } => {
+                CompletionOutput::MultiGetOpenFd { key_idx, fd } => {
                     *ops_in_flight -= 1;
+                    let key_idx = key_idx as usize;
+                    let slot = op_queues[key_idx].front_mut().unwrap();
+                    let key = keys_and_indices[key_idx].1;
+                    let table = slot.table;
+                    let local_seqno = seqno.saturating_sub(table.global_seqno());
                     match fd {
                         Err(error) => {
-                            key_states[key_idx as usize] = KeyState::Error(error.into());
+                            key_states[key_idx] = KeyState::Error(error.into());
                             batch_error = Some(BatchError::Completion)
                         }
                         Ok(fd) => {
-                            let slot = op_queues[key_idx as usize].front_mut().unwrap();
-                            let PendingOpVariant::FilterBlockOpenFd { block_handle } = slot.variant
-                            else {
-                                unreachable!()
-                            };
-
                             let file = Arc::new(fd);
-                            slot.table
-                                .descriptor_table
-                                .insert_for_table(slot.table.global_id(), file.clone());
-
-                            let buf =
-                                unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
-                            slot.submitted = false;
-                            slot.variant = PendingOpVariant::FilterBlockRead {
-                                block_handle,
-                                file,
-                                buf,
-                                read: 0,
-                            };
-                            break_completion_loop = true;
-                        }
-                    }
-                }
-                CompletionOutput::MultiGetFilterReadBlock { key_idx, read } => {
-                    *ops_in_flight -= 1;
-                    match read {
-                        Err(error) => {
-                            key_states[key_idx as usize] = KeyState::Error(error.into());
-                            batch_error = Some(BatchError::Completion)
-                        }
-                        Ok(comp_read) => {
-                            let slot = op_queues[key_idx as usize].front_mut().unwrap();
-                            let PendingOpVariant::FilterBlockRead {
-                                block_handle,
-                                buf,
-                                read,
-                                ..
-                            } = &mut slot.variant
-                            else {
-                                unreachable!()
-                            };
-                            *read += comp_read;
-                            if block_handle.size() != *read {
-                                slot.submitted = false;
-                                break_completion_loop = true;
-                                return;
-                            }
-                            let builder = std::mem::replace(buf, Builder::new(ByteView::new(&[])));
-                            let slice = builder.freeze().into();
-                            match Block::from_slice(slice, *block_handle, CompressionType::None) {
-                                Err(error) => {
-                                    key_states[key_idx as usize] = KeyState::Error(error.into());
-                                    batch_error = Some(BatchError::Completion)
+                            match &mut slot.variant {
+                                PendingOpVariant::FilterBlockOpenFd { block_handle } => {
+                                    table
+                                        .descriptor_table
+                                        .insert_for_table(table.global_id(), file.clone());
+                                    let buf = unsafe {
+                                        Slice::builder_unzeroed(block_handle.size() as usize)
+                                    };
+                                    slot.variant = PendingOpVariant::FilterBlockRead {
+                                        block_handle: *block_handle,
+                                        file,
+                                        buf,
+                                        read: 0,
+                                    };
+                                    slot.submitted = false;
+                                    break_completion_loop = true;
                                 }
-                                Ok(block) => {
-                                    slot.table.cache.insert_block(
-                                        slot.table.global_id(),
-                                        block_handle.offset(),
-                                        block.clone(),
+                                PendingOpVariant::PointIndexOpen { pure_iter } => {
+                                    pure_iter.as_mut().unwrap().supply_file(file);
+                                    let res = table.resume_point_read_pure(
+                                        *std::mem::take(pure_iter).unwrap(),
+                                        key,
+                                        local_seqno,
                                     );
-                                    let block = FilterBlock::new(block);
-                                    let key_hash =
-                                        crate::table::filter::standard_bloom::Builder::get_hash(
-                                            keys_and_indices[key_idx as usize].1,
-                                        );
-                                    match block.maybe_contains_hash(key_hash) {
-                                        Err(error) => {
-                                            key_states[key_idx as usize] =
-                                                KeyState::Error(error.into());
-                                            batch_error = Some(BatchError::Completion)
-                                        }
-                                        Ok(false) => {
-                                            #[cfg(feature = "metrics")]
-                                            slot.table
-                                                .metrics
-                                                .io_skipped_by_filter
-                                                .fetch_add(1, Relaxed);
-                                            op_queues[key_idx as usize].pop_front();
+                                    match res {
+                                        Ok(None) => {
+                                            op_queues[key_idx].pop_front();
                                             break_completion_loop = true;
                                         }
-                                        Ok(true) => {
-                                            std::hint::black_box(&mut batch_error);
-                                            std::hint::black_box(&mut break_completion_loop);
-                                            todo!("point read")
+                                        Ok(Some(PointReadPureOutput::Value(value))) => {
+                                            slot.variant = PendingOpVariant::ReadyValue { value };
+                                            break_completion_loop = true;
+                                        }
+                                        Ok(Some(PointReadPureOutput::Io(io))) => {
+                                            slot.variant = match io {
+                                                PointReadIo::ExpectIndexFileOpen { pure_iter } => {
+                                                    PendingOpVariant::PointIndexOpen {
+                                                        pure_iter: Some(Box::new(pure_iter)),
+                                                    }
+                                                }
+                                                PointReadIo::ExpectIndexBlockRead {
+                                                    pure_iter,
+                                                    block_handle,
+                                                    file,
+                                                } => {
+                                                    let buf = unsafe {
+                                                        Slice::builder_unzeroed(
+                                                            block_handle.size() as usize
+                                                        )
+                                                    };
+                                                    PendingOpVariant::PointIndexRead {
+                                                        pure_iter: Some(Box::new(pure_iter)),
+                                                        block_handle,
+                                                        file,
+                                                        buf,
+                                                        read: 0,
+                                                    }
+                                                }
+                                                PointReadIo::ExpectDataFileOpen {
+                                                    pure_iter,
+                                                    block_handle,
+                                                } => PendingOpVariant::PointDataOpen {
+                                                    pure_iter: Some(Box::new(pure_iter)),
+                                                    block_handle,
+                                                },
+                                                PointReadIo::ExpectDataBlockRead {
+                                                    pure_iter,
+                                                    block_handle,
+                                                    file,
+                                                } => {
+                                                    let buf = unsafe {
+                                                        Slice::builder_unzeroed(
+                                                            block_handle.size() as usize
+                                                        )
+                                                    };
+                                                    PendingOpVariant::PointDataRead {
+                                                        pure_iter: Some(Box::new(pure_iter)),
+                                                        block_handle,
+                                                        file,
+                                                        buf,
+                                                        read: 0,
+                                                    }
+                                                }
+                                            };
+                                            slot.submitted = false;
+                                            break_completion_loop = true;
+                                        }
+                                        Err(error) => {
+                                            key_states[key_idx] = KeyState::Error(error);
+                                            batch_error = Some(BatchError::Completion);
                                         }
                                     }
                                 }
-                            };
+                                PendingOpVariant::PointDataOpen {
+                                    pure_iter,
+                                    block_handle,
+                                } => {
+                                    pure_iter.as_mut().unwrap().supply_file(file.clone());
+                                    let res = table
+                                        .load_block_pure(block_handle.as_ref(), BlockType::Data);
+                                    match res {
+                                        BlockOutput::Block(block) => {
+                                            let item_opt =
+                                                DataBlock::new(block).point_read(key, local_seqno);
+                                            if let Some(value) = item_opt {
+                                                slot.variant =
+                                                    PendingOpVariant::ReadyValue { value };
+                                                break_completion_loop = true;
+                                                return;
+                                            }
+                                            if *block_handle.end_key() > key {
+                                                op_queues[key_idx].pop_front();
+                                                break_completion_loop = true;
+                                                return;
+                                            }
+                                            let res = table.resume_point_read_pure(
+                                                *std::mem::take(pure_iter).unwrap(),
+                                                key,
+                                                local_seqno,
+                                            );
+                                            match res {
+                                                Ok(None) => {
+                                                    op_queues[key_idx].pop_front();
+                                                }
+                                                Ok(Some(PointReadPureOutput::Value(value))) => {
+                                                    slot.variant =
+                                                        PendingOpVariant::ReadyValue { value };
+                                                }
+                                                Ok(Some(PointReadPureOutput::Io(io))) => {
+                                                    slot.variant = match io {
+                                                        // unlikely, but
+                                                        PointReadIo::ExpectIndexFileOpen {
+                                                            pure_iter,
+                                                        } => PendingOpVariant::PointIndexOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                        },
+                                                        PointReadIo::ExpectIndexBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointIndexRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                        PointReadIo::ExpectDataFileOpen {
+                                                            pure_iter,
+                                                            block_handle,
+                                                        } => PendingOpVariant::PointDataOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                            block_handle,
+                                                        },
+                                                        PointReadIo::ExpectDataBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointDataRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                    };
+                                                    slot.submitted = false;
+                                                }
+                                                Err(error) => {
+                                                    key_states[key_idx] = KeyState::Error(error);
+                                                    batch_error = Some(BatchError::Completion);
+                                                }
+                                            }
+                                            break_completion_loop = true;
+                                        }
+                                        BlockOutput::ReadBlock(file) => {
+                                            let buf = unsafe {
+                                                Slice::builder_unzeroed(block_handle.size() as usize)
+                                            };
+                                            slot.variant = PendingOpVariant::PointDataRead {
+                                                pure_iter: std::mem::take(pure_iter),
+                                                block_handle: block_handle.clone(),
+                                                file,
+                                                buf,
+                                                read: 0,
+                                            };
+                                            slot.submitted = false;
+                                            break_completion_loop = true;
+                                        }
+                                        BlockOutput::OpenFd => {
+                                            key_states[key_idx] =
+                                                KeyState::Error(crate::Error::Unrecoverable);
+                                            batch_error = Some(BatchError::Completion);
+                                        }
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                    }
+                }
+                CompletionOutput::MultiGetReadBlock { key_idx, read } => {
+                    *ops_in_flight -= 1;
+                    let key_idx = key_idx as usize;
+                    let slot = op_queues[key_idx].front_mut().unwrap();
+                    let key = keys_and_indices[key_idx].1;
+                    let table = slot.table;
+                    let local_seqno = seqno.saturating_sub(table.global_seqno());
+                    match read {
+                        Err(error) => {
+                            key_states[key_idx] = KeyState::Error(error.into());
+                            batch_error = Some(BatchError::Completion)
+                        }
+                        Ok(comp_read) => {
+                            match &mut slot.variant {
+                                PendingOpVariant::FilterBlockRead {
+                                    block_handle,
+                                    buf,
+                                    read: cur_read,
+                                    ..
+                                } => {
+                                    *cur_read += comp_read;
+                                    if block_handle.size() != *cur_read {
+                                        slot.submitted = false;
+                                        break_completion_loop = true;
+                                        return;
+                                    }
+                                    let builder =
+                                        std::mem::replace(buf, Builder::new(ByteView::new(&[])));
+                                    let slice = builder.freeze().into();
+                                    match Block::from_slice(
+                                        slice,
+                                        *block_handle,
+                                        CompressionType::None,
+                                    ) {
+                                        Err(error) => {
+                                            key_states[key_idx] = KeyState::Error(error.into());
+                                            batch_error = Some(BatchError::Completion)
+                                        }
+                                        Ok(block) => {
+                                            slot.table.cache.insert_block(
+                                                slot.table.global_id(),
+                                                block_handle.offset(),
+                                                block.clone(),
+                                            );
+                                            let block = FilterBlock::new(block);
+                                            let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
+                                            match block.maybe_contains_hash(key_hash) {
+                                                Err(error) => {
+                                                    key_states[key_idx] =
+                                                        KeyState::Error(error.into());
+                                                    batch_error = Some(BatchError::Completion)
+                                                }
+                                                Ok(false) => {
+                                                    #[cfg(feature = "metrics")]
+                                                    slot.table
+                                                        .metrics
+                                                        .io_skipped_by_filter
+                                                        .fetch_add(1, Relaxed);
+                                                    op_queues[key_idx].pop_front();
+                                                    break_completion_loop = true;
+                                                }
+                                                Ok(true) => {
+                                                    let res =
+                                                        table.point_read_pure(key, local_seqno);
+                                                    match res {
+                                                        Ok(None) => {
+                                                            op_queues[key_idx].pop_front();
+                                                            break_completion_loop = true;
+                                                        }
+                                                        Ok(Some(PointReadPureOutput::Value(
+                                                            value,
+                                                        ))) => {
+                                                            slot.variant =
+                                                                PendingOpVariant::ReadyValue {
+                                                                    value,
+                                                                };
+                                                            break_completion_loop = true;
+                                                        }
+                                                        Ok(Some(PointReadPureOutput::Io(io))) => {
+                                                            slot.variant = match io {
+                                                                PointReadIo::ExpectIndexFileOpen { pure_iter } => PendingOpVariant::PointIndexOpen { pure_iter: Some(Box::new(pure_iter)) },
+                                                                PointReadIo::ExpectIndexBlockRead { pure_iter, block_handle, file } => {
+                                                                    let buf = unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
+                                                                    PendingOpVariant::PointIndexRead { pure_iter: Some(Box::new(pure_iter)), block_handle, file, buf, read: 0 }
+                                                                }
+                                                                PointReadIo::ExpectDataFileOpen { pure_iter, block_handle } => PendingOpVariant::PointDataOpen { pure_iter: Some(Box::new(pure_iter)), block_handle },
+                                                                PointReadIo::ExpectDataBlockRead { pure_iter, block_handle, file } => {
+                                                                    let buf = unsafe { Slice::builder_unzeroed(block_handle.size() as usize) };
+                                                                    PendingOpVariant::PointDataRead { pure_iter: Some(Box::new(pure_iter)), block_handle, file, buf, read: 0 }
+                                                                }
+                                                            };
+                                                            slot.submitted = false;
+                                                            break_completion_loop = true;
+                                                        }
+                                                        Err(error) => {
+                                                            key_states[key_idx] =
+                                                                KeyState::Error(error);
+                                                            batch_error =
+                                                                Some(BatchError::Completion);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    };
+                                }
+                                PendingOpVariant::PointIndexRead {
+                                    pure_iter,
+                                    block_handle,
+                                    buf,
+                                    read: cur_read,
+                                    file: _,
+                                } => {
+                                    *cur_read += comp_read;
+                                    if block_handle.size() != *cur_read {
+                                        slot.submitted = false;
+                                        break_completion_loop = true;
+                                        return;
+                                    }
+                                    let builder =
+                                        std::mem::replace(buf, Builder::new(ByteView::new(&[])));
+                                    let slice = builder.freeze().into();
+                                    match Block::from_slice(
+                                        slice,
+                                        *block_handle,
+                                        table.metadata.index_block_compression,
+                                    ) {
+                                        Err(error) => {
+                                            key_states[key_idx] = KeyState::Error(error.into());
+                                            batch_error = Some(BatchError::Completion)
+                                        }
+                                        Ok(block) => {
+                                            table.cache.insert_block(
+                                                table.global_id(),
+                                                block_handle.offset(),
+                                                block.clone(),
+                                            );
+                                            pure_iter
+                                                .as_mut()
+                                                .unwrap()
+                                                .supply_block(*block_handle, block);
+                                            let res = table.resume_point_read_pure(
+                                                *std::mem::take(pure_iter).unwrap(),
+                                                key,
+                                                local_seqno,
+                                            );
+                                            match res {
+                                                Ok(None) => {
+                                                    op_queues[key_idx].pop_front();
+                                                    break_completion_loop = true;
+                                                }
+                                                Ok(Some(PointReadPureOutput::Value(value))) => {
+                                                    slot.variant =
+                                                        PendingOpVariant::ReadyValue { value };
+                                                    break_completion_loop = true;
+                                                }
+                                                Ok(Some(PointReadPureOutput::Io(io))) => {
+                                                    slot.variant = match io {
+                                                        PointReadIo::ExpectIndexFileOpen {
+                                                            pure_iter,
+                                                        } => PendingOpVariant::PointIndexOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                        },
+                                                        PointReadIo::ExpectIndexBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointIndexRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                        PointReadIo::ExpectDataFileOpen {
+                                                            pure_iter,
+                                                            block_handle,
+                                                        } => PendingOpVariant::PointDataOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                            block_handle,
+                                                        },
+                                                        PointReadIo::ExpectDataBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointDataRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                    };
+                                                    slot.submitted = false;
+                                                    break_completion_loop = true;
+                                                }
+                                                Err(error) => {
+                                                    key_states[key_idx] = KeyState::Error(error);
+                                                    batch_error = Some(BatchError::Completion);
+                                                }
+                                            }
+                                        }
+                                    };
+                                }
+                                PendingOpVariant::PointDataRead {
+                                    pure_iter,
+                                    block_handle,
+                                    buf,
+                                    read: cur_read,
+                                    ..
+                                } => {
+                                    *cur_read += comp_read;
+                                    if block_handle.size() != *cur_read {
+                                        slot.submitted = false;
+                                        break_completion_loop = true;
+                                        return;
+                                    }
+                                    let builder =
+                                        std::mem::replace(buf, Builder::new(ByteView::new(&[])));
+                                    let slice = builder.freeze().into();
+                                    match Block::from_slice(
+                                        slice,
+                                        block_handle.clone().into_inner(),
+                                        table.metadata.data_block_compression,
+                                    ) {
+                                        Err(error) => {
+                                            key_states[key_idx] = KeyState::Error(error.into());
+                                            batch_error = Some(BatchError::Completion)
+                                        }
+                                        Ok(block) => {
+                                            table.cache.insert_block(
+                                                table.global_id(),
+                                                block_handle.offset(),
+                                                block.clone(),
+                                            );
+                                            let db = DataBlock::new(block);
+                                            if let Some(value) = db.point_read(key, local_seqno) {
+                                                slot.variant =
+                                                    PendingOpVariant::ReadyValue { value };
+                                                break_completion_loop = true;
+                                                return;
+                                            }
+                                            if *block_handle.end_key() > key {
+                                                op_queues[key_idx].pop_front();
+                                                break_completion_loop = true;
+                                                return;
+                                            }
+                                            let res = table.resume_point_read_pure(
+                                                *std::mem::take(pure_iter).unwrap(),
+                                                key,
+                                                local_seqno,
+                                            );
+                                            match res {
+                                                Ok(None) => {
+                                                    op_queues[key_idx].pop_front();
+                                                    break_completion_loop = true;
+                                                }
+                                                Ok(Some(PointReadPureOutput::Value(value))) => {
+                                                    slot.variant =
+                                                        PendingOpVariant::ReadyValue { value };
+                                                    break_completion_loop = true;
+                                                }
+                                                Ok(Some(PointReadPureOutput::Io(io))) => {
+                                                    slot.variant = match io {
+                                                        PointReadIo::ExpectIndexFileOpen {
+                                                            pure_iter,
+                                                        } => PendingOpVariant::PointIndexOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                        },
+                                                        PointReadIo::ExpectIndexBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointIndexRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                        PointReadIo::ExpectDataFileOpen {
+                                                            pure_iter,
+                                                            block_handle,
+                                                        } => PendingOpVariant::PointDataOpen {
+                                                            pure_iter: Some(Box::new(pure_iter)),
+                                                            block_handle,
+                                                        },
+                                                        PointReadIo::ExpectDataBlockRead {
+                                                            pure_iter,
+                                                            block_handle,
+                                                            file,
+                                                        } => {
+                                                            let buf = unsafe {
+                                                                Slice::builder_unzeroed(
+                                                                    block_handle.size() as usize,
+                                                                )
+                                                            };
+                                                            PendingOpVariant::PointDataRead {
+                                                                pure_iter: Some(Box::new(
+                                                                    pure_iter,
+                                                                )),
+                                                                block_handle,
+                                                                file,
+                                                                buf,
+                                                                read: 0,
+                                                            }
+                                                        }
+                                                    };
+                                                    slot.submitted = false;
+                                                    break_completion_loop = true;
+                                                }
+                                                Err(error) => {
+                                                    key_states[key_idx] = KeyState::Error(error);
+                                                    batch_error = Some(BatchError::Completion);
+                                                }
+                                            }
+                                        }
+                                    };
+                                }
+                                _ => unreachable!(),
+                            }
                         }
                     }
                 }
@@ -514,26 +1178,26 @@ mod iouring {
 
     #[repr(u8)]
     pub enum MultiGetOp {
-        FilterTableOpenFd = 0,
-        FilterReadBlock = 1,
+        OpenFd = 0,
+        ReadBlock = 1,
     }
 
     impl MultiGetOp {
         const fn from_u8(v: u8) -> Option<Self> {
             match v {
-                0 => Some(MultiGetOp::FilterTableOpenFd),
-                1 => Some(MultiGetOp::FilterReadBlock),
+                0 => Some(MultiGetOp::OpenFd),
+                1 => Some(MultiGetOp::ReadBlock),
                 _ => None,
             }
         }
     }
 
     pub enum CompletionOutput {
-        MultiGetFilterTableOpenFd {
+        MultiGetOpenFd {
             key_idx: u32,
             fd: Result<std::fs::File, std::io::Error>,
         },
-        MultiGetFilterReadBlock {
+        MultiGetReadBlock {
             key_idx: u32,
             read: Result<u32, std::io::Error>,
         },
@@ -580,13 +1244,9 @@ mod iouring {
         f(domain, user_data)
     }
 
-    pub fn push_multi_get_filter_table_open_fd(
-        key_idx: u32,
-        path: &PathBuf,
-    ) -> Result<(), PushError> {
+    pub fn push_multi_get_open_fd(key_idx: u32, path: &PathBuf) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
-            let user_data =
-                pack_user_data(Domain::MultiGet, MultiGetOp::FilterTableOpenFd, key_idx);
+            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::OpenFd, key_idx);
 
             let open_sqe = opcode::OpenAt::new(
                 types::Fd(CWD.as_raw_fd()),
@@ -599,14 +1259,14 @@ mod iouring {
         })
     }
 
-    pub fn push_multi_get_filter_read_block(
+    pub fn push_multi_get_read_block(
         key_idx: u32,
         file: &File,
         offset: u64,
         buf: &mut [u8],
     ) -> Result<(), PushError> {
         IO_URING.with(|io_uring| {
-            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::FilterReadBlock, key_idx);
+            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::ReadBlock, key_idx);
 
             let open_sqe = opcode::Read::new(
                 types::Fd(file.as_raw_fd()),
@@ -632,25 +1292,25 @@ mod iouring {
                         let key_idx = (user_data >> 32) as u32;
 
                         match op {
-                            MultiGetOp::FilterTableOpenFd => {
+                            MultiGetOp::OpenFd => {
                                 let res = cqe.raw_result();
                                 let fd = if res >= 0 {
                                     Ok(unsafe { std::fs::File::from_raw_fd(res) })
                                 } else {
                                     Err(std::io::Error::from_raw_os_error(-res))
                                 };
-                                cb(CompletionOutput::MultiGetFilterTableOpenFd { key_idx, fd })
+                                cb(CompletionOutput::MultiGetOpenFd { key_idx, fd })
                             }
-                            MultiGetOp::FilterReadBlock => {
+                            MultiGetOp::ReadBlock => {
                                 let res = cqe.raw_result();
 
                                 if res >= 0 {
-                                    cb(CompletionOutput::MultiGetFilterReadBlock {
+                                    cb(CompletionOutput::MultiGetReadBlock {
                                         key_idx,
                                         read: Ok(res as u32),
                                     })
                                 } else {
-                                    cb(CompletionOutput::MultiGetFilterReadBlock {
+                                    cb(CompletionOutput::MultiGetReadBlock {
                                         key_idx,
                                         read: Err(std::io::Error::from_raw_os_error(-res)),
                                     });

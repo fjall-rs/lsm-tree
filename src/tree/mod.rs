@@ -28,7 +28,6 @@ use crate::{
     ValueType,
 };
 use inner::{TreeId, TreeInner};
-use rustc_hash::FxHashMap;
 use std::{
     ops::{Bound, RangeBounds},
     path::Path,
