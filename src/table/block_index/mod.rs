@@ -9,6 +9,7 @@ mod volatile;
 
 pub use full::FullBlockIndex;
 use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
@@ -147,6 +148,8 @@ pub trait BlockIndexPureIter: DoubleEndedIterator<Item = crate::Result<PureItem>
 
     fn supply_file(&mut self, file: Arc<File>);
     fn supply_block(&mut self, handle: BlockHandle, block: Block);
+
+    fn file_path(&self) -> Option<&std::path::Path>;
 }
 
 pub trait BlockIndexPure {
@@ -212,6 +215,14 @@ impl BlockIndexPureIter for BlockIndexPureIterImpl {
             Self::Full(i) => i.supply_block(handle, block),
             Self::Volatile(i) => i.supply_block(handle, block),
             Self::TwoLevel(i) => i.supply_block(handle, block),
+        }
+    }
+
+    fn file_path(&self) -> Option<&Path> {
+        match self {
+            BlockIndexPureIterImpl::Full(i) => i.file_path(),
+            BlockIndexPureIterImpl::Volatile(i) => i.file_path(),
+            BlockIndexPureIterImpl::TwoLevel(i) => i.file_path(),
         }
     }
 }

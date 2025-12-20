@@ -8,6 +8,7 @@ use crate::table::block_index::{
 use crate::table::{Block, BlockHandle, IndexBlock, KeyedBlockHandle};
 use crate::SeqNo;
 use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Index that translates item keys to data block handles
@@ -112,5 +113,9 @@ impl BlockIndexPureIter for PureIter {
 
     fn supply_block(&mut self, _handle: BlockHandle, _block: Block) {
         panic!("unexpected call `supply_block` on full block index");
+    }
+
+    fn file_path(&self) -> Option<&Path> {
+        None
     }
 }

@@ -828,7 +828,6 @@ pub mod pure {
                     }
                 }
             }
-
             Ok(None)
         }
     }

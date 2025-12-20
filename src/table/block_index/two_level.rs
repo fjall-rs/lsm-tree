@@ -17,6 +17,7 @@ use crate::{
     Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
 };
 use std::fs::File;
+use std::path::Path;
 use std::{path::PathBuf, sync::Arc};
 
 /// Index that translates item keys to data block handles
@@ -565,5 +566,9 @@ impl BlockIndexPureIter for PureIter {
 
     fn supply_block(&mut self, handle: BlockHandle, block: Block) {
         self.supply_block(handle, block)
+    }
+
+    fn file_path(&self) -> Option<&Path> {
+        Some(self.iter.path.as_ref())
     }
 }
