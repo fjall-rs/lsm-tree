@@ -22,17 +22,6 @@ pub enum FilterVerdict {
 pub trait CompactionFilter {
     #[allow(clippy::doc_markdown, reason = "thinks RocksDB is a Rust type")]
     /// Returns whether an item should be kept during compaction.
-    /* TODO: perhaps prevented by super versions? check this
-    ///
-    /// # Warning!
-    ///
-    /// Compaction filters ignore transactions. Any item filtered out (deleted)
-    /// by a compaction filter will immediately stop existing for all readers,
-    /// even those in a snapshot which would otherwise expect the item to still
-    /// exist. This mirrors the behavior of RocksDB since 6.0.
-    // note: for rocksdb behavior, see
-    // <https://github.com/facebook/rocksdb/wiki/Compaction-Filter>
-     */
     ///
     /// # Errors
     ///

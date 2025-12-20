@@ -35,6 +35,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
 
             if key >= 0xff000000 {
                 assert_eq!(key & 0xff, u32_f(&item.value().expect("failed fetch")));
+                assert!(item.is_indirection());
                 state.saw_value = true;
                 FilterVerdict::Keep
             } else {
@@ -75,7 +76,9 @@ fn filter_basic() -> lsm_tree::Result<()> {
 
     tree.compact(
         Arc::new(PullDown(0, 1)),
-        CompactionOptions::from_seqno(SeqNo::MAX).with_compaction_filter(Some(Box::new(Filter))),
+        CompactionOptions::default()
+            .with_seqno_threshold(SeqNo::MAX)
+            .with_compaction_filter(Some(Box::new(Filter))),
     )?;
 
     // filter should have dropped this
@@ -104,6 +107,41 @@ fn filter_basic() -> lsm_tree::Result<()> {
     assert!(tree.get(u32_s(5), SeqNo::MAX)?.is_none());
     // ensure the other value isn't
     assert!(tree.get(u32_s(12), SeqNo::MAX)?.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn filter_snapshot() -> lsm_tree::Result<()> {
+    struct DropEverything;
+    impl CompactionFilter for DropEverything {
+        fn filter_item(&mut self, _: ItemAccessor<'_>) -> FilterVerdict {
+            // data? what data?
+            FilterVerdict::Drop
+        }
+    }
+
+    let folder = get_tmp_folder();
+
+    let seqno = SequenceNumberCounter::default();
+    let config = lsm_tree::Config::new(&folder, seqno.clone(), SequenceNumberCounter::default());
+    let tree = config.open()?;
+
+    tree.insert("a", "a", seqno.next());
+    tree.flush_active_memtable(0)?;
+    tree.insert("b", "b", seqno.next());
+    tree.flush_active_memtable(0)?;
+
+    let snapshot_seqno = seqno.get();
+    assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
+
+    tree.major_compact(
+        u64::MAX,
+        CompactionOptions::from_seqno(0).with_compaction_filter(Some(Box::new(DropEverything))),
+    )?;
+
+    assert_eq!(b"a", &*tree.get("a", snapshot_seqno)?.unwrap());
+    assert!(tree.get("a", SeqNo::MAX)?.is_none());
 
     Ok(())
 }
