@@ -278,7 +278,7 @@ mod tests {
         let mut my_watcher = FragmentationMap::default();
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
+        let mut iter = CompactionStream::new(iter, 1_000).with_drop_callback(&mut my_watcher);
 
         assert_eq!(
             // TODO: Seqno is normally reset to 0

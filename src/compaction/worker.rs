@@ -416,7 +416,7 @@ fn merge_tables(
 
     let mut compactor = match &opts.config.kv_separation_opts {
         Some(blob_opts) => {
-            merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
+            merge_iter = merge_iter.with_drop_callback(&mut blob_frag_map);
 
             let blob_files_to_rewrite = pick_blob_files_to_rewrite(
                 &payload.table_ids,

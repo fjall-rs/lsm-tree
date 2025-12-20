@@ -86,7 +86,7 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I,
     }
 
     /// Installs a callback that receives all expired KVs.
-    pub fn with_expiration_callback(mut self, cb: &'a mut dyn DroppedKvCallback) -> Self {
+    pub fn with_drop_callback(mut self, cb: &'a mut dyn DroppedKvCallback) -> Self {
         self.dropped_callback = Some(cb);
         self
     }
@@ -233,20 +233,20 @@ mod tests {
         };
     }
 
+    #[derive(Default)]
+    struct TrackCallback {
+        items: Vec<InternalValue>,
+    }
+
+    impl DroppedKvCallback for TrackCallback {
+        fn on_dropped(&mut self, kv: &InternalValue) {
+            self.items.push(kv.clone());
+        }
+    }
+
     #[test]
     #[expect(clippy::unwrap_used)]
     fn compaction_stream_expired_callback_1() -> crate::Result<()> {
-        #[derive(Default)]
-        struct MyCallback {
-            items: Vec<InternalValue>,
-        }
-
-        impl DroppedKvCallback for MyCallback {
-            fn on_dropped(&mut self, kv: &InternalValue) {
-                self.items.push(kv.clone());
-            }
-        }
-
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "T",
@@ -254,10 +254,10 @@ mod tests {
           "a", "", "T",
         ];
 
-        let mut my_watcher = MyCallback::default();
+        let mut my_watcher = TrackCallback::default();
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
+        let mut iter = CompactionStream::new(iter, 1_000).with_drop_callback(&mut my_watcher);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
@@ -587,5 +587,53 @@ mod tests {
         iter_closed!(iter);
 
         Ok(())
+    }
+
+    #[test]
+    fn compaction_stream_filter_1() {
+        struct Filter(&'static [u8]);
+        impl StreamFilter for Filter {
+            fn should_remove(&mut self, value: &InternalValue) -> bool {
+                value.value < self.0
+            }
+        }
+
+        #[rustfmt::skip]
+        let vec = stream![
+            "a", "9", "V",
+            "a", "8", "V",
+            "a", "7", "V",
+            // subsequent values will be filtered out
+            "a", "6", "V",
+            "a", "5", "V",
+            // subsequent values below gc threshold after filter
+            "a", "4", "V",
+        ];
+
+        let mut drop_cb = TrackCallback { items: vec![] };
+        let iter = vec.iter().cloned().map(Ok);
+        let iter = CompactionStream::new(iter, 995)
+            .with_filter(Filter(b"7"))
+            .with_drop_callback(&mut drop_cb);
+
+        let out: Vec<InternalValue> = iter.map(Result::unwrap).collect();
+
+        #[rustfmt::skip]
+        assert_eq!(out, stream![
+            "a", "9", "V",
+            "a", "8", "V",
+            "a", "7", "V",
+            "a", "", "T",
+            "a", "", "T",
+        ]);
+
+        let fc = InternalValue::from_components;
+
+        #[rustfmt::skip]
+        assert_eq!(drop_cb.items, [
+            fc(b"a", b"6", 996, ValueType::Value),
+            fc(b"a", b"5", 995, ValueType::Value),
+            fc(b"a", b"4", 994, ValueType::Value),
+        ]);
     }
 }
