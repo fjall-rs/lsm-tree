@@ -1,5 +1,5 @@
 use crate::table::filter::block::FilterBlock;
-use crate::table::{Block, BlockHandle, Io, Output};
+use crate::table::{Block, BlockHandle, PureGetIo, PureGetOutput};
 use crate::tree::multi_get_linux::iouring::{
     push_multi_get_filter_read_block, submit_and_wait, CompletionOutput,
 };
@@ -142,7 +142,7 @@ pub(crate) fn multi_get(
 
             let key_hash = crate::table::filter::standard_bloom::Builder::get_hash(key);
             match table.pure_get(key, seqno, key_hash)? {
-                Output::Pure(Some(value)) => {
+                PureGetOutput::Pure(Some(value)) => {
                     // Queue the ready value
                     op_queue.push_back(PendingOp {
                         table,
@@ -150,17 +150,17 @@ pub(crate) fn multi_get(
                         variant: PendingOpVariant::ReadyValue { value },
                     });
                 }
-                Output::Pure(None) => {
+                PureGetOutput::Pure(None) => {
                     continue;
                 }
-                Output::Io(Io::FilterBlockFd { block_handle }) => {
+                PureGetOutput::Io(PureGetIo::FilterBlockFd { block_handle }) => {
                     op_queue.push_back(PendingOp {
                         table,
                         submitted: false,
                         variant: PendingOpVariant::FilterBlockOpenFd { block_handle },
                     });
                 }
-                Output::Io(Io::FilterBlockRead { block_handle, file }) => {
+                PureGetOutput::Io(PureGetIo::FilterBlockRead { block_handle, file }) => {
                     op_queue.push_back(PendingOp {
                         table,
                         variant: PendingOpVariant::FilterBlockRead {
@@ -172,13 +172,15 @@ pub(crate) fn multi_get(
                         submitted: false,
                     });
                 }
-                Output::Io(Io::PointRead) => {
-                    op_queue.push_back(PendingOp {
-                        table,
-                        variant: PendingOpVariant::PointRead {},
-                        submitted: false,
-                    });
-                }
+                _ => unimplemented!("point read"),
+                // PureGetOutput::Io(Io::PointRead) => {
+                //
+                //     op_queue.push_back(PendingOp {
+                //         table,
+                //         variant: PendingOpVariant::PointRead {},
+                //         submitted: false,
+                //     });
+                // }
             }
         }
     }
