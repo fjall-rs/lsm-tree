@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{InternalValue, SeqNo, Slice, UserKey, ValueType};
+use crate::{InternalValue, SeqNo, UserKey, UserValue, ValueType};
 use std::iter::Peekable;
 
 type Item = crate::Result<InternalValue>;
@@ -15,17 +15,18 @@ pub trait DroppedKvCallback {
     fn on_dropped(&mut self, kv: &InternalValue);
 }
 
-/// A callback for filtering out KVs from the stream.
+/// A callback for modifying KVs in the stream.
 pub trait StreamFilter {
-    fn should_remove(&mut self, item: &InternalValue) -> bool;
+    /// Handle an item, possibly modifying it.
+    fn filter_item(&mut self, item: &InternalValue) -> Option<(ValueType, UserValue)>;
 }
 
-/// A [`StreamFilter`] that does not filter anything out.
+/// A [`StreamFilter`] that does not modify anything.
 pub struct NoFilter;
 
 impl StreamFilter for NoFilter {
-    fn should_remove(&mut self, _item: &InternalValue) -> bool {
-        false
+    fn filter_item(&mut self, _item: &InternalValue) -> Option<(ValueType, UserValue)> {
+        None
     }
 }
 
@@ -132,14 +133,15 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
         loop {
             let mut head = fail_iter!(self.inner.next()?);
 
-            if !head.is_tombstone() && self.filter.should_remove(&head) {
-                // filter wants to drop this kv, replace with tombstone
-                if let Some(watcher) = &mut self.dropped_callback {
-                    watcher.on_dropped(&head);
+            if !head.is_tombstone() {
+                if let Some((new_type, new_value)) = self.filter.filter_item(&head) {
+                    // if we are replacing this item's value, call the dropped callback for the previous item
+                    if let Some(watcher) = &mut self.dropped_callback {
+                        watcher.on_dropped(&head);
+                    }
+                    head.value = new_value;
+                    head.key.value_type = new_type;
                 }
-
-                head.key.value_type = ValueType::Tombstone;
-                head.value = Slice::empty();
             }
 
             if let Some(peeked) = self.inner.peek() {
@@ -593,8 +595,12 @@ mod tests {
     fn compaction_stream_filter_1() {
         struct Filter(&'static [u8]);
         impl StreamFilter for Filter {
-            fn should_remove(&mut self, value: &InternalValue) -> bool {
-                value.value < self.0
+            fn filter_item(&mut self, value: &InternalValue) -> Option<(ValueType, UserValue)> {
+                if value.value < self.0 {
+                    Some((ValueType::Tombstone, UserValue::empty()))
+                } else {
+                    None
+                }
             }
         }
 

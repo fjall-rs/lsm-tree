@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::u64;
 
 use lsm_tree::compaction::filter::{CompactionFilter, FilterVerdict, ItemAccessor};
-use lsm_tree::compaction::{CompactionOptions, PullDown};
+use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 
 fn u32_s(n: u32) -> [u8; 4] {

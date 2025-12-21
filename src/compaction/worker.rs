@@ -402,12 +402,15 @@ fn merge_tables(
         filter_lock.take()
     };
 
-    let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter {
-        filter: compaction_filter.as_deref_mut(),
+    // this is used by the compaction filter if it wants to write new blobs
+    let mut filter_blob_writer = None;
+    let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter::new(
+        compaction_filter.as_deref_mut(),
         opts,
-        version: &current_super_version.version,
-        blobs_folder: &blobs_folder,
-    });
+        &current_super_version.version,
+        &blobs_folder,
+        &mut filter_blob_writer,
+    ));
 
     let table_writer =
         super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
@@ -507,6 +510,11 @@ fn merge_tables(
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
+    let extra_blob_files = filter_blob_writer
+        .map(|w| w.finish())
+        .transpose()?
+        .unwrap_or(Vec::new());
+
     compactor
         .finish(
             &mut version_history_lock,
@@ -514,6 +522,7 @@ fn merge_tables(
             payload,
             dst_lvl,
             blob_frag_map,
+            extra_blob_files,
         )
         .inspect_err(|e| {
             // NOTE: We cannot use hidden_guard here because we already locked the compaction state
