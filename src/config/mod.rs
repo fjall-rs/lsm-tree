@@ -158,7 +158,6 @@ impl KvSeparationOptions {
     }
 }
 
-#[derive(Clone)]
 /// Tree configuration builder
 pub struct Config {
     /// Folder path
