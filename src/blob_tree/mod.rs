@@ -619,4 +619,46 @@ impl AbstractTree for BlobTree {
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
+
+    fn get_many_unsorted<'a>(
+        &'a self,
+        keys: impl IntoIterator<Item = &'a [u8]>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        let mut keys = keys.into_iter().collect::<Vec<_>>();
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        keys.sort_unstable();
+
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .index
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        let values =
+            crate::Tree::get_internal_entries_from_version(&super_version, &keys, seqno, |x| x)?;
+
+        // todo resolution must use iouring too
+        values
+            .into_iter()
+            .map(|item| {
+                item.map(|item| {
+                    let (_, v) = resolve_value_handle(
+                        self.id(),
+                        self.blobs_folder.as_path(),
+                        &self.index.config.cache,
+                        &self.index.config.descriptor_table,
+                        &super_version.version,
+                        item,
+                    )?;
+                    Ok(v)
+                })
+                .transpose()
+            })
+            .collect()
+    }
 }

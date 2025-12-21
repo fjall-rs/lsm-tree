@@ -488,11 +488,7 @@ pub trait AbstractTree {
         &'a self,
         keys: impl IntoIterator<Item = &'a [u8]>,
         seqno: SeqNo,
-    ) -> crate::Result<Vec<Option<UserValue>>> {
-        std::hint::black_box(keys);
-        std::hint::black_box(seqno);
-        todo!()
-    }
+    ) -> crate::Result<Vec<Option<UserValue>>>;
 
     /// Returns `true` if the tree contains the specified key.
     ///
