@@ -1,3 +1,4 @@
+use crate::iouring::{self, submit_and_wait, CompletionOutput};
 use crate::table::block::BlockType;
 use crate::table::block_index::{BlockIndexPureIter, BlockIndexPureIterImpl};
 use crate::table::filter::block::FilterBlock;
@@ -6,7 +7,6 @@ use crate::table::util::BlockOutput;
 use crate::table::DataBlock;
 use crate::table::KeyedBlockHandle;
 use crate::table::{Block, BlockHandle, PureGetIo, PureGetOutput};
-use crate::tree::multi_get_linux::iouring::{submit_and_wait, CompletionOutput};
 use crate::value::{UserKey, UserValue};
 use crate::version::Version;
 use crate::{CompressionType, InternalValue, SeqNo, Slice, Table};
@@ -256,7 +256,8 @@ pub(crate) fn multi_get(
 
 fn drain_in_flight(op_queues: &mut [VecDeque<PendingOp>], ops_in_flight: &mut usize) {
     while *ops_in_flight > 0 {
-        iouring::on_completion(|output| match output {
+        iouring::on_completion(|output| {
+            match output {
             CompletionOutput::MultiGetOpenFd { key_idx, fd } => {
                 *ops_in_flight -= 1;
                 if let Ok(fd) = fd {
@@ -344,6 +345,8 @@ fn drain_in_flight(op_queues: &mut [VecDeque<PendingOp>], ops_in_flight: &mut us
                 }
                 *ops_in_flight -= 1;
             }
+            _ => panic!("Unexpected completion output, other domain completions should not occur during multi-get processing"), // todo we may process blob reads right after key resolution
+        }
         });
         iouring::sync_completion();
     }
@@ -553,7 +556,8 @@ fn batch_process(
                 }
             }
 
-            iouring::on_completion(|output| match output {
+            iouring::on_completion(|output| {
+                match output {
                 CompletionOutput::MultiGetOpenFd { key_idx, fd } => {
                     *ops_in_flight -= 1;
                     let key_idx = key_idx as usize;
@@ -1138,6 +1142,8 @@ fn batch_process(
                         }
                     }
                 }
+                _ =>            panic!("Unexpected completion output, other domain completions should not occur during multi-get processing"), // todo we may process blob reads right after key resolution
+            }
             });
             iouring::sync_completion();
         }
@@ -1147,183 +1153,5 @@ fn batch_process(
             (_, true) => continue,
             _ => unreachable!(),
         }
-    }
-}
-
-mod iouring {
-    use rustix::fs::CWD;
-    use rustix::io::Errno;
-    use rustix_uring::squeue::PushError;
-    use rustix_uring::types::OFlags;
-    use rustix_uring::{opcode, types, IoUring};
-    use std::cell::LazyCell;
-    use std::fs::File;
-    use std::os::fd::{AsRawFd, FromRawFd};
-    use std::os::unix::ffi::OsStrExt;
-    use std::path::PathBuf;
-
-    #[repr(u8)]
-    pub enum Domain {
-        MultiGet = 0,
-    }
-
-    impl Domain {
-        const fn from_u8(v: u8) -> Option<Self> {
-            match v {
-                0 => Some(Domain::MultiGet),
-                _ => None,
-            }
-        }
-    }
-
-    #[repr(u8)]
-    pub enum MultiGetOp {
-        OpenFd = 0,
-        ReadBlock = 1,
-    }
-
-    impl MultiGetOp {
-        const fn from_u8(v: u8) -> Option<Self> {
-            match v {
-                0 => Some(MultiGetOp::OpenFd),
-                1 => Some(MultiGetOp::ReadBlock),
-                _ => None,
-            }
-        }
-    }
-
-    pub enum CompletionOutput {
-        MultiGetOpenFd {
-            key_idx: u32,
-            fd: Result<std::fs::File, std::io::Error>,
-        },
-        MultiGetReadBlock {
-            key_idx: u32,
-            read: Result<u32, std::io::Error>,
-        },
-    }
-
-    pub enum SubmitStatus {
-        Submitted,
-        NeedDrainCompletion,
-    }
-
-    std::thread_local! {
-        static IO_URING: LazyCell<IoUring> = LazyCell::new(|| {
-            IoUring::new(256).expect("Failed to create io_uring instance")
-        });
-    }
-
-    #[allow(unused)]
-    pub fn submit() -> std::io::Result<SubmitStatus> {
-        submit_and_wait(0)
-    }
-
-    pub fn submit_and_wait(want: usize) -> std::io::Result<SubmitStatus> {
-        IO_URING.with(|ring| match ring.submitter().submit_and_wait(want) {
-            Ok(_) => Ok(SubmitStatus::Submitted),
-            Err(e) if e == Errno::BUSY => Ok(SubmitStatus::NeedDrainCompletion),
-            Err(e) if e == Errno::INTR => Ok(SubmitStatus::Submitted),
-            Err(e) => Err(std::io::Error::from_raw_os_error(e.raw_os_error())),
-        })
-    }
-
-    fn pack_user_data(domain: Domain, op: MultiGetOp, key_idx: u32) -> u64 {
-        let domain = domain as u64;
-        let op = op as u64;
-        let key_idx = key_idx as u64;
-
-        (key_idx << 32) | (op << 8) | domain
-    }
-
-    fn parse_user_data<F, T>(user_data: u64, mut f: F) -> T
-    where
-        F: FnMut(Domain, u64) -> T,
-    {
-        let domain = Domain::from_u8((user_data & 0xFF) as u8).expect("unknown domain");
-        f(domain, user_data)
-    }
-
-    pub fn push_multi_get_open_fd(key_idx: u32, path: &PathBuf) -> Result<(), PushError> {
-        IO_URING.with(|io_uring| {
-            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::OpenFd, key_idx);
-
-            let open_sqe = opcode::OpenAt::new(
-                types::Fd(CWD.as_raw_fd()),
-                path.as_os_str().as_bytes().as_ptr().cast(),
-            )
-            .flags(OFlags::RDONLY)
-            .build()
-            .user_data(user_data);
-            unsafe { io_uring.submission_shared().push(&open_sqe) }
-        })
-    }
-
-    pub fn push_multi_get_read_block(
-        key_idx: u32,
-        file: &File,
-        offset: u64,
-        buf: &mut [u8],
-    ) -> Result<(), PushError> {
-        IO_URING.with(|io_uring| {
-            let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::ReadBlock, key_idx);
-
-            let open_sqe = opcode::Read::new(
-                types::Fd(file.as_raw_fd()),
-                buf.as_mut_ptr(),
-                buf.len() as u32,
-            )
-            .offset(offset)
-            .build()
-            .user_data(user_data);
-            unsafe { io_uring.submission_shared().push(&open_sqe) }
-        })
-    }
-
-    pub fn on_completion(mut cb: impl FnMut(CompletionOutput)) {
-        IO_URING.with(|io_uring| {
-            unsafe { io_uring.completion_shared() }.for_each(|cqe| {
-                let user_data = cqe.user_data().u64_();
-
-                parse_user_data(user_data, |domain, user_data| match domain {
-                    Domain::MultiGet => {
-                        let op = MultiGetOp::from_u8(((user_data >> 8) & 0xFF) as u8)
-                            .expect("unknown op");
-                        let key_idx = (user_data >> 32) as u32;
-
-                        match op {
-                            MultiGetOp::OpenFd => {
-                                let res = cqe.raw_result();
-                                let fd = if res >= 0 {
-                                    Ok(unsafe { std::fs::File::from_raw_fd(res) })
-                                } else {
-                                    Err(std::io::Error::from_raw_os_error(-res))
-                                };
-                                cb(CompletionOutput::MultiGetOpenFd { key_idx, fd })
-                            }
-                            MultiGetOp::ReadBlock => {
-                                let res = cqe.raw_result();
-
-                                if res >= 0 {
-                                    cb(CompletionOutput::MultiGetReadBlock {
-                                        key_idx,
-                                        read: Ok(res as u32),
-                                    })
-                                } else {
-                                    cb(CompletionOutput::MultiGetReadBlock {
-                                        key_idx,
-                                        read: Err(std::io::Error::from_raw_os_error(-res)),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                });
-            })
-        })
-    }
-
-    pub fn sync_completion() {
-        IO_URING.with(|ring| unsafe { ring.completion_shared().sync() })
     }
 }
