@@ -81,7 +81,7 @@ pub(crate) fn multi_get(
 ) -> crate::Result<()> {
     let num_keys = keys_and_indices.len();
     if num_keys > u32::MAX as usize {
-        panic!("too many keys to multi-get"); // todo return normal error
+        return Err(crate::Error::MultiGetTooManyKeys);
     }
 
     let mut key_states: Vec<KeyState> = {
@@ -345,8 +345,9 @@ fn drain_in_flight(op_queues: &mut [VecDeque<PendingOp>], ops_in_flight: &mut us
                 }
                 *ops_in_flight -= 1;
             }
-            _ => panic!("Unexpected completion output, other domain completions should not occur during multi-get processing"), // todo we may process blob reads right after key resolution
-        }
+                            // TODO: We may process blob reads right after key resolution.
+                            // For now, we panic, as this should not happen.
+                            _ => panic!("Unexpected completion output, other domain completions should not occur during multi-get processing"),        }
         });
         iouring::sync_completion();
     }

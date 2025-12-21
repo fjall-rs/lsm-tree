@@ -620,17 +620,11 @@ impl AbstractTree for BlobTree {
         self.index.remove_weak(key, seqno)
     }
 
-    fn get_many_unsorted<'a>(
-        &'a self,
-        keys: impl IntoIterator<Item = &'a [u8]>,
+    fn multi_get(
+        &self,
+        keys: &[&[u8]],
         seqno: SeqNo,
     ) -> crate::Result<Vec<Option<UserValue>>> {
-        let mut keys = keys.into_iter().collect::<Vec<_>>();
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        keys.sort_unstable();
-
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .index
@@ -642,7 +636,8 @@ impl AbstractTree for BlobTree {
         let values =
             crate::Tree::get_internal_entries_from_version(&super_version, &keys, seqno, |x| x)?;
 
-        // todo resolution must use iouring too
+        // TODO: Value resolution should also use io_uring for better performance.
+        // This is a part of the effort to make multi-get operations fully async.
         values
             .into_iter()
             .map(|item| {

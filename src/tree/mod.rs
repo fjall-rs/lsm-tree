@@ -600,23 +600,18 @@ impl AbstractTree for Tree {
             .map(|x| x.value))
     }
 
-    fn get_many_unsorted<'a>(
-        &'a self,
-        keys: impl IntoIterator<Item = &'a [u8]>,
+    fn multi_get(
+        &self,
+        keys: &[&[u8]],
         seqno: SeqNo,
     ) -> crate::Result<Vec<Option<UserValue>>> {
-        let mut keys = keys.into_iter().collect::<Vec<_>>();
-        if keys.is_empty() {
-            return Ok(Vec::new());
-        }
-        keys.sort_unstable();
         let super_version = self
             .version_history
             .read()
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::get_internal_entries_from_version(&super_version, &keys, seqno, |x| x.value)
+        Self::get_internal_entries_from_version(&super_version, keys, seqno, |x| x.value)
     }
 
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
@@ -752,7 +747,9 @@ impl Tree {
         {
             multi_get_linux::multi_get(version, keys_and_indices, seqno, &mut resolve)
         }
-        // todo actually windows also supports IoRing https://learn.microsoft.com/en-us/windows/win32/api/ioringapi/
+        // TODO: Windows also supports IoRing, so we should implement this for Windows as well
+        // to improve performance on that platform.
+        // See: https://learn.microsoft.com/en-us/windows/win32/api/ioringapi/
         #[cfg(not(target_os = "linux"))]
         {
             keys_and_indices
