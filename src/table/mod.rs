@@ -544,6 +544,8 @@ impl Table {
 
         log::trace!("Table #{} recovered", metadata.id);
 
+        log::debug!("Recovered table from {}", file_path.display());
+
         Ok(Self(Arc::new(Inner {
             path: file_path,
             tree_id,
