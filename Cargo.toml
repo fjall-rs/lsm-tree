@@ -113,7 +113,3 @@ harness = false
 path = "benches/partition_point.rs"
 required-features = []
 
-[[bench]]
-name = "multi_get"
-harness = false
-path = "benches/multi_get.rs"

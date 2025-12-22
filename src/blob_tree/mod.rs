@@ -620,11 +620,7 @@ impl AbstractTree for BlobTree {
         self.index.remove_weak(key, seqno)
     }
 
-    fn multi_get(
-        &self,
-        keys: &[&[u8]],
-        seqno: SeqNo,
-    ) -> crate::Result<Vec<Option<UserValue>>> {
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .index

@@ -489,11 +489,7 @@ pub trait AbstractTree {
     /// input keys. Each element is either `Some(value)` if the key was found,
     /// or `None` if the key was not found. The order of the results corresponds
     /// to the order of the input keys.
-    fn multi_get(
-        &self,
-        keys: &[&[u8]],
-        seqno: SeqNo,
-    ) -> crate::Result<Vec<Option<UserValue>>>;
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>>;
 
     /// Returns `true` if the tree contains the specified key.
     ///

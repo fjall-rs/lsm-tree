@@ -600,11 +600,7 @@ impl AbstractTree for Tree {
             .map(|x| x.value))
     }
 
-    fn multi_get(
-        &self,
-        keys: &[&[u8]],
-        seqno: SeqNo,
-    ) -> crate::Result<Vec<Option<UserValue>>> {
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>> {
         let super_version = self
             .version_history
             .read()
