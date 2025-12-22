@@ -183,7 +183,7 @@ pub use {
     format_version::FormatVersion,
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
-    memtable::Memtable,
+    memtable::{Memtable, MemtableId},
     r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     slice::Slice,

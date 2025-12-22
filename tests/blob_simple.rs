@@ -1,4 +1,4 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
+use lsm_tree::{get_tmp_folder, AbstractTree, Guard, SeqNo, SequenceNumberCounter};
 use test_log::test;
 
 #[test]
@@ -25,8 +25,8 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
         assert_eq!(
-            big_value.len(),
-            tree.size_of("big", SeqNo::MAX)?.unwrap() as usize,
+            big_value.len() as u32,
+            tree.size_of("big", SeqNo::MAX)?.unwrap(),
         );
 
         tree.flush_active_memtable(0)?;
@@ -52,6 +52,9 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
 
         let value = tree.get("big", 1)?.expect("should exist");
         assert_eq!(&*value, big_value);
+
+        let g = tree.prefix("big", 1, None).next().expect("should exist");
+        assert_eq!(big_value.len() as u32, g.size()?);
     }
 
     {

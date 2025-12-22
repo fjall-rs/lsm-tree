@@ -23,7 +23,9 @@ pub fn prefixed_range<P: AsRef<[u8]>, K: AsRef<[u8]>, R: RangeBounds<K>>(
 
     let prefix = prefix.as_ref();
 
-    assert!(!prefix.is_empty(), "prefix may not be empty");
+    if prefix.is_empty() {
+        return (Unbounded, Unbounded);
+    }
 
     match (range.start_bound(), range.end_bound()) {
         (Unbounded, Unbounded) => prefix_to_range(prefix),

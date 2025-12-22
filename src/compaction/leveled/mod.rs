@@ -70,6 +70,10 @@ fn pick_minimal_compaction(
 
                 let curr_level_size = curr_level_pull_in.iter().map(Table::file_size).sum::<u64>();
 
+                if curr_level_size == 0 {
+                    return None;
+                }
+
                 // TODO: toggling this statement can deadlock compactions because if there are only larger-than-overshoot
                 //  compactions, they would not be chosen
                 // if curr_level_size < overshoot {

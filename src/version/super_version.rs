@@ -14,7 +14,8 @@ use std::{collections::VecDeque, path::Path, sync::Arc};
 #[derive(Clone)]
 pub struct SuperVersion {
     /// Active memtable that is being written to
-    pub(crate) active_memtable: Arc<Memtable>,
+    #[doc(hidden)]
+    pub active_memtable: Arc<Memtable>,
 
     /// Frozen memtables that are being flushed
     pub(crate) sealed_memtables: Arc<SealedMemtables>,
