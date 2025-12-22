@@ -84,10 +84,12 @@ pub enum CompletionOutput {
         key_idx: u32,
         read: Result<u32, std::io::Error>,
     },
+    #[allow(unused)]
     MultiGetBlobOpenFd {
         key_idx: u32,
         fd: Result<std::fs::File, std::io::Error>,
     },
+    #[allow(unused)]
     MultiGetBlobRead {
         key_idx: u32,
         read: Result<u32, std::io::Error>,
