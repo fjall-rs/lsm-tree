@@ -630,7 +630,7 @@ impl AbstractTree for BlobTree {
             .get_version_for_snapshot(seqno);
 
         let values =
-            crate::Tree::get_internal_entries_from_version(&super_version, &keys, seqno, |x| x)?;
+            crate::Tree::get_internal_entries_from_version(&super_version, keys, seqno, |x| x)?;
 
         // TODO: Value resolution should also use io_uring for better performance.
         // This is a part of the effort to make multi-get operations fully async.

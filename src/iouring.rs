@@ -7,7 +7,7 @@ use std::cell::LazyCell;
 use std::fs::File;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::path::Path;
 
 #[repr(u8)]
 pub enum Domain {
@@ -75,6 +75,7 @@ impl From<MultiBlobOp> for u64 {
 
 impl Op for MultiBlobOp {}
 
+#[allow(clippy::enum_variant_names)]
 pub enum CompletionOutput {
     MultiGetOpenFd {
         key_idx: u32,
@@ -137,7 +138,7 @@ where
     f(domain, user_data)
 }
 
-pub fn push_multi_get_open_fd(key_idx: u32, path: &PathBuf) -> Result<(), PushError> {
+pub fn push_multi_get_open_fd(key_idx: u32, path: &Path) -> Result<(), PushError> {
     IO_URING.with(|io_uring| {
         let user_data = pack_user_data(Domain::MultiGet, MultiGetOp::OpenFd, key_idx);
 
@@ -152,7 +153,9 @@ pub fn push_multi_get_open_fd(key_idx: u32, path: &PathBuf) -> Result<(), PushEr
     })
 }
 
-pub fn push_multi_blob_open_fd(key_idx: u32, path: &PathBuf) -> Result<(), PushError> {
+#[allow(unused)]
+// todo required for blob tree impl
+pub fn push_multi_blob_open_fd(key_idx: u32, path: &Path) -> Result<(), PushError> {
     IO_URING.with(|io_uring| {
         let user_data = pack_user_data(Domain::MultiBlob, MultiBlobOp::OpenFd, key_idx);
 
@@ -188,6 +191,8 @@ pub fn push_multi_get_read_block(
     })
 }
 
+#[allow(unused)]
+// todo required for blob tree impl
 pub fn push_multi_blob_read(
     key_idx: u32,
     file: &File,

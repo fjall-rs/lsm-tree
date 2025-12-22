@@ -601,6 +601,7 @@ impl AbstractTree for Tree {
     }
 
     fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .version_history
             .read()
@@ -697,7 +698,7 @@ impl Tree {
             if let Some(entry) =
                 Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
             {
-                *res = ignore_tombstone_value(entry).map(mapper)
+                *res = ignore_tombstone_value(entry).map(mapper);
             }
             needs_resolution.push((idx, key))
         }

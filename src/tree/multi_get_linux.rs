@@ -66,14 +66,11 @@ enum KeyState {
 
 impl KeyState {
     fn is_finished(&self) -> bool {
-        matches!(
-            self,
-            KeyState::Found(_) | KeyState::NotFound | KeyState::Error(_)
-        )
+        matches!(self, Self::Found(_) | Self::NotFound | Self::Error(_))
     }
 }
 
-pub(crate) fn multi_get(
+pub fn multi_get(
     version: &Version,
     keys_and_indices: &[(usize, &[u8])],
     seqno: SeqNo,
@@ -137,7 +134,7 @@ pub(crate) fn multi_get(
                 &mut op_queues,
                 &mut ops_in_flight,
             ) {
-                Ok(_) | Err(BatchError::Completion) => {
+                Ok(()) | Err(BatchError::Completion) => {
                     finalize_results(key_states, keys_and_indices, resolve)
                 }
                 Err(BatchError::Submit(err)) => Err(err.into()),
@@ -176,9 +173,7 @@ pub(crate) fn multi_get(
                         variant: PendingOpVariant::ReadyValue { value },
                     });
                 }
-                PureGetOutput::Pure(None) => {
-                    continue;
-                }
+                PureGetOutput::Pure(None) => {}
                 PureGetOutput::Io(PureGetIo::FilterBlockFd { block_handle }) => {
                     op_queue.push_back(PendingOp {
                         table,
@@ -1151,7 +1146,7 @@ fn batch_process(
 
         match (batch_error, break_completion_loop) {
             (Some(err), _) => return Err(err),
-            (_, true) => continue,
+            (_, true) => {}
             _ => unreachable!(),
         }
     }

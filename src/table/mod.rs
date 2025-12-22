@@ -213,6 +213,7 @@ impl Table {
         )
     }
 
+    #[must_use]
     pub fn load_block_pure(&self, handle: &BlockHandle, block_type: BlockType) -> BlockOutput {
         load_block_pure(
             self.global_id(),
