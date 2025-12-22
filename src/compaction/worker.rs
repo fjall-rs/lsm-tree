@@ -80,7 +80,12 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             mvcc_gc_watermark: 0,
-            filter: Mutex::new(None),
+            filter: Mutex::new(
+                tree.config
+                    .compaction_filter_factory
+                    .as_ref()
+                    .map(|f| f.make_filter()),
+            ),
 
             compaction_state: tree.compaction_state.clone(),
 

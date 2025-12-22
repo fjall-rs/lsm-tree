@@ -18,15 +18,21 @@ pub trait DroppedKvCallback {
 /// A callback for modifying KVs in the stream.
 pub trait StreamFilter {
     /// Handle an item, possibly modifying it.
-    fn filter_item(&mut self, item: &InternalValue) -> Option<(ValueType, UserValue)>;
+    fn filter_item(
+        &mut self,
+        item: &InternalValue,
+    ) -> crate::Result<Option<(ValueType, UserValue)>>;
 }
 
 /// A [`StreamFilter`] that does not modify anything.
 pub struct NoFilter;
 
 impl StreamFilter for NoFilter {
-    fn filter_item(&mut self, _item: &InternalValue) -> Option<(ValueType, UserValue)> {
-        None
+    fn filter_item(
+        &mut self,
+        _item: &InternalValue,
+    ) -> crate::Result<Option<(ValueType, UserValue)>> {
+        Ok(None)
     }
 }
 
@@ -134,7 +140,7 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
             let mut head = fail_iter!(self.inner.next()?);
 
             if !head.is_tombstone() {
-                if let Some((new_type, new_value)) = self.filter.filter_item(&head) {
+                if let Some((new_type, new_value)) = fail_iter!(self.filter.filter_item(&head)) {
                     // if we are replacing this item's value, call the dropped callback for the previous item
                     if let Some(watcher) = &mut self.dropped_callback {
                         watcher.on_dropped(&head);
@@ -595,11 +601,14 @@ mod tests {
     fn compaction_stream_filter_1() {
         struct Filter(&'static [u8]);
         impl StreamFilter for Filter {
-            fn filter_item(&mut self, value: &InternalValue) -> Option<(ValueType, UserValue)> {
+            fn filter_item(
+                &mut self,
+                value: &InternalValue,
+            ) -> crate::Result<Option<(ValueType, UserValue)>> {
                 if value.value < self.0 {
-                    Some((ValueType::Tombstone, UserValue::empty()))
+                    Ok(Some((ValueType::Tombstone, UserValue::empty())))
                 } else {
-                    None
+                    Ok(None)
                 }
             }
         }

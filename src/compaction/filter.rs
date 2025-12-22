@@ -1,6 +1,6 @@
 //! Compaction filters
 
-use std::path::Path;
+use std::{panic::RefUnwindSafe, path::Path};
 
 use crate::{
     coding::{Decode, Encode},
@@ -22,14 +22,20 @@ pub enum FilterVerdict {
 }
 
 /// Trait for compaction filter objects.
-pub trait CompactionFilter {
-    #[allow(clippy::doc_markdown, reason = "thinks RocksDB is a Rust type")]
+pub trait CompactionFilter: Send {
     /// Returns whether an item should be kept during compaction.
     ///
     /// # Errors
     ///
-    /// If the filter errors, it should return [`FilterVerdict::Keep`].
-    fn filter_item(&mut self, item: ItemAccessor<'_>) -> FilterVerdict;
+    /// Returning an error will abort the running compaction. This should only
+    /// be done when strictly necessary, such as when fetching a value fails.
+    fn filter_item(&mut self, item: ItemAccessor<'_>) -> crate::Result<FilterVerdict>;
+}
+
+/// Trait that creates compaction filter objects for each compaction.
+pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
+    /// Returns a new compaction filter.
+    fn make_filter(&self) -> Box<dyn CompactionFilter>;
 }
 
 struct AccessorShared<'a> {
@@ -147,13 +153,13 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
         new_value: UserValue,
     ) -> crate::Result<(ValueType, UserValue)> {
         let Some(blob_opts) = self.blob_opts else {
-            return Ok((prev_key.value_type, new_value));
+            return Ok((ValueType::Value, new_value));
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         let value_size = new_value.len() as u32;
         if value_size < blob_opts.separation_threshold {
-            return Ok((prev_key.value_type, new_value));
+            return Ok((ValueType::Value, new_value));
         }
 
         let writer = if let Some(writer) = self.blob_writer {
@@ -165,7 +171,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
                 &self.shared.blobs_folder,
             )?
             .use_target_size(blob_opts.file_target_size)
-            .use_passthrough_compression(blob_opts.compression);
+            .use_compression(blob_opts.compression);
             self.blob_writer.insert(writer)
         };
 
@@ -183,18 +189,23 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
 }
 
 impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
-    fn filter_item(&mut self, item: &InternalValue) -> Option<(ValueType, UserValue)> {
+    fn filter_item(
+        &mut self,
+        item: &InternalValue,
+    ) -> crate::Result<Option<(ValueType, UserValue)>> {
         let Some(filter) = self.filter.as_mut() else {
-            return None;
+            return Ok(None);
         };
 
         match filter.filter_item(ItemAccessor {
             item,
             shared: &self.shared,
-        }) {
-            FilterVerdict::Keep => None,
-            FilterVerdict::Drop => Some((ValueType::Tombstone, UserValue::empty())),
-            FilterVerdict::ReplaceValue(new_value) => Some(self.handle_write(&item.key, new_value)),
+        })? {
+            FilterVerdict::Keep => Ok(None),
+            FilterVerdict::Drop => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
+            FilterVerdict::ReplaceValue(new_value) => {
+                self.handle_write(&item.key, new_value).map(Option::Some)
+            }
         }
     }
 }
