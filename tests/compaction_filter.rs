@@ -1,5 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::u64;
 
 use lsm_tree::compaction::filter::{
     CompactionFilter, CompactionFilterFactory, FilterVerdict, ItemAccessor,
@@ -26,18 +25,18 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         drop_threshold: u32,
     }
 
-    static FILTER_STATE: Mutex<FilterState> = Mutex::new(FilterState {
+    let filter_state = Arc::new(Mutex::new(FilterState {
         expect_blob: true,
         disable: true,
         do_rewrite: false,
         saw_value: false,
         drop_threshold: 4,
-    });
+    }));
 
-    struct Filter;
+    struct Filter(Arc<Mutex<FilterState>>);
     impl CompactionFilter for Filter {
         fn filter_item(&mut self, item: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
-            let mut state = FILTER_STATE.lock().unwrap();
+            let mut state = self.0.lock().unwrap();
             if state.disable {
                 return Ok(FilterVerdict::Keep);
             }
@@ -67,10 +66,10 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
             }
         }
     }
-    struct FilterFactory;
+    struct FilterFactory(Arc<Mutex<FilterState>>);
     impl CompactionFilterFactory for FilterFactory {
         fn make_filter(&self) -> Box<dyn CompactionFilter> {
-            Box::new(Filter)
+            Box::new(Filter(self.0.clone()))
         }
     }
 
@@ -86,7 +85,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     } else {
         None
     })
-    .with_compaction_filter_factory(Some(Box::new(FilterFactory)));
+    .with_compaction_filter_factory(Some(Box::new(FilterFactory(filter_state.clone()))));
     config.level_count = 3;
     let tree = config.open()?;
 
@@ -104,7 +103,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    let mut state = FILTER_STATE.lock().unwrap();
+    let mut state = filter_state.lock().unwrap();
     state.disable = false;
     state.expect_blob = blob;
     drop(state);
@@ -118,7 +117,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     assert!(tree.get(u32_s(5), SeqNo::MAX)?.is_some());
     assert!(tree.get(u32_s(12), SeqNo::MAX)?.is_some());
 
-    let mut state = FILTER_STATE.lock().unwrap();
+    let mut state = filter_state.lock().unwrap();
     // filter should think it was called
     assert!(state.saw_value);
     state.saw_value = false;
@@ -143,7 +142,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
 
-    let state = FILTER_STATE.lock().unwrap();
+    let state = filter_state.lock().unwrap();
     assert!(state.saw_value);
     drop(state);
 
