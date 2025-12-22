@@ -17,9 +17,9 @@ fn u32_f(buf: &[u8]) -> u32 {
     u32::from_be_bytes(n)
 }
 
-#[test]
-fn filter_basic() -> lsm_tree::Result<()> {
+fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct FilterState {
+        expect_blob: bool,
         disable: bool,
         do_rewrite: bool,
         saw_value: bool,
@@ -27,6 +27,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
     }
 
     static FILTER_STATE: Mutex<FilterState> = Mutex::new(FilterState {
+        expect_blob: true,
         disable: true,
         do_rewrite: false,
         saw_value: false,
@@ -46,7 +47,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
             if key >= 0xff000000 {
                 let value = u32_f(&item.value()?);
                 assert_eq!(key & 0xff, value);
-                assert!(item.is_indirection());
+                assert_eq!(item.is_indirection(), state.expect_blob);
                 state.saw_value = true;
 
                 if !state.do_rewrite {
@@ -80,7 +81,11 @@ fn filter_basic() -> lsm_tree::Result<()> {
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
-    .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(2)))
+    .with_kv_separation(if blob {
+        Some(KvSeparationOptions::default().separation_threshold(2))
+    } else {
+        None
+    })
     .with_compaction_filter_factory(Some(Box::new(FilterFactory)));
     config.level_count = 3;
     let tree = config.open()?;
@@ -101,6 +106,7 @@ fn filter_basic() -> lsm_tree::Result<()> {
 
     let mut state = FILTER_STATE.lock().unwrap();
     state.disable = false;
+    state.expect_blob = blob;
     drop(state);
 
     tree.compact(Arc::new(PullDown(0, 1)), SeqNo::MAX)?;
@@ -133,8 +139,8 @@ fn filter_basic() -> lsm_tree::Result<()> {
     // verify rewrites work
     assert_eq!(tree.get(u32_s(2 | 0xff000000), SeqNo::MAX)?.unwrap(), b"aa");
     assert_eq!(
-        tree.get(u32_s(5 | 0xff000000), SeqNo::MAX)?.unwrap(),
-        b"aaaaa"
+        tree.get(u32_s(37 | 0xff000000), SeqNo::MAX)?.unwrap(),
+        b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     );
 
     let state = FILTER_STATE.lock().unwrap();
@@ -142,6 +148,16 @@ fn filter_basic() -> lsm_tree::Result<()> {
     drop(state);
 
     Ok(())
+}
+
+#[test]
+fn filter_with_blob() -> lsm_tree::Result<()> {
+    filter_basic(true)
+}
+
+#[test]
+fn filter_no_blob() -> lsm_tree::Result<()> {
+    filter_basic(false)
 }
 
 #[test]

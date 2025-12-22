@@ -254,7 +254,7 @@ impl CompactionFlavour for RelocatingCompaction {
         payload: &CompactionPayload,
         dst_lvl: usize,
         blob_frag_map_diff: FragmentationMap,
-        additional_blob_files: Vec<BlobFile>,
+        extra_blob_files: Vec<BlobFile>,
     ) -> crate::Result<()> {
         log::debug!(
             "Relocating compaction done in {:?}",
@@ -265,7 +265,7 @@ impl CompactionFlavour for RelocatingCompaction {
 
         let created_tables = self.inner.consume_writer(opts, dst_lvl)?;
         let mut created_blob_files = self.blob_writer.finish()?;
-        created_blob_files.extend(additional_blob_files);
+        created_blob_files.extend(extra_blob_files);
 
         let mut blob_files_to_drop = self.rewriting_blob_files;
 
@@ -389,7 +389,7 @@ impl CompactionFlavour for StandardCompaction {
         payload: &CompactionPayload,
         dst_lvl: usize,
         blob_frag_map: FragmentationMap,
-        additional_blob_files: Vec<BlobFile>,
+        extra_blob_files: Vec<BlobFile>,
     ) -> crate::Result<()> {
         log::debug!("Compaction done in {:?}", self.start.elapsed());
 
@@ -421,7 +421,7 @@ impl CompactionFlavour for StandardCompaction {
                     } else {
                         Some(blob_frag_map)
                     },
-                    additional_blob_files,
+                    extra_blob_files,
                     &blob_files_to_drop
                         .iter()
                         .map(BlobFile::id)
