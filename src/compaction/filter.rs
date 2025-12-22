@@ -44,7 +44,7 @@ struct AccessorShared<'a> {
     blobs_folder: &'a Path,
 }
 
-impl<'a> AccessorShared<'a> {
+impl AccessorShared<'_> {
     /// Fetch a value from the blob store.
     fn get_indirect_value(
         &self,
@@ -168,7 +168,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             // instantiate writer as necessary
             let writer = BlobFileWriter::new(
                 self.shared.opts.blob_file_id_generator.clone(),
-                &self.shared.blobs_folder,
+                self.shared.blobs_folder,
             )?
             .use_target_size(blob_opts.file_target_size)
             .use_compression(blob_opts.compression);

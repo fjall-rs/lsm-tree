@@ -516,7 +516,7 @@ fn merge_tables(
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
     let extra_blob_files = filter_blob_writer
-        .map(|w| w.finish())
+        .map(BlobFileWriter::finish)
         .transpose()?
         .unwrap_or(Vec::new());
 
