@@ -277,6 +277,36 @@ impl CompactionStrategy for Strategy {
     fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
+        // Trivial move into Lmax
+        'trivial_lmax: {
+            let l0 = version.level(0).expect("first level should exist");
+
+            if !l0.is_empty() && l0.is_disjoint() {
+                let lmax_index = version.level_count() - 1;
+
+                if (1..lmax_index)
+                    .any(|idx| !version.level(idx).expect("level should exist").is_empty())
+                {
+                    // There are intermediary levels with data, cannot trivially move to Lmax
+                    break 'trivial_lmax;
+                }
+
+                let lmax = version.level(lmax_index).expect("last level should exist");
+
+                if !lmax
+                    .aggregate_key_range()
+                    .overlaps_with_key_range(&l0.aggregate_key_range())
+                {
+                    return Choice::Move(CompactionInput {
+                        table_ids: l0.list_ids(),
+                        dest_level: lmax_index as u8,
+                        canonical_level: 1,
+                        target_size: self.target_size,
+                    });
+                }
+            }
+        }
+
         // Find the level that corresponds to L1
         #[expect(clippy::map_unwrap_or)]
         let first_non_empty_level = version

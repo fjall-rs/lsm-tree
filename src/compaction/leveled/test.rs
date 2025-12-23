@@ -1,4 +1,4 @@
-use super::Strategy;
+use super::*;
 use crate::{AbstractTree, Config, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;
@@ -137,6 +137,7 @@ fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
 }
 
 #[test]
+#[expect(clippy::unwrap_used)]
 fn leveled_sequential_inserts() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let tree = Config::new(
@@ -146,18 +147,30 @@ fn leveled_sequential_inserts() -> crate::Result<()> {
     )
     .open()?;
 
-    for (table_count, k) in ('a'..='z').enumerate() {
-        let table_count = table_count + 1;
+    let strategy = Arc::new(Strategy {
+        target_size: 1,
+        ..Default::default()
+    });
 
-        // NOTE: Tables need to overlap
-        tree.insert(k.to_string(), "", 0);
+    let mut table_count = 0;
+
+    for k in 0u64..100 {
+        table_count += 1;
+
+        tree.insert(k.to_be_bytes(), "", 0);
         tree.flush_active_memtable(0)?;
 
         assert_eq!(table_count, tree.table_count());
-
-        let strategy = Arc::new(Strategy::default());
-        tree.compact(strategy, 0)?;
+        tree.compact(strategy.clone(), 0)?;
         assert_eq!(table_count, tree.table_count());
+
+        for idx in 1..=5 {
+            assert_eq!(
+                0,
+                tree.current_version().level(idx).unwrap().len(),
+                "no tables should be in intermediary level (L{idx})",
+            );
+        }
     }
 
     Ok(())
