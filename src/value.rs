@@ -22,7 +22,7 @@ pub type UserValue = Slice;
 pub type SeqNo = u64;
 
 /// Internal representation of KV pairs
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct InternalValue {
     /// Internal key
     pub key: InternalKey,
@@ -93,6 +93,8 @@ impl InternalValue {
     }
 }
 
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl PartialEq for InternalValue {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
