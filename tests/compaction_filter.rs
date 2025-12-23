@@ -45,7 +45,9 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
             let key = u32_f(item.key());
 
-            if key >= 0xff000000 {
+            if key == 0x00abcdef {
+                Ok(FilterVerdict::RemoveWeak)
+            } else if key >= 0xff000000 {
                 let value = u32_f(&item.value()?);
                 assert_eq!(key & 0xff, value);
                 assert_eq!(item.is_indirection(), state.expect_blob);
@@ -61,7 +63,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
             } else {
                 assert_eq!(item.value().expect("failed fetch"), b"a");
                 if key < state.drop_threshold {
-                    Ok(FilterVerdict::Drop)
+                    Ok(FilterVerdict::Remove)
                 } else {
                     Ok(FilterVerdict::Keep)
                 }
@@ -108,6 +110,8 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         tree.insert(u32_s(i | 0xff000000), u32_s(i), 0);
     }
 
+    tree.insert(u32_s(0x00abcdef), "test", 0);
+
     tree.flush_active_memtable(0)?;
 
     let mut state = filter_state.lock().unwrap();
@@ -123,6 +127,9 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     // but not these
     assert!(tree.get(u32_s(5), SeqNo::MAX)?.is_some());
     assert!(tree.get(u32_s(12), SeqNo::MAX)?.is_some());
+
+    // ensure weak-deleted value is gone
+    assert!(tree.get(u32_s(0x00abcdef), SeqNo::MAX)?.is_none());
 
     let mut state = filter_state.lock().unwrap();
     // filter should think it was called
@@ -173,7 +180,7 @@ fn filter_snapshot() -> lsm_tree::Result<()> {
     impl CompactionFilter for DropEverything {
         fn filter_item(&mut self, _: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
             // data? what data?
-            Ok(FilterVerdict::Drop)
+            Ok(FilterVerdict::Remove)
         }
     }
     struct DropEverythingFactory;

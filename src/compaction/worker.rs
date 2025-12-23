@@ -6,7 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
-        filter::{CompactionFilter, StreamFilterAdapter},
+        filter::StreamFilterAdapter,
         flavour::{RelocatingCompaction, StandardCompaction},
         state::CompactionState,
         stream::CompactionStream,

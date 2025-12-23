@@ -15,8 +15,12 @@ use crate::{
 pub enum FilterVerdict {
     /// Keep the item.
     Keep,
-    /// Delete the item.
-    Drop,
+    /// Remove the item.
+    Remove,
+    /// Remove the item and replace it with a weak tombstone. This may cause
+    /// old versions of this item to be ressurected. The semantics of this
+    /// operation are identical to [`remove_weak`](crate::AbstractTree::remove_weak).
+    RemoveWeak,
     /// Replace the value of the item.
     ReplaceValue(UserValue),
 }
@@ -205,7 +209,8 @@ impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
             shared: &self.shared,
         })? {
             FilterVerdict::Keep => Ok(None),
-            FilterVerdict::Drop => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
+            FilterVerdict::Remove => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
+            FilterVerdict::RemoveWeak => Ok(Some((ValueType::WeakTombstone, UserValue::empty()))),
             FilterVerdict::ReplaceValue(new_value) => {
                 self.handle_write(&item.key, new_value).map(Option::Some)
             }
