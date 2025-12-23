@@ -30,6 +30,9 @@ pub trait CompactionFilter: Send {
     /// Returning an error will abort the running compaction. This should only
     /// be done when strictly necessary, such as when fetching a value fails.
     fn filter_item(&mut self, item: ItemAccessor<'_>) -> crate::Result<FilterVerdict>;
+
+    /// Called when compaction is finished to consume self.
+    fn finish(self: Box<Self>) {}
 }
 
 /// Trait that creates compaction filter objects for each compaction.

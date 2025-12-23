@@ -58,9 +58,6 @@ pub struct Options {
     /// Evicts items that are older than this seqno (MVCC GC).
     pub mvcc_gc_watermark: u64,
 
-    /// Compaction filter to exclude items during table merge.
-    pub filter: Mutex<Option<Box<dyn CompactionFilter>>>,
-
     pub compaction_state: Arc<Mutex<CompactionState>>,
 
     #[cfg(feature = "metrics")]
@@ -80,12 +77,6 @@ impl Options {
             stop_signal: tree.stop_signal.clone(),
             strategy,
             mvcc_gc_watermark: 0,
-            filter: Mutex::new(
-                tree.config
-                    .compaction_filter_factory
-                    .as_ref()
-                    .map(|f| f.make_filter()),
-            ),
 
             compaction_state: tree.compaction_state.clone(),
 
@@ -400,12 +391,12 @@ fn merge_tables(
 
     let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
 
-    // grab the filter so we can use it mutably
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    let mut compaction_filter = {
-        let mut filter_lock = opts.filter.lock().expect("lock is poisoned");
-        filter_lock.take()
-    };
+    // construct the compaction filter
+    let mut compaction_filter = opts
+        .config
+        .compaction_filter_factory
+        .as_ref()
+        .map(|f| f.make_filter());
 
     // this is used by the compaction filter if it wants to write new blobs
     let mut filter_blob_writer = None;
@@ -499,10 +490,8 @@ fn merge_tables(
         Ok(())
     })?;
 
-    #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-    {
-        let mut filter_lock = opts.filter.lock().expect("lock is poisoned");
-        *filter_lock = compaction_filter;
+    if let Some(filter) = compaction_filter {
+        filter.finish();
     }
 
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
@@ -518,7 +507,7 @@ fn merge_tables(
     let extra_blob_files = filter_blob_writer
         .map(BlobFileWriter::finish)
         .transpose()?
-        .unwrap_or(Vec::new());
+        .unwrap_or_default();
 
     compactor
         .finish(

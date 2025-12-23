@@ -23,6 +23,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         do_rewrite: bool,
         saw_value: bool,
         drop_threshold: u32,
+        finished: bool,
     }
 
     let filter_state = Arc::new(Mutex::new(FilterState {
@@ -31,6 +32,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         do_rewrite: false,
         saw_value: false,
         drop_threshold: 4,
+        finished: false,
     }));
 
     struct Filter(Arc<Mutex<FilterState>>);
@@ -64,6 +66,11 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
                     Ok(FilterVerdict::Keep)
                 }
             }
+        }
+
+        fn finish(self: Box<Self>) {
+            let mut state = self.0.lock().unwrap();
+            state.finished = true;
         }
     }
     struct FilterFactory(Arc<Mutex<FilterState>>);
@@ -120,6 +127,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     let mut state = filter_state.lock().unwrap();
     // filter should think it was called
     assert!(state.saw_value);
+    assert!(state.finished);
     state.saw_value = false;
     // up the threshold
     state.drop_threshold = 8;
