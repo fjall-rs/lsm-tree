@@ -13,7 +13,7 @@ pub struct MvccStream<I: DoubleEndedIterator<Item = crate::Result<InternalValue>
 }
 
 impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> {
-    /// Initializes a new merge iterator
+    /// Initializes a new multi-version-aware iterator.
     #[must_use]
     pub fn new(iter: I) -> Self {
         Self {
@@ -21,6 +21,7 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> MvccStream<I> 
         }
     }
 
+    // Drains all entries for the given user key from the front of the iterator.
     fn drain_key_min(&mut self, key: &UserKey) -> crate::Result<()> {
         loop {
             let Some(next) = self.inner.next_if(|kv| {
@@ -137,6 +138,57 @@ mod tests {
 
             assert_eq!(forwards, backwards);
         };
+    }
+
+    #[test]
+    #[expect(clippy::unwrap_used)]
+    fn mvcc_stream_error() -> crate::Result<()> {
+        {
+            let vec = [
+                Ok(InternalValue::from_components(
+                    "a",
+                    "new",
+                    999,
+                    ValueType::Value,
+                )),
+                Err(crate::Error::Io(std::io::Error::other("test error"))),
+            ];
+
+            let iter = Box::new(vec.into_iter());
+            let mut iter = MvccStream::new(iter);
+
+            // Because next calls drain_key_min, the error is immediately first, even though
+            // the first item is technically Ok
+            assert!(matches!(iter.next().unwrap(), Err(crate::Error::Io(_))));
+            iter_closed!(iter);
+        }
+
+        {
+            let vec = [
+                Ok(InternalValue::from_components(
+                    "a",
+                    "new",
+                    999,
+                    ValueType::Value,
+                )),
+                Err(crate::Error::Io(std::io::Error::other("test error"))),
+            ];
+
+            let iter = Box::new(vec.into_iter());
+            let mut iter = MvccStream::new(iter);
+
+            assert!(matches!(
+                iter.next_back().unwrap(),
+                Err(crate::Error::Io(_))
+            ));
+            assert_eq!(
+                InternalValue::from_components(*b"a", *b"new", 999, ValueType::Value),
+                iter.next_back().unwrap()?,
+            );
+            iter_closed!(iter);
+        }
+
+        Ok(())
     }
 
     #[test]
