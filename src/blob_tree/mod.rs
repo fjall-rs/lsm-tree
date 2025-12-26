@@ -10,10 +10,10 @@ pub mod ingest;
 pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
+    abstract_tree::{AbstractTree, RangeItem},
     coding::Decode,
     file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
-    r#abstract::{AbstractTree, RangeItem},
     table::Table,
     tree::inner::MemtableId,
     value::InternalValue,

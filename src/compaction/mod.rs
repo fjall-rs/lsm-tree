@@ -8,6 +8,7 @@ pub(crate) mod fifo;
 pub(crate) mod leveled;
 // pub(crate) mod maintenance;
 pub(crate) mod drop_range;
+pub mod filter;
 mod flavour;
 pub(crate) mod major;
 pub(crate) mod movedown;
