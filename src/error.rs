@@ -40,6 +40,9 @@ pub enum Error {
 
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
+
+    /// The `get_many` operation was called with too many keys.
+    MultiGetTooManyKeys,
 }
 
 impl std::fmt::Display for Error {
