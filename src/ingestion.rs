@@ -50,6 +50,22 @@ impl AnyIngestion<'_> {
 
     /// Writes a weak tombstone for a key.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lsm_tree::Config;
+    ///
+    /// let folder = tempfile::tempdir()?;
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    ///
+    /// let mut ingestion = tree.ingestion()?;
+    /// ingestion.write("a", "abc")?;
+    /// ingestion.write_weak_tombstone("b")?;
+    /// ingestion.finish()?;
+    ///
+    /// Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
