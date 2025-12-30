@@ -158,17 +158,15 @@ impl<'a> Ingestion<'a> {
             );
         }
 
-        let cloned_key = key.clone();
-
         self.writer.write(crate::InternalValue::from_components(
-            key,
+            key.clone(),
             value,
             self.seqno,
             crate::ValueType::Value,
         ))?;
 
         // Remember the last user key to validate the next call's ordering
-        self.last_key = Some(cloned_key);
+        self.last_key = Some(key);
 
         Ok(())
     }
@@ -186,17 +184,17 @@ impl<'a> Ingestion<'a> {
             );
         }
 
-        let cloned_key = key.clone();
-        let res = self.writer.write(crate::InternalValue::from_components(
-            key,
+        self.writer.write(crate::InternalValue::from_components(
+            key.clone(),
             crate::UserValue::empty(),
             self.seqno,
             crate::ValueType::Tombstone,
-        ));
-        if res.is_ok() {
-            self.last_key = Some(cloned_key);
-        }
-        res
+        ))?;
+
+        // Remember the last user key to validate the next call's ordering
+        self.last_key = Some(key);
+
+        Ok(())
     }
 
     /// Writes a weak tombstone for a key.
@@ -212,17 +210,17 @@ impl<'a> Ingestion<'a> {
             );
         }
 
-        let cloned_key = key.clone();
-        let res = self.writer.write(crate::InternalValue::from_components(
-            key,
+        self.writer.write(crate::InternalValue::from_components(
+            key.clone(),
             crate::UserValue::empty(),
             self.seqno,
             crate::ValueType::WeakTombstone,
-        ));
-        if res.is_ok() {
-            self.last_key = Some(cloned_key);
-        }
-        res
+        ))?;
+
+        // Remember the last user key to validate the next call's ordering
+        self.last_key = Some(key);
+
+        Ok(())
     }
 
     /// Finishes the ingestion.
@@ -274,6 +272,7 @@ impl<'a> Ingestion<'a> {
         // the tree's version.
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut _compaction_state = self.tree.compaction_state.lock().expect("lock is poisoned");
+
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let mut version_lock = self.tree.version_history.write().expect("lock is poisoned");
 
