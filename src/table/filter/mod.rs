@@ -40,17 +40,19 @@ impl BloomConstructionPolicy {
         }
     }
 
+    /// Returns the estimated filter size in bytes.
     #[must_use]
-    pub fn estimated_key_bits(&self, n: usize) -> f32 {
+    pub fn estimated_filter_size(&self, n: usize) -> usize {
         #[expect(
             clippy::cast_precision_loss,
             reason = "truncation is fine because this is an estimation"
         )]
         match self {
-            Self::BitsPerKey(bpk) => *bpk,
+            Self::BitsPerKey(bpk) => (*bpk * (n as f32)) as usize / 8,
             Self::FalsePositiveRate(fpr) => {
                 let m = StandardBloomFilterBuilder::calculate_m(n, *fpr);
-                (m / n) as f32
+                let bpk = (m / n) as f32;
+                (bpk * (n as f32)) as usize / 8
             }
         }
     }
