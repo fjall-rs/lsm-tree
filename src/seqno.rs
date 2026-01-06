@@ -64,7 +64,7 @@ impl SequenceNumberCounter {
     #[must_use]
     #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     pub fn next(&self) -> SeqNo {
-        let seqno = self.0.fetch_add(1, Release);
+        let seqno = self.0.fetch_add(1, AcqRel);
 
         // The MSB is reserved for transactions.
         //
