@@ -43,7 +43,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
 
         #[cfg(not(any(unix, windows)))]
         {
-            compile_error!("unsupported OS");
+            compile_error!("unsupported platform");
             unimplemented!();
         }
 
