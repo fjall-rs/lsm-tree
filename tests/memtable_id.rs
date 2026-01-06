@@ -1,6 +1,7 @@
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 use test_log::test;
 
+// https://github.com/fjall-rs/lsm-tree/issues/230
 #[test]
 fn memtable_id() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
