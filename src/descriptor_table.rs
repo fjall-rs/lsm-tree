@@ -16,7 +16,7 @@ struct CacheKey(u8, u64, u64);
 
 /// Caches file descriptors to tables and blob files
 pub struct DescriptorTable {
-    inner: QuickCache<CacheKey, Item, UnitWeighter, rustc_hash::FxBuildHasher>,
+    inner: Option<QuickCache<CacheKey, Item, UnitWeighter, rustc_hash::FxBuildHasher>>,
 }
 
 impl DescriptorTable {
@@ -32,32 +32,48 @@ impl DescriptorTable {
             DefaultLifecycle::default(),
         );
 
-        Self { inner: quick_cache }
+        Self {
+            inner: Some(quick_cache),
+        }
+    }
+
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self { inner: None }
+    }
+
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        self.inner.is_none()
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.inner.len()
+        self.inner.as_ref().map(|c| c.len()).unwrap_or(0)
     }
 
     #[must_use]
     pub fn access_for_table(&self, id: &GlobalTableId) -> Option<Arc<File>> {
         let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
-        self.inner.get(&key)
+        self.inner.as_ref()?.get(&key)
     }
 
     pub fn insert_for_table(&self, id: GlobalTableId, item: Item) {
-        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
-        self.inner.insert(key, item);
+        if let Some(cache) = &self.inner {
+            let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
+            cache.insert(key, item);
+        }
     }
 
     #[must_use]
     pub fn access_for_blob_file(&self, id: &GlobalTableId) -> Option<Arc<File>> {
         let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
-        self.inner.get(&key)
+        self.inner.as_ref()?.get(&key)
     }
 
     pub fn insert_for_blob_file(&self, id: GlobalTableId, item: Item) {
-        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
-        self.inner.insert(key, item);
+        if let Some(cache) = &self.inner {
+            let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
+            cache.insert(key, item);
+        }
     }
 }

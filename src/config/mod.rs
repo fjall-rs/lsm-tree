@@ -322,8 +322,8 @@ impl Config {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn use_descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
-        self.descriptor_table = descriptor_table;
+    pub fn descriptor_table(mut self, descriptor_table: Option<Arc<DescriptorTable>>) -> Self {
+        self.descriptor_table = descriptor_table.unwrap_or_else(|| Arc::new(DescriptorTable::disabled()));
         self
     }
 

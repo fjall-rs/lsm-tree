@@ -14,6 +14,7 @@ use crate::{
     Checksum, GlobalTableId, SeqNo,
 };
 use std::{
+    fs::File,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, OnceLock},
 };
@@ -45,6 +46,8 @@ pub struct Inner {
     pub cache: Arc<Cache>,
 
     pub(super) pinned_filter_index: Option<IndexBlock>,
+
+    pub(super) pinned_file_descriptor: Option<Arc<File>>,
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
