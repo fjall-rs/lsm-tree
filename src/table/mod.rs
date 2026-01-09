@@ -540,8 +540,6 @@ impl Table {
             None
         };
 
-        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
-
         log::trace!("Table #{} recovered", metadata.id);
 
         log::debug!("Recovered table from {}", file_path.display());
