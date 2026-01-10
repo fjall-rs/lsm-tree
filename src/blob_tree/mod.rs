@@ -58,6 +58,27 @@ impl IterGuard for Guard {
         }
     }
 
+    fn into_inner_if_some<T>(
+        self,
+        pred: impl Fn(&UserKey) -> Option<T>,
+    ) -> crate::Result<Option<(T, UserValue)>> {
+        let kv = self.kv?;
+
+        if let Some(t) = pred(&kv.key.user_key) {
+            resolve_value_handle(
+                self.tree.id(),
+                self.tree.blobs_folder.as_path(),
+                &self.tree.index.config.cache,
+                &self.tree.index.config.descriptor_table,
+                &self.version,
+                kv,
+            )
+            .map(|(_, v)| Some((t, v)))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn key(self) -> crate::Result<UserKey> {
         self.kv.map(|kv| kv.key.user_key)
     }
