@@ -92,7 +92,13 @@ fn guard_into_inner_if_some() -> lsm_tree::Result<()> {
             tree.iter(SeqNo::MAX, None)
                 .filter_map(|guard| {
                     guard
-                        .into_inner_if_some(|key| if key.ends_with(b"#name") { Some(()) } else { None })
+                        .into_inner_if_some(|key| {
+                            if key.ends_with(b"#name") {
+                                Some(())
+                            } else {
+                                None
+                            }
+                        })
                         .unwrap()
                 })
                 .count(),
@@ -125,7 +131,13 @@ fn guard_into_inner_if_some_blob() -> lsm_tree::Result<()> {
             tree.iter(SeqNo::MAX, None)
                 .filter_map(|guard| {
                     guard
-                        .into_inner_if_some(|key| if key.ends_with(b"#name") { Some(()) } else { None })
+                        .into_inner_if_some(|key| {
+                            if key.ends_with(b"#name") {
+                                Some(())
+                            } else {
+                                None
+                            }
+                        })
                         .unwrap()
                 })
                 .count(),
