@@ -8,7 +8,7 @@ use std::{io::Read, path::Path};
 
 pub struct Manifest {
     pub version: FormatVersion,
-    pub tree_type: TreeType,
+    pub _tree_type: TreeType,
     pub level_count: u8,
 }
 
@@ -88,7 +88,7 @@ impl Manifest {
 
         Ok(Self {
             version,
-            tree_type,
+            _tree_type: tree_type,
             level_count,
         })
     }
