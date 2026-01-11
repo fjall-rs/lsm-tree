@@ -12,7 +12,7 @@ use crate::{
     },
     Cache, CompressionType, DescriptorTable, GlobalTableId, SeqNo, UserKey,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{fs::File, path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::Metrics;
@@ -23,6 +23,7 @@ use crate::Metrics;
 pub struct VolatileBlockIndex {
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
+    pub(crate) pinned_file_descriptor: Option<Arc<File>>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
@@ -48,6 +49,7 @@ pub struct Iter {
     inner: Option<OwnedIndexBlockIter>,
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
+    pinned_file_descriptor: Option<Arc<File>>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     handle: BlockHandle,
@@ -66,6 +68,7 @@ impl Iter {
             inner: None,
             table_id: index.table_id,
             path: index.path.clone(),
+            pinned_file_descriptor: index.pinned_file_descriptor.clone(),
             descriptor_table: index.descriptor_table.clone(),
             cache: index.cache.clone(),
             handle: index.handle,
@@ -102,6 +105,7 @@ impl Iterator for Iter {
             let block = fail_iter!(load_block(
                 self.table_id,
                 &self.path,
+                self.pinned_file_descriptor.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,
@@ -142,6 +146,7 @@ impl DoubleEndedIterator for Iter {
             let block = fail_iter!(load_block(
                 self.table_id,
                 &self.path,
+                self.pinned_file_descriptor.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,

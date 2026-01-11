@@ -7,7 +7,7 @@ use crate::{
     table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
     KeyRange, Table,
 };
-use std::{path::Path, sync::Arc};
+use std::{fs::File, path::Path, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -32,6 +32,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 pub fn load_block(
     table_id: GlobalTableId,
     path: &Path,
+    pinned_file_descriptor: Option<&Arc<File>>,
     descriptor_table: &DescriptorTable,
     cache: &Cache,
     handle: &BlockHandle,
@@ -62,21 +63,20 @@ pub fn load_block(
         return Ok(block);
     }
 
-    let cached_fd = descriptor_table.access_for_table(&table_id);
-    let fd_cache_miss = cached_fd.is_none();
-
-    let fd = if let Some(fd) = cached_fd {
+    let (fd, fd_cache_miss) = if let Some(fd) = pinned_file_descriptor {
+        (fd.clone(), false)
+    } else if let Some(fd) = descriptor_table.access_for_table(&table_id) {
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_cached.fetch_add(1, Relaxed);
 
-        fd
+        (fd, false)
     } else {
         let fd = std::fs::File::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
 
-        Arc::new(fd)
+        (Arc::new(fd), true)
     };
 
     let block = Block::from_file(&fd, *handle, compression)?;

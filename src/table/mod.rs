@@ -109,13 +109,12 @@ impl Table {
         Ok(if let Some(handle) = &self.regions.linked_blob_files {
             // Try to get FD from descriptor table first, similar to util::load_block
             let table_id = self.global_id();
-            let cached_fd = self.descriptor_table.access_for_table(&table_id);
-            let fd_cache_miss = cached_fd.is_none();
-
-            let fd = if let Some(fd) = cached_fd {
-                fd
+            let (fd, fd_cache_miss) = if let Some(fd) = &self.pinned_file_descriptor {
+                (fd.clone(), false)
+            } else if let Some(fd) = self.descriptor_table.access_for_table(&table_id) {
+                (fd, false)
             } else {
-                Arc::new(File::open(&*self.path)?)
+                (Arc::new(File::open(&*self.path)?), true)
             };
 
             // Read the exact region using pread-style helper
@@ -203,6 +202,7 @@ impl Table {
         load_block(
             self.global_id(),
             &self.path,
+            self.pinned_file_descriptor.as_ref(),
             &self.descriptor_table,
             &self.cache,
             handle,
@@ -380,6 +380,7 @@ impl Table {
             self.global_id(),
             self.global_seqno(),
             self.path.clone(),
+            self.pinned_file_descriptor.clone(),
             index_iter,
             self.descriptor_table.clone(),
             self.cache.clone(),
@@ -458,6 +459,13 @@ impl Table {
         log::trace!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
+        let file = Arc::new(file);
+        let pinned_file_descriptor = if descriptor_table.is_disabled() {
+            Some(file.clone())
+        } else {
+            None
+        };
+
         let block_index = if regions.index.is_some() {
             log::trace!(
                 "Creating partitioned block index, with tli_ptr={:?}",
@@ -471,6 +479,7 @@ impl Table {
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
+                pinned_file_descriptor: pinned_file_descriptor.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -493,6 +502,7 @@ impl Table {
                 descriptor_table: descriptor_table.clone(),
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
+                pinned_file_descriptor: pinned_file_descriptor.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -540,7 +550,9 @@ impl Table {
             None
         };
 
-        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
+        if !descriptor_table.is_disabled() {
+            descriptor_table.insert_for_table((tree_id, metadata.id).into(), file);
+        }
 
         log::trace!("Table #{} recovered", metadata.id);
 
@@ -560,6 +572,8 @@ impl Table {
             block_index: Arc::new(block_index),
 
             pinned_filter_index,
+
+            pinned_file_descriptor,
 
             pinned_filter_block,
 

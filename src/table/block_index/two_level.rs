@@ -12,7 +12,7 @@ use crate::{
     },
     Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{fs::File, path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::Metrics;
@@ -24,6 +24,7 @@ pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
+    pub(crate) pinned_file_descriptor: Option<Arc<File>>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
@@ -43,6 +44,7 @@ impl TwoLevelBlockIndex {
             hi: None,
             table_id: self.table_id,
             path: self.path.clone(),
+            pinned_file_descriptor: self.pinned_file_descriptor.clone(),
             descriptor_table: self.descriptor_table.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
@@ -65,6 +67,7 @@ pub struct Iter {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
+    pinned_file_descriptor: Option<Arc<File>>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
@@ -127,6 +130,7 @@ impl Iterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
+                    self.pinned_file_descriptor.as_ref(),
                     &self.descriptor_table,
                     &self.cache,
                     &handle.into_inner(),
@@ -190,6 +194,7 @@ impl DoubleEndedIterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
+                    self.pinned_file_descriptor.as_ref(),
                     &self.descriptor_table,
                     &self.cache,
                     &handle.into_inner(),
