@@ -49,7 +49,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use util::load_block;
+use util::{load_block, load_block_pure, BlockOutput};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -157,7 +157,7 @@ impl Table {
 
     /// Gets the global table ID.
     #[must_use]
-    fn global_id(&self) -> GlobalTableId {
+    pub(crate) fn global_id(&self) -> GlobalTableId {
         (self.tree_id, self.id()).into()
     }
 
@@ -208,6 +208,19 @@ impl Table {
             handle,
             block_type,
             compression,
+            #[cfg(feature = "metrics")]
+            &self.metrics,
+        )
+    }
+
+    #[must_use]
+    pub fn load_block_pure(&self, handle: &BlockHandle, block_type: BlockType) -> BlockOutput {
+        load_block_pure(
+            self.global_id(),
+            &self.descriptor_table,
+            &self.cache,
+            handle,
+            block_type,
             #[cfg(feature = "metrics")]
             &self.metrics,
         )
@@ -625,5 +638,215 @@ impl Table {
         todo!()
 
         //  self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+    }
+}
+
+use crate::table::block_index::{BlockIndexPure, BlockIndexPureIterImpl, PureItem};
+pub use pure::*;
+
+pub mod pure {
+    use super::*;
+    use crate::table::PureGetIo::{FilterBlockFd, FilterBlockRead};
+
+    pub enum PointReadIo {
+        ExpectIndexFileOpen {
+            pure_iter: BlockIndexPureIterImpl,
+        },
+        ExpectIndexBlockRead {
+            pure_iter: BlockIndexPureIterImpl,
+            block_handle: BlockHandle, // index block handler
+            file: Arc<File>,
+        },
+        ExpectDataFileOpen {
+            pure_iter: BlockIndexPureIterImpl,
+            block_handle: KeyedBlockHandle, // data block handler
+        },
+        ExpectDataBlockRead {
+            pure_iter: BlockIndexPureIterImpl,
+            block_handle: KeyedBlockHandle, // data block handler
+            file: Arc<File>,
+        },
+    }
+
+    pub enum PointReadPureOutput {
+        Value(InternalValue),
+        Io(PointReadIo),
+    }
+
+    pub enum PureGetIo {
+        FilterBlockFd {
+            block_handle: BlockHandle,
+        },
+        FilterBlockRead {
+            block_handle: BlockHandle,
+            file: Arc<File>,
+        },
+        PointRead(PointReadIo),
+    }
+
+    pub enum PureGetOutput {
+        Pure(Option<InternalValue>),
+        Io(PureGetIo),
+    }
+
+    impl Table {
+        pub fn pure_get(
+            &self,
+            key: &[u8],
+            seqno: SeqNo,
+            key_hash: u64,
+        ) -> crate::Result<PureGetOutput> {
+            #[cfg(feature = "metrics")]
+            use std::sync::atomic::Ordering::Relaxed;
+
+            // Translate seqno to "our" seqno
+            let seqno = seqno.saturating_sub(self.global_seqno());
+
+            if self.metadata.seqnos.0 >= seqno {
+                return Ok(PureGetOutput::Pure(None));
+            }
+
+            let handle_loadable_filter = |handle: BlockHandle| -> crate::Result<_> {
+                match self.load_block_pure(&handle, BlockType::Filter) {
+                    BlockOutput::Block(block) => {
+                        let block = FilterBlock::new(block);
+                        if !block.maybe_contains_hash(key_hash)? {
+                            #[cfg(feature = "metrics")]
+                            self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+
+                            Ok(PureGetOutput::Pure(None))
+                        } else {
+                            match self.point_read_pure(key, seqno)? {
+                                None => Ok(PureGetOutput::Pure(None)),
+                                Some(PointReadPureOutput::Value(value)) => {
+                                    Ok(PureGetOutput::Pure(Some(value)))
+                                }
+                                Some(PointReadPureOutput::Io(io)) => {
+                                    Ok(PureGetOutput::Io(PureGetIo::PointRead(io)))
+                                }
+                            }
+                        }
+                    }
+                    BlockOutput::OpenFd => Ok(PureGetOutput::Io(FilterBlockFd {
+                        block_handle: handle,
+                    })),
+                    BlockOutput::ReadBlock(file) => Ok(PureGetOutput::Io(FilterBlockRead {
+                        block_handle: handle,
+                        file,
+                    })),
+                }
+            };
+
+            if let Some(filter_block) = &self.pinned_filter_block {
+                #[cfg(feature = "metrics")]
+                self.metrics.filter_queries.fetch_add(1, Relaxed);
+
+                if !filter_block.maybe_contains_hash(key_hash)? {
+                    #[cfg(feature = "metrics")]
+                    self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+
+                    return Ok(PureGetOutput::Pure(None));
+                }
+            } else if let Some(filter_idx) = &self.pinned_filter_index {
+                let mut iter = filter_idx.iter();
+                iter.seek(key, seqno);
+
+                if let Some(filter_block_handle) = iter.next() {
+                    let filter_block_handle =
+                        filter_block_handle.materialize(filter_idx.as_slice());
+                    let handle = filter_block_handle.into_inner();
+                    return handle_loadable_filter(handle);
+                }
+            } else if let Some(_filter_tli_handle) = &self.regions.filter_tli {
+                unimplemented!("unpinned filter TLI not supported");
+            } else if let Some(filter_block_handle) = &self.regions.filter {
+                return handle_loadable_filter(*filter_block_handle);
+            }
+
+            match self.point_read_pure(key, seqno)? {
+                None => Ok(PureGetOutput::Pure(None)),
+                Some(PointReadPureOutput::Value(value)) => Ok(PureGetOutput::Pure(Some(value))),
+                Some(PointReadPureOutput::Io(io)) => {
+                    Ok(PureGetOutput::Io(PureGetIo::PointRead(io)))
+                }
+            }
+        }
+
+        // TODO: maybe we can skip Fuse costs of the user key
+        // TODO: because we just want to return the value
+        // TODO: we would need to return something like ValueType + Value
+        // TODO: so the caller can decide whether to return the value or not
+        pub fn point_read_pure(
+            &self,
+            key: &[u8],
+            seqno: SeqNo,
+        ) -> crate::Result<Option<PointReadPureOutput>> {
+            let pure_iter = self.block_index.forward_reader_pure(key, seqno);
+            match pure_iter {
+                None => Ok(None),
+                Some(pure_iter) => self.resume_point_read_pure(pure_iter, key, seqno),
+            }
+        }
+
+        pub fn resume_point_read_pure(
+            &self,
+            mut pure_iter: BlockIndexPureIterImpl,
+            key: &[u8],
+            seqno: SeqNo,
+        ) -> crate::Result<Option<PointReadPureOutput>> {
+            loop {
+                let pure_item = match pure_iter.next() {
+                    None => return Ok(None),
+                    Some(res) => res?,
+                };
+                match pure_item {
+                    PureItem::ExpectFileOpen => {
+                        return Ok(Some(PointReadPureOutput::Io(
+                            PointReadIo::ExpectIndexFileOpen { pure_iter },
+                        )))
+                    }
+                    PureItem::ExpectBlockRead { block_handle, file } => {
+                        return Ok(Some(PointReadPureOutput::Io(
+                            PointReadIo::ExpectIndexBlockRead {
+                                pure_iter,
+                                block_handle,
+                                file,
+                            },
+                        )))
+                    }
+                    PureItem::KeyedBlockHandle(block_handle) => {
+                        match self.load_block_pure(block_handle.as_ref(), BlockType::Data) {
+                            BlockOutput::Block(block) => {
+                                if let Some(item) = DataBlock::new(block).point_read(key, seqno) {
+                                    return Ok(Some(PointReadPureOutput::Value(item)));
+                                }
+                                // NOTE: If the last block key is higher than ours,
+                                // our key cannot be in the next block
+                                if block_handle.end_key() > &key {
+                                    return Ok(None);
+                                }
+                            }
+                            BlockOutput::OpenFd => {
+                                return Ok(Some(PointReadPureOutput::Io(
+                                    PointReadIo::ExpectDataFileOpen {
+                                        block_handle,
+                                        pure_iter,
+                                    },
+                                )))
+                            }
+                            BlockOutput::ReadBlock(file) => {
+                                return Ok(Some(PointReadPureOutput::Io(
+                                    PointReadIo::ExpectDataBlockRead {
+                                        block_handle,
+                                        pure_iter,
+                                        file,
+                                    },
+                                )))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

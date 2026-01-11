@@ -483,6 +483,14 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn get<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<Option<UserValue>>;
 
+    /// Retrieves multiple values for a given set of keys.
+    ///
+    /// The result is a `Vec<Option<UserValue>>` with the same length as the
+    /// input keys. Each element is either `Some(value)` if the key was found,
+    /// or `None` if the key was not found. The order of the results corresponds
+    /// to the order of the input keys.
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>>;
+
     /// Returns `true` if the tree contains the specified key.
     ///
     /// # Examples

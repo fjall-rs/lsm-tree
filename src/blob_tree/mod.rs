@@ -622,4 +622,37 @@ impl AbstractTree for BlobTree {
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
+
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .index
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        let values =
+            crate::Tree::get_internal_entries_from_version(&super_version, keys, seqno, |x| x)?;
+
+        // TODO: Value resolution should also use io_uring for better performance.
+        // This is a part of the effort to make multi-get operations fully async.
+        values
+            .into_iter()
+            .map(|item| {
+                item.map(|item| {
+                    let (_, v) = resolve_value_handle(
+                        self.id(),
+                        self.blobs_folder.as_path(),
+                        &self.index.config.cache,
+                        &self.index.config.descriptor_table,
+                        &super_version.version,
+                        item,
+                    )?;
+                    Ok(v)
+                })
+                .transpose()
+            })
+            .collect()
+    }
 }
