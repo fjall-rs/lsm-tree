@@ -63,6 +63,7 @@ fn test_with_table(
             assert!(table.regions.index.is_none(), "should use full index");
             assert_eq!(0, table.pinned_block_index_size(), "should not pin index");
             assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -89,6 +90,7 @@ fn test_with_table(
             assert!(table.regions.index.is_none(), "should use full index");
             assert_eq!(0, table.pinned_block_index_size(), "should not pin index");
             // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -115,6 +117,7 @@ fn test_with_table(
             assert!(table.regions.index.is_none(), "should use full index");
             assert!(table.pinned_block_index_size() > 0, "should pin index");
             assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -141,6 +144,34 @@ fn test_with_table(
             assert!(table.regions.index.is_none(), "should use full index");
             assert!(table.pinned_block_index_size() > 0, "should pin index");
             // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
+
+            f(table)?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let table = Table::recover(
+                file.clone(),
+                checksum,
+                0,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::disabled()),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_none(), "should use full index");
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_some());
 
             f(table)?;
         }
@@ -186,6 +217,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_some(), "should use two-level index",);
             assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -211,6 +243,7 @@ fn test_with_table(
             assert_eq!(items.len(), table.metadata.item_count as usize);
             assert!(table.regions.index.is_some(), "should use two-level index",);
             // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -237,6 +270,7 @@ fn test_with_table(
             assert!(table.regions.index.is_some(), "should use two-level index",);
             assert!(table.pinned_block_index_size() > 0, "should pin index");
             // assert_eq!(0, table.pinned_filter_size(), "should not pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
 
             f(table)?;
         }
@@ -246,7 +280,7 @@ fn test_with_table(
             let metrics = Arc::new(Metrics::default());
 
             let table = Table::recover(
-                file,
+                file.clone(),
                 checksum,
                 0,
                 0,
@@ -263,6 +297,34 @@ fn test_with_table(
             assert!(table.regions.index.is_some(), "should use two-level index",);
             assert!(table.pinned_block_index_size() > 0, "should pin index");
             // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_none());
+
+            f(table)?;
+        }
+
+        {
+            #[cfg(feature = "metrics")]
+            let metrics = Arc::new(Metrics::default());
+
+            let table = Table::recover(
+                file,
+                checksum,
+                0,
+                0,
+                Arc::new(Cache::with_capacity_bytes(1_000_000)),
+                Arc::new(DescriptorTable::disabled()),
+                true,
+                true,
+                #[cfg(feature = "metrics")]
+                metrics,
+            )?;
+
+            assert_eq!(0, table.id());
+            assert_eq!(items.len(), table.metadata.item_count as usize);
+            assert!(table.regions.index.is_some(), "should use two-level index",);
+            assert!(table.pinned_block_index_size() > 0, "should pin index");
+            // assert!(table.pinned_filter_size() > 0, "should pin filter");
+            assert!(table.pinned_file_descriptor.is_some());
 
             f(table)?;
         }
