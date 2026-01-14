@@ -63,11 +63,19 @@ pub struct Inner {
     pub(crate) cached_blob_bytes: OnceLock<u64>,
 }
 
+impl Inner {
+    /// Gets the global table ID.
+    #[must_use]
+    pub(super) fn global_id(&self) -> GlobalTableId {
+        (self.tree_id, self.metadata.id).into()
+    }
+}
+
 impl Drop for Inner {
     fn drop(&mut self) {
-        let global_id: GlobalTableId = (self.tree_id, self.metadata.id).into();
-
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
+            let global_id = self.global_id();
+
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
 
             if let Err(e) = std::fs::remove_file(&*self.path) {
@@ -76,6 +84,8 @@ impl Drop for Inner {
                     self.path,
                 );
             }
+
+            self.descriptor_table.remove_for_table(&global_id);
         }
     }
 }

@@ -158,7 +158,7 @@ impl Table {
     /// Gets the global table ID.
     #[must_use]
     fn global_id(&self) -> GlobalTableId {
-        (self.tree_id, self.id()).into()
+        self.0.global_id()
     }
 
     #[must_use]
