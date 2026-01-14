@@ -62,6 +62,176 @@ Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type
 
 *Disabled by default.*
 
+### tool
+
+Enables the `lsm` CLI binary for interacting with LSM trees from the command line.
+
+*Disabled by default.*
+
+## CLI Tool
+
+The crate includes an optional CLI tool (`lsm`) for inspecting and manipulating LSM trees.
+
+### Installation
+
+```bash
+cargo install lsm-tree --features tool
+```
+
+Or build from source:
+
+```bash
+cargo build --release --features tool
+```
+
+### Usage
+
+The tool can be used either with direct commands or in interactive shell mode.
+
+#### Direct Commands
+
+```bash
+# Set a key-value pair
+lsm /path/to/db set mykey "my value"
+
+# Get a value
+lsm /path/to/db get mykey
+
+# Delete a key
+lsm /path/to/db del mykey
+
+# List all keys (aliases: list, ls)
+lsm /path/to/db scan
+
+# List keys with a prefix
+lsm /path/to/db scan "user:"
+
+# List keys in a range [start, end)
+lsm /path/to/db range a z
+
+# Count items
+lsm /path/to/db count
+
+# Show database info
+lsm /path/to/db info
+
+# Flush memtable to disk
+lsm /path/to/db flush
+
+# Run compaction
+lsm /path/to/db compact
+```
+
+#### Interactive Shell
+
+Start an interactive shell by running without a command:
+
+```bash
+lsm /path/to/db
+```
+
+The shell supports all the above commands plus:
+
+- `begin` - Start a batch/transaction
+- `commit` - Commit the current batch
+- `rollback` - Discard the current batch
+- `exit` / `quit` - Exit (flushes data first)
+- `abort` - Exit without flushing
+- `help` - Show available commands
+
+#### Batch Operations
+
+The shell supports batching multiple operations into an atomic unit:
+
+```
+lsm> begin
+OK (batch started)
+lsm> set key1 value1
+OK (batched, ready to commit)
+lsm> set key2 value2
+OK (batched, ready to commit)
+lsm> del key3
+OK (batched, ready to commit)
+lsm> commit
+OK (batch committed, ready to flush)
+```
+
+While a batch is active:
+- `get` reads from the batch first, then falls back to the tree
+- `scan` and `range` warn that they ignore uncommitted batch operations
+- `info` shows the pending batch operations
+- `rollback` discards all batched operations
+
+#### Long Scan
+
+Use `-l` / `--long` to show internal entry details including sequence numbers, value types, and tombstones:
+
+```
+lsm> scan -l
+=== Active Memtable ===
+key1 = value1 [seqno=0, type=Value]
+key2 [seqno=1, type=Tombstone]
+
+=== Persisted (on disk) ===
+key3 = value3 [seqno=2, type=Value]
+
+(3 total items, 2 in memtable, 1 persisted, 1 tombstones)
+```
+
+#### Blob Trees with Indirect Items
+
+A blob tree uses key-value separation, storing large values in separate blob files and keeping indirect references (indirections) in the main LSM-tree. This improves performance for large values by reducing write amplification and improving compaction efficiency.
+
+To create a blob tree, use the `--blob-tree` flag along with `--separation-threshold` (or `-t`) to specify the size threshold in bytes. Values larger than this threshold will be stored as indirect items:
+
+```bash
+# Create a blob tree with 1 KiB separation threshold
+lsm --blob-tree --separation-threshold 1024 /path/to/db set largekey "very large value..."
+
+# Or using the short form
+lsm -b -t 1KiB /path/to/db set largekey "very large value..."
+
+# In interactive mode
+lsm --blob-tree -t 1024 /path/to/db
+lsm> set largekey "very large value..."
+OK (set)
+lsm> flush
+OK (flushed)
+lsm> scan -l
+=== Active Memtable ===
+=== Persisted (on disk) ===
+largekey = very large value... [seqno=0, type=Indirection]
+```
+
+After flushing, values that exceed the separation threshold will appear as `type=Indirection` in verbose scan output, indicating they are stored in separate blob files rather than inline in the table.
+
+#### Weak Tombstones
+
+A weak tombstone is a special type of deletion marker that provides a "single deletion" semantic. Unlike regular tombstones, weak tombstones are designed to be removed during compaction when they encounter the key they mark for deletion, making them useful for scenarios where you want to delete a key but don't need the tombstone to persist indefinitely.
+
+To delete a key with a weak tombstone, use the `--weak` (or `-w`) flag:
+
+```bash
+# Delete with weak tombstone from command line
+lsm /path/to/db del --weak mykey
+
+# Or using the short form
+lsm /path/to/db del -w mykey
+
+# In interactive shell
+lsm> del --weak mykey
+OK
+lsm> scan -l
+=== Active Memtable ===
+mykey [seqno=0, type=WeakTombstone]
+```
+
+**Important notes:**
+- Weak deletes are **not supported in batches** - they always execute immediately
+- Weak tombstones appear as `type=WeakTombstone` in long scan output
+- Weak tombstones are typically removed during compaction when they encounter the deleted key
+- Use weak tombstones when you want single-deletion semantics rather than persistent deletion markers
+
 ## Run unit benchmarks
 
 ```bash
