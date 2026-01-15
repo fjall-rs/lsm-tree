@@ -93,7 +93,7 @@ fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
 pub struct Iter {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    pinned_file_descriptor: Option<Arc<File>>,
+    pinned_fd: Option<Arc<File>>,
 
     global_seqno: SeqNo,
 
@@ -119,12 +119,11 @@ pub struct Iter {
 }
 
 impl Iter {
-    #[warn(clippy::too_many_arguments)]
     pub fn new(
         table_id: GlobalTableId,
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
-        pinned_file_descriptor: Option<Arc<File>>,
+        pinned_fd: Option<Arc<File>>,
         index_iter: BlockIndexIterImpl,
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
@@ -134,7 +133,7 @@ impl Iter {
         Self {
             table_id,
             path,
-            pinned_file_descriptor,
+            pinned_fd,
 
             global_seqno,
 
@@ -255,7 +254,7 @@ impl Iterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        self.pinned_file_descriptor.as_ref(),
+                        self.pinned_fd.as_ref(),
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
@@ -377,7 +376,7 @@ impl DoubleEndedIterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        self.pinned_file_descriptor.as_ref(),
+                        self.pinned_fd.as_ref(),
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),

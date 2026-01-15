@@ -48,7 +48,7 @@ impl DescriptorTable {
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.inner.as_ref().map_or(0, |c| c.len())
+        self.inner.as_ref().map(|c| c.len()).unwrap_or(0)
     }
 
     #[must_use]

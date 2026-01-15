@@ -20,7 +20,7 @@ fn pick_minimal_compaction(
     curr_run: &Run<Table>,
     next_run: Option<&Run<Table>>,
     hidden_set: &HiddenSet,
-    _overshoot: u64,
+    overshoot: u64,
     table_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)

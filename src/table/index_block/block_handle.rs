@@ -9,6 +9,7 @@ use crate::{
         index_block::IndexBlockParsedItem,
         util::SliceIndexes,
     },
+    unwrap,
 };
 use crate::{SeqNo, UserKey};
 use byteorder::{ReadBytesExt, WriteBytesExt};

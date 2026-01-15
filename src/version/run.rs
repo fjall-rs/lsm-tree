@@ -12,7 +12,6 @@ pub trait Ranged {
 /// Item inside a run
 ///
 /// May point to an interval [min, max] of tables in the next run.
-#[allow(dead_code)]
 pub struct Indexed<T: Ranged> {
     inner: T,
     // cascade_indexes: (u32, u32),

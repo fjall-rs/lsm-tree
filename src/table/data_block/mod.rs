@@ -16,7 +16,7 @@ use super::block::{
 use crate::key::InternalKey;
 use crate::table::block::hash_index::{MARKER_CONFLICT, MARKER_FREE};
 use crate::table::util::{compare_prefixed_slice, SliceIndexes};
-use crate::{InternalValue, SeqNo, Slice, ValueType};
+use crate::{unwrap, InternalValue, SeqNo, Slice, ValueType};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;

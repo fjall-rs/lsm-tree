@@ -65,6 +65,8 @@ macro_rules! unwrap {
     }};
 }
 
+pub(crate) use unwrap;
+
 mod any_tree;
 
 mod r#abstract;
