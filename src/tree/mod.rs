@@ -85,7 +85,10 @@ impl std::ops::Deref for Tree {
 
 impl AbstractTree for Tree {
     fn table_file_cache_size(&self) -> usize {
-        self.config.descriptor_table.len()
+        self.config
+            .descriptor_table
+            .as_ref()
+            .map_or(0, |dt| dt.len())
     }
 
     fn get_version_history_lock(
@@ -1103,6 +1106,8 @@ impl Tree {
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
+            tree_id,
+            config.descriptor_table.clone(),
         )?;
 
         let version = Version::from_recovery(recovery, &tables, &blob_files)?;

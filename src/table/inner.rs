@@ -8,13 +8,12 @@ use crate::metrics::Metrics;
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
     cache::Cache,
-    descriptor_table::DescriptorTable,
+    file_accessor::FileAccessor,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
 };
 use std::{
-    fs::File,
     path::PathBuf,
     sync::{atomic::AtomicBool, Arc, OnceLock},
 };
@@ -25,7 +24,7 @@ pub struct Inner {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub file_accessor: FileAccessor,
 
     /// Parsed metadata
     #[doc(hidden)]
@@ -46,8 +45,6 @@ pub struct Inner {
     pub cache: Arc<Cache>,
 
     pub(super) pinned_filter_index: Option<IndexBlock>,
-
-    pub(super) pinned_file_descriptor: Option<Arc<File>>,
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,

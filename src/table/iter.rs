@@ -4,16 +4,17 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
+    file_accessor::FileAccessor,
     table::{
         block::ParsedItem,
         block_index::{BlockIndexIter, BlockIndexIterImpl},
         util::load_block,
         BlockHandle,
     },
-    Cache, CompressionType, DescriptorTable, InternalValue, SeqNo, UserKey,
+    Cache, CompressionType, InternalValue, SeqNo, UserKey,
 };
 use self_cell::self_cell;
-use std::{fs::File, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -93,14 +94,13 @@ fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
 pub struct Iter {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    pinned_fd: Option<Arc<File>>,
 
     global_seqno: SeqNo,
 
     #[expect(clippy::struct_field_names)]
     index_iter: BlockIndexIterImpl,
 
-    descriptor_table: Arc<DescriptorTable>,
+    file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
 
@@ -123,9 +123,8 @@ impl Iter {
         table_id: GlobalTableId,
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
-        pinned_fd: Option<Arc<File>>,
         index_iter: BlockIndexIterImpl,
-        descriptor_table: Arc<DescriptorTable>,
+        file_accessor: FileAccessor,
         cache: Arc<Cache>,
         compression: CompressionType,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -133,12 +132,11 @@ impl Iter {
         Self {
             table_id,
             path,
-            pinned_fd,
 
             global_seqno,
 
             index_iter,
-            descriptor_table,
+            file_accessor,
             cache,
             compression,
 
@@ -254,8 +252,7 @@ impl Iterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        self.pinned_fd.as_ref(),
-                        &self.descriptor_table,
+                        &self.file_accessor,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,
@@ -376,8 +373,7 @@ impl DoubleEndedIterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        self.pinned_fd.as_ref(),
-                        &self.descriptor_table,
+                        &self.file_accessor,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,

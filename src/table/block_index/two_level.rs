@@ -2,6 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::file_accessor::FileAccessor;
 use crate::table::{IndexBlock, KeyedBlockHandle};
 use crate::SeqNo;
 use crate::{
@@ -10,9 +11,9 @@ use crate::{
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
         util::load_block,
     },
-    Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
+    Cache, CompressionType, GlobalTableId, UserKey,
 };
-use std::{fs::File, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::Metrics;
@@ -24,8 +25,7 @@ pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) pinned_file_descriptor: Option<Arc<File>>,
-    pub(crate) descriptor_table: Arc<DescriptorTable>,
+    pub(crate) file_accessor: FileAccessor,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
 
@@ -44,8 +44,7 @@ impl TwoLevelBlockIndex {
             hi: None,
             table_id: self.table_id,
             path: self.path.clone(),
-            pinned_file_descriptor: self.pinned_file_descriptor.clone(),
-            descriptor_table: self.descriptor_table.clone(),
+            file_accessor: self.file_accessor.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
 
@@ -67,8 +66,7 @@ pub struct Iter {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    pinned_file_descriptor: Option<Arc<File>>,
-    descriptor_table: Arc<DescriptorTable>,
+    file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
 
@@ -130,8 +128,7 @@ impl Iterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
-                    self.pinned_file_descriptor.as_ref(),
-                    &self.descriptor_table,
+                    &self.file_accessor,
                     &self.cache,
                     &handle.into_inner(),
                     BlockType::Index,
@@ -194,8 +191,7 @@ impl DoubleEndedIterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
-                    self.pinned_file_descriptor.as_ref(),
-                    &self.descriptor_table,
+                    &self.file_accessor,
                     &self.cache,
                     &handle.into_inner(),
                     BlockType::Index,

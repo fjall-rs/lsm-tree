@@ -4,10 +4,10 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
-    KeyRange, Table,
+    file_accessor::FileAccessor, table::block::BlockType, version::run::Ranged, Cache,
+    CompressionType, KeyRange, Table,
 };
-use std::{fs::File, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
@@ -32,8 +32,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 pub fn load_block(
     table_id: GlobalTableId,
     path: &Path,
-    pinned_file_descriptor: Option<&Arc<File>>,
-    descriptor_table: &DescriptorTable,
+    file_accessor: &FileAccessor,
     cache: &Cache,
     handle: &BlockHandle,
     block_type: BlockType,
@@ -63,13 +62,12 @@ pub fn load_block(
         return Ok(block);
     }
 
-    let (fd, fd_cache_miss) = if let Some(fd) = pinned_file_descriptor {
-        (fd.clone(), false)
-    } else if let Some(fd) = descriptor_table.access_for_table(&table_id) {
+    let (fd, fd_cache_miss) = if let Some(cached_fd) = file_accessor.access_for_table(
+        &table_id,
         #[cfg(feature = "metrics")]
-        metrics.table_file_opened_cached.fetch_add(1, Relaxed);
-
-        (fd, false)
+        metrics,
+    ) {
+        (cached_fd.clone(), false)
     } else {
         let fd = std::fs::File::open(path)?;
 
@@ -116,7 +114,7 @@ pub fn load_block(
 
     // Cache FD
     if fd_cache_miss {
-        descriptor_table.insert_for_table(table_id, fd);
+        file_accessor.insert_for_table(table_id, fd);
     }
 
     cache.insert_block(table_id, handle.offset(), block.clone());

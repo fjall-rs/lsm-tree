@@ -19,7 +19,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Cache, Config, DescriptorTable, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
+    Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{
@@ -48,7 +48,6 @@ impl IterGuard for Guard {
                 self.tree.id(),
                 self.tree.blobs_folder.as_path(),
                 &self.tree.index.config.cache,
-                &self.tree.index.config.descriptor_table,
                 &self.version,
                 kv,
             )
@@ -79,7 +78,6 @@ impl IterGuard for Guard {
             self.tree.id(),
             self.tree.blobs_folder.as_path(),
             &self.tree.index.config.cache,
-            &self.tree.index.config.descriptor_table,
             &self.version,
             self.kv?,
         )
@@ -90,7 +88,6 @@ fn resolve_value_handle(
     tree_id: TreeId,
     blobs_folder: &std::path::Path,
     cache: &Arc<Cache>,
-    descriptor_table: &Arc<DescriptorTable>,
     version: &Version,
     item: InternalValue,
 ) -> RangeItem {
@@ -105,7 +102,6 @@ fn resolve_value_handle(
             &item.key.user_key,
             &vptr.vhandle,
             cache,
-            descriptor_table,
         ) {
             Ok(Some(v)) => {
                 let k = item.key.user_key;
@@ -404,6 +400,8 @@ impl AbstractTree for BlobTree {
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
+            self.id(),
+            self.index.config.descriptor_table.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);
@@ -604,7 +602,6 @@ impl AbstractTree for BlobTree {
             self.id(),
             self.blobs_folder.as_path(),
             &self.index.config.cache,
-            &self.index.config.descriptor_table,
             &super_version.version,
             item,
         )?;

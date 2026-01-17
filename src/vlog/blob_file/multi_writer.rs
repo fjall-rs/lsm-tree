@@ -4,11 +4,12 @@
 
 use super::writer::Writer;
 use crate::{
+    file_accessor::FileAccessor,
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
         BlobFileId,
     },
-    BlobFile, CompressionType, SeqNo, SequenceNumberCounter,
+    BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -28,6 +29,9 @@ pub struct MultiWriter {
 
     compression: CompressionType,
     passthrough_compression: CompressionType,
+
+    tree_id: TreeId,
+    descriptor_table: Option<Arc<DescriptorTable>>,
 }
 
 impl MultiWriter {
@@ -40,6 +44,8 @@ impl MultiWriter {
     pub fn new<P: AsRef<Path>>(
         id_generator: SequenceNumberCounter,
         folder: P,
+        tree_id: TreeId,
+        descriptor_table: Option<Arc<DescriptorTable>>,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -57,6 +63,9 @@ impl MultiWriter {
 
             compression: CompressionType::None,
             passthrough_compression: CompressionType::None,
+
+            tree_id,
+            descriptor_table,
         })
     }
 
@@ -107,7 +116,12 @@ impl MultiWriter {
             Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
-        let blob_file = Self::consume_writer(old_writer, self.passthrough_compression)?;
+        let blob_file = Self::consume_writer(
+            old_writer,
+            self.passthrough_compression,
+            self.tree_id,
+            self.descriptor_table.clone(),
+        )?;
         self.results.extend(blob_file);
 
         Ok(())
@@ -116,6 +130,8 @@ impl MultiWriter {
     fn consume_writer(
         writer: Writer,
         passthrough_compression: CompressionType,
+        tree_id: TreeId,
+        descriptor_table: Option<Arc<DescriptorTable>>,
     ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
@@ -127,13 +143,21 @@ impl MultiWriter {
                 writer.uncompressed_bytes,
             );
 
-            let (metadata, checksum) = writer.finish()?;
+            let (file, metadata, checksum) = writer.finish()?;
+
+            let file_accessor = descriptor_table
+                .clone()
+                .map_or(FileAccessor::File(file.clone()), |dt| {
+                    FileAccessor::DescriptorTable(dt)
+                });
+            file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
 
             let blob_file = BlobFile(Arc::new(BlobFileInner {
                 checksum,
                 path,
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
+                file_accessor,
                 meta: Metadata {
                     id: blob_file_id,
                     created_at: crate::time::unix_timestamp().as_nanos(),
@@ -210,7 +234,12 @@ impl MultiWriter {
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
-        let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
+        let blob_file = Self::consume_writer(
+            self.active_writer,
+            self.passthrough_compression,
+            self.tree_id,
+            self.descriptor_table.clone(),
+        )?;
         self.results.extend(blob_file);
         Ok(self.results)
     }

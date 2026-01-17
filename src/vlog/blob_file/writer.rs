@@ -12,6 +12,7 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
@@ -28,8 +29,10 @@ pub struct Writer {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
+    file: Arc<File>,
+
     #[expect(clippy::struct_field_names)]
-    writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    writer: sfa::Writer<ChecksummedWriter<BufWriter<Arc<File>>>>,
 
     offset: u64,
 
@@ -53,7 +56,9 @@ impl Writer {
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        let writer = BufWriter::new(File::create(path)?);
+        let file = Arc::new(File::create(path)?);
+
+        let writer = BufWriter::new(file.clone());
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;
@@ -63,6 +68,7 @@ impl Writer {
             blob_file_id,
 
             writer,
+            file,
 
             offset: 0,
             item_count: 0,
@@ -200,7 +206,7 @@ impl Writer {
         self.write_raw(key, seqno, value, value.len() as u32)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<(Metadata, Checksum)> {
+    pub(crate) fn finish(mut self) -> crate::Result<(Arc<File>, Metadata, Checksum)> {
         self.writer.start("meta")?;
 
         // Write metadata
@@ -227,6 +233,6 @@ impl Writer {
         checksum.inner_mut().get_mut().sync_all()?;
         let checksum = checksum.checksum();
 
-        Ok((metadata, checksum))
+        Ok((self.file, metadata, checksum))
     }
 }

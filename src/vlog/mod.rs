@@ -13,8 +13,9 @@ pub use {
 };
 
 use crate::{
+    file_accessor::FileAccessor,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
-    Checksum,
+    Checksum, DescriptorTable, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -24,6 +25,8 @@ use std::{
 pub fn recover_blob_files(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
+    tree_id: TreeId,
+    descriptor_table: Option<Arc<DescriptorTable>>,
 ) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
     if !folder.try_exists()? {
         return Ok((vec![], vec![]));
@@ -72,7 +75,7 @@ pub fn recover_blob_files(
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
             log::trace!("Recovering blob file #{blob_file_id:?}");
 
-            let meta = {
+            let (meta, file) = {
                 let reader = sfa::Reader::new(&blob_file_path)?;
                 let toc = reader.toc();
 
@@ -90,8 +93,15 @@ pub fn recover_blob_files(
                     metadata_section.len() as usize,
                 )?;
 
-                Metadata::from_slice(&metadata_slice)?
+                (Metadata::from_slice(&metadata_slice)?, Arc::new(file))
             };
+
+            let file_accessor = descriptor_table
+                .clone()
+                .map_or(FileAccessor::File(file.clone()), |dt| {
+                    FileAccessor::DescriptorTable(dt)
+                });
+            file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
 
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,
@@ -99,6 +109,7 @@ pub fn recover_blob_files(
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
+                file_accessor,
             })));
 
             if idx % progress_mod == 0 {
@@ -129,7 +140,7 @@ mod tests {
     #[test]
     fn vlog_recovery_missing_blob_file() {
         assert!(matches!(
-            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))]),
+            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))], 0, None),
             Err(crate::Error::Unrecoverable),
         ));
     }

@@ -30,6 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    file_accessor::FileAccessor,
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -109,10 +110,12 @@ impl Table {
         Ok(if let Some(handle) = &self.regions.linked_blob_files {
             // Try to get FD from descriptor table first, similar to util::load_block
             let table_id = self.global_id();
-            let (fd, fd_cache_miss) = if let Some(fd) = &self.pinned_file_descriptor {
+            let (fd, fd_cache_miss) = if let Some(fd) = self.file_accessor.access_for_table(
+                &table_id,
+                #[cfg(feature = "metrics")]
+                &self.metrics,
+            ) {
                 (fd.clone(), false)
-            } else if let Some(fd) = self.descriptor_table.access_for_table(&table_id) {
-                (fd, false)
             } else {
                 (Arc::new(File::open(&*self.path)?), true)
             };
@@ -122,7 +125,7 @@ impl Table {
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
-                self.descriptor_table.insert_for_table(table_id, fd);
+                self.file_accessor.insert_for_table(table_id, fd);
             }
 
             // Parse the buffer
@@ -202,8 +205,7 @@ impl Table {
         load_block(
             self.global_id(),
             &self.path,
-            self.pinned_file_descriptor.as_ref(),
-            &self.descriptor_table,
+            &self.file_accessor,
             &self.cache,
             handle,
             block_type,
@@ -380,9 +382,8 @@ impl Table {
             self.global_id(),
             self.global_seqno(),
             self.path.clone(),
-            self.pinned_file_descriptor.clone(),
             index_iter,
-            self.descriptor_table.clone(),
+            self.file_accessor.clone(),
             self.cache.clone(),
             self.metadata.data_block_compression,
             #[cfg(feature = "metrics")]
@@ -435,7 +436,7 @@ impl Table {
         global_seqno: SeqNo,
         tree_id: TreeId,
         cache: Arc<Cache>,
-        descriptor_table: Arc<DescriptorTable>,
+        descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -460,11 +461,10 @@ impl Table {
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
         let file = Arc::new(file);
-        let pinned_file_descriptor = if descriptor_table.is_disabled() {
-            Some(file.clone())
-        } else {
-            None
-        };
+        let file_accessor = descriptor_table.map_or(FileAccessor::File(file.clone()), |dt| {
+            FileAccessor::DescriptorTable(dt)
+        });
+        file_accessor.insert_for_table((tree_id, metadata.id).into(), file.clone());
 
         let block_index = if regions.index.is_some() {
             log::trace!(
@@ -477,9 +477,8 @@ impl Table {
                 top_level_index: block,
                 cache: cache.clone(),
                 compression: metadata.index_block_compression,
-                descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
-                pinned_file_descriptor: pinned_file_descriptor.clone(),
+                file_accessor: file_accessor.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -499,10 +498,9 @@ impl Table {
             BlockIndexImpl::VolatileFull(VolatileBlockIndex {
                 cache: cache.clone(),
                 compression: metadata.index_block_compression,
-                descriptor_table: descriptor_table.clone(),
+                file_accessor: file_accessor.clone(),
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
-                pinned_file_descriptor: pinned_file_descriptor.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -550,10 +548,6 @@ impl Table {
             None
         };
 
-        if !descriptor_table.is_disabled() {
-            descriptor_table.insert_for_table((tree_id, metadata.id).into(), file);
-        }
-
         log::trace!("Table #{} recovered", metadata.id);
 
         log::debug!("Recovered table from {}", file_path.display());
@@ -567,13 +561,11 @@ impl Table {
 
             cache,
 
-            descriptor_table,
+            file_accessor,
 
             block_index: Arc::new(block_index),
 
             pinned_filter_index,
-
-            pinned_file_descriptor,
 
             pinned_filter_block,
 
