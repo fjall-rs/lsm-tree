@@ -30,7 +30,7 @@ pub trait IterGuard {
     fn into_inner_if_some<T>(
         self,
         pred: impl Fn(&UserKey) -> Option<T>,
-    ) -> crate::Result<Option<(T, UserValue)>>;
+    ) -> crate::Result<Result<(T, UserValue), UserKey>>;
 
     /// Accesses the key-value pair.
     ///

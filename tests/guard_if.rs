@@ -100,6 +100,7 @@ fn guard_into_inner_if_some() -> lsm_tree::Result<()> {
                             }
                         })
                         .unwrap()
+                        .ok()
                 })
                 .count(),
         );
@@ -139,6 +140,7 @@ fn guard_into_inner_if_some_blob() -> lsm_tree::Result<()> {
                             }
                         })
                         .unwrap()
+                        .ok()
                 })
                 .count(),
         );

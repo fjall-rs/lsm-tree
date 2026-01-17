@@ -61,7 +61,7 @@ impl IterGuard for Guard {
     fn into_inner_if_some<T>(
         self,
         pred: impl Fn(&UserKey) -> Option<T>,
-    ) -> crate::Result<Option<(T, UserValue)>> {
+    ) -> crate::Result<Result<(T, UserValue), UserKey>> {
         let kv = self.kv?;
 
         if let Some(t) = pred(&kv.key.user_key) {
@@ -73,9 +73,9 @@ impl IterGuard for Guard {
                 &self.version,
                 kv,
             )
-            .map(|(_, v)| Some((t, v)))
+            .map(|(_, v)| Ok((t, v)))
         } else {
-            Ok(None)
+            Ok(Err(kv.key.user_key))
         }
     }
 
