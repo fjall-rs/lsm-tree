@@ -63,7 +63,12 @@ pub fn init_tracing(quiet: bool, verbose: u8) -> (bool, LevelFilter) {
     let env_filter = EnvFilter::builder()
         .with_default_directive(level_filter.into())
         .with_env_var("LSM_LOG")
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive(
+            "rustyline=warn"
+                .parse()
+                .expect("Failed to parse rustyline directive"),
+        );
 
     let subscriber = registry.with(env_filter).with(
         tracing_subscriber::fmt::layer()
@@ -811,6 +816,7 @@ fn run_shell_interactive(session: &Session) {
     loop {
         match rl.readline("lsm> ") {
             Ok(line) => {
+                rl.add_history_entry(&line);
                 if let CommandResult::Exit = run_shell_command(session, &line) {
                     break;
                 }
