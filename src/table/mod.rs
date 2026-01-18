@@ -115,7 +115,7 @@ impl Table {
                 #[cfg(feature = "metrics")]
                 &self.metrics,
             ) {
-                (fd.clone(), false)
+                (fd, false)
             } else {
                 (Arc::new(File::open(&*self.path)?), true)
             };

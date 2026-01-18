@@ -26,7 +26,7 @@ pub fn recover_blob_files(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
     tree_id: TreeId,
-    descriptor_table: Option<Arc<DescriptorTable>>,
+    descriptor_table: Option<&Arc<DescriptorTable>>,
 ) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
     if !folder.try_exists()? {
         return Ok((vec![], vec![]));
@@ -96,7 +96,7 @@ pub fn recover_blob_files(
                 (Metadata::from_slice(&metadata_slice)?, Arc::new(file))
             };
 
-            let file_accessor = if let Some(dt) = descriptor_table.clone() {
+            let file_accessor = if let Some(dt) = descriptor_table.cloned() {
                 let file_accessor = FileAccessor::DescriptorTable(dt);
                 file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
                 file_accessor

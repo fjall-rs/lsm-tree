@@ -67,7 +67,7 @@ pub fn load_block(
         #[cfg(feature = "metrics")]
         metrics,
     ) {
-        (cached_fd.clone(), false)
+        (cached_fd, false)
     } else {
         let fd = std::fs::File::open(path)?;
 

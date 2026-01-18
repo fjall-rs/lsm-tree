@@ -147,11 +147,9 @@ impl MultiWriter {
             let (metadata, checksum) = writer.finish()?;
 
             let file = Arc::new(File::open(&path)?);
-            let file_accessor = descriptor_table
-                .clone()
-                .map_or(FileAccessor::File(file.clone()), |dt| {
-                    FileAccessor::DescriptorTable(dt)
-                });
+            let file_accessor = descriptor_table.map_or(FileAccessor::File(file.clone()), |dt| {
+                FileAccessor::DescriptorTable(dt)
+            });
             file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
 
             let blob_file = BlobFile(Arc::new(BlobFileInner {

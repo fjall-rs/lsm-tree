@@ -36,7 +36,7 @@ impl<'a> Accessor<'a> {
 
         let (file, fd_cache_miss) =
             if let Some(cached_fd) = blob_file.file_accessor().access_for_blob_file(&bf_id) {
-                (cached_fd.clone(), false)
+                (cached_fd, false)
             } else {
                 let file = Arc::new(File::open(
                     base_path.join(vhandle.blob_file_id.to_string()),

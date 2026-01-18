@@ -1107,7 +1107,7 @@ impl Tree {
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
             tree_id,
-            config.descriptor_table.clone(),
+            config.descriptor_table.as_ref(),
         )?;
 
         let version = Version::from_recovery(recovery, &tables, &blob_files)?;
