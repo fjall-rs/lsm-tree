@@ -134,7 +134,15 @@ impl Block {
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
+        Self::from_slice(buf, handle, compression)
+    }
 
+    /// Reads a block from a slice.
+    pub fn from_slice(
+        buf: Slice,
+        handle: BlockHandle,
+        compression: CompressionType,
+    ) -> crate::Result<Self> {
         let header = Header::decode_from(&mut &buf[..])?;
 
         #[expect(clippy::indexing_slicing)]
