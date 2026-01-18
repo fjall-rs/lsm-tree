@@ -132,7 +132,6 @@ pub fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
         .count()
 }
 
-// TODO: Fuzz test
 #[must_use]
 pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Equal, Greater};
