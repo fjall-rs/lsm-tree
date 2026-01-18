@@ -44,11 +44,15 @@ pub struct Inner {
     #[doc(hidden)]
     pub cache: Arc<Cache>,
 
+    /// Pinned filter index (in case of partitioned filters)
     pub(super) pinned_filter_index: Option<IndexBlock>,
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
 
+    /// True when the table was compacted away or dropped
+    ///
+    /// May be kept alive until all Arcs to the table have been dropped (to facilitate snapshots)
     pub is_deleted: AtomicBool,
 
     pub(super) checksum: Checksum,
