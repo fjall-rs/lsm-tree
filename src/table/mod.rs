@@ -158,7 +158,7 @@ impl Table {
     /// Gets the global table ID.
     #[must_use]
     fn global_id(&self) -> GlobalTableId {
-        (self.tree_id, self.id()).into()
+        self.0.global_id()
     }
 
     #[must_use]
@@ -540,11 +540,11 @@ impl Table {
             None
         };
 
-        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
-
-        log::trace!("Table #{} recovered", metadata.id);
-
-        log::debug!("Recovered table from {}", file_path.display());
+        log::debug!(
+            "Recovered table #{} from {}",
+            metadata.id,
+            file_path.display(),
+        );
 
         Ok(Self(Arc::new(Inner {
             path: file_path,

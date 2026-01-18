@@ -50,6 +50,8 @@ impl Drop for Inner {
                     self.path.display(),
                 );
             }
+
+            // TODO: delete blob file FD from descriptor cache... need Arc to descriptor cache in Inner
         }
     }
 }
