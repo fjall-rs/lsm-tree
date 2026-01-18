@@ -12,6 +12,7 @@ use crate::{
     BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
+    fs::File,
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
@@ -143,8 +144,9 @@ impl MultiWriter {
                 writer.uncompressed_bytes,
             );
 
-            let (file, metadata, checksum) = writer.finish()?;
+            let (metadata, checksum) = writer.finish()?;
 
+            let file = Arc::new(File::open(&path)?);
             let file_accessor = descriptor_table
                 .clone()
                 .map_or(FileAccessor::File(file.clone()), |dt| {

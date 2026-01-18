@@ -96,12 +96,13 @@ pub fn recover_blob_files(
                 (Metadata::from_slice(&metadata_slice)?, Arc::new(file))
             };
 
-            let file_accessor = descriptor_table
-                .clone()
-                .map_or(FileAccessor::File(file.clone()), |dt| {
-                    FileAccessor::DescriptorTable(dt)
-                });
-            file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
+            let file_accessor = if let Some(dt) = descriptor_table.clone() {
+                let file_accessor = FileAccessor::DescriptorTable(dt);
+                file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
+                file_accessor
+            } else {
+                FileAccessor::File(file)
+            };
 
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,

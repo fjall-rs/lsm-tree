@@ -33,7 +33,7 @@ pub struct Inner {
 
     pub checksum: Checksum,
 
-    pub file_accessor: FileAccessor,
+    pub(crate) file_accessor: FileAccessor,
 }
 
 impl Drop for Inner {
@@ -101,7 +101,7 @@ impl BlobFile {
 
     /// Returns the blob file accessor.
     #[must_use]
-    pub fn file_accessor(&self) -> &FileAccessor {
+    pub(crate) fn file_accessor(&self) -> &FileAccessor {
         &self.0.file_accessor
     }
 

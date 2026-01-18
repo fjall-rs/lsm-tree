@@ -24,7 +24,7 @@ pub struct Inner {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub file_accessor: FileAccessor,
+    pub(crate) file_accessor: FileAccessor,
 
     /// Parsed metadata
     #[doc(hidden)]

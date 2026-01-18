@@ -461,10 +461,13 @@ impl Table {
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
         let file = Arc::new(file);
-        let file_accessor = descriptor_table.map_or(FileAccessor::File(file.clone()), |dt| {
-            FileAccessor::DescriptorTable(dt)
-        });
-        file_accessor.insert_for_table((tree_id, metadata.id).into(), file.clone());
+        let file_accessor = if let Some(dt) = descriptor_table {
+            let file_accessor = FileAccessor::DescriptorTable(dt);
+            file_accessor.insert_for_table((tree_id, metadata.id).into(), file.clone());
+            file_accessor
+        } else {
+            FileAccessor::File(file.clone())
+        };
 
         let block_index = if regions.index.is_some() {
             log::trace!(
