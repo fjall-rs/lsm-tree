@@ -11,7 +11,6 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
     coding::Decode,
-    file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
     table::Table,
@@ -23,9 +22,8 @@ use crate::{
 };
 use handle::BlobIndirection;
 use std::{
-    io::Cursor,
     ops::RangeBounds,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, MutexGuard},
 };
 
@@ -65,7 +63,7 @@ impl IterGuard for Guard {
         let kv = self.kv?;
 
         if kv.key.value_type.is_indirection() {
-            let mut cursor = Cursor::new(kv.value);
+            let mut cursor = std::io::Cursor::new(kv.value);
             Ok(BlobIndirection::decode_from(&mut cursor)?.size)
         } else {
             #[expect(clippy::cast_possible_truncation, reason = "values are u32 max length")]
@@ -86,13 +84,13 @@ impl IterGuard for Guard {
 
 fn resolve_value_handle(
     tree_id: TreeId,
-    blobs_folder: &std::path::Path,
-    cache: &Arc<Cache>,
+    blobs_folder: &Path,
+    cache: &Cache,
     version: &Version,
     item: InternalValue,
 ) -> RangeItem {
     if item.key.value_type.is_indirection() {
-        let mut cursor = Cursor::new(item.value);
+        let mut cursor = std::io::Cursor::new(item.value);
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
@@ -139,6 +137,8 @@ pub struct BlobTree {
 
 impl BlobTree {
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
+        use crate::file::{fsync_directory, BLOBS_FOLDER};
+
         let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
@@ -293,7 +293,7 @@ impl AbstractTree for BlobTree {
         };
 
         Ok(Some(if item.key.value_type.is_indirection() {
-            let mut cursor = Cursor::new(item.value);
+            let mut cursor = std::io::Cursor::new(item.value);
             let vptr = BlobIndirection::decode_from(&mut cursor)?;
             vptr.size
         } else {
@@ -332,7 +332,10 @@ impl AbstractTree for BlobTree {
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
-        use crate::{coding::Encode, file::TABLES_FOLDER, table::multi_writer::MultiWriter};
+        use crate::{
+            coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
+            table::multi_writer::MultiWriter,
+        };
 
         let start = std::time::Instant::now();
 

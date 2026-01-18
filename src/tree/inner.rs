@@ -84,7 +84,7 @@ impl TreeInner {
 
         Ok(Self {
             id: get_next_tree_id(),
-            memtable_id_counter: SequenceNumberCounter::default(),
+            memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::default(),
             blob_file_id_counter: SequenceNumberCounter::default(),
             config: Arc::new(config),

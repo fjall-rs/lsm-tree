@@ -16,7 +16,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     // SAFETY: This slice builder starts uninitialized, but we know its length
     //
     // We use read_at/seek_read which give us the number of bytes read
-    // If that number does not match the slice length, the function panics (for now),
+    // If that number does not match the slice length, the function errors,
     // so the (partially) uninitialized buffer is discarded
     //
     // Additionally, generally, block loads furthermore do a checksum check which
@@ -43,7 +43,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
 
         #[cfg(not(any(unix, windows)))]
         {
-            compile_error!("unsupported OS");
+            compile_error!("unsupported platform");
             unimplemented!();
         }
 
