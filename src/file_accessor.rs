@@ -6,6 +6,9 @@ use crate::descriptor_table::DescriptorTable;
 use crate::GlobalTableId;
 use std::{fs::File, sync::Arc};
 
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
+
 #[derive(Clone)]
 pub enum FileAccessor {
     File(Arc<File>),
@@ -23,7 +26,9 @@ impl FileAccessor {
             Self::File(fd) => Some(fd.clone()),
             Self::DescriptorTable(descriptor_table) => {
                 #[cfg(feature = "metrics")]
-                metrics.table_file_opened_cached.fetch_add(1, Relaxed);
+                metrics
+                    .table_file_opened_cached
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                 descriptor_table.access_for_table(table_id)
             }
