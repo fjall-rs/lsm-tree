@@ -112,7 +112,7 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path())?
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
             .use_target_size(u64::MAX);
 
         let offset = writer.offset();
@@ -140,7 +140,7 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path())?
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
             .use_target_size(u64::MAX)
             .use_compression(CompressionType::Lz4);
 

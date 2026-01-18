@@ -4,13 +4,14 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
+    file_accessor::FileAccessor,
     table::{
         block::ParsedItem,
         block_index::{BlockIndexIter, BlockIndexIterImpl},
         util::load_block,
         BlockHandle,
     },
-    Cache, CompressionType, DescriptorTable, InternalValue, SeqNo, UserKey,
+    Cache, CompressionType, InternalValue, SeqNo, UserKey,
 };
 use self_cell::self_cell;
 use std::{path::PathBuf, sync::Arc};
@@ -99,7 +100,7 @@ pub struct Iter {
     #[expect(clippy::struct_field_names)]
     index_iter: BlockIndexIterImpl,
 
-    descriptor_table: Arc<DescriptorTable>,
+    file_accessor: FileAccessor,
     cache: Arc<Cache>,
     compression: CompressionType,
 
@@ -123,7 +124,7 @@ impl Iter {
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
         index_iter: BlockIndexIterImpl,
-        descriptor_table: Arc<DescriptorTable>,
+        file_accessor: FileAccessor,
         cache: Arc<Cache>,
         compression: CompressionType,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -135,7 +136,7 @@ impl Iter {
             global_seqno,
 
             index_iter,
-            descriptor_table,
+            file_accessor,
             cache,
             compression,
 
@@ -251,7 +252,7 @@ impl Iterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        &self.descriptor_table,
+                        &self.file_accessor,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,
@@ -372,7 +373,7 @@ impl DoubleEndedIterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
-                        &self.descriptor_table,
+                        &self.file_accessor,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
                         crate::table::block::BlockType::Data,

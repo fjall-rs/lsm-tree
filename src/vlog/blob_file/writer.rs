@@ -12,6 +12,7 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
