@@ -8,7 +8,7 @@ use crate::metrics::Metrics;
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
     cache::Cache,
-    descriptor_table::DescriptorTable,
+    file_accessor::FileAccessor,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -24,7 +24,7 @@ pub struct Inner {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub(crate) file_accessor: FileAccessor,
 
     /// Parsed metadata
     #[doc(hidden)]

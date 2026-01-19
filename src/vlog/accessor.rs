@@ -5,7 +5,7 @@
 use crate::{
     version::BlobFileList,
     vlog::{blob_file::reader::Reader, ValueHandle},
-    Cache, DescriptorTable, GlobalTableId, TreeId, UserValue,
+    Cache, GlobalTableId, TreeId, UserValue,
 };
 use std::{fs::File, path::Path, sync::Arc};
 
@@ -23,7 +23,6 @@ impl<'a> Accessor<'a> {
         key: &[u8],
         vhandle: &ValueHandle,
         cache: &Cache,
-        descriptor_table: &DescriptorTable,
     ) -> crate::Result<Option<UserValue>> {
         if let Some(value) = cache.get_blob(tree_id, vhandle) {
             return Ok(Some(value));
@@ -35,22 +34,21 @@ impl<'a> Accessor<'a> {
 
         let bf_id = GlobalTableId::from((tree_id, blob_file.id()));
 
-        let cached_fd = descriptor_table.access_for_blob_file(&bf_id);
-        let fd_cache_miss = cached_fd.is_none();
-
-        let file = if let Some(fd) = cached_fd {
-            fd
-        } else {
-            Arc::new(File::open(
-                base_path.join(vhandle.blob_file_id.to_string()),
-            )?)
-        };
+        let (file, fd_cache_miss) =
+            if let Some(cached_fd) = blob_file.file_accessor().access_for_blob_file(&bf_id) {
+                (cached_fd, false)
+            } else {
+                let file = Arc::new(File::open(
+                    base_path.join(vhandle.blob_file_id.to_string()),
+                )?);
+                (file, true)
+            };
 
         let value = Reader::new(blob_file, &file).get(key, vhandle)?;
         cache.insert_blob(tree_id, vhandle, value.clone());
 
         if fd_cache_miss {
-            descriptor_table.insert_for_blob_file(bf_id, file);
+            blob_file.file_accessor().insert_for_blob_file(bf_id, file);
         }
 
         Ok(Some(value))
