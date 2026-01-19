@@ -6,6 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
+        filter::StreamFilterAdapter,
         flavour::{RelocatingCompaction, StandardCompaction},
         state::CompactionState,
         stream::CompactionStream,
@@ -388,6 +389,25 @@ fn merge_tables(
         .evict_tombstones(is_last_level)
         .zero_seqnos(false);
 
+    let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
+
+    // construct the compaction filter
+    let mut compaction_filter = opts
+        .config
+        .compaction_filter_factory
+        .as_ref()
+        .map(|f| f.make_filter());
+
+    // this is used by the compaction filter if it wants to write new blobs
+    let mut filter_blob_writer = None;
+    let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter::new(
+        compaction_filter.as_deref_mut(),
+        opts,
+        &current_super_version.version,
+        &blobs_folder,
+        &mut filter_blob_writer,
+    ));
+
     let table_writer =
         super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
 
@@ -395,7 +415,7 @@ fn merge_tables(
 
     let mut compactor = match &opts.config.kv_separation_opts {
         Some(blob_opts) => {
-            merge_iter = merge_iter.with_expiration_callback(&mut blob_frag_map);
+            merge_iter = merge_iter.with_drop_callback(&mut blob_frag_map);
 
             let blob_files_to_rewrite = pick_blob_files_to_rewrite(
                 &payload.table_ids,
@@ -424,12 +444,10 @@ fn merge_tables(
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
-                let writer = BlobFileWriter::new(
-                    opts.blob_file_id_generator.clone(),
-                    opts.config.path.join(BLOBS_FOLDER),
-                )?
-                .use_target_size(blob_opts.file_target_size)
-                .use_passthrough_compression(blob_opts.compression);
+                let writer =
+                    BlobFileWriter::new(opts.blob_file_id_generator.clone(), &blobs_folder)?
+                        .use_target_size(blob_opts.file_target_size)
+                        .use_passthrough_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, tables);
 
@@ -472,6 +490,10 @@ fn merge_tables(
         Ok(())
     })?;
 
+    if let Some(filter) = compaction_filter {
+        filter.finish();
+    }
+
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let mut compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
@@ -482,6 +504,11 @@ fn merge_tables(
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
+    let extra_blob_files = filter_blob_writer
+        .map(BlobFileWriter::finish)
+        .transpose()?
+        .unwrap_or_default();
+
     compactor
         .finish(
             &mut version_history_lock,
@@ -489,6 +516,7 @@ fn merge_tables(
             payload,
             dst_lvl,
             blob_frag_map,
+            extra_blob_files,
         )
         .inspect_err(|e| {
             // NOTE: We cannot use hidden_guard here because we already locked the compaction state
