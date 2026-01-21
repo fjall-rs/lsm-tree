@@ -4,15 +4,18 @@
 
 use crate::{
     coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
-    SeqNo, TableId, TreeType,
+    fs::FileSystem, SeqNo, TableId, TreeType,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
-pub fn get_current_version(folder: &std::path::Path) -> crate::Result<VersionId> {
+pub fn get_current_version(
+    fs: &dyn FileSystem,
+    folder: &std::path::Path,
+) -> crate::Result<VersionId> {
     use byteorder::{LittleEndian, ReadBytesExt};
 
-    std::fs::File::open(folder.join(CURRENT_VERSION_FILE))
+    fs.open(&folder.join(CURRENT_VERSION_FILE))
         .and_then(|mut f| f.read_u64::<LittleEndian>())
         .map_err(Into::into)
 }
@@ -31,8 +34,8 @@ pub struct Recovery {
     pub gc_stats: crate::blob_tree::FragmentationMap,
 }
 
-pub fn recover(folder: &Path) -> crate::Result<Recovery> {
-    let curr_version_id = get_current_version(folder)?;
+pub fn recover(fs: &dyn FileSystem, folder: &Path) -> crate::Result<Recovery> {
+    let curr_version_id = get_current_version(fs, folder)?;
     let version_file_path = folder.join(format!("v{curr_version_id}"));
 
     // TODO: maybe validate current version using the checksum in "current"

@@ -4,6 +4,7 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
+    fs::FileSystem,
     table::{
         block::ParsedItem,
         block_index::{BlockIndexIter, BlockIndexIterImpl},
@@ -93,6 +94,7 @@ fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
 pub struct Iter {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
+    fs: Arc<dyn FileSystem>,
 
     global_seqno: SeqNo,
 
@@ -122,6 +124,7 @@ impl Iter {
         table_id: GlobalTableId,
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
+        fs: Arc<dyn FileSystem>,
         index_iter: BlockIndexIterImpl,
         descriptor_table: Arc<DescriptorTable>,
         cache: Arc<Cache>,
@@ -131,6 +134,7 @@ impl Iter {
         Self {
             table_id,
             path,
+            fs,
 
             global_seqno,
 
@@ -251,6 +255,7 @@ impl Iterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
+                        self.fs.as_ref(),
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),
@@ -372,6 +377,7 @@ impl DoubleEndedIterator for Iter {
                     fail_iter!(load_block(
                         self.table_id,
                         &self.path,
+                        self.fs.as_ref(),
                         &self.descriptor_table,
                         &self.cache,
                         &BlockHandle::new(handle.offset(), handle.size()),

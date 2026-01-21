@@ -50,6 +50,7 @@ impl<'a> BlobIngestion<'a> {
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
+            tree.index.config.fs.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);
@@ -234,6 +235,7 @@ impl<'a> BlobIngestion<'a> {
                     checksum,
                     global_seqno,
                     index.id,
+                    index.config.fs.clone(),
                     index.config.cache.clone(),
                     index.config.descriptor_table.clone(),
                     false,
@@ -254,6 +256,7 @@ impl<'a> BlobIngestion<'a> {
         // we need precise control over the seqno: it must match the seqno we
         // already assigned to the recovered tables.
         version_lock.upgrade_version_with_seqno(
+            index.config.fs.as_ref(),
             &index.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -268,7 +271,7 @@ impl<'a> BlobIngestion<'a> {
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&index.config.path, 0) {
+        if let Err(e) = version_lock.maintenance(index.config.fs.as_ref(), &index.config.path, 0) {
             log::warn!("Version GC failed: {e:?}");
         }
 

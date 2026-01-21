@@ -20,6 +20,7 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
+    fs::{FileSystem, StdFileSystem},
     path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
     DescriptorTable, SequenceNumberCounter, Tree,
 };
@@ -235,6 +236,10 @@ pub struct Config {
     pub(crate) seqno: SequenceNumberCounter,
 
     pub(crate) visible_seqno: SequenceNumberCounter,
+
+    /// Filesystem abstraction
+    #[doc(hidden)]
+    pub(crate) fs: Arc<dyn FileSystem>,
 }
 
 // TODO: remove default?
@@ -249,6 +254,7 @@ impl Default for Config {
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
             )),
+            fs: Arc::new(StdFileSystem),
 
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
@@ -317,6 +323,13 @@ impl Config {
     #[must_use]
     pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
         self.cache = cache;
+        self
+    }
+
+    /// Sets the filesystem implementation used for on-disk operations.
+    #[must_use]
+    pub fn use_filesystem(mut self, fs: Arc<dyn FileSystem>) -> Self {
+        self.fs = fs;
         self
     }
 

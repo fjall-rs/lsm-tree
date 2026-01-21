@@ -98,6 +98,9 @@ mod error;
 #[doc(hidden)]
 pub mod file;
 
+/// Filesystem abstraction
+pub mod fs;
+
 mod hash;
 mod ingestion;
 mod iter_guard;
@@ -177,6 +180,7 @@ pub use {
     config::{Config, KvSeparationOptions, TreeType},
     descriptor_table::DescriptorTable,
     error::{Error, Result},
+    fs::{FileSystem, StdFileSystem},
     format_version::FormatVersion,
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,

@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
-    KeyRange, Table,
+    fs::FileSystem, table::block::BlockType, version::run::Ranged, Cache, CompressionType,
+    DescriptorTable, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -32,6 +32,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 pub fn load_block(
     table_id: GlobalTableId,
     path: &Path,
+    fs: &dyn FileSystem,
     descriptor_table: &DescriptorTable,
     cache: &Cache,
     handle: &BlockHandle,
@@ -71,7 +72,7 @@ pub fn load_block(
 
         fd
     } else {
-        let fd = std::fs::File::open(path)?;
+        let fd = fs.open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);

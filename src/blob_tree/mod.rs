@@ -146,8 +146,8 @@ impl BlobTree {
         let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
-        std::fs::create_dir_all(&blobs_folder)?;
-        fsync_directory(&blobs_folder)?;
+        index.config.fs.create_dir_all(&blobs_folder)?;
+        fsync_directory(index.config.fs.as_ref(), &blobs_folder)?;
 
         let blob_file_id_to_continue_with = index
             .current_version()
@@ -369,6 +369,7 @@ impl AbstractTree for BlobTree {
             self.index.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
+            self.index.config.fs.clone(),
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -407,6 +408,7 @@ impl AbstractTree for BlobTree {
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
+            self.index.config.fs.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);
@@ -473,6 +475,7 @@ impl AbstractTree for BlobTree {
                     checksum,
                     0,
                     self.index.id,
+                    self.index.config.fs.clone(),
                     self.index.config.cache.clone(),
                     self.index.config.descriptor_table.clone(),
                     pin_filter,

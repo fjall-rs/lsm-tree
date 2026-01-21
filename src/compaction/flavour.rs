@@ -77,6 +77,7 @@ pub(super) fn prepare_table_writer(
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
+        opts.config.fs.clone(),
     )?;
 
     if index_partitioning {
@@ -275,6 +276,7 @@ impl CompactionFlavour for RelocatingCompaction {
         }
 
         super_version.upgrade_version(
+            opts.config.fs.as_ref(),
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -347,6 +349,7 @@ impl StandardCompaction {
                     checksum,
                     0,
                     opts.tree_id,
+                    opts.config.fs.clone(),
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),
                     pin_filter,
@@ -404,6 +407,7 @@ impl CompactionFlavour for StandardCompaction {
         }
 
         super_version.upgrade_version(
+            opts.config.fs.as_ref(),
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();

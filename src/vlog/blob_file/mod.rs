@@ -9,7 +9,7 @@ pub mod reader;
 pub mod scanner;
 pub mod writer;
 
-use crate::{blob_tree::FragmentationMap, vlog::BlobFileId, Checksum};
+use crate::{blob_tree::FragmentationMap, fs::FileSystem, vlog::BlobFileId, Checksum};
 pub use meta::Metadata;
 use std::{
     path::{Path, PathBuf},
@@ -17,13 +17,14 @@ use std::{
 };
 
 /// A blob file is an immutable, sorted, contiguous file that contains large key-value pairs (blobs)
-#[derive(Debug)]
 pub struct Inner {
     /// Blob file ID
     pub id: BlobFileId,
 
     /// File path
     pub path: PathBuf,
+
+    pub(crate) fs: Arc<dyn FileSystem>,
 
     /// Statistics
     pub meta: Metadata,
@@ -32,6 +33,18 @@ pub struct Inner {
     pub is_deleted: AtomicBool,
 
     pub checksum: Checksum,
+}
+
+impl std::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("id", &self.id)
+            .field("path", &self.path)
+            .field("meta", &self.meta)
+            .field("is_deleted", &self.is_deleted)
+            .field("checksum", &self.checksum)
+            .finish()
+    }
 }
 
 impl Drop for Inner {
@@ -43,7 +56,7 @@ impl Drop for Inner {
                 self.path.display(),
             );
 
-            if let Err(e) = std::fs::remove_file(&*self.path) {
+            if let Err(e) = self.fs.remove_file(&*self.path) {
                 log::warn!(
                     "Failed to cleanup deleted blob file {:?} at {}: {e:?}",
                     self.id,

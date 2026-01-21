@@ -5,9 +5,10 @@
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
     blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    fs::FileSystem, vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter,
+    TableId, UserKey,
 };
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 /// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
@@ -48,6 +49,8 @@ pub struct MultiWriter {
 
     /// Level the tables are written to
     initial_level: u8,
+
+    fs: Arc<dyn FileSystem>,
 }
 
 impl MultiWriter {
@@ -57,14 +60,16 @@ impl MultiWriter {
         table_id_generator: SequenceNumberCounter,
         target_size: u64,
         initial_level: u8,
+        fs: Arc<dyn FileSystem>,
     ) -> crate::Result<Self> {
         let current_table_id = table_id_generator.next();
 
         let path = base_path.join(current_table_id.to_string());
-        let writer = Writer::new(path, current_table_id, initial_level)?;
+        let writer = Writer::new(path, current_table_id, initial_level, fs.clone())?;
 
         Ok(Self {
             initial_level,
+            fs,
 
             base_path,
 
@@ -184,7 +189,7 @@ impl MultiWriter {
         let new_table_id = self.table_id_generator.next();
         let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_table_id, self.initial_level)?
+        let mut new_writer = Writer::new(path, new_table_id, self.initial_level, self.fs.clone())?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)

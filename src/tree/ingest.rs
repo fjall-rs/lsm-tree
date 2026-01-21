@@ -51,6 +51,7 @@ impl<'a> Ingestion<'a> {
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             6,
+            tree.config.fs.clone(),
         )?
         .use_bloom_policy({
             if tree.config.expect_point_read_hits {
@@ -296,6 +297,7 @@ impl<'a> Ingestion<'a> {
                     checksum,
                     global_seqno,
                     self.tree.id,
+                    self.tree.config.fs.clone(),
                     self.tree.config.cache.clone(),
                     self.tree.config.descriptor_table.clone(),
                     false,
@@ -314,6 +316,7 @@ impl<'a> Ingestion<'a> {
         // we need precise control over the seqno: it must match the seqno we
         // already assigned to the recovered tables.
         version_lock.upgrade_version_with_seqno(
+            self.tree.config.fs.as_ref(),
             &self.tree.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -326,7 +329,11 @@ impl<'a> Ingestion<'a> {
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&self.tree.config.path, 0) {
+        if let Err(e) = version_lock.maintenance(
+            self.tree.config.fs.as_ref(),
+            &self.tree.config.path,
+            0,
+        ) {
             log::warn!("Version GC failed: {e:?}");
         }
 

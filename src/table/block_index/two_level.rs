@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::table::{IndexBlock, KeyedBlockHandle};
-use crate::SeqNo;
+use crate::{fs::FileSystem, SeqNo};
 use crate::{
     table::{
         block::BlockType,
@@ -24,6 +24,7 @@ pub struct TwoLevelBlockIndex {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
+    pub(crate) fs: Arc<dyn FileSystem>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
@@ -43,6 +44,7 @@ impl TwoLevelBlockIndex {
             hi: None,
             table_id: self.table_id,
             path: self.path.clone(),
+            fs: self.fs.clone(),
             descriptor_table: self.descriptor_table.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
@@ -65,6 +67,7 @@ pub struct Iter {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
+    fs: Arc<dyn FileSystem>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     compression: CompressionType,
@@ -127,6 +130,7 @@ impl Iterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
+                    self.fs.as_ref(),
                     &self.descriptor_table,
                     &self.cache,
                     &handle.into_inner(),
@@ -190,6 +194,7 @@ impl DoubleEndedIterator for Iter {
                 let block = fail_iter!(load_block(
                     self.table_id,
                     &self.path,
+                    self.fs.as_ref(),
                     &self.descriptor_table,
                     &self.cache,
                     &handle.into_inner(),

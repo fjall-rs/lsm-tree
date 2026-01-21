@@ -203,6 +203,7 @@ fn move_tables(
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
     version_history_lock.upgrade_version(
+        opts.config.fs.as_ref(),
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -217,7 +218,11 @@ fn move_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
+    if let Err(e) = version_history_lock.maintenance(
+        opts.config.fs.as_ref(),
+        &opts.config.path,
+        opts.mvcc_gc_watermark,
+    ) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -427,6 +432,7 @@ fn merge_tables(
                 let writer = BlobFileWriter::new(
                     opts.blob_file_id_generator.clone(),
                     opts.config.path.join(BLOBS_FOLDER),
+                    opts.config.fs.clone(),
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);
@@ -505,7 +511,11 @@ fn merge_tables(
         .show(payload.table_ids.iter().copied());
 
     version_history_lock
-        .maintenance(&opts.config.path, opts.mvcc_gc_watermark)
+        .maintenance(
+            opts.config.fs.as_ref(),
+            &opts.config.path,
+            opts.mvcc_gc_watermark,
+        )
         .inspect_err(|e| {
             log::error!("Manifest maintenance failed: {e:?}");
         })?;
@@ -563,6 +573,7 @@ fn drop_tables(
     // IMPORTANT: Write the manifest with the removed tables first
     // Otherwise the table files are deleted, but are still referenced!
     version_history_lock.upgrade_version(
+        opts.config.fs.as_ref(),
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -577,7 +588,11 @@ fn drop_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(&opts.config.path, opts.mvcc_gc_watermark) {
+    if let Err(e) = version_history_lock.maintenance(
+        opts.config.fs.as_ref(),
+        &opts.config.path,
+        opts.mvcc_gc_watermark,
+    ) {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }

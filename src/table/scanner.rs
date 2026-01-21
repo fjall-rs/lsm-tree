@@ -4,6 +4,7 @@
 
 use super::{Block, DataBlock};
 use crate::{
+    fs::FileSystem,
     table::{block::BlockType, iter::OwnedDataBlockIter},
     CompressionType, InternalValue, SeqNo,
 };
@@ -28,8 +29,19 @@ impl Scanner {
         compression: CompressionType,
         global_seqno: SeqNo,
     ) -> crate::Result<Self> {
+        let fs = crate::fs::StdFileSystem;
+        Self::new_with_fs(&fs, path, block_count, compression, global_seqno)
+    }
+
+    pub fn new_with_fs(
+        fs: &dyn FileSystem,
+        path: &Path,
+        block_count: usize,
+        compression: CompressionType,
+        global_seqno: SeqNo,
+    ) -> crate::Result<Self> {
         // TODO: a larger buffer size may be better for HDD, maybe make this configurable
-        let mut reader = BufReader::with_capacity(8 * 4_096, File::open(path)?);
+        let mut reader = BufReader::with_capacity(8 * 4_096, fs.open(path)?);
 
         let block = Self::fetch_next_block(&mut reader, compression)?;
         let iter = OwnedDataBlockIter::new(block, DataBlock::iter);

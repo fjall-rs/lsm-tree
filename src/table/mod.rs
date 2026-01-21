@@ -30,6 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    fs::FileSystem,
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -115,7 +116,7 @@ impl Table {
             let fd = if let Some(fd) = cached_fd {
                 fd
             } else {
-                Arc::new(File::open(&*self.path)?)
+                Arc::new(self.fs.open(&*self.path)?)
             };
 
             // Read the exact region using pread-style helper
@@ -203,6 +204,7 @@ impl Table {
         load_block(
             self.global_id(),
             &self.path,
+            self.fs.as_ref(),
             &self.descriptor_table,
             &self.cache,
             handle,
@@ -344,7 +346,8 @@ impl Table {
             .try_into()
             .expect("data block count should fit");
 
-        Scanner::new(
+        Scanner::new_with_fs(
+            self.fs.as_ref(),
             &self.path,
             block_count,
             self.metadata.data_block_compression,
@@ -380,6 +383,7 @@ impl Table {
             self.global_id(),
             self.global_seqno(),
             self.path.clone(),
+            self.fs.clone(),
             index_iter,
             self.descriptor_table.clone(),
             self.cache.clone(),
@@ -433,6 +437,7 @@ impl Table {
         checksum: Checksum,
         global_seqno: SeqNo,
         tree_id: TreeId,
+        fs: Arc<dyn FileSystem>,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
         pin_filter: bool,
@@ -449,7 +454,7 @@ impl Table {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         log::debug!("Recovering table from file {}", file_path.display());
-        let mut file = std::fs::File::open(&file_path)?;
+        let mut file = fs.open(&file_path)?;
         let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
@@ -471,6 +476,7 @@ impl Table {
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
+                fs: fs.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -493,6 +499,7 @@ impl Table {
                 descriptor_table: descriptor_table.clone(),
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
+                fs: fs.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -549,6 +556,7 @@ impl Table {
         Ok(Self(Arc::new(Inner {
             path: file_path,
             tree_id,
+            fs,
 
             metadata,
             regions,

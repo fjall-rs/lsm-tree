@@ -4,6 +4,7 @@
 
 use super::KeyedBlockHandle;
 use crate::{
+    fs::FileSystem,
     table::{
         block::BlockType,
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
@@ -23,6 +24,7 @@ use crate::Metrics;
 pub struct VolatileBlockIndex {
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
+    pub(crate) fs: Arc<dyn FileSystem>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
@@ -48,6 +50,7 @@ pub struct Iter {
     inner: Option<OwnedIndexBlockIter>,
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
+    fs: Arc<dyn FileSystem>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     handle: BlockHandle,
@@ -66,6 +69,7 @@ impl Iter {
             inner: None,
             table_id: index.table_id,
             path: index.path.clone(),
+            fs: index.fs.clone(),
             descriptor_table: index.descriptor_table.clone(),
             cache: index.cache.clone(),
             handle: index.handle,
@@ -102,6 +106,7 @@ impl Iterator for Iter {
             let block = fail_iter!(load_block(
                 self.table_id,
                 &self.path,
+                self.fs.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,
@@ -142,6 +147,7 @@ impl DoubleEndedIterator for Iter {
             let block = fail_iter!(load_block(
                 self.table_id,
                 &self.path,
+                self.fs.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,

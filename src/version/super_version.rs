@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::FileSystem,
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
@@ -67,7 +68,12 @@ impl SuperVersions {
         self.len().saturating_sub(1)
     }
 
-    pub fn maintenance(&mut self, folder: &Path, gc_watermark: SeqNo) -> crate::Result<()> {
+    pub fn maintenance(
+        &mut self,
+        fs: &dyn FileSystem,
+        folder: &Path,
+        gc_watermark: SeqNo,
+    ) -> crate::Result<()> {
         if gc_watermark == 0 {
             return Ok(());
         }
@@ -91,8 +97,8 @@ impl SuperVersions {
                 );
 
                 let path = folder.join(format!("v{}", head.version.id()));
-                if path.try_exists()? {
-                    std::fs::remove_file(path)?;
+                if fs.exists(&path)? {
+                    fs.remove_file(&path)?;
                 }
 
                 self.0.pop_front();
@@ -112,12 +118,13 @@ impl SuperVersions {
     /// The function takes care of persisting the version changes on disk.
     pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
         &mut self,
+        fs: &dyn FileSystem,
         tree_path: &Path,
         f: F,
         seqno: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
+        self.upgrade_version_with_seqno(fs, tree_path, f, seqno.next(), visible_seqno)
     }
 
     /// Like `upgrade_version`, but takes an already-allocated sequence number.
@@ -128,6 +135,7 @@ impl SuperVersions {
         F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>,
     >(
         &mut self,
+        fs: &dyn FileSystem,
         tree_path: &Path,
         f: F,
         seqno: SeqNo,
@@ -137,7 +145,7 @@ impl SuperVersions {
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
-        persist_version(tree_path, &next_version.version)?;
+        persist_version(fs, tree_path, &next_version.version)?;
         self.append_version(next_version);
 
         visible_seqno.fetch_max(seqno + 1);
@@ -226,7 +234,8 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 0)?;
+        let fs = crate::fs::StdFileSystem;
+        history.maintenance(&fs, Path::new("."), 0)?;
 
         assert_eq!(history.free_list_len(), 2);
 
@@ -259,7 +268,8 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let fs = crate::fs::StdFileSystem;
+        history.maintenance(&fs, Path::new("."), 3)?;
 
         assert_eq!(history.len(), 1);
 
@@ -298,7 +308,8 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let fs = crate::fs::StdFileSystem;
+        history.maintenance(&fs, Path::new("."), 3)?;
 
         assert_eq!(history.len(), 2);
 
@@ -325,7 +336,8 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let fs = crate::fs::StdFileSystem;
+        history.maintenance(&fs, Path::new("."), 3)?;
 
         assert_eq!(history.len(), 2);
 
@@ -352,7 +364,8 @@ mod tests {
             .into(),
         );
 
-        history.maintenance(Path::new("."), 3)?;
+        let fs = crate::fs::StdFileSystem;
+        history.maintenance(&fs, Path::new("."), 3)?;
 
         assert_eq!(history.len(), 1);
 

@@ -135,11 +135,12 @@ mod tests {
     fn blob_scanner() -> crate::Result<()> {
         let dir = tempdir()?;
         let blob_file_path = dir.path().join("0");
+        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
 
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, fs)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;
