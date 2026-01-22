@@ -4,7 +4,11 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::{
-    compaction::state::CompactionState, config::Config, time::unix_timestamp, version::Version,
+    compaction::state::CompactionState,
+    config::Config,
+    fs::FileSystem,
+    time::unix_timestamp,
+    version::Version,
     HashSet, KvPair,
 };
 
@@ -45,7 +49,7 @@ impl Strategy {
     }
 }
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         NAME
     }
@@ -71,7 +75,7 @@ impl CompactionStrategy for Strategy {
         ]
     }
 
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, _: &Config<F>, state: &CompactionState) -> Choice {
         let first_level = version.l0();
 
         // Early return avoids unnecessary work and keeps FIFO a no-op when there is nothing to do.
@@ -161,7 +165,7 @@ mod tests {
     #[test]
     fn fifo_empty_levels() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -178,7 +182,7 @@ mod tests {
     #[test]
     fn fifo_below_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -201,7 +205,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -225,7 +229,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -249,7 +253,7 @@ mod tests {
     #[test]
     fn fifo_ttl() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -284,7 +288,7 @@ mod tests {
     #[test]
     fn fifo_ttl_then_limit_additional_drops_blob_unit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

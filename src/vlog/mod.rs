@@ -22,12 +22,11 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-pub fn recover_blob_files(
-    fs: &Arc<dyn FileSystem>,
+pub fn recover_blob_files<F: FileSystem>(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
-) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
-    if !fs.exists(folder)? {
+) -> crate::Result<(Vec<BlobFile<F>>, Vec<PathBuf>)> {
+    if !F::exists(folder)? {
         return Ok((vec![], vec![]));
     }
 
@@ -44,7 +43,7 @@ pub fn recover_blob_files(
     let mut blob_files = Vec::with_capacity(ids.len());
     let mut orphaned_blob_files = vec![];
 
-    for (idx, dirent) in fs.read_dir(folder)?.into_iter().enumerate() {
+    for (idx, dirent) in F::read_dir(folder)?.into_iter().enumerate() {
         let file_name = dirent.file_name();
 
         // https://en.wikipedia.org/wiki/.DS_Store
@@ -86,7 +85,7 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let file = fs.open(&blob_file_path)?;
+                let file = F::open(&blob_file_path)?;
 
                 let metadata_slice = crate::file::read_exact(
                     &file,
@@ -100,7 +99,7 @@ pub fn recover_blob_files(
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,
                 path: blob_file_path,
-                fs: fs.clone(),
+                phantom: std::marker::PhantomData,
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
@@ -133,9 +132,11 @@ mod tests {
 
     #[test]
     fn vlog_recovery_missing_blob_file() {
-        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
         assert!(matches!(
-            recover_blob_files(&fs, Path::new("."), &[(0, Checksum::from_raw(0))]),
+            recover_blob_files::<crate::fs::StdFileSystem>(
+                Path::new("."),
+                &[(0, Checksum::from_raw(0))]
+            ),
             Err(crate::Error::Unrecoverable),
         ));
     }

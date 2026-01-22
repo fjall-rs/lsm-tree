@@ -7,11 +7,7 @@ use crate::{
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{io::BufWriter, path::Path};
 
-pub fn persist_version(
-    fs: &dyn FileSystem,
-    folder: &Path,
-    version: &Version,
-) -> crate::Result<()> {
+pub fn persist_version<F: FileSystem>(folder: &Path, version: &Version<F>) -> crate::Result<()> {
     log::trace!(
         "Persisting version {} in {}",
         version.id(),
@@ -19,7 +15,7 @@ pub fn persist_version(
     );
 
     let path = folder.join(format!("v{}", version.id()));
-    let file = fs.create_new(&path)?;
+    let file = F::create_new(&path)?;
     let writer = BufWriter::new(file);
     let mut writer = ChecksummedWriter::new(writer);
 
@@ -34,7 +30,7 @@ pub fn persist_version(
         })?;
 
         // IMPORTANT: fsync folder on Unix
-        fsync_directory(fs, folder)?;
+        fsync_directory::<F>(folder)?;
     }
 
     let checksum = writer.checksum();
@@ -44,7 +40,7 @@ pub fn persist_version(
     current_file_content.write_u128::<LittleEndian>(checksum.into_u128())?;
     current_file_content.write_u8(0)?; // 0 = xxh3
 
-    rewrite_atomic(fs, &folder.join(CURRENT_VERSION_FILE), &current_file_content)?;
+    rewrite_atomic::<F>(&folder.join(CURRENT_VERSION_FILE), &current_file_content)?;
 
     Ok(())
 }

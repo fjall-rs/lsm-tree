@@ -5,6 +5,7 @@
 use crate::{
     blob_tree::handle::BlobIndirection,
     file::BLOBS_FOLDER,
+    fs::{FileSystem, StdFileSystem},
     table::Table,
     tree::ingest::Ingestion as TableIngestion,
     vlog::{BlobFileWriter, ValueHandle},
@@ -17,22 +18,22 @@ use crate::{
 ///
 /// Uses table ingestion for the index and a blob file writer for large
 /// values so both streams advance together.
-pub struct BlobIngestion<'a> {
-    tree: &'a crate::BlobTree,
-    pub(crate) table: TableIngestion<'a>,
-    pub(crate) blob: BlobFileWriter,
+pub struct BlobIngestion<'a, F: FileSystem = StdFileSystem> {
+    tree: &'a crate::BlobTree<F>,
+    pub(crate) table: TableIngestion<'a, F>,
+    pub(crate) blob: BlobFileWriter<F>,
     seqno: SeqNo,
     separation_threshold: u32,
     last_key: Option<UserKey>,
 }
 
-impl<'a> BlobIngestion<'a> {
+impl<'a, F: FileSystem + 'static> BlobIngestion<'a, F> {
     /// Creates a new ingestion.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn new(tree: &'a crate::BlobTree) -> crate::Result<Self> {
+    pub fn new(tree: &'a crate::BlobTree<F>) -> crate::Result<Self> {
         #[expect(
             clippy::expect_used,
             reason = "cannot define blob tree without kv separation options"
@@ -47,10 +48,9 @@ impl<'a> BlobIngestion<'a> {
         let blob_file_size = kv.file_target_size;
 
         let table = TableIngestion::new(&tree.index)?;
-        let blob = BlobFileWriter::new(
+        let blob = BlobFileWriter::<F>::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
-            tree.index.config.fs.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);
@@ -225,8 +225,8 @@ impl<'a> BlobIngestion<'a> {
         // pressure unnecessarily.
         let created_tables = results
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table<F>> {
+                Table::<F>::recover(
                     index
                         .config
                         .path
@@ -235,7 +235,6 @@ impl<'a> BlobIngestion<'a> {
                     checksum,
                     global_seqno,
                     index.id,
-                    index.config.fs.clone(),
                     index.config.cache.clone(),
                     index.config.descriptor_table.clone(),
                     false,
@@ -256,7 +255,6 @@ impl<'a> BlobIngestion<'a> {
         // we need precise control over the seqno: it must match the seqno we
         // already assigned to the recovered tables.
         version_lock.upgrade_version_with_seqno(
-            index.config.fs.as_ref(),
             &index.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -271,7 +269,7 @@ impl<'a> BlobIngestion<'a> {
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(index.config.fs.as_ref(), &index.config.path, 0) {
+        if let Err(e) = version_lock.maintenance::<F>(&index.config.path, 0) {
             log::warn!("Version GC failed: {e:?}");
         }
 
@@ -279,7 +277,7 @@ impl<'a> BlobIngestion<'a> {
     }
 
     #[inline]
-    fn index(&self) -> &crate::Tree {
+    fn index(&self) -> &crate::Tree<F> {
         &self.tree.index
     }
 }

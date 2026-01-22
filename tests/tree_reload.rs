@@ -10,7 +10,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -26,7 +26,7 @@ fn tree_reload_smoke_test() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -46,7 +46,7 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
     let large_value = "a".repeat(10_000);
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -64,7 +64,7 @@ fn tree_reload_smoke_test_blob() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -84,7 +84,7 @@ fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -97,7 +97,7 @@ fn tree_reload_blob_again_without_opts() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -116,7 +116,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -136,29 +136,7 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
-
-        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
-        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
-        assert_eq!(
-            tree.iter(SeqNo::MAX, None)
-                .rev()
-                .flat_map(|x| x.key())
-                .count(),
-            0
-        );
-        assert_eq!(tree.tree_type(), TreeType::Standard);
-
-        tree.flush_active_memtable(0)?;
-    }
-
-    {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -180,7 +158,29 @@ fn tree_reload_empty() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+            &folder,
+            SequenceNumberCounter::default(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
+
+        assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
+        assert_eq!(tree.iter(SeqNo::MAX, None).flat_map(|x| x.key()).count(), 0);
+        assert_eq!(
+            tree.iter(SeqNo::MAX, None)
+                .rev()
+                .flat_map(|x| x.key())
+                .count(),
+            0
+        );
+        assert_eq!(tree.tree_type(), TreeType::Standard);
+
+        tree.flush_active_memtable(0)?;
+    }
+
+    {
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -209,7 +209,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -242,7 +242,7 @@ fn tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(&folder, seqno, SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno, SequenceNumberCounter::default()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(

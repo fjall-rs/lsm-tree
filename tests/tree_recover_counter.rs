@@ -6,7 +6,7 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let counter_expected = {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -23,7 +23,7 @@ fn tree_recover_table_counter() -> lsm_tree::Result<()> {
     };
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

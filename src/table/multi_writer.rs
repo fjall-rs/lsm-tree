@@ -5,15 +5,15 @@
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
     blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    fs::FileSystem, vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter,
-    TableId, UserKey,
+    fs::{FileSystem, StdFileSystem},
+    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 /// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
 /// This results in a sorted "run" of tables
-pub struct MultiWriter {
+pub struct MultiWriter<F: FileSystem = StdFileSystem> {
     pub(crate) base_path: PathBuf,
 
     data_block_hash_ratio: f32,
@@ -36,7 +36,7 @@ pub struct MultiWriter {
 
     table_id_generator: SequenceNumberCounter,
 
-    pub writer: Writer,
+    pub writer: Writer<F>,
 
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
@@ -50,26 +50,23 @@ pub struct MultiWriter {
     /// Level the tables are written to
     initial_level: u8,
 
-    fs: Arc<dyn FileSystem>,
 }
 
-impl MultiWriter {
+impl<F: FileSystem> MultiWriter<F> {
     /// Sets up a new `MultiWriter` at the given tables folder
     pub fn new(
         base_path: PathBuf,
         table_id_generator: SequenceNumberCounter,
         target_size: u64,
         initial_level: u8,
-        fs: Arc<dyn FileSystem>,
     ) -> crate::Result<Self> {
         let current_table_id = table_id_generator.next();
 
         let path = base_path.join(current_table_id.to_string());
-        let writer = Writer::new(path, current_table_id, initial_level, fs.clone())?;
+        let writer = Writer::<F>::new(path, current_table_id, initial_level)?;
 
         Ok(Self {
             initial_level,
-            fs,
 
             base_path,
 
@@ -189,7 +186,7 @@ impl MultiWriter {
         let new_table_id = self.table_id_generator.next();
         let path = self.base_path.join(new_table_id.to_string());
 
-        let mut new_writer = Writer::new(path, new_table_id, self.initial_level, self.fs.clone())?
+        let mut new_writer = Writer::<F>::new(path, new_table_id, self.initial_level)?
             .use_data_block_compression(self.data_block_compression)
             .use_index_block_compression(self.index_block_compression)
             .use_data_block_size(self.data_block_size)
@@ -277,7 +274,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -309,7 +306,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::new(
+        let tree = Config::<crate::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

@@ -9,6 +9,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
+    fs::FileSystem,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     table::{util::aggregate_run_key_range, Table},
     version::{Run, Version},
@@ -16,9 +17,9 @@ use crate::{
 };
 
 /// Tries to find the most optimal compaction set from one level into the other.
-fn pick_minimal_compaction(
-    curr_run: &Run<Table>,
-    next_run: Option<&Run<Table>>,
+fn pick_minimal_compaction<F: FileSystem>(
+    curr_run: &Run<Table<F>>,
+    next_run: Option<&Run<Table<F>>>,
     hidden_set: &HiddenSet,
     overshoot: u64,
     table_base_size: u64,
@@ -36,7 +37,7 @@ fn pick_minimal_compaction(
             return true;
         };
 
-        let key_range = aggregate_run_key_range(window);
+        let key_range = aggregate_run_key_range(*window);
 
         next_run.get_overlapping(&key_range).is_empty()
     }) {
@@ -232,7 +233,7 @@ impl Strategy {
     }
 }
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         NAME
     }
@@ -274,7 +275,7 @@ impl CompactionStrategy for Strategy {
     }
 
     #[expect(clippy::too_many_lines)]
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, _: &Config<F>, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Trivial move into Lmax

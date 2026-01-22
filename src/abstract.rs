@@ -3,8 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile, AnyTree, BlobTree,
-    Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree, UserKey, UserValue,
+    fs::FileSystem,
+    iter_guard::IterGuardImpl,
+    table::Table,
+    version::Version,
+    vlog::BlobFile,
+    AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree,
+    UserKey, UserValue,
 };
 use std::{
     ops::RangeBounds,
@@ -13,11 +18,11 @@ use std::{
 
 pub type RangeItem = crate::Result<KvPair>;
 
-type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
+type FlushToTablesResult<F> = (Vec<Table<F>>, Option<Vec<BlobFile<F>>>);
 
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
-pub trait AbstractTree {
+pub trait AbstractTree<F: FileSystem + 'static> {
     /// Returns the number of cached table file descriptors.
     fn table_file_cache_size(&self) -> usize;
 
@@ -40,10 +45,12 @@ pub trait AbstractTree {
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>>;
 
     #[doc(hidden)]
-    fn current_version(&self) -> Version;
+    fn current_version(&self) -> Version<F>;
 
     #[doc(hidden)]
-    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, crate::version::SuperVersions>;
+    fn get_version_history_lock(
+        &self,
+    ) -> RwLockWriteGuard<'_, crate::version::SuperVersions<F>>;
 
     /// Seals the active memtable and flushes to table(s).
     ///
@@ -120,7 +127,7 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static> {
         self.range::<&[u8], _>(.., seqno, index)
     }
 
@@ -132,7 +139,7 @@ pub trait AbstractTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static>;
 
     /// Returns an iterator over a range of items.
     ///
@@ -142,7 +149,7 @@ pub trait AbstractTree {
         range: R,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static>;
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static>;
 
     /// Returns the approximate number of tombstones in the tree.
     fn tombstone_count(&self) -> u64;
@@ -216,7 +223,7 @@ pub trait AbstractTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<FlushToTablesResult>>;
+    ) -> crate::Result<Option<FlushToTablesResult<F>>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
     ///
@@ -225,8 +232,8 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn register_tables(
         &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
+        tables: &[Table<F>],
+        blob_files: Option<&[BlobFile<F>]>,
         frag_map: Option<crate::blob_tree::FragmentationMap>,
         sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
         gc_watermark: SeqNo,
@@ -245,7 +252,7 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     fn compact(
         &self,
-        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy<F>>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()>;
 
@@ -253,7 +260,7 @@ pub trait AbstractTree {
     fn get_next_table_id(&self) -> TableId;
 
     /// Returns the tree config.
-    fn tree_config(&self) -> &Config;
+    fn tree_config(&self) -> &Config<F>;
 
     /// Returns the highest sequence number.
     fn get_highest_seqno(&self) -> Option<SeqNo> {
@@ -315,7 +322,7 @@ pub trait AbstractTree {
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
     /// let folder = tempfile::tempdir()?;
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     ///
     /// assert_eq!(tree.len(0, None)?, 0);
     /// tree.insert("1", "abc", 0);
@@ -350,7 +357,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// assert!(tree.is_empty(0, None)?);
     ///
     /// tree.insert("a", "abc", 0);
@@ -380,7 +387,7 @@ pub trait AbstractTree {
     /// # use lsm_tree::{AbstractTree, Config, Tree, Guard};
     /// #
     /// # let folder = tempfile::tempdir()?;
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     ///
     /// tree.insert("1", "abc", 0);
     /// tree.insert("3", "abc", 1);
@@ -399,7 +406,7 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Option<IterGuardImpl> {
+    ) -> Option<IterGuardImpl<F>> {
         self.iter(seqno, index).next()
     }
 
@@ -413,7 +420,7 @@ pub trait AbstractTree {
     /// # use lsm_tree::{AbstractTree, Config, Tree, Guard};
     /// #
     /// # let folder = tempfile::tempdir()?;
-    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// # let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// #
     /// tree.insert("1", "abc", 0);
     /// tree.insert("3", "abc", 1);
@@ -432,7 +439,7 @@ pub trait AbstractTree {
         &self,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Option<IterGuardImpl> {
+    ) -> Option<IterGuardImpl<F>> {
         self.iter(seqno, index).next_back()
     }
 
@@ -444,7 +451,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
     /// let size = tree.size_of("a", 1)?.unwrap_or_default();
@@ -469,7 +476,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// tree.insert("a", "my_value", 0);
     ///
     /// let item = tree.get("a", 1)?;
@@ -491,7 +498,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// assert!(!tree.contains_key("a", 0)?);
     ///
     /// tree.insert("a", "abc", 0);
@@ -519,7 +526,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// use lsm_tree::{AbstractTree, Config, Tree};
     ///
-    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     /// #
     /// # Ok::<(), lsm_tree::Error>(())
@@ -545,7 +552,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// # let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     ///
     /// let item = tree.get("a", 1)?.expect("should have item");
@@ -579,7 +586,7 @@ pub trait AbstractTree {
     /// # let folder = tempfile::tempdir()?;
     /// # use lsm_tree::{AbstractTree, Config, Tree};
     /// #
-    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// # let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// tree.insert("a", "abc", 0);
     ///
     /// let item = tree.get("a", 1)?.expect("should have item");

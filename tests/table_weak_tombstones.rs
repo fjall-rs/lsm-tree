@@ -4,7 +4,7 @@ use lsm_tree::{get_tmp_folder, AbstractTree, Config, SequenceNumberCounter};
 fn weak_tombstone_counts_single_pair() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -25,7 +25,7 @@ fn weak_tombstone_counts_single_pair() -> lsm_tree::Result<()> {
 fn weak_tombstone_counts_multiple_keys() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -53,7 +53,7 @@ fn weak_tombstone_counts_multiple_keys() -> lsm_tree::Result<()> {
 fn weak_tombstone_counts_multiple_weak() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         folder.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

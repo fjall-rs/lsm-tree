@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_write_and_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -33,7 +33,7 @@ fn tree_write_and_read() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

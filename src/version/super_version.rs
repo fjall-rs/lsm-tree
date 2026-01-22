@@ -12,8 +12,7 @@ use crate::{
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
 /// A super version is a point-in-time snapshot of memtables and a [`Version`] (list of disk files)
-#[derive(Clone)]
-pub struct SuperVersion {
+pub struct SuperVersion<F: FileSystem = crate::fs::StdFileSystem> {
     /// Active memtable that is being written to
     #[doc(hidden)]
     pub active_memtable: Arc<Memtable>,
@@ -22,15 +21,26 @@ pub struct SuperVersion {
     pub(crate) sealed_memtables: Arc<SealedMemtables>,
 
     /// Current tree version
-    pub(crate) version: Version,
+    pub(crate) version: Version<F>,
 
     pub(crate) seqno: SeqNo,
 }
 
-pub struct SuperVersions(VecDeque<SuperVersion>);
+impl<F: FileSystem> Clone for SuperVersion<F> {
+    fn clone(&self) -> Self {
+        Self {
+            active_memtable: self.active_memtable.clone(),
+            sealed_memtables: self.sealed_memtables.clone(),
+            version: self.version.clone(),
+            seqno: self.seqno,
+        }
+    }
+}
 
-impl SuperVersions {
-    pub fn new(version: Version) -> Self {
+pub struct SuperVersions<F: FileSystem = crate::fs::StdFileSystem>(VecDeque<SuperVersion<F>>);
+
+impl<F: FileSystem> SuperVersions<F> {
+    pub fn new(version: Version<F>) -> Self {
         Self(
             vec![SuperVersion {
                 active_memtable: Arc::new(Memtable::new(0)),
@@ -68,9 +78,8 @@ impl SuperVersions {
         self.len().saturating_sub(1)
     }
 
-    pub fn maintenance(
+    pub fn maintenance<FS: FileSystem>(
         &mut self,
-        fs: &dyn FileSystem,
         folder: &Path,
         gc_watermark: SeqNo,
     ) -> crate::Result<()> {
@@ -97,8 +106,8 @@ impl SuperVersions {
                 );
 
                 let path = folder.join(format!("v{}", head.version.id()));
-                if fs.exists(&path)? {
-                    fs.remove_file(&path)?;
+                if FS::exists(&path)? {
+                    FS::remove_file(&path)?;
                 }
 
                 self.0.pop_front();
@@ -116,15 +125,14 @@ impl SuperVersions {
     /// and returns a new version.
     ///
     /// The function takes care of persisting the version changes on disk.
-    pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
+    pub(crate) fn upgrade_version<T: FnOnce(&SuperVersion<F>) -> crate::Result<SuperVersion<F>>>(
         &mut self,
-        fs: &dyn FileSystem,
         tree_path: &Path,
-        f: F,
+        f: T,
         seqno: &SequenceNumberCounter,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
-        self.upgrade_version_with_seqno(fs, tree_path, f, seqno.next(), visible_seqno)
+        self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
     }
 
     /// Like `upgrade_version`, but takes an already-allocated sequence number.
@@ -132,12 +140,11 @@ impl SuperVersions {
     /// This is useful when the seqno must be coordinated with other operations
     /// (e.g., bulk ingestion where tables are recovered with the same seqno).
     pub(crate) fn upgrade_version_with_seqno<
-        F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>,
+        T: FnOnce(&SuperVersion<F>) -> crate::Result<SuperVersion<F>>,
     >(
         &mut self,
-        fs: &dyn FileSystem,
         tree_path: &Path,
-        f: F,
+        f: T,
         seqno: SeqNo,
         visible_seqno: &SequenceNumberCounter,
     ) -> crate::Result<()> {
@@ -145,7 +152,7 @@ impl SuperVersions {
         next_version.seqno = seqno;
         log::trace!("Next version seqno={}", next_version.seqno);
 
-        persist_version(fs, tree_path, &next_version.version)?;
+        persist_version::<F>(tree_path, &next_version.version)?;
         self.append_version(next_version);
 
         visible_seqno.fetch_max(seqno + 1);
@@ -153,17 +160,17 @@ impl SuperVersions {
         Ok(())
     }
 
-    pub fn append_version(&mut self, version: SuperVersion) {
+    pub fn append_version(&mut self, version: SuperVersion<F>) {
         self.0.push_back(version);
     }
 
-    pub fn replace_latest_version(&mut self, version: SuperVersion) {
+    pub fn replace_latest_version(&mut self, version: SuperVersion<F>) {
         if self.0.pop_back().is_some() {
             self.0.push_back(version);
         }
     }
 
-    pub fn latest_version(&self) -> SuperVersion {
+    pub fn latest_version(&self) -> SuperVersion<F> {
         #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
         self.0
             .iter()
@@ -172,7 +179,7 @@ impl SuperVersions {
             .expect("should always have a SuperVersion")
     }
 
-    pub fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+    pub fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion<F> {
         if seqno == 0 {
             #[expect(clippy::expect_used, reason = "SuperVersion is expected to exist")]
             return self
@@ -215,27 +222,35 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 2,
                 },
             ]
             .into(),
         );
 
-        let fs = crate::fs::StdFileSystem;
-        history.maintenance(&fs, Path::new("."), 0)?;
+        history.maintenance::<crate::fs::StdFileSystem>(Path::new("."), 0)?;
 
         assert_eq!(history.free_list_len(), 2);
 
@@ -249,27 +264,35 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 2,
                 },
             ]
             .into(),
         );
 
-        let fs = crate::fs::StdFileSystem;
-        history.maintenance(&fs, Path::new("."), 3)?;
+        history.maintenance::<crate::fs::StdFileSystem>(Path::new("."), 3)?;
 
         assert_eq!(history.len(), 1);
 
@@ -283,33 +306,44 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 2,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 8,
                 },
             ]
             .into(),
         );
 
-        let fs = crate::fs::StdFileSystem;
-        history.maintenance(&fs, Path::new("."), 3)?;
+        history.maintenance::<crate::fs::StdFileSystem>(Path::new("."), 3)?;
 
         assert_eq!(history.len(), 2);
 
@@ -323,21 +357,26 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 8,
                 },
             ]
             .into(),
         );
 
-        let fs = crate::fs::StdFileSystem;
-        history.maintenance(&fs, Path::new("."), 3)?;
+        history.maintenance::<crate::fs::StdFileSystem>(Path::new("."), 3)?;
 
         assert_eq!(history.len(), 2);
 
@@ -351,21 +390,26 @@ mod tests {
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
-                    version: Version::new(0, crate::TreeType::Standard),
+                    version: Version::<crate::fs::StdFileSystem>::new(
+                        0,
+                        crate::TreeType::Standard,
+                    ),
                     seqno: 2,
                 },
             ]
             .into(),
         );
 
-        let fs = crate::fs::StdFileSystem;
-        history.maintenance(&fs, Path::new("."), 3)?;
+        history.maintenance::<crate::fs::StdFileSystem>(Path::new("."), 3)?;
 
         assert_eq!(history.len(), 1);
 

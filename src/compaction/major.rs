@@ -4,7 +4,12 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    compaction::state::CompactionState, config::Config, table::Table, version::Version, HashSet,
+    compaction::state::CompactionState,
+    config::Config,
+    fs::FileSystem,
+    table::Table,
+    version::Version,
+    HashSet,
 };
 
 /// Compacts all tables into the last level
@@ -28,12 +33,12 @@ impl Default for Strategy {
     }
 }
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         "MajorCompaction"
     }
 
-    fn choose(&self, version: &Version, cfg: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, cfg: &Config<F>, state: &CompactionState) -> Choice {
         let table_ids: HashSet<_> = version.iter_tables().map(Table::id).collect();
 
         // NOTE: This should generally not occur because of the

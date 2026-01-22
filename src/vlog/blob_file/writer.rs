@@ -12,7 +12,6 @@ use std::{
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
@@ -51,14 +50,13 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(
+    pub fn new<P: AsRef<Path>, F: FileSystem>(
         path: P,
         blob_file_id: BlobFileId,
-        fs: Arc<dyn FileSystem>,
     ) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        let writer = BufWriter::new(fs.create(path)?);
+        let writer = BufWriter::new(F::create(path)?);
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;

@@ -6,7 +6,7 @@ use lsm_tree::{
 fn tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -39,7 +39,7 @@ fn sealed_memtable_value_overrides_table_value() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -71,7 +71,7 @@ fn sealed_memtable_tombstone_overrides_table_value() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -100,7 +100,7 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -131,7 +131,7 @@ fn tables_newest_first_returns_highest_seqno() -> lsm_tree::Result<()> {
 #[should_panic(expected = "next key in ingestion must be greater than last key")]
 fn ingestion_enforces_order_standard_panics() {
     let folder = tempfile::tempdir().unwrap();
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -152,7 +152,7 @@ fn ingestion_enforces_order_standard_panics() {
 fn blob_ingestion_out_of_order_panics_without_blob_write() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -183,7 +183,7 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
     use lsm_tree::AbstractTree;
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -217,7 +217,7 @@ fn memtable_put_overrides_table_tombstone() -> lsm_tree::Result<()> {
 fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -250,7 +250,7 @@ fn blob_tree_ingestion_tombstones_delete_existing_keys() -> lsm_tree::Result<()>
 fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -271,7 +271,7 @@ fn tree_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -308,7 +308,7 @@ fn blob_ingestion_only_tombstones_does_not_create_blob_files() -> lsm_tree::Resu
 fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -335,7 +335,7 @@ fn blob_ingestion_finish_no_writes_noop() -> lsm_tree::Result<()> {
 fn blob_ingestion_separates_large_values_and_reads_ok() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

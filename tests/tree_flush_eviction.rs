@@ -8,7 +8,7 @@ fn tree_flush_eviction_1() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -33,7 +33,7 @@ fn tree_flush_eviction_2() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -58,7 +58,7 @@ fn tree_flush_eviction_3() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -88,7 +88,7 @@ fn tree_flush_eviction_4() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

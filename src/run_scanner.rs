@@ -2,22 +2,27 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{table::Scanner, version::Run, InternalValue, Table};
+use crate::{
+    fs::{FileSystem, StdFileSystem},
+    table::Scanner,
+    version::Run,
+    InternalValue, Table,
+};
 use std::sync::Arc;
 
 /// Scans through a disjoint run
 ///
 /// Optimized for compaction, by using a `TableScanner` instead of `TableReader`.
-pub struct RunScanner {
-    tables: Arc<Run<Table>>,
+pub struct RunScanner<F: FileSystem = StdFileSystem> {
+    tables: Arc<Run<Table<F>>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<Scanner>,
 }
 
-impl RunScanner {
+impl<F: FileSystem> RunScanner<F> {
     pub fn culled(
-        run: Arc<Run<Table>>,
+        run: Arc<Run<Table<F>>>,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> crate::Result<Self> {
         let lo = lo.unwrap_or_default();
@@ -40,7 +45,7 @@ impl RunScanner {
     }
 }
 
-impl Iterator for RunScanner {
+impl<F: FileSystem> Iterator for RunScanner<F> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -81,7 +86,7 @@ mod tests {
     #[test]
     fn run_scanner_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             &tempdir,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

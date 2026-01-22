@@ -11,6 +11,7 @@ use crate::{
     config::Config,
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
+    fs::{FileSystem, StdFileSystem},
     iter_guard::{IterGuard, IterGuardImpl},
     manifest::Manifest,
     memtable::Memtable,
@@ -72,25 +73,30 @@ fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
 }
 
 /// A log-structured merge tree (LSM-tree/LSMT)
-#[derive(Clone)]
-pub struct Tree(#[doc(hidden)] pub Arc<TreeInner>);
+pub struct Tree<F: FileSystem = StdFileSystem>(#[doc(hidden)] pub Arc<TreeInner<F>>);
 
-impl std::ops::Deref for Tree {
-    type Target = TreeInner;
+impl<F: FileSystem> Clone for Tree<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<F: FileSystem> std::ops::Deref for Tree<F> {
+    type Target = TreeInner<F>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl AbstractTree for Tree {
+impl<F: FileSystem + 'static> AbstractTree<F> for Tree<F> {
     fn table_file_cache_size(&self) -> usize {
         self.config.descriptor_table.len()
     }
 
     fn get_version_history_lock(
         &self,
-    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions<F>> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history.write().expect("lock is poisoned")
     }
@@ -118,7 +124,7 @@ impl AbstractTree for Tree {
         Self::get_internal_entry_from_version(&super_version, key, seqno)
     }
 
-    fn current_version(&self) -> Version {
+    fn current_version(&self) -> Version<F> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
@@ -150,10 +156,10 @@ impl AbstractTree for Tree {
         prefix: K,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static> {
         Box::new(
             self.create_prefix(&prefix, seqno, index)
-                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+                .map(|kv| IterGuardImpl::<F>::Standard(Guard(kv))),
         )
     }
 
@@ -162,10 +168,10 @@ impl AbstractTree for Tree {
         range: R,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static> {
         Box::new(
             self.create_range(&range, seqno, index)
-                .map(|kv| IterGuardImpl::Standard(Guard(kv))),
+                .map(|kv| IterGuardImpl::<F>::Standard(Guard(kv))),
         )
     }
 
@@ -218,7 +224,6 @@ impl AbstractTree for Tree {
         let mut versions = self.get_version_history_lock();
 
         versions.upgrade_version(
-            self.config.fs.as_ref(),
             &self.config.path,
             |v| {
                 let mut copy = v.clone();
@@ -295,7 +300,7 @@ impl AbstractTree for Tree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+    ) -> crate::Result<Option<(Vec<Table<F>>, Option<Vec<BlobFile<F>>>)>> {
         use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
         use std::time::Instant;
 
@@ -321,12 +326,11 @@ impl AbstractTree for Tree {
             folder.display(),
         );
 
-        let mut table_writer = MultiWriter::new(
+        let mut table_writer = MultiWriter::<F>::new(
             folder.clone(),
             self.table_id_counter.clone(),
             64 * 1_024 * 1_024,
             0,
-            self.config.fs.clone(),
         )?
         .use_data_block_restart_interval(data_block_restart_interval)
         .use_index_block_restart_interval(index_block_restart_interval)
@@ -365,13 +369,12 @@ impl AbstractTree for Tree {
         // Load tables
         let tables = result
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table<F>> {
+                Table::<F>::recover(
                     folder.join(table_id.to_string()),
                     checksum,
                     0,
                     self.id,
-                    self.config.fs.clone(),
                     self.config.cache.clone(),
                     self.config.descriptor_table.clone(),
                     pin_filter,
@@ -388,8 +391,8 @@ impl AbstractTree for Tree {
     #[expect(clippy::significant_drop_tightening)]
     fn register_tables(
         &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
+        tables: &[Table<F>],
+        blob_files: Option<&[BlobFile<F>]>,
         frag_map: Option<crate::blob_tree::FragmentationMap>,
         sealed_memtables_to_delete: &[crate::tree::inner::MemtableId],
         gc_watermark: SeqNo,
@@ -397,7 +400,7 @@ impl AbstractTree for Tree {
         log::trace!(
             "Registering {} tables, {} blob files",
             tables.len(),
-            blob_files.map(<[BlobFile]>::len).unwrap_or_default(),
+            blob_files.map(<[BlobFile<F>]>::len).unwrap_or_default(),
         );
 
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
@@ -406,7 +409,6 @@ impl AbstractTree for Tree {
         let mut version_lock = self.version_history.write().expect("lock is poisoned");
 
         version_lock.upgrade_version(
-            self.config.fs.as_ref(),
             &self.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -428,11 +430,9 @@ impl AbstractTree for Tree {
             &self.config.visible_seqno,
         )?;
 
-        if let Err(e) = version_lock.maintenance(
-            self.config.fs.as_ref(),
-            &self.config.path,
-            gc_watermark,
-        ) {
+        if let Err(e) =
+            version_lock.maintenance::<F>(&self.config.path, gc_watermark)
+        {
             log::warn!("Version GC failed: {e:?}");
         }
 
@@ -464,7 +464,7 @@ impl AbstractTree for Tree {
 
     fn compact(
         &self,
-        strategy: Arc<dyn CompactionStrategy>,
+        strategy: Arc<dyn CompactionStrategy<F>>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         // NOTE: Read lock major compaction lock
@@ -484,7 +484,7 @@ impl AbstractTree for Tree {
         self.0.get_next_table_id()
     }
 
-    fn tree_config(&self) -> &Config {
+    fn tree_config(&self) -> &Config<F> {
         &self.config
     }
 
@@ -627,14 +627,17 @@ impl AbstractTree for Tree {
     }
 }
 
-impl Tree {
+impl<F: FileSystem> Tree<F> {
     #[doc(hidden)]
     pub fn create_internal_range<'a, K: AsRef<[u8]> + 'a, R: RangeBounds<K> + 'a>(
-        version: SuperVersion,
+        version: SuperVersion<F>,
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static
+    where
+        F: 'static,
+    {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
 
@@ -658,7 +661,7 @@ impl Tree {
     }
 
     pub(crate) fn get_internal_entry_from_version(
-        super_version: &SuperVersion,
+        super_version: &SuperVersion<F>,
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
@@ -678,7 +681,7 @@ impl Tree {
     }
 
     fn get_internal_entry_from_tables(
-        version: &Version,
+        version: &Version<F>,
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
@@ -700,7 +703,7 @@ impl Tree {
     }
 
     fn get_internal_entry_from_sealed_memtables(
-        super_version: &SuperVersion,
+        super_version: &SuperVersion<F>,
         key: &[u8],
         seqno: SeqNo,
     ) -> Option<InternalValue> {
@@ -713,7 +716,7 @@ impl Tree {
         None
     }
 
-    pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion {
+    pub(crate) fn get_version_for_snapshot(&self, seqno: SeqNo) -> SuperVersion<F> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.version_history
             .read()
@@ -770,7 +773,7 @@ impl Tree {
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
-    pub(crate) fn open(config: Config) -> crate::Result<Self> {
+    pub(crate) fn open(config: Config<F>) -> crate::Result<Self> {
         log::debug!("Opening LSM-tree at {}", config.path.display());
 
         // Check for old version
@@ -803,7 +806,7 @@ impl Tree {
 
     fn inner_compact(
         &self,
-        strategy: Arc<dyn CompactionStrategy>,
+        strategy: Arc<dyn CompactionStrategy<F>>,
         mvcc_gc_watermark: SeqNo,
     ) -> crate::Result<()> {
         use crate::compaction::worker::{do_compaction, Options};
@@ -824,7 +827,10 @@ impl Tree {
         &self,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static
+    where
+        F: 'static,
+    {
         self.create_range::<UserKey, _>(&.., seqno, ephemeral)
     }
 
@@ -834,7 +840,10 @@ impl Tree {
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static
+    where
+        F: 'static,
+    {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         let super_version = self
             .version_history
@@ -854,7 +863,10 @@ impl Tree {
         prefix: K,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static {
+    ) -> impl DoubleEndedIterator<Item = crate::Result<KvPair>> + 'static
+    where
+        F: 'static,
+    {
         use crate::range::prefix_to_range;
 
         let range = prefix_to_range(prefix.as_ref());
@@ -881,7 +893,7 @@ impl Tree {
     /// # Errors
     ///
     /// Returns error, if an IO error occurred.
-    fn recover(mut config: Config) -> crate::Result<Self> {
+    fn recover(mut config: Config<F>) -> crate::Result<Self> {
         use crate::stop_signal::StopSignal;
         use inner::get_next_tree_id;
 
@@ -962,20 +974,20 @@ impl Tree {
     }
 
     /// Creates a new LSM-tree in a directory.
-    fn create_new(config: Config) -> crate::Result<Self> {
+    fn create_new(config: Config<F>) -> crate::Result<Self> {
         use crate::file::{fsync_directory, TABLES_FOLDER};
 
         let path = config.path.clone();
         log::trace!("Creating LSM-tree at {}", path.display());
 
-        config.fs.create_dir_all(&path)?;
+        F::create_dir_all(&path)?;
 
         let table_folder_path = path.join(TABLES_FOLDER);
-        config.fs.create_dir_all(&table_folder_path)?;
+        F::create_dir_all(&table_folder_path)?;
 
         // IMPORTANT: fsync folders on Unix
-        fsync_directory(config.fs.as_ref(), &table_folder_path)?;
-        fsync_directory(config.fs.as_ref(), &path)?;
+        fsync_directory::<F>(&table_folder_path)?;
+        fsync_directory::<F>(&path)?;
 
         let inner = TreeInner::create_new(config)?;
         Ok(Self(Arc::new(inner)))
@@ -985,14 +997,14 @@ impl Tree {
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,
-        config: &Config,
+        config: &Config<F>,
         #[cfg(feature = "metrics")] metrics: &Arc<Metrics>,
-    ) -> crate::Result<Version> {
+    ) -> crate::Result<Version<F>> {
         use crate::{file::fsync_directory, file::TABLES_FOLDER, TableId};
 
         let tree_path = tree_path.as_ref();
 
-        let recovery = recover(config.fs.as_ref(), tree_path)?;
+        let recovery = recover::<F>(tree_path)?;
 
         let table_map = {
             let mut result: crate::HashMap<TableId, (u8 /* Level index */, Checksum, SeqNo)> =
@@ -1036,19 +1048,14 @@ impl Tree {
 
         let table_base_folder = tree_path.join(TABLES_FOLDER);
 
-        if !config.fs.exists(&table_base_folder)? {
-            config.fs.create_dir_all(&table_base_folder)?;
-            fsync_directory(config.fs.as_ref(), &table_base_folder)?;
+        if !F::exists(&table_base_folder)? {
+            F::create_dir_all(&table_base_folder)?;
+            fsync_directory::<F>(&table_base_folder)?;
         }
 
         let mut orphaned_tables = vec![];
 
-        for (idx, dirent) in config
-            .fs
-            .read_dir(&table_base_folder)?
-            .into_iter()
-            .enumerate()
-        {
+        for (idx, dirent) in F::read_dir(&table_base_folder)?.into_iter().enumerate() {
             let file_name = dirent.file_name();
 
             // https://en.wikipedia.org/wiki/.DS_Store
@@ -1081,12 +1088,11 @@ impl Tree {
                 let pin_filter = config.filter_block_pinning_policy.get(level_idx.into());
                 let pin_index = config.index_block_pinning_policy.get(level_idx.into());
 
-                let table = Table::recover(
+                let table = Table::<F>::recover(
                     table_file_path,
                     checksum,
                     global_seqno,
                     tree_id,
-                    config.fs.clone(),
                     config.cache.clone(),
                     config.descriptor_table.clone(),
                     pin_filter,
@@ -1115,39 +1121,37 @@ impl Tree {
 
         log::debug!("Successfully recovered {} tables", tables.len());
 
-        let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
-            &config.fs,
+        let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files::<F>(
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;
 
-        let version = Version::from_recovery(recovery, &tables, &blob_files)?;
+        let version = Version::<F>::from_recovery(recovery, &tables, &blob_files)?;
 
         // NOTE: Cleanup old versions
         // But only after we definitely recovered the latest version
-        Self::cleanup_orphaned_version(config.fs.as_ref(), tree_path, version.id())?;
+        Self::cleanup_orphaned_version::<F>(tree_path, version.id())?;
 
         for table_path in orphaned_tables {
             log::debug!("Deleting orphaned table {}", table_path.display());
-            config.fs.remove_file(&table_path)?;
+            F::remove_file(&table_path)?;
         }
 
         for blob_file_path in orphaned_blob_files {
             log::debug!("Deleting orphaned blob file {}", blob_file_path.display());
-            config.fs.remove_file(&blob_file_path)?;
+            F::remove_file(&blob_file_path)?;
         }
 
         Ok(version)
     }
 
-    fn cleanup_orphaned_version(
-        fs: &dyn crate::fs::FileSystem,
+    fn cleanup_orphaned_version<Fs: crate::fs::FileSystem>(
         path: &Path,
         latest_version_id: crate::version::VersionId,
     ) -> crate::Result<()> {
         let version_str = format!("v{latest_version_id}");
 
-        for dirent in fs.read_dir(path)? {
+        for dirent in Fs::read_dir(path)? {
             if dirent.is_dir() {
                 continue;
             }
@@ -1156,7 +1160,7 @@ impl Tree {
 
             if name.to_string_lossy().starts_with('v') && *name != *version_str {
                 log::trace!("Cleanup orphaned version {}", name.to_string_lossy());
-                fs.remove_file(dirent.path())?;
+                Fs::remove_file(dirent.path())?;
             }
         }
 

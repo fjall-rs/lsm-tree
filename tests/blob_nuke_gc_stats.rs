@@ -12,7 +12,7 @@ fn blob_tree_nuke_gc_stats() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -64,7 +64,7 @@ fn blob_tree_nuke_gc_stats_multi() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

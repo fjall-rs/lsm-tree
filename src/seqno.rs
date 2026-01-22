@@ -23,7 +23,7 @@ use std::sync::{
 /// let seqno = SequenceNumberCounter::default();
 /// let visible_seqno = SequenceNumberCounter::default();
 ///
-/// let tree = Config::new(path, seqno.clone(), visible_seqno.clone()).open()?;
+/// let tree = Config::<lsm_tree::fs::StdFileSystem>::new(path, seqno.clone(), visible_seqno.clone()).open()?;
 ///
 /// // Do some inserts...
 /// for k in [b"a", b"b", b"c"] {

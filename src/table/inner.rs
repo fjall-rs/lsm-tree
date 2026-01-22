@@ -9,7 +9,7 @@ use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegion
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
-    fs::FileSystem,
+    fs::{FileSystem, StdFileSystem},
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -19,15 +19,13 @@ use std::{
     sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
-pub struct Inner {
+pub struct Inner<F: FileSystem = StdFileSystem> {
     pub path: Arc<PathBuf>,
 
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
     pub descriptor_table: Arc<DescriptorTable>,
-
-    pub(crate) fs: Arc<dyn FileSystem>,
 
     /// Parsed metadata
     #[doc(hidden)]
@@ -39,7 +37,7 @@ pub struct Inner {
 
     /// Translates key (first item of a block) to block offset (address inside file) and (compressed) size
     #[doc(hidden)]
-    pub block_index: Arc<BlockIndexImpl>,
+    pub block_index: Arc<BlockIndexImpl<F>>,
 
     /// Block cache
     ///
@@ -70,14 +68,14 @@ pub struct Inner {
     pub(crate) cached_blob_bytes: OnceLock<u64>,
 }
 
-impl Drop for Inner {
+impl<F: FileSystem> Drop for Inner<F> {
     fn drop(&mut self) {
         let global_id: GlobalTableId = (self.tree_id, self.metadata.id).into();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
 
-            if let Err(e) = self.fs.remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&*self.path) {
                 log::warn!(
                     "Failed to cleanup deleted table {global_id:?} at {:?}: {e:?}",
                     self.path,

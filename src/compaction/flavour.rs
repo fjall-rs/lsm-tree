@@ -6,6 +6,7 @@ use crate::blob_tree::handle::BlobIndirection;
 use crate::blob_tree::FragmentationMap;
 use crate::coding::{Decode, Encode};
 use crate::compaction::worker::Options;
+use crate::fs::{FileSystem, StdFileSystem};
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
 use crate::table::multi_writer::MultiWriter;
@@ -41,11 +42,11 @@ fn drain_blobs<I: Iterator<Item = crate::Result<(ScanEntry, BlobFileId)>>>(
     Ok(())
 }
 
-pub(super) fn prepare_table_writer(
-    version: &Version,
-    opts: &Options,
+pub(super) fn prepare_table_writer<F: FileSystem>(
+    version: &Version<F>,
+    opts: &Options<F>,
     payload: &CompactionPayload,
-) -> crate::Result<MultiWriter> {
+) -> crate::Result<MultiWriter<F>> {
     let table_base_folder = opts.config.path.join(TABLES_FOLDER);
 
     let dst_lvl = payload.canonical_level.into();
@@ -72,12 +73,11 @@ pub(super) fn prepare_table_writer(
         opts.mvcc_gc_watermark,
     );
 
-    let mut table_writer = MultiWriter::new(
+    let mut table_writer = MultiWriter::<F>::new(
         table_base_folder,
         opts.table_id_generator.clone(),
         payload.target_size,
         payload.dest_level,
-        opts.config.fs.clone(),
     )?;
 
     if index_partitioning {
@@ -118,14 +118,14 @@ pub(super) fn prepare_table_writer(
 }
 
 // TODO: find a better name
-pub(super) trait CompactionFlavour {
+pub(super) trait CompactionFlavour<F: FileSystem> {
     fn write(&mut self, item: InternalValue) -> crate::Result<()>;
 
     #[warn(clippy::too_many_arguments)]
     fn finish(
         self: Box<Self>,
-        super_version: &mut SuperVersions,
-        opts: &Options,
+        super_version: &mut SuperVersions<F>,
+        opts: &Options<F>,
         payload: &CompactionPayload,
         dst_lvl: usize,
         blob_frag_map: FragmentationMap,
@@ -133,20 +133,20 @@ pub(super) trait CompactionFlavour {
 }
 
 /// Compaction worker that will relocate blobs that sit in blob files that are being rewritten
-pub struct RelocatingCompaction {
-    inner: StandardCompaction,
+pub struct RelocatingCompaction<F: FileSystem = StdFileSystem> {
+    inner: StandardCompaction<F>,
     blob_scanner: Peekable<BlobFileMergeScanner>,
-    blob_writer: BlobFileWriter,
+    blob_writer: BlobFileWriter<F>,
     rewriting_blob_file_ids: HashSet<BlobFileId>,
-    rewriting_blob_files: Vec<BlobFile>,
+    rewriting_blob_files: Vec<BlobFile<F>>,
 }
 
-impl RelocatingCompaction {
+impl<F: FileSystem> RelocatingCompaction<F> {
     pub fn new(
-        inner: StandardCompaction,
+        inner: StandardCompaction<F>,
         blob_scanner: Peekable<BlobFileMergeScanner>,
-        blob_writer: BlobFileWriter,
-        rewriting_blob_files: Vec<BlobFile>,
+        blob_writer: BlobFileWriter<F>,
+        rewriting_blob_files: Vec<BlobFile<F>>,
     ) -> Self {
         Self {
             inner,
@@ -163,7 +163,7 @@ impl RelocatingCompaction {
     }
 }
 
-impl CompactionFlavour for RelocatingCompaction {
+impl<F: FileSystem> CompactionFlavour<F> for RelocatingCompaction<F> {
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         if item.key.value_type.is_indirection() {
             let mut reader = &item.value[..];
@@ -249,8 +249,8 @@ impl CompactionFlavour for RelocatingCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        super_version: &mut SuperVersions,
-        opts: &Options,
+        super_version: &mut SuperVersions<F>,
+        opts: &Options<F>,
         payload: &CompactionPayload,
         dst_lvl: usize,
         blob_frag_map_diff: FragmentationMap,
@@ -276,7 +276,6 @@ impl CompactionFlavour for RelocatingCompaction {
         }
 
         super_version.upgrade_version(
-            opts.config.fs.as_ref(),
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();
@@ -319,14 +318,14 @@ impl CompactionFlavour for RelocatingCompaction {
 }
 
 /// Standard compaction worker that just passes through all its data
-pub struct StandardCompaction {
+pub struct StandardCompaction<F: FileSystem = StdFileSystem> {
     start: Instant,
-    table_writer: MultiWriter,
-    tables_to_rewrite: Vec<Table>,
+    table_writer: MultiWriter<F>,
+    tables_to_rewrite: Vec<Table<F>>,
 }
 
-impl StandardCompaction {
-    pub fn new(table_writer: MultiWriter, tables_to_rewrite: Vec<Table>) -> Self {
+impl<F: FileSystem> StandardCompaction<F> {
+    pub fn new(table_writer: MultiWriter<F>, tables_to_rewrite: Vec<Table<F>>) -> Self {
         Self {
             start: Instant::now(),
             table_writer,
@@ -334,7 +333,7 @@ impl StandardCompaction {
         }
     }
 
-    fn consume_writer(self, opts: &Options, dst_lvl: usize) -> crate::Result<Vec<Table>> {
+    fn consume_writer(self, opts: &Options<F>, dst_lvl: usize) -> crate::Result<Vec<Table<F>>> {
         let table_base_folder = self.table_writer.base_path.clone();
 
         let pin_filter = opts.config.filter_block_pinning_policy.get(dst_lvl);
@@ -343,13 +342,12 @@ impl StandardCompaction {
         self.table_writer
             .finish()?
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table<F>> {
+                Table::<F>::recover(
                     table_base_folder.join(table_id.to_string()),
                     checksum,
                     0,
                     opts.tree_id,
-                    opts.config.fs.clone(),
                     opts.config.cache.clone(),
                     opts.config.descriptor_table.clone(),
                     pin_filter,
@@ -362,7 +360,7 @@ impl StandardCompaction {
     }
 }
 
-impl CompactionFlavour for StandardCompaction {
+impl<F: FileSystem> CompactionFlavour<F> for StandardCompaction<F> {
     fn write(&mut self, item: InternalValue) -> crate::Result<()> {
         let indirection = if item.key.value_type.is_indirection() {
             Some({
@@ -384,8 +382,8 @@ impl CompactionFlavour for StandardCompaction {
 
     fn finish(
         mut self: Box<Self>,
-        super_version: &mut SuperVersions,
-        opts: &Options,
+        super_version: &mut SuperVersions<F>,
+        opts: &Options<F>,
         payload: &CompactionPayload,
         dst_lvl: usize,
         blob_frag_map: FragmentationMap,
@@ -407,7 +405,6 @@ impl CompactionFlavour for StandardCompaction {
         }
 
         super_version.upgrade_version(
-            opts.config.fs.as_ref(),
             &opts.config.path,
             |current| {
                 let mut copy = current.clone();

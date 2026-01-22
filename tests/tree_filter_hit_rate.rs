@@ -11,7 +11,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 
         let seqno = SequenceNumberCounter::default();
 
-        let tree = Config::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
         for k in 0u64..10_000 {
             tree.insert(k.to_be_bytes(), "abc", seqno.next());
@@ -32,7 +32,7 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 
         let seqno = SequenceNumberCounter::default();
 
-        let tree = Config::new(path, seqno.clone(), SequenceNumberCounter::default())
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(path, seqno.clone(), SequenceNumberCounter::default())
             .with_kv_separation(Some(KvSeparationOptions::default().separation_threshold(1)))
             .open()?;
 

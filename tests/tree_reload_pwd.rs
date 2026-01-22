@@ -12,7 +12,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
 
     {
         let tree =
-            Config::new(&folder_old, seqno.clone(), SequenceNumberCounter::default()).open()?;
+            Config::<lsm_tree::fs::StdFileSystem>::new(&folder_old, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -37,7 +37,7 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
     .expect("should move");
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder_new_subfolder,
             seqno,
             SequenceNumberCounter::default(),

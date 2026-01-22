@@ -4,6 +4,7 @@
 
 use super::{Choice, CompactionStrategy};
 use crate::compaction::state::CompactionState;
+use crate::fs::FileSystem;
 use crate::version::Version;
 use crate::{config::Config, slice::Slice, version::run::Ranged, KeyRange};
 use crate::{HashSet, Table};
@@ -67,12 +68,12 @@ impl Strategy {
     }
 }
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         "DropRangeCompaction"
     }
 
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, _: &Config<F>, state: &CompactionState) -> Choice {
         let table_ids: HashSet<_> = version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())

@@ -14,7 +14,7 @@ fn blob_gc_seqno_watermark() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno.clone(), SequenceNumberCounter::default())
         .data_block_compression_policy(CompressionPolicy::all(lsm_tree::CompressionType::None))
         .with_kv_separation(Some(
             KvSeparationOptions::default()

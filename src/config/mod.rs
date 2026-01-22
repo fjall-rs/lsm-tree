@@ -25,6 +25,7 @@ use crate::{
     DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
+    marker::PhantomData,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -160,7 +161,7 @@ impl KvSeparationOptions {
 }
 
 /// Tree configuration builder
-pub struct Config {
+pub struct Config<F: FileSystem = StdFileSystem> {
     /// Folder path
     #[doc(hidden)]
     pub path: PathBuf,
@@ -237,13 +238,12 @@ pub struct Config {
 
     pub(crate) visible_seqno: SequenceNumberCounter,
 
-    /// Filesystem abstraction
     #[doc(hidden)]
-    pub(crate) fs: Arc<dyn FileSystem>,
+    pub(crate) phantom: PhantomData<F>,
 }
 
 // TODO: remove default?
-impl Default for Config {
+impl<F: FileSystem> Default for Config<F> {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
@@ -254,8 +254,7 @@ impl Default for Config {
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
             )),
-            fs: Arc::new(StdFileSystem),
-
+            phantom: PhantomData,
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
@@ -299,7 +298,7 @@ impl Default for Config {
     }
 }
 
-impl Config {
+impl<F: FileSystem> Config<F> {
     /// Initializes a new config
     pub fn new<P: AsRef<Path>>(
         path: P,
@@ -323,13 +322,6 @@ impl Config {
     #[must_use]
     pub fn use_cache(mut self, cache: Arc<Cache>) -> Self {
         self.cache = cache;
-        self
-    }
-
-    /// Sets the filesystem implementation used for on-disk operations.
-    #[must_use]
-    pub fn use_filesystem(mut self, fs: Arc<dyn FileSystem>) -> Self {
-        self.fs = fs;
         self
     }
 
@@ -466,12 +458,15 @@ impl Config {
         self
     }
 
+}
+
+impl<F: FileSystem + 'static> Config<F> {
     /// Opens a tree using the config.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn open(self) -> crate::Result<AnyTree> {
+    pub fn open(self) -> crate::Result<AnyTree<F>> {
         Ok(if self.kv_separation_opts.is_some() {
             AnyTree::Blob(BlobTree::open(self)?)
         } else {

@@ -105,12 +105,14 @@ mod tests {
     #[test]
     fn blob_file_merger_seqno() -> crate::Result<()> {
         let dir = tempdir()?;
-        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
 
         let blob_file_path = dir.path().join("0");
         {
             {
-                let mut writer = BlobFileWriter::new(&blob_file_path, 0, fs.clone())?;
+                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
+                    &blob_file_path,
+                    0,
+                )?;
 
                 writer.write(b"a", 1, &b"1".repeat(100))?;
                 writer.write(b"a", 0, &b"0".repeat(100))?;
@@ -149,13 +151,15 @@ mod tests {
 
         let blob_file_0_path = dir.path().join("0");
         let blob_file_1_path = dir.path().join("1");
-        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
 
         {
             let keys = [b"a", b"c", b"e"];
 
             {
-                let mut writer = BlobFileWriter::new(&blob_file_0_path, 0, fs.clone())?;
+                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
+                    &blob_file_0_path,
+                    0,
+                )?;
 
                 for key in keys {
                     writer.write(key, 0, &key.repeat(100))?;
@@ -169,7 +173,10 @@ mod tests {
             let keys = [b"b", b"d"];
 
             {
-                let mut writer = BlobFileWriter::new(&blob_file_1_path, 1, fs.clone())?;
+                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
+                    &blob_file_1_path,
+                    1,
+                )?;
 
                 for key in keys {
                     writer.write(key, 1, &key.repeat(100))?;

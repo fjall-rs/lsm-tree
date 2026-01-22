@@ -4,7 +4,7 @@
 
 use super::KeyedBlockHandle;
 use crate::{
-    fs::FileSystem,
+    fs::{FileSystem, StdFileSystem},
     table::{
         block::BlockType,
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
@@ -13,7 +13,7 @@ use crate::{
     },
     Cache, CompressionType, DescriptorTable, GlobalTableId, SeqNo, UserKey,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::Metrics;
@@ -21,40 +21,40 @@ use crate::Metrics;
 /// Index that translates item keys to data block handles
 ///
 /// The index is loaded on demand.
-pub struct VolatileBlockIndex {
+pub struct VolatileBlockIndex<F: FileSystem = StdFileSystem> {
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) fs: Arc<dyn FileSystem>,
     pub(crate) descriptor_table: Arc<DescriptorTable>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
+    pub(crate) phantom: PhantomData<F>,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,
 }
 
-impl VolatileBlockIndex {
-    pub fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Iter {
-        let mut iter = Iter::new(self);
+impl<F: FileSystem> VolatileBlockIndex<F> {
+    pub fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Iter<F> {
+        let mut iter = Iter::<F>::new(self);
         iter.seek_lower(needle, seqno);
         iter
     }
 
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<F> {
         Iter::new(self)
     }
 }
 
-pub struct Iter {
+pub struct Iter<F: FileSystem = StdFileSystem> {
     inner: Option<OwnedIndexBlockIter>,
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    fs: Arc<dyn FileSystem>,
     descriptor_table: Arc<DescriptorTable>,
     cache: Arc<Cache>,
     handle: BlockHandle,
     compression: CompressionType,
+    phantom: PhantomData<F>,
 
     lo: Option<(UserKey, SeqNo)>,
     hi: Option<(UserKey, SeqNo)>,
@@ -63,17 +63,17 @@ pub struct Iter {
     pub(crate) metrics: Arc<Metrics>,
 }
 
-impl Iter {
-    fn new(index: &VolatileBlockIndex) -> Self {
+impl<F: FileSystem> Iter<F> {
+    fn new(index: &VolatileBlockIndex<F>) -> Self {
         Self {
             inner: None,
             table_id: index.table_id,
             path: index.path.clone(),
-            fs: index.fs.clone(),
             descriptor_table: index.descriptor_table.clone(),
             cache: index.cache.clone(),
             handle: index.handle,
             compression: index.compression,
+            phantom: PhantomData,
 
             lo: None,
             hi: None,
@@ -84,7 +84,7 @@ impl Iter {
     }
 }
 
-impl BlockIndexIter for Iter {
+impl<F: FileSystem> BlockIndexIter for Iter<F> {
     fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
         self.lo = Some((key.into(), seqno));
         true
@@ -96,17 +96,16 @@ impl BlockIndexIter for Iter {
     }
 }
 
-impl Iterator for Iter {
+impl<F: FileSystem> Iterator for Iter<F> {
     type Item = crate::Result<KeyedBlockHandle>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(inner) = &mut self.inner {
             inner.next().map(Ok)
         } else {
-            let block = fail_iter!(load_block(
+            let block = fail_iter!(load_block::<F>(
                 self.table_id,
                 &self.path,
-                self.fs.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,
@@ -139,15 +138,14 @@ impl Iterator for Iter {
     }
 }
 
-impl DoubleEndedIterator for Iter {
+impl<F: FileSystem> DoubleEndedIterator for Iter<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(inner) = &mut self.inner {
             inner.next_back().map(Ok)
         } else {
-            let block = fail_iter!(load_block(
+            let block = fail_iter!(load_block::<F>(
                 self.table_id,
                 &self.path,
-                self.fs.as_ref(),
                 &self.descriptor_table,
                 &self.cache,
                 &self.handle,

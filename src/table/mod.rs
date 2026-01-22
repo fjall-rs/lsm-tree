@@ -30,7 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
-    fs::FileSystem,
+    fs::{FileSystem, StdFileSystem},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -55,7 +55,7 @@ use util::load_block;
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-pub type TableInner = Inner;
+pub type TableInner<F> = Inner<F>;
 
 /// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -66,11 +66,16 @@ pub type TableInner = Inner;
 ///
 /// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
-#[derive(Clone)]
-pub struct Table(Arc<Inner>);
+pub struct Table<F: FileSystem = StdFileSystem>(Arc<Inner<F>>);
 
-impl std::ops::Deref for Table {
-    type Target = Inner;
+impl<F: FileSystem> Clone for Table<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<F: FileSystem> std::ops::Deref for Table<F> {
+    type Target = Inner<F>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -78,13 +83,13 @@ impl std::ops::Deref for Table {
 }
 
 #[cfg_attr(coverage_nightly, coverage(off))]
-impl std::fmt::Debug for Table {
+impl<F: FileSystem> std::fmt::Debug for Table<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
-impl Table {
+impl<F: FileSystem> Table<F> {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
         self.0.global_seqno
@@ -116,7 +121,7 @@ impl Table {
             let fd = if let Some(fd) = cached_fd {
                 fd
             } else {
-                Arc::new(self.fs.open(&*self.path)?)
+                Arc::new(F::open(&*self.path)?)
             };
 
             // Read the exact region using pread-style helper
@@ -201,10 +206,9 @@ impl Table {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Block> {
-        load_block(
+        load_block::<F>(
             self.global_id(),
             &self.path,
-            self.fs.as_ref(),
             &self.descriptor_table,
             &self.cache,
             handle,
@@ -346,8 +350,7 @@ impl Table {
             .try_into()
             .expect("data block count should fit");
 
-        Scanner::new_with_fs(
-            self.fs.as_ref(),
+        Scanner::new_with_fs::<F>(
             &self.path,
             block_count,
             self.metadata.data_block_compression,
@@ -383,7 +386,6 @@ impl Table {
             self.global_id(),
             self.global_seqno(),
             self.path.clone(),
-            self.fs.clone(),
             index_iter,
             self.descriptor_table.clone(),
             self.cache.clone(),
@@ -437,7 +439,6 @@ impl Table {
         checksum: Checksum,
         global_seqno: SeqNo,
         tree_id: TreeId,
-        fs: Arc<dyn FileSystem>,
         cache: Arc<Cache>,
         descriptor_table: Arc<DescriptorTable>,
         pin_filter: bool,
@@ -454,7 +455,7 @@ impl Table {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         log::debug!("Recovering table from file {}", file_path.display());
-        let mut file = fs.open(&file_path)?;
+        let mut file = F::open(&file_path)?;
         let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
@@ -476,8 +477,8 @@ impl Table {
                 compression: metadata.index_block_compression,
                 descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
-                fs: fs.clone(),
                 table_id: (tree_id, metadata.id).into(),
+                phantom: std::marker::PhantomData,
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
@@ -499,8 +500,8 @@ impl Table {
                 descriptor_table: descriptor_table.clone(),
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
-                fs: fs.clone(),
                 table_id: (tree_id, metadata.id).into(),
+                phantom: std::marker::PhantomData,
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
@@ -556,7 +557,6 @@ impl Table {
         Ok(Self(Arc::new(Inner {
             path: file_path,
             tree_id,
-            fs,
 
             metadata,
             regions,

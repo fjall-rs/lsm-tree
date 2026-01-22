@@ -5,6 +5,7 @@
 use crate::{
     compaction::state::CompactionState,
     config::Config,
+    fs::{FileSystem, StdFileSystem},
     stop_signal::StopSignal,
     version::{persist_version, SuperVersions, Version},
     SequenceNumberCounter, TableId,
@@ -30,7 +31,7 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-pub struct TreeInner {
+pub struct TreeInner<F: FileSystem = StdFileSystem> {
     /// Unique tree ID
     pub id: TreeId,
 
@@ -46,12 +47,12 @@ pub struct TreeInner {
     /// Hands out a unique (monotonically increasing) blob file ID
     pub(crate) blob_file_id_counter: SequenceNumberCounter,
 
-    pub(crate) version_history: Arc<RwLock<SuperVersions>>,
+    pub(crate) version_history: Arc<RwLock<SuperVersions<F>>>,
 
     pub(crate) compaction_state: Arc<Mutex<CompactionState>>,
 
     /// Tree configuration
-    pub config: Arc<Config>,
+    pub config: Arc<Config<F>>,
 
     /// Compaction may take a while; setting the signal to `true`
     /// will interrupt the compaction and kill the worker.
@@ -70,9 +71,9 @@ pub struct TreeInner {
     pub metrics: Arc<Metrics>,
 }
 
-impl TreeInner {
-    pub(crate) fn create_new(config: Config) -> crate::Result<Self> {
-        let version = Version::new(
+impl<F: FileSystem> TreeInner<F> {
+    pub(crate) fn create_new(config: Config<F>) -> crate::Result<Self> {
+        let version = Version::<F>::new(
             0,
             if config.kv_separation_opts.is_some() {
                 crate::TreeType::Blob
@@ -80,7 +81,7 @@ impl TreeInner {
                 crate::TreeType::Standard
             },
         );
-        persist_version(config.fs.as_ref(), &config.path, &version)?;
+        persist_version::<F>(&config.path, &version)?;
 
         Ok(Self {
             id: get_next_tree_id(),
@@ -104,7 +105,7 @@ impl TreeInner {
     }
 }
 
-impl Drop for TreeInner {
+impl<F: FileSystem> Drop for TreeInner<F> {
     fn drop(&mut self) {
         log::debug!("Dropping TreeInner");
 

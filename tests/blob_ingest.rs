@@ -13,7 +13,7 @@ fn blob_ingest_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

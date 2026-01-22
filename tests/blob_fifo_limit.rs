@@ -7,7 +7,7 @@ fn blob_tree_fifo_limit() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

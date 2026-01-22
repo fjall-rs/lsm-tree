@@ -13,7 +13,7 @@ use std::{path::Path, sync::Arc};
 use crate::metrics::Metrics;
 
 #[must_use]
-pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+pub fn aggregate_run_key_range<F: FileSystem>(tables: &[Table<F>]) -> KeyRange {
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
     let lo = tables.first().expect("run should never be empty");
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
@@ -29,10 +29,9 @@ pub struct SliceIndexes(pub usize, pub usize);
 ///
 /// Also handles file descriptor opening and caching.
 #[warn(clippy::too_many_arguments)]
-pub fn load_block(
+pub fn load_block<F: FileSystem>(
     table_id: GlobalTableId,
     path: &Path,
-    fs: &dyn FileSystem,
     descriptor_table: &DescriptorTable,
     cache: &Cache,
     handle: &BlockHandle,
@@ -72,7 +71,7 @@ pub fn load_block(
 
         fd
     } else {
-        let fd = fs.open(path)?;
+        let fd = F::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);

@@ -24,10 +24,8 @@ fn test_with_table(
 ) -> crate::Result<()> {
     let dir = tempdir()?;
     let file = dir.path().join("table");
-    let fs = Arc::new(crate::fs::StdFileSystem);
-
     {
-        let mut writer = Writer::new(file.clone(), 0, 0, fs.clone())?;
+        let mut writer = Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -47,12 +45,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -74,12 +71,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
@@ -101,12 +97,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -128,7 +123,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -151,10 +146,10 @@ fn test_with_table(
         }
     }
 
-    fs.remove_file(&file)?;
+    crate::fs::StdFileSystem::remove_file(&file)?;
 
     {
-        let mut writer = Writer::new(file.clone(), 0, 0, fs.clone())?.use_partitioned_index();
+        let mut writer = Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);
@@ -174,12 +169,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -200,12 +194,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
@@ -226,12 +219,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 false,
@@ -253,12 +245,11 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file,
                 checksum,
                 0,
                 0,
-                fs.clone(),
                 Arc::new(Cache::with_capacity_bytes(1_000_000)),
                 Arc::new(DescriptorTable::new(10)),
                 true,
@@ -1125,11 +1116,10 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
-    let fs = Arc::new(crate::fs::StdFileSystem);
 
     let data_block_size = 97;
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, fs.clone())
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_data_block_size(data_block_size);
 
@@ -1139,12 +1129,11 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         0,
         0,
-        fs.clone(),
         Arc::new(crate::Cache::with_capacity_bytes(0)),
         Arc::new(crate::DescriptorTable::new(10)),
         true,
@@ -1202,7 +1191,7 @@ fn table_partitioned_index() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, fs.clone())
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_partitioned_index()
         .use_data_block_size(5)
@@ -1214,12 +1203,11 @@ fn table_partitioned_index() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         0,
         0,
-        fs.clone(),
         Arc::new(crate::Cache::with_capacity_bytes(0)),
         Arc::new(crate::DescriptorTable::new(10)),
         true,
@@ -1312,9 +1300,8 @@ fn table_global_seqno() -> crate::Result<()> {
 
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
-    let fs = Arc::new(crate::fs::StdFileSystem);
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0, fs.clone())
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_partitioned_filter()
         .use_data_block_size(1)
@@ -1326,12 +1313,11 @@ fn table_global_seqno() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         7,
         0,
-        fs.clone(),
         Arc::new(crate::Cache::with_capacity_bytes(0)),
         Arc::new(crate::DescriptorTable::new(10)),
         true,

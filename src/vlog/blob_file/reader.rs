@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::{FileSystem, StdFileSystem},
     vlog::{
         blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
         ValueHandle,
@@ -16,13 +17,13 @@ use std::{
 };
 
 /// Reads a single blob from a blob file
-pub struct Reader<'a> {
-    blob_file: &'a BlobFile,
+pub struct Reader<'a, F: FileSystem = StdFileSystem> {
+    blob_file: &'a BlobFile<F>,
     file: &'a File,
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(blob_file: &'a BlobFile, file: &'a File) -> Self {
+impl<'a, F: FileSystem> Reader<'a, F> {
+    pub fn new(blob_file: &'a BlobFile<F>, file: &'a File) -> Self {
         Self { blob_file, file }
     }
 
@@ -112,8 +113,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), fs)?
+        let mut writer =
+            crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+                id_generator,
+                folder.path(),
+            )?
             .use_target_size(u64::MAX);
 
         let offset = writer.offset();
@@ -141,8 +145,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let fs = std::sync::Arc::new(crate::fs::StdFileSystem);
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), fs)?
+        let mut writer =
+            crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+                id_generator,
+                folder.path(),
+            )?
             .use_target_size(u64::MAX)
             .use_compression(CompressionType::Lz4);
 

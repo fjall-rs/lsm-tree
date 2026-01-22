@@ -59,7 +59,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
 }
 
 /// Atomically rewrites a file.
-pub fn rewrite_atomic(fs: &dyn FileSystem, path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub fn rewrite_atomic<F: FileSystem>(path: &Path, content: &[u8]) -> std::io::Result<()> {
     #[expect(
         clippy::expect_used,
         reason = "every file should have a parent directory"
@@ -75,7 +75,7 @@ pub fn rewrite_atomic(fs: &dyn FileSystem, path: &Path, content: &[u8]) -> std::
     // TODO: not sure why it fails on Windows...
     #[cfg(not(target_os = "windows"))]
     {
-        let file = fs.open(path)?;
+        let file = F::open(path)?;
         file.sync_all()?;
 
         #[expect(
@@ -83,21 +83,21 @@ pub fn rewrite_atomic(fs: &dyn FileSystem, path: &Path, content: &[u8]) -> std::
             reason = "files should always have a parent directory"
         )]
         let folder = path.parent().expect("should have parent folder");
-        fsync_directory(fs, folder)?;
+        fsync_directory::<F>(folder)?;
     }
 
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn fsync_directory(fs: &dyn FileSystem, path: &Path) -> std::io::Result<()> {
-    let file = fs.open(path)?;
+pub fn fsync_directory<F: FileSystem>(path: &Path) -> std::io::Result<()> {
+    let file = F::open(path)?;
     debug_assert!(file.metadata()?.is_dir());
     file.sync_all()
 }
 
 #[cfg(target_os = "windows")]
-pub fn fsync_directory(_fs: &dyn FileSystem, _path: &Path) -> std::io::Result<()> {
+pub fn fsync_directory<F: FileSystem>(_path: &Path) -> std::io::Result<()> {
     // Cannot fsync directory on Windows
     Ok(())
 }
@@ -119,10 +119,9 @@ mod tests {
             write!(file, "asdasdasdasdasd")?;
         }
 
-        let fs = crate::fs::StdFileSystem;
-        rewrite_atomic(&fs, &path, b"newcontent")?;
+        rewrite_atomic::<crate::fs::StdFileSystem>(&path, b"newcontent")?;
 
-        let content = fs.read_to_string(&path)?;
+        let content = crate::fs::StdFileSystem::read_to_string(&path)?;
         assert_eq!("newcontent", content);
 
         Ok(())

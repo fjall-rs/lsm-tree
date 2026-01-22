@@ -12,6 +12,7 @@ use crate::{
         Choice,
     },
     file::BLOBS_FOLDER,
+    fs::{FileSystem, StdFileSystem},
     merge::Merger,
     run_scanner::RunScanner,
     stop_signal::StopSignal,
@@ -31,7 +32,7 @@ use crate::metrics::Metrics;
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
 /// Compaction options
-pub struct Options {
+pub struct Options<F: FileSystem = StdFileSystem> {
     pub tree_id: TreeId,
 
     pub global_seqno: SequenceNumberCounter,
@@ -43,12 +44,12 @@ pub struct Options {
     pub blob_file_id_generator: SequenceNumberCounter,
 
     /// Configuration of tree.
-    pub config: Arc<Config>,
+    pub config: Arc<Config<F>>,
 
-    pub version_history: Arc<RwLock<SuperVersions>>,
+    pub version_history: Arc<RwLock<SuperVersions<F>>>,
 
     /// Compaction strategy to use.
-    pub strategy: Arc<dyn CompactionStrategy>,
+    pub strategy: Arc<dyn CompactionStrategy<F>>,
 
     /// Stop signal to interrupt a compaction worker in case
     /// the tree is dropped.
@@ -63,8 +64,8 @@ pub struct Options {
     pub metrics: Arc<Metrics>,
 }
 
-impl Options {
-    pub fn from_tree(tree: &crate::Tree, strategy: Arc<dyn CompactionStrategy>) -> Self {
+impl<F: FileSystem> Options<F> {
+    pub fn from_tree(tree: &crate::Tree<F>, strategy: Arc<dyn CompactionStrategy<F>>) -> Self {
         Self {
             global_seqno: tree.config.seqno.clone(),
             visible_seqno: tree.config.visible_seqno.clone(),
@@ -88,7 +89,7 @@ impl Options {
 /// Runs compaction task.
 ///
 /// This will block until the compactor is fully finished.
-pub fn do_compaction(opts: &Options) -> crate::Result<()> {
+pub fn do_compaction<F: FileSystem>(opts: &Options<F>) -> crate::Result<()> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
     let compaction_state = opts.compaction_state.lock().expect("lock is poisoned");
 
@@ -102,7 +103,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     );
     let choice = opts.strategy.choose(
         &version_history_lock.latest_version().version,
-        &opts.config,
+        opts.config.as_ref(),
         &compaction_state,
     );
 
@@ -133,7 +134,7 @@ pub fn do_compaction(opts: &Options) -> crate::Result<()> {
     }
 }
 
-fn pick_run_indexes(run: &Run<Table>, to_compact: &[TableId]) -> Option<(usize, usize)> {
+fn pick_run_indexes<F: FileSystem>(run: &Run<Table<F>>, to_compact: &[TableId]) -> Option<(usize, usize)> {
     let lo = run
         .iter()
         .position(|table| to_compact.contains(&table.id()))?;
@@ -145,8 +146,8 @@ fn pick_run_indexes(run: &Run<Table>, to_compact: &[TableId]) -> Option<(usize, 
     Some((lo, hi))
 }
 
-fn create_compaction_stream<'a>(
-    version: &Version,
+fn create_compaction_stream<'a, F: FileSystem + 'a>(
+    version: &Version<F>,
     to_compact: &[TableId],
     eviction_seqno: SeqNo,
 ) -> crate::Result<Option<CompactionStream<'a, Merger<CompactionReader<'a>>>>> {
@@ -159,7 +160,7 @@ fn create_compaction_stream<'a>(
                 continue;
             };
 
-            readers.push(Box::new(RunScanner::culled(
+            readers.push(Box::new(RunScanner::<F>::culled(
                 run.clone(),
                 (Some(lo), Some(hi)),
             )?));
@@ -180,9 +181,9 @@ fn create_compaction_stream<'a>(
     })
 }
 
-fn move_tables(
+fn move_tables<F: FileSystem>(
     compaction_state: &MutexGuard<'_, CompactionState>,
-    opts: &Options,
+    opts: &Options<F>,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
@@ -203,7 +204,6 @@ fn move_tables(
     let table_ids = payload.table_ids.iter().copied().collect::<Vec<_>>();
 
     version_history_lock.upgrade_version(
-        opts.config.fs.as_ref(),
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -218,11 +218,9 @@ fn move_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(
-        opts.config.fs.as_ref(),
-        &opts.config.path,
-        opts.mvcc_gc_watermark,
-    ) {
+    if let Err(e) =
+        version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
+    {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -231,11 +229,11 @@ fn move_tables(
 }
 
 /// Picks blob files to rewrite (defragment)
-fn pick_blob_files_to_rewrite(
+fn pick_blob_files_to_rewrite<F: FileSystem>(
     picked_tables: &HashSet<TableId>,
-    current_version: &Version,
+    current_version: &Version<F>,
     blob_opts: &crate::KvSeparationOptions,
-) -> crate::Result<Vec<BlobFile>> {
+) -> crate::Result<Vec<BlobFile<F>>> {
     use crate::Table;
 
     // We start off by getting all the blob files that are referenced by the tables
@@ -311,9 +309,9 @@ fn pick_blob_files_to_rewrite(
     Ok(linked_blob_files.into_iter().cloned().collect::<Vec<_>>())
 }
 
-fn hidden_guard(
+fn hidden_guard<F: FileSystem>(
     payload: &CompactionPayload,
-    opts: &Options,
+    opts: &Options<F>,
     f: impl FnOnce() -> crate::Result<()>,
 ) -> crate::Result<()> {
     f().inspect_err(|e| {
@@ -330,10 +328,10 @@ fn hidden_guard(
 }
 
 #[expect(clippy::too_many_lines)]
-fn merge_tables(
+fn merge_tables<F: FileSystem>(
     mut compaction_state: MutexGuard<'_, CompactionState>,
-    version_history_lock: RwLockReadGuard<'_, SuperVersions>,
-    opts: &Options,
+    version_history_lock: RwLockReadGuard<'_, SuperVersions<F>>,
+    opts: &Options<F>,
     payload: &CompactionPayload,
 ) -> crate::Result<()> {
     if opts.stop_signal.is_stopped() {
@@ -412,7 +410,7 @@ fn merge_tables(
                 log::debug!("No blob relocation needed");
 
                 Box::new(StandardCompaction::new(table_writer, tables))
-                    as Box<dyn super::flavour::CompactionFlavour>
+                    as Box<dyn super::flavour::CompactionFlavour<F>>
             } else {
                 log::debug!(
                     "Relocate blob files: {:?}",
@@ -429,10 +427,9 @@ fn merge_tables(
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
-                let writer = BlobFileWriter::new(
+                let writer = BlobFileWriter::<F>::new(
                     opts.blob_file_id_generator.clone(),
                     opts.config.path.join(BLOBS_FOLDER),
-                    opts.config.fs.clone(),
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);
@@ -511,11 +508,7 @@ fn merge_tables(
         .show(payload.table_ids.iter().copied());
 
     version_history_lock
-        .maintenance(
-            opts.config.fs.as_ref(),
-            &opts.config.path,
-            opts.mvcc_gc_watermark,
-        )
+        .maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
         .inspect_err(|e| {
             log::error!("Manifest maintenance failed: {e:?}");
         })?;
@@ -528,9 +521,9 @@ fn merge_tables(
     Ok(())
 }
 
-fn drop_tables(
+fn drop_tables<F: FileSystem>(
     compaction_state: MutexGuard<'_, CompactionState>,
-    opts: &Options,
+    opts: &Options<F>,
     ids_to_drop: &[TableId],
 ) -> crate::Result<()> {
     #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
@@ -573,7 +566,6 @@ fn drop_tables(
     // IMPORTANT: Write the manifest with the removed tables first
     // Otherwise the table files are deleted, but are still referenced!
     version_history_lock.upgrade_version(
-        opts.config.fs.as_ref(),
         &opts.config.path,
         |current| {
             let mut copy = current.clone();
@@ -588,11 +580,9 @@ fn drop_tables(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) = version_history_lock.maintenance(
-        opts.config.fs.as_ref(),
-        &opts.config.path,
-        opts.mvcc_gc_watermark,
-    ) {
+    if let Err(e) =
+        version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
+    {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
     }
@@ -623,6 +613,7 @@ mod tests {
     use crate::{
         compaction::{state::CompactionState, Choice, CompactionStrategy, Input},
         config::BlockSizePolicy,
+        fs::FileSystem,
         version::Version,
         AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter, TableId,
     };
@@ -633,7 +624,7 @@ mod tests {
     fn compaction_stream_run_not_found() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -653,7 +644,7 @@ mod tests {
     fn compaction_stream_run() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -690,7 +681,7 @@ mod tests {
     fn compaction_stream_run_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -727,7 +718,7 @@ mod tests {
     fn compaction_stream_run_3() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -764,7 +755,7 @@ mod tests {
     fn compaction_stream_run_4() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -800,7 +791,7 @@ mod tests {
     fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -833,12 +824,12 @@ mod tests {
     fn blob_file_picking_simple() -> crate::Result<()> {
         struct InPlaceStrategy(Vec<TableId>);
 
-        impl CompactionStrategy for InPlaceStrategy {
+        impl<F: FileSystem> CompactionStrategy<F> for InPlaceStrategy {
             fn get_name(&self) -> &'static str {
                 "InPlaceCompaction"
             }
 
-            fn choose(&self, _: &Version, _: &Config, _: &CompactionState) -> Choice {
+            fn choose(&self, _: &Version<F>, _: &Config<F>, _: &CompactionState) -> Choice {
                 Choice::Merge(Input {
                     table_ids: self.0.iter().copied().collect(),
                     dest_level: 6,
@@ -850,7 +841,7 @@ mod tests {
 
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::new(
+        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

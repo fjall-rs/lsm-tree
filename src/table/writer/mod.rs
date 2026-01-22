@@ -14,7 +14,7 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
-    fs::FileSystem,
+    fs::{FileSystem, StdFileSystem},
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -27,7 +27,7 @@ use crate::{
     Checksum, CompressionType, InternalValue, TableId, UserKey, ValueType,
 };
 use index::BlockIndexWriter;
-use std::{fs::File, io::BufWriter, path::PathBuf, sync::Arc};
+use std::{fs::File, io::BufWriter, marker::PhantomData, path::PathBuf};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
 pub struct LinkedFile {
@@ -38,13 +38,12 @@ pub struct LinkedFile {
 }
 
 /// Serializes and compresses values into blocks and writes them to disk as a table
-pub struct Writer {
+pub struct Writer<F: FileSystem = StdFileSystem> {
     /// Table file path
     pub(crate) path: PathBuf,
 
     table_id: TableId,
-
-    fs: Arc<dyn FileSystem>,
+    phantom: PhantomData<F>,
 
     data_block_restart_interval: u8,
     index_block_restart_interval: u8,
@@ -97,14 +96,13 @@ pub struct Writer {
     initial_level: u8,
 }
 
-impl Writer {
+impl<F: FileSystem> Writer<F> {
     pub fn new(
         path: PathBuf,
         table_id: TableId,
         initial_level: u8,
-        fs: Arc<dyn FileSystem>,
     ) -> crate::Result<Self> {
-        let writer = BufWriter::with_capacity(u16::MAX.into(), fs.create_new(&path)?);
+        let writer = BufWriter::with_capacity(u16::MAX.into(), F::create_new(&path)?);
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;
@@ -115,7 +113,7 @@ impl Writer {
             meta: meta::Metadata::default(),
 
             table_id,
-            fs,
+            phantom: PhantomData,
 
             data_block_restart_interval: 16,
             index_block_restart_interval: 1,
@@ -384,7 +382,7 @@ impl Writer {
 
         // No items written! Just delete table file and return nothing
         if self.meta.item_count == 0 {
-            self.fs.remove_file(&self.path)?;
+            F::remove_file(&self.path)?;
             return Ok(None);
         }
 
@@ -534,7 +532,7 @@ impl Writer {
             clippy::expect_used,
             reason = "if there's no parent folder, something has gone horribly wrong"
         )]
-        fsync_directory(self.fs.as_ref(), self.path.parent().expect("should have folder"))?;
+        fsync_directory::<F>(self.path.parent().expect("should have folder"))?;
 
         log::debug!(
             "Written {} items in {} blocks into new table file #{}, written {} MiB",
@@ -551,15 +549,13 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use test_log::test;
 
     #[test]
     fn table_writer_count() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("1");
-        let fs = Arc::new(crate::fs::StdFileSystem);
-        let mut writer = Writer::new(path, 1, 0, fs)?;
+        let mut writer = Writer::<crate::fs::StdFileSystem>::new(path, 1, 0)?;
 
         assert_eq!(0, writer.meta.key_count);
         assert_eq!(0, writer.chunk_size);

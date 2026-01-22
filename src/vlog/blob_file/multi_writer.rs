@@ -4,7 +4,7 @@
 
 use super::writer::Writer;
 use crate::{
-    fs::FileSystem,
+    fs::{FileSystem, StdFileSystem},
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
         BlobFileId,
@@ -17,23 +17,21 @@ use std::{
 };
 
 /// Blob file writer, may write multiple blob files
-pub struct MultiWriter {
+pub struct MultiWriter<F: FileSystem = StdFileSystem> {
     folder: PathBuf,
     target_size: u64,
 
     active_writer: Writer,
 
-    results: Vec<BlobFile>,
+    results: Vec<BlobFile<F>>,
 
     id_generator: SequenceNumberCounter,
 
     compression: CompressionType,
     passthrough_compression: CompressionType,
-
-    fs: Arc<dyn FileSystem>,
 }
 
-impl MultiWriter {
+impl<F: FileSystem> MultiWriter<F> {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
@@ -43,7 +41,6 @@ impl MultiWriter {
     pub fn new<P: AsRef<Path>>(
         id_generator: SequenceNumberCounter,
         folder: P,
-        fs: Arc<dyn FileSystem>,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -55,14 +52,12 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id, fs.clone())?,
+            active_writer: Writer::new::<_, F>(blob_file_path, blob_file_id)?,
 
             results: Vec::new(),
 
             compression: CompressionType::None,
             passthrough_compression: CompressionType::None,
-
-            fs,
         })
     }
 
@@ -109,22 +104,20 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.fs.clone())?
+        let new_writer = Writer::new::<_, F>(blob_file_path, new_blob_file_id)?
             .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
-        let blob_file =
-            Self::consume_writer(&self.fs, old_writer, self.passthrough_compression)?;
+        let blob_file = Self::consume_writer(old_writer, self.passthrough_compression)?;
         self.results.extend(blob_file);
 
         Ok(())
     }
 
     fn consume_writer(
-        fs: &Arc<dyn FileSystem>,
         writer: Writer,
         passthrough_compression: CompressionType,
-    ) -> crate::Result<Option<BlobFile>> {
+    ) -> crate::Result<Option<BlobFile<F>>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
             let path = writer.path.clone();
@@ -142,7 +135,7 @@ impl MultiWriter {
                 path,
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
-                fs: fs.clone(),
+                phantom: std::marker::PhantomData,
                 meta: Metadata {
                     id: blob_file_id,
                     created_at: crate::time::unix_timestamp().as_nanos(),
@@ -166,7 +159,7 @@ impl MultiWriter {
                 writer.path.display(),
             );
 
-            if let Err(e) = fs.remove_file(&writer.path) {
+            if let Err(e) = F::remove_file(&writer.path) {
                 log::warn!(
                     "Could not delete empty blob file at {}: {e:?}",
                     writer.path.display(),
@@ -218,9 +211,8 @@ impl MultiWriter {
         Ok(bytes_written)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
-        let blob_file =
-            Self::consume_writer(&self.fs, self.active_writer, self.passthrough_compression)?;
+    pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile<F>>> {
+        let blob_file = Self::consume_writer(self.active_writer, self.passthrough_compression)?;
         self.results.extend(blob_file);
         Ok(self.results)
     }

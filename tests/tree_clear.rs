@@ -8,7 +8,7 @@ fn tree_clear() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
     let visible_seqno = SequenceNumberCounter::default();
 
-    let tree = Config::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno.clone(), visible_seqno.clone()).open()?;
 
     assert_eq!(0, tree.len(visible_seqno.get(), None)?);
 

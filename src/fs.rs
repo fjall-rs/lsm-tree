@@ -10,27 +10,27 @@ use std::{
 };
 
 /// Filesystem abstraction for pluggable storage backends.
-pub trait FileSystem: Send + Sync {
+pub trait FileSystem: Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe {
     /// Opens an existing file for reading.
-    fn open(&self, path: &Path) -> io::Result<fs::File>;
+    fn open(path: &Path) -> io::Result<fs::File>;
     /// Creates or truncates a file for writing.
-    fn create(&self, path: &Path) -> io::Result<fs::File>;
+    fn create(path: &Path) -> io::Result<fs::File>;
     /// Creates a new file, failing if it already exists.
-    fn create_new(&self, path: &Path) -> io::Result<fs::File>;
+    fn create_new(path: &Path) -> io::Result<fs::File>;
     /// Reads a file into memory.
-    fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+    fn read(path: &Path) -> io::Result<Vec<u8>>;
     /// Reads a UTF-8 file into a string.
-    fn read_to_string(&self, path: &Path) -> io::Result<String>;
+    fn read_to_string(path: &Path) -> io::Result<String>;
     /// Lists directory entries.
-    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>>;
+    fn read_dir(path: &Path) -> io::Result<Vec<DirEntry>>;
     /// Creates a directory and all missing parents.
-    fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+    fn create_dir_all(path: &Path) -> io::Result<()>;
     /// Removes a file.
-    fn remove_file(&self, path: &Path) -> io::Result<()>;
+    fn remove_file(path: &Path) -> io::Result<()>;
     /// Removes a directory and all its contents.
-    fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
+    fn remove_dir_all(path: &Path) -> io::Result<()>;
     /// Checks whether a path exists.
-    fn exists(&self, path: &Path) -> io::Result<bool>;
+    fn exists(path: &Path) -> io::Result<bool>;
 }
 
 /// Lightweight directory entry used by [`FileSystem`].
@@ -66,27 +66,27 @@ impl DirEntry {
 pub struct StdFileSystem;
 
 impl FileSystem for StdFileSystem {
-    fn open(&self, path: &Path) -> io::Result<fs::File> {
+    fn open(path: &Path) -> io::Result<fs::File> {
         fs::File::open(path)
     }
 
-    fn create(&self, path: &Path) -> io::Result<fs::File> {
+    fn create(path: &Path) -> io::Result<fs::File> {
         fs::File::create(path)
     }
 
-    fn create_new(&self, path: &Path) -> io::Result<fs::File> {
+    fn create_new(path: &Path) -> io::Result<fs::File> {
         fs::File::create_new(path)
     }
 
-    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+    fn read(path: &Path) -> io::Result<Vec<u8>> {
         fs::read(path)
     }
 
-    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+    fn read_to_string(path: &Path) -> io::Result<String> {
         fs::read_to_string(path)
     }
 
-    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+    fn read_dir(path: &Path) -> io::Result<Vec<DirEntry>> {
         fs::read_dir(path)?
             .map(|entry| {
                 entry.and_then(|entry| {
@@ -102,19 +102,19 @@ impl FileSystem for StdFileSystem {
             .collect()
     }
 
-    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+    fn create_dir_all(path: &Path) -> io::Result<()> {
         fs::create_dir_all(path)
     }
 
-    fn remove_file(&self, path: &Path) -> io::Result<()> {
+    fn remove_file(path: &Path) -> io::Result<()> {
         fs::remove_file(path)
     }
 
-    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+    fn remove_dir_all(path: &Path) -> io::Result<()> {
         fs::remove_dir_all(path)
     }
 
-    fn exists(&self, path: &Path) -> io::Result<bool> {
+    fn exists(path: &Path) -> io::Result<bool> {
         path.try_exists()
     }
 }

@@ -3,17 +3,23 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Choice, CompactionStrategy, Input};
-use crate::{compaction::state::CompactionState, table::Table, version::Version, Config};
+use crate::{
+    compaction::state::CompactionState,
+    fs::FileSystem,
+    table::Table,
+    version::Version,
+    Config,
+};
 
 /// Moves down a level into the destination level.
 pub struct Strategy(pub u8, pub u8);
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         "MoveDownCompaction"
     }
 
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, _: &Config<F>, state: &CompactionState) -> Choice {
         if version.level_is_busy(usize::from(self.0), state.hidden_set()) {
             return Choice::DoNothing;
         }
