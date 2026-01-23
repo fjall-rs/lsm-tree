@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::table::{IndexBlock, KeyedBlockHandle};
-use crate::{fs::{FileSystem, StdFileSystem}, SeqNo};
+use crate::{
+    fs::{FileSystem, StdFileSystem},
+    SeqNo,
+};
 use crate::{
     table::{
         block::BlockType,

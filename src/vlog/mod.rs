@@ -11,8 +11,7 @@ pub use {
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
-pub type BlobFileMergeScanner<F = crate::fs::StdFileSystem> =
-    blob_file::merge::MergeScanner<F>;
+pub type BlobFileMergeScanner<F = crate::fs::StdFileSystem> = blob_file::merge::MergeScanner<F>;
 
 use crate::{
     fs::FileSystem,
@@ -59,10 +58,7 @@ pub fn recover_blob_files<F: FileSystem>(
         }
 
         let blob_file_name = file_name.to_str().ok_or_else(|| {
-            log::error!(
-                "invalid table file name {}",
-                file_name.to_string_lossy()
-            );
+            log::error!("invalid table file name {}", file_name.to_string_lossy());
             crate::Error::Unrecoverable
         })?;
 

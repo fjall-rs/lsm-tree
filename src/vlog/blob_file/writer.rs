@@ -4,9 +4,11 @@
 
 use super::meta::Metadata;
 use crate::{
-    checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
+    checksum::ChecksummedWriter,
     fs::{FileLike, FileSystem},
-    KeyRange, SeqNo, UserKey,
+    time::unix_timestamp,
+    vlog::BlobFileId,
+    Checksum, CompressionType, KeyRange, SeqNo, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
@@ -50,10 +52,7 @@ impl<F: FileSystem> Writer<F> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(
-        path: P,
-        blob_file_id: BlobFileId,
-    ) -> crate::Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
         let path = path.as_ref();
 
         let writer = BufWriter::new(F::create(path)?);

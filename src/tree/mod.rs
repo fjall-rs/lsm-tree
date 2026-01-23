@@ -430,9 +430,7 @@ impl<F: FileSystem + 'static> AbstractTree<F> for Tree<F> {
             &self.config.visible_seqno,
         )?;
 
-        if let Err(e) =
-            version_lock.maintenance::<F>(&self.config.path, gc_watermark)
-        {
+        if let Err(e) = version_lock.maintenance::<F>(&self.config.path, gc_watermark) {
             log::warn!("Version GC failed: {e:?}");
         }
 
@@ -1069,10 +1067,7 @@ impl<F: FileSystem> Tree<F> {
             }
 
             let table_file_name = file_name.to_str().ok_or_else(|| {
-                log::error!(
-                    "invalid table file name {}",
-                    file_name.to_string_lossy()
-                );
+                log::error!("invalid table file name {}", file_name.to_string_lossy());
                 crate::Error::Unrecoverable
             })?;
 

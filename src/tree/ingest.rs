@@ -4,8 +4,10 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry, fs::{FileSystem, StdFileSystem},
-    table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey, UserValue,
+    config::FilterPolicyEntry,
+    fs::{FileSystem, StdFileSystem},
+    table::multi_writer::MultiWriter,
+    BlobIndirection, SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
 

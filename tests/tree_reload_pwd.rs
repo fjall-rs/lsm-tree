@@ -11,8 +11,12 @@ fn tree_reload_pwd() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree =
-            Config::<lsm_tree::fs::StdFileSystem>::new(&folder_old, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+            &folder_old,
+            seqno.clone(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();

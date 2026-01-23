@@ -149,7 +149,8 @@ fn test_with_table(
     crate::fs::StdFileSystem::remove_file(&file)?;
 
     {
-        let mut writer = Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?.use_partitioned_index();
+        let mut writer =
+            Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);

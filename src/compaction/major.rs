@@ -4,12 +4,8 @@
 
 use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
-    compaction::state::CompactionState,
-    config::Config,
-    fs::FileSystem,
-    table::Table,
-    version::Version,
-    HashSet,
+    compaction::state::CompactionState, config::Config, fs::FileSystem, table::Table,
+    version::Version, HashSet,
 };
 
 /// Compacts all tables into the last level

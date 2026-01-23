@@ -76,11 +76,8 @@ type TreeIterJoinedCell<'a, F> =
 
 // NOTE: We avoid `self_cell!` here because it doesn't support a generic `F`.
 pub struct TreeIter<F: FileSystem + 'static> {
-    unsafe_self_cell: self_cell::unsafe_self_cell::UnsafeSelfCell<
-        TreeIter<F>,
-        IterState<F>,
-        BoxedMerge<'static>,
-    >,
+    unsafe_self_cell:
+        self_cell::unsafe_self_cell::UnsafeSelfCell<TreeIter<F>, IterState<F>, BoxedMerge<'static>>,
 }
 
 impl<F: FileSystem + 'static> TreeIter<F> {

@@ -209,7 +209,12 @@ fn tree_reload() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+            &folder,
+            seqno.clone(),
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -242,7 +247,12 @@ fn tree_reload() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(&folder, seqno, SequenceNumberCounter::default()).open()?;
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+            &folder,
+            seqno,
+            SequenceNumberCounter::default(),
+        )
+        .open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, ITEM_COUNT * 2);
         assert_eq!(

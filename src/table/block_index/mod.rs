@@ -12,7 +12,10 @@ pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
 use super::KeyedBlockHandle;
-use crate::{fs::{FileSystem, StdFileSystem}, SeqNo};
+use crate::{
+    fs::{FileSystem, StdFileSystem},
+    SeqNo,
+};
 
 pub trait BlockIndex<F: FileSystem> {
     fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl<F>>;

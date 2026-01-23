@@ -110,12 +110,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer =
-            crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
-                id_generator,
-                folder.path(),
-            )?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+        )?
+        .use_target_size(u64::MAX);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
@@ -142,13 +141,12 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer =
-            crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
-                id_generator,
-                folder.path(),
-            )?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;

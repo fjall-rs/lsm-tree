@@ -124,7 +124,8 @@ impl<F: FileSystem> Table<F> {
             };
 
             // Read the exact region using pread-style helper
-            let buf = crate::file::read_exact(fd.as_ref(), *handle.offset(), handle.size() as usize)?;
+            let buf =
+                crate::file::read_exact(fd.as_ref(), *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {

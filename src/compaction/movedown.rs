@@ -4,11 +4,7 @@
 
 use super::{Choice, CompactionStrategy, Input};
 use crate::{
-    compaction::state::CompactionState,
-    fs::FileSystem,
-    table::Table,
-    version::Version,
-    Config,
+    compaction::state::CompactionState, fs::FileSystem, table::Table, version::Version, Config,
 };
 
 /// Moves down a level into the destination level.

@@ -3,11 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    fs::FileSystem,
-    iter_guard::IterGuardImpl,
-    table::Table,
-    version::Version,
-    vlog::BlobFile,
+    fs::FileSystem, iter_guard::IterGuardImpl, table::Table, version::Version, vlog::BlobFile,
     AnyTree, BlobTree, Config, Guard, InternalValue, KvPair, Memtable, SeqNo, TableId, Tree,
     UserKey, UserValue,
 };
@@ -48,9 +44,7 @@ pub trait AbstractTree<F: FileSystem + 'static> {
     fn current_version(&self) -> Version<F>;
 
     #[doc(hidden)]
-    fn get_version_history_lock(
-        &self,
-    ) -> RwLockWriteGuard<'_, crate::version::SuperVersions<F>>;
+    fn get_version_history_lock(&self) -> RwLockWriteGuard<'_, crate::version::SuperVersions<F>>;
 
     /// Seals the active memtable and flushes to table(s).
     ///

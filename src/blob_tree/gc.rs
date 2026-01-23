@@ -4,9 +4,7 @@
 
 use crate::{
     blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::ExpiredKvCallback,
-    fs::FileSystem,
-    version::BlobFileList,
-    vlog::BlobFileId,
+    fs::FileSystem, version::BlobFileList, vlog::BlobFileId,
 };
 
 /// Tracks fragmentation information in a blob file

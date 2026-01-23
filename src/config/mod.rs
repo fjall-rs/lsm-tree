@@ -21,8 +21,9 @@ pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     fs::{FileSystem, StdFileSystem},
-    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, SequenceNumberCounter, Tree,
+    path::absolute_path,
+    version::DEFAULT_LEVEL_COUNT,
+    AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     marker::PhantomData,
@@ -457,7 +458,6 @@ impl<F: FileSystem> Config<F> {
         self.kv_separation_opts = opts;
         self
     }
-
 }
 
 impl<F: FileSystem + 'static> Config<F> {

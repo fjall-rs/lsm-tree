@@ -4,9 +4,12 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
+    blob_tree::handle::BlobIndirection,
     fs::{FileSystem, StdFileSystem},
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    table::writer::LinkedFile,
+    value::InternalValue,
+    vlog::BlobFileId,
+    Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -49,7 +52,6 @@ pub struct MultiWriter<F: FileSystem = StdFileSystem> {
 
     /// Level the tables are written to
     initial_level: u8,
-
 }
 
 impl<F: FileSystem> MultiWriter<F> {

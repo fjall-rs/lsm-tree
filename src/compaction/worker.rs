@@ -134,7 +134,10 @@ pub fn do_compaction<F: FileSystem>(opts: &Options<F>) -> crate::Result<()> {
     }
 }
 
-fn pick_run_indexes<F: FileSystem>(run: &Run<Table<F>>, to_compact: &[TableId]) -> Option<(usize, usize)> {
+fn pick_run_indexes<F: FileSystem>(
+    run: &Run<Table<F>>,
+    to_compact: &[TableId],
+) -> Option<(usize, usize)> {
     let lo = run
         .iter()
         .position(|table| to_compact.contains(&table.id()))?;
@@ -218,8 +221,7 @@ fn move_tables<F: FileSystem>(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) =
-        version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
+    if let Err(e) = version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
     {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);
@@ -580,8 +582,7 @@ fn drop_tables<F: FileSystem>(
         &opts.visible_seqno,
     )?;
 
-    if let Err(e) =
-        version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
+    if let Err(e) = version_history_lock.maintenance::<F>(&opts.config.path, opts.mvcc_gc_watermark)
     {
         log::error!("Manifest maintenance failed: {e:?}");
         return Err(e);

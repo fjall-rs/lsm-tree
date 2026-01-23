@@ -18,12 +18,12 @@ pub use offset::BlockOffset;
 pub use r#type::BlockType;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
+use crate::fs::FileLike;
 use crate::{
     coding::{Decode, Encode},
     table::BlockHandle,
     Checksum, CompressionType, Slice,
 };
-use crate::fs::FileLike;
 
 /// A block on disk
 ///

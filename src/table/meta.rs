@@ -3,12 +3,12 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
+use crate::fs::FileLike;
 use crate::{
     checksum::ChecksumType, coding::Decode, table::block::BlockType, CompressionType, KeyRange,
     SeqNo, TableId,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use crate::fs::FileLike;
 use std::ops::Deref;
 
 /// Nanosecond timestamp.

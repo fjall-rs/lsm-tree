@@ -29,10 +29,8 @@ impl Scanner<crate::fs::StdFileSystem> {
     /// Will return `Err` if an IO error occurs.
     #[allow(dead_code)]
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
-        let file_reader = BufReader::with_capacity(
-            32_000,
-            crate::fs::StdFileSystem::open(path.as_ref())?,
-        );
+        let file_reader =
+            BufReader::with_capacity(32_000, crate::fs::StdFileSystem::open(path.as_ref())?);
         Ok(Self::with_reader(blob_file_id, file_reader))
     }
 }
@@ -151,8 +149,7 @@ mod tests {
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer =
-                BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0)?;
+            let mut writer = BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;

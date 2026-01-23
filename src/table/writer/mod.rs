@@ -97,11 +97,7 @@ pub struct Writer<F: FileSystem = StdFileSystem> {
 }
 
 impl<F: FileSystem> Writer<F> {
-    pub fn new(
-        path: PathBuf,
-        table_id: TableId,
-        initial_level: u8,
-    ) -> crate::Result<Self> {
+    pub fn new(path: PathBuf, table_id: TableId, initial_level: u8) -> crate::Result<Self> {
         let writer = BufWriter::with_capacity(u16::MAX.into(), F::create_new(&path)?);
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);

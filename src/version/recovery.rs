@@ -3,15 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    coding::Decode, file::CURRENT_VERSION_FILE, version::VersionId, vlog::BlobFileId, Checksum,
-    fs::FileSystem, SeqNo, TableId, TreeType,
+    coding::Decode, file::CURRENT_VERSION_FILE, fs::FileSystem, version::VersionId,
+    vlog::BlobFileId, Checksum, SeqNo, TableId, TreeType,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::path::Path;
 
-pub fn get_current_version<F: FileSystem>(
-    folder: &std::path::Path,
-) -> crate::Result<VersionId> {
+pub fn get_current_version<F: FileSystem>(folder: &std::path::Path) -> crate::Result<VersionId> {
     use byteorder::{LittleEndian, ReadBytesExt};
 
     F::open(&folder.join(CURRENT_VERSION_FILE))

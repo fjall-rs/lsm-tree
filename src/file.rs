@@ -2,7 +2,10 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{fs::{FileLike, FileSystem}, Slice};
+use crate::{
+    fs::{FileLike, FileSystem},
+    Slice,
+};
 use std::{io::Write, path::Path};
 
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];

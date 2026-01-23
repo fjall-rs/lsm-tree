@@ -9,7 +9,12 @@ fn tree_major_compaction() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        path,
+        seqno.clone(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
 
     tree.insert("a".as_bytes(), "abc", seqno.next());
     tree.insert("b".as_bytes(), "abc", seqno.next());

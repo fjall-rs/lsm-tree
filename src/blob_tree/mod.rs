@@ -229,15 +229,13 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
 
         Box::new(
             crate::Tree::<F>::create_internal_range(super_version.clone(), &range, seqno, index)
-                .map(
-                move |kv| {
+                .map(move |kv| {
                     IterGuardImpl::<F>::Blob(Guard {
                         tree: tree.clone(),
                         version: super_version.version.clone(),
                         kv,
                     })
-                },
-            ),
+                }),
         )
     }
 
@@ -252,15 +250,13 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
 
         Box::new(
             crate::Tree::<F>::create_internal_range(super_version.clone(), &range, seqno, index)
-                .map(
-                move |kv| {
+                .map(move |kv| {
                     IterGuardImpl::<F>::Blob(Guard {
                         tree: tree.clone(),
                         version: super_version.version.clone(),
                         kv,
                     })
-                },
-            ),
+                }),
         )
     }
 
