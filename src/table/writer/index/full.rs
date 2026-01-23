@@ -10,7 +10,7 @@ use crate::{
     },
     CompressionType,
 };
-use std::{fs::File, io::BufWriter};
+use std::io::BufWriter;
 
 pub struct FullIndexWriter {
     compression: CompressionType,
@@ -54,7 +54,7 @@ impl<W: std::io::Write + std::io::Seek> BlockIndexWriter<W> for FullIndexWriter 
 
     fn finish(
         self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<W>>>,
     ) -> crate::Result<usize> {
         file_writer.start("tli")?;
 

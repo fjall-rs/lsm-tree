@@ -17,7 +17,7 @@ pub struct RunScanner<F: FileSystem = StdFileSystem> {
     tables: Arc<Run<Table<F>>>,
     lo: usize,
     hi: usize,
-    lo_reader: Option<Scanner>,
+    lo_reader: Option<Scanner<F>>,
 }
 
 impl<F: FileSystem> RunScanner<F> {

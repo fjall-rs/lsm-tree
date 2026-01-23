@@ -21,7 +21,7 @@ pub struct MultiWriter<F: FileSystem = StdFileSystem> {
     folder: PathBuf,
     target_size: u64,
 
-    active_writer: Writer,
+    active_writer: Writer<F>,
 
     results: Vec<BlobFile<F>>,
 
@@ -52,7 +52,7 @@ impl<F: FileSystem> MultiWriter<F> {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new::<_, F>(blob_file_path, blob_file_id)?,
+            active_writer: Writer::<F>::new(blob_file_path, blob_file_id)?,
 
             results: Vec::new(),
 
@@ -104,7 +104,7 @@ impl<F: FileSystem> MultiWriter<F> {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new::<_, F>(blob_file_path, new_blob_file_id)?
+        let new_writer = Writer::<F>::new(blob_file_path, new_blob_file_id)?
             .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
@@ -115,7 +115,7 @@ impl<F: FileSystem> MultiWriter<F> {
     }
 
     fn consume_writer(
-        writer: Writer,
+        writer: Writer<F>,
         passthrough_compression: CompressionType,
     ) -> crate::Result<Option<BlobFile<F>>> {
         if writer.item_count > 0 {

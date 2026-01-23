@@ -24,7 +24,7 @@ use crate::Metrics;
 pub struct VolatileBlockIndex<F: FileSystem = StdFileSystem> {
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) descriptor_table: Arc<DescriptorTable>,
+    pub(crate) descriptor_table: Arc<DescriptorTable<F>>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
@@ -50,7 +50,7 @@ pub struct Iter<F: FileSystem = StdFileSystem> {
     inner: Option<OwnedIndexBlockIter>,
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    descriptor_table: Arc<DescriptorTable>,
+    descriptor_table: Arc<DescriptorTable<F>>,
     cache: Arc<Cache>,
     handle: BlockHandle,
     compression: CompressionType,

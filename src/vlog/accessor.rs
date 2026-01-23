@@ -8,7 +8,7 @@ use crate::{
     vlog::{blob_file::reader::Reader, ValueHandle},
     Cache, DescriptorTable, GlobalTableId, TreeId, UserValue,
 };
-use std::{fs::File, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 pub struct Accessor<'a, F: FileSystem = StdFileSystem>(&'a BlobFileList<F>);
 
@@ -24,7 +24,7 @@ impl<'a, F: FileSystem> Accessor<'a, F> {
         key: &[u8],
         vhandle: &ValueHandle,
         cache: &Cache,
-        descriptor_table: &DescriptorTable,
+        descriptor_table: &DescriptorTable<F>,
     ) -> crate::Result<Option<UserValue>> {
         if let Some(value) = cache.get_blob(tree_id, vhandle) {
             return Ok(Some(value));
@@ -42,9 +42,7 @@ impl<'a, F: FileSystem> Accessor<'a, F> {
         let file = if let Some(fd) = cached_fd {
             fd
         } else {
-            Arc::new(File::open(
-                base_path.join(vhandle.blob_file_id.to_string()),
-            )?)
+            Arc::new(F::open(&base_path.join(vhandle.blob_file_id.to_string()))?)
         };
 
         let value = Reader::new(blob_file, &file).get(key, vhandle)?;

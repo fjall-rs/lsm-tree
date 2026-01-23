@@ -2,8 +2,8 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{fs::FileSystem, Slice};
-use std::{fs::File, io::Write, path::Path};
+use crate::{fs::{FileLike, FileSystem}, Slice};
+use std::{io::Write, path::Path};
 
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
@@ -12,7 +12,7 @@ pub const BLOBS_FOLDER: &str = "blobs";
 pub const CURRENT_VERSION_FILE: &str = "current";
 
 /// Reads bytes from a file using `pread`.
-pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slice> {
+pub fn read_exact(file: &impl FileLike, offset: u64, size: usize) -> std::io::Result<Slice> {
     // SAFETY: This slice builder starts uninitialized, but we know its length
     //
     // We use read_at/seek_read which give us the number of bytes read
@@ -27,30 +27,15 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     {
         let bytes_read: usize;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-
-            bytes_read = file.read_at(&mut builder, offset)?;
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::FileExt;
-
-            bytes_read = file.seek_read(&mut builder, offset)?;
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            compile_error!("unsupported platform");
-            unimplemented!();
-        }
+        bytes_read = file.read_at(&mut builder, offset)?;
 
         if bytes_read != size {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                format!("read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}", file.metadata()?.len()),
+                format!(
+                    "read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}",
+                    file.metadata()?.len(),
+                ),
             ));
         }
     }

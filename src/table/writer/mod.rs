@@ -14,7 +14,7 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
-    fs::{FileSystem, StdFileSystem},
+    fs::{FileLike, FileSystem, StdFileSystem},
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -27,7 +27,7 @@ use crate::{
     Checksum, CompressionType, InternalValue, TableId, UserKey, ValueType,
 };
 use index::BlockIndexWriter;
-use std::{fs::File, io::BufWriter, marker::PhantomData, path::PathBuf};
+use std::{io::BufWriter, marker::PhantomData, path::PathBuf};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, std::hash::Hash)]
 pub struct LinkedFile {
@@ -65,15 +65,15 @@ pub struct Writer<F: FileSystem = StdFileSystem> {
 
     /// File writer
     #[expect(clippy::struct_field_names)]
-    file_writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    file_writer: sfa::Writer<ChecksummedWriter<BufWriter<F::File>>>,
 
     /// Writer of index blocks
     #[expect(clippy::struct_field_names)]
-    index_writer: Box<dyn BlockIndexWriter<BufWriter<File>>>,
+    index_writer: Box<dyn BlockIndexWriter<F::File>>,
 
     /// Writer of filter
     #[expect(clippy::struct_field_names)]
-    filter_writer: Box<dyn FilterWriter<BufWriter<File>>>,
+    filter_writer: Box<dyn FilterWriter<F::File>>,
 
     /// Buffer of KVs
     chunk: Vec<InternalValue>,

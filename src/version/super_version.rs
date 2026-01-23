@@ -12,7 +12,6 @@ use crate::{
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
 /// A super version is a point-in-time snapshot of memtables and a [`Version`] (list of disk files)
-#[derive(Clone)]
 pub struct SuperVersion<F: FileSystem = crate::fs::StdFileSystem> {
     /// Active memtable that is being written to
     #[doc(hidden)]
@@ -25,6 +24,17 @@ pub struct SuperVersion<F: FileSystem = crate::fs::StdFileSystem> {
     pub(crate) version: Version<F>,
 
     pub(crate) seqno: SeqNo,
+}
+
+impl<F: FileSystem> Clone for SuperVersion<F> {
+    fn clone(&self) -> Self {
+        Self {
+            active_memtable: self.active_memtable.clone(),
+            sealed_memtables: self.sealed_memtables.clone(),
+            version: self.version.clone(),
+            seqno: self.seqno,
+        }
+    }
 }
 
 pub struct SuperVersions<F: FileSystem = crate::fs::StdFileSystem>(VecDeque<SuperVersion<F>>);

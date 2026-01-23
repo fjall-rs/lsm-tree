@@ -135,7 +135,7 @@ pub(super) trait CompactionFlavour<F: FileSystem> {
 /// Compaction worker that will relocate blobs that sit in blob files that are being rewritten
 pub struct RelocatingCompaction<F: FileSystem = StdFileSystem> {
     inner: StandardCompaction<F>,
-    blob_scanner: Peekable<BlobFileMergeScanner>,
+    blob_scanner: Peekable<BlobFileMergeScanner<F>>,
     blob_writer: BlobFileWriter<F>,
     rewriting_blob_file_ids: HashSet<BlobFileId>,
     rewriting_blob_files: Vec<BlobFile<F>>,
@@ -144,7 +144,7 @@ pub struct RelocatingCompaction<F: FileSystem = StdFileSystem> {
 impl<F: FileSystem> RelocatingCompaction<F> {
     pub fn new(
         inner: StandardCompaction<F>,
-        blob_scanner: Peekable<BlobFileMergeScanner>,
+        blob_scanner: Peekable<BlobFileMergeScanner<F>>,
         blob_writer: BlobFileWriter<F>,
         rewriting_blob_files: Vec<BlobFile<F>>,
     ) -> Self {

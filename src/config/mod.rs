@@ -172,7 +172,7 @@ pub struct Config<F: FileSystem = StdFileSystem> {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable<F>>,
 
     /// Number of levels of the LSM tree (depth of tree)
     ///
@@ -327,7 +327,7 @@ impl<F: FileSystem> Config<F> {
 
     #[must_use]
     #[doc(hidden)]
-    pub fn use_descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
+    pub fn use_descriptor_table(mut self, descriptor_table: Arc<DescriptorTable<F>>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

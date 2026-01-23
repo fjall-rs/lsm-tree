@@ -3,7 +3,10 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::scanner::Scanner as BlobFileScanner;
-use crate::vlog::{blob_file::scanner::ScanEntry, BlobFileId};
+use crate::{
+    fs::FileSystem,
+    vlog::{blob_file::scanner::ScanEntry, BlobFileId},
+};
 use interval_heap::IntervalHeap;
 use std::cmp::Reverse;
 
@@ -37,14 +40,14 @@ impl Ord for IteratorValue {
 }
 
 /// Interleaves multiple blob file readers into a single, sorted stream
-pub struct MergeScanner {
-    readers: Vec<BlobFileScanner>,
+pub struct MergeScanner<F: FileSystem = crate::fs::StdFileSystem> {
+    readers: Vec<BlobFileScanner<F>>,
     heap: IntervalHeap<IteratorValue>,
 }
 
-impl MergeScanner {
+impl<F: FileSystem> MergeScanner<F> {
     /// Initializes a new merging reader
-    pub fn new(readers: Vec<BlobFileScanner>) -> Self {
+    pub fn new(readers: Vec<BlobFileScanner<F>>) -> Self {
         let heap = IntervalHeap::with_capacity(readers.len());
         Self { readers, heap }
     }
@@ -76,7 +79,7 @@ impl MergeScanner {
     }
 }
 
-impl Iterator for MergeScanner {
+impl<F: FileSystem> Iterator for MergeScanner<F> {
     type Item = crate::Result<(ScanEntry, BlobFileId)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -109,10 +112,8 @@ mod tests {
         let blob_file_path = dir.path().join("0");
         {
             {
-                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
-                    &blob_file_path,
-                    0,
-                )?;
+                let mut writer =
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0)?;
 
                 writer.write(b"a", 1, &b"1".repeat(100))?;
                 writer.write(b"a", 0, &b"0".repeat(100))?;
@@ -156,10 +157,8 @@ mod tests {
             let keys = [b"a", b"c", b"e"];
 
             {
-                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
-                    &blob_file_0_path,
-                    0,
-                )?;
+                let mut writer =
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_0_path, 0)?;
 
                 for key in keys {
                     writer.write(key, 0, &key.repeat(100))?;
@@ -173,10 +172,8 @@ mod tests {
             let keys = [b"b", b"d"];
 
             {
-                let mut writer = BlobFileWriter::new::<_, crate::fs::StdFileSystem>(
-                    &blob_file_1_path,
-                    1,
-                )?;
+                let mut writer =
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_1_path, 1)?;
 
                 for key in keys {
                     writer.write(key, 1, &key.repeat(100))?;

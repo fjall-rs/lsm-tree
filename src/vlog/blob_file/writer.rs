@@ -5,11 +5,11 @@
 use super::meta::Metadata;
 use crate::{
     checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
-    fs::FileSystem, KeyRange, SeqNo, UserKey,
+    fs::{FileLike, FileSystem},
+    KeyRange, SeqNo, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
-    fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -24,12 +24,12 @@ pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
     + std::mem::size_of::<u32>(); // On-disk value length
 
 /// Blob file writer
-pub struct Writer {
+pub struct Writer<F: FileSystem = crate::fs::StdFileSystem> {
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
     #[expect(clippy::struct_field_names)]
-    writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    writer: sfa::Writer<ChecksummedWriter<BufWriter<F::File>>>,
 
     offset: u64,
 
@@ -43,14 +43,14 @@ pub struct Writer {
     pub(crate) compression: CompressionType,
 }
 
-impl Writer {
+impl<F: FileSystem> Writer<F> {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>, F: FileSystem>(
+    pub fn new<P: AsRef<Path>>(
         path: P,
         blob_file_id: BlobFileId,
     ) -> crate::Result<Self> {

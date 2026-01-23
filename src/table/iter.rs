@@ -100,7 +100,7 @@ pub struct Iter<F: FileSystem = StdFileSystem> {
     #[expect(clippy::struct_field_names)]
     index_iter: BlockIndexIterImpl<F>,
 
-    descriptor_table: Arc<DescriptorTable>,
+    descriptor_table: Arc<DescriptorTable<F>>,
     cache: Arc<Cache>,
     compression: CompressionType,
 
@@ -124,7 +124,7 @@ impl<F: FileSystem> Iter<F> {
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
         index_iter: BlockIndexIterImpl<F>,
-        descriptor_table: Arc<DescriptorTable>,
+        descriptor_table: Arc<DescriptorTable<F>>,
         cache: Arc<Cache>,
         compression: CompressionType,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,

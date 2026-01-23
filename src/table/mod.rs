@@ -30,7 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
-    fs::{FileSystem, StdFileSystem},
+    fs::{FileLike, FileSystem, StdFileSystem},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -45,7 +45,6 @@ use inner::Inner;
 use iter::Iter;
 use std::{
     borrow::Cow,
-    fs::File,
     ops::{Bound, RangeBounds},
     path::PathBuf,
     sync::Arc,
@@ -66,8 +65,13 @@ pub type TableInner<F> = Inner<F>;
 ///
 /// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
-#[derive(Clone)]
 pub struct Table<F: FileSystem = StdFileSystem>(Arc<Inner<F>>);
+
+impl<F: FileSystem> Clone for Table<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<F: FileSystem> std::ops::Deref for Table<F> {
     type Target = Inner<F>;
@@ -120,7 +124,7 @@ impl<F: FileSystem> Table<F> {
             };
 
             // Read the exact region using pread-style helper
-            let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
+            let buf = crate::file::read_exact(fd.as_ref(), *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
@@ -334,7 +338,7 @@ impl<F: FileSystem> Table<F> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn scan(&self) -> crate::Result<Scanner> {
+    pub fn scan(&self) -> crate::Result<Scanner<F>> {
         #[expect(
             clippy::expect_used,
             reason = "there shouldn't be 4 billion data blocks in a single table"
@@ -345,7 +349,7 @@ impl<F: FileSystem> Table<F> {
             .try_into()
             .expect("data block count should fit");
 
-        Scanner::new_with_fs::<F>(
+        Scanner::<F>::new_with_fs(
             &self.path,
             block_count,
             self.metadata.data_block_compression,
@@ -406,7 +410,7 @@ impl<F: FileSystem> Table<F> {
 
     fn read_tli(
         regions: &ParsedRegions,
-        file: &File,
+        file: &impl FileLike,
         compression: CompressionType,
     ) -> crate::Result<IndexBlock> {
         log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
@@ -435,7 +439,7 @@ impl<F: FileSystem> Table<F> {
         global_seqno: SeqNo,
         tree_id: TreeId,
         cache: Arc<Cache>,
-        descriptor_table: Arc<DescriptorTable>,
+        descriptor_table: Arc<DescriptorTable<F>>,
         pin_filter: bool,
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,

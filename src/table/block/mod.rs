@@ -23,7 +23,7 @@ use crate::{
     table::BlockHandle,
     Checksum, CompressionType, Slice,
 };
-use std::fs::File;
+use crate::fs::FileLike;
 
 /// A block on disk
 ///
@@ -129,7 +129,7 @@ impl Block {
 
     /// Reads a block from a file.
     pub fn from_file(
-        file: &File,
+        file: &impl FileLike,
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {

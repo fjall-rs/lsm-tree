@@ -24,7 +24,7 @@ pub struct TwoLevelBlockIndex<F: FileSystem = StdFileSystem> {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) descriptor_table: Arc<DescriptorTable>,
+    pub(crate) descriptor_table: Arc<DescriptorTable<F>>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
     pub(crate) phantom: PhantomData<F>,
@@ -67,7 +67,7 @@ pub struct Iter<F: FileSystem = StdFileSystem> {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    descriptor_table: Arc<DescriptorTable>,
+    descriptor_table: Arc<DescriptorTable<F>>,
     cache: Arc<Cache>,
     compression: CompressionType,
     phantom: PhantomData<F>,

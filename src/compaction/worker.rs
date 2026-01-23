@@ -420,10 +420,10 @@ fn merge_tables<F: FileSystem>(
                         .collect::<Vec<_>>(),
                 );
 
-                let scanner = BlobFileMergeScanner::new(
+                let scanner = BlobFileMergeScanner::<F>::new(
                     blob_files_to_rewrite
                         .iter()
-                        .map(|bf| BlobFileScanner::new(&bf.0.path, bf.id()))
+                        .map(|bf| BlobFileScanner::<F>::new_with_fs(&bf.0.path, bf.id()))
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 

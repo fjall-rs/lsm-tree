@@ -4,19 +4,53 @@
 
 use std::{
     ffi::{OsStr, OsString},
-    fs,
     io,
+    io::{Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
+/// Minimal metadata needed by the storage layer.
+#[derive(Clone, Copy, Debug)]
+pub struct Metadata {
+    len: u64,
+    is_dir: bool,
+}
+
+impl Metadata {
+    /// Returns the file length in bytes.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// Returns whether this entry is a directory.
+    #[must_use]
+    pub fn is_dir(&self) -> bool {
+        self.is_dir
+    }
+}
+
+/// File abstraction for pluggable storage backends.
+pub trait FileLike: Read + Write + Seek + Send + Sync {
+    /// Reads bytes at a given offset without changing the current cursor.
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize>;
+    /// Flushes file contents to durable storage.
+    fn sync_all(&self) -> io::Result<()>;
+    /// Retrieves minimal file metadata.
+    fn metadata(&self) -> io::Result<Metadata>;
+}
+
 /// Filesystem abstraction for pluggable storage backends.
 pub trait FileSystem: Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe {
+    /// File handle type for this filesystem.
+    type File: FileLike;
+
     /// Opens an existing file for reading.
-    fn open(path: &Path) -> io::Result<fs::File>;
+    fn open(path: &Path) -> io::Result<Self::File>;
     /// Creates or truncates a file for writing.
-    fn create(path: &Path) -> io::Result<fs::File>;
+    fn create(path: &Path) -> io::Result<Self::File>;
     /// Creates a new file, failing if it already exists.
-    fn create_new(path: &Path) -> io::Result<fs::File>;
+    fn create_new(path: &Path) -> io::Result<Self::File>;
     /// Reads a file into memory.
     fn read(path: &Path) -> io::Result<Vec<u8>>;
     /// Reads a UTF-8 file into a string.
@@ -66,28 +100,30 @@ impl DirEntry {
 pub struct StdFileSystem;
 
 impl FileSystem for StdFileSystem {
-    fn open(path: &Path) -> io::Result<fs::File> {
-        fs::File::open(path)
+    type File = std::fs::File;
+
+    fn open(path: &Path) -> io::Result<Self::File> {
+        Self::File::open(path)
     }
 
-    fn create(path: &Path) -> io::Result<fs::File> {
-        fs::File::create(path)
+    fn create(path: &Path) -> io::Result<Self::File> {
+        Self::File::create(path)
     }
 
-    fn create_new(path: &Path) -> io::Result<fs::File> {
-        fs::File::create_new(path)
+    fn create_new(path: &Path) -> io::Result<Self::File> {
+        Self::File::create_new(path)
     }
 
     fn read(path: &Path) -> io::Result<Vec<u8>> {
-        fs::read(path)
+        std::fs::read(path)
     }
 
     fn read_to_string(path: &Path) -> io::Result<String> {
-        fs::read_to_string(path)
+        std::fs::read_to_string(path)
     }
 
     fn read_dir(path: &Path) -> io::Result<Vec<DirEntry>> {
-        fs::read_dir(path)?
+        std::fs::read_dir(path)?
             .map(|entry| {
                 entry.and_then(|entry| {
                     let file_name = entry.file_name();
@@ -103,18 +139,52 @@ impl FileSystem for StdFileSystem {
     }
 
     fn create_dir_all(path: &Path) -> io::Result<()> {
-        fs::create_dir_all(path)
+        std::fs::create_dir_all(path)
     }
 
     fn remove_file(path: &Path) -> io::Result<()> {
-        fs::remove_file(path)
+        std::fs::remove_file(path)
     }
 
     fn remove_dir_all(path: &Path) -> io::Result<()> {
-        fs::remove_dir_all(path)
+        std::fs::remove_dir_all(path)
     }
 
     fn exists(path: &Path) -> io::Result<bool> {
         path.try_exists()
+    }
+}
+
+impl FileLike for std::fs::File {
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileExt;
+            FileExt::read_at(self, buf, offset)
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileExt;
+            self.seek_read(buf, offset)
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            compile_error!("unsupported platform");
+            unimplemented!();
+        }
+    }
+
+    fn sync_all(&self) -> io::Result<()> {
+        std::fs::File::sync_all(self)
+    }
+
+    fn metadata(&self) -> io::Result<Metadata> {
+        let metadata = std::fs::File::metadata(self)?;
+        Ok(Metadata {
+            len: metadata.len(),
+            is_dir: metadata.is_dir(),
+        })
     }
 }

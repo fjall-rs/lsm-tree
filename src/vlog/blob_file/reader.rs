@@ -11,19 +11,16 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::{
-    fs::File,
-    io::{Cursor, Read, Seek},
-};
+use std::io::{Cursor, Read, Seek};
 
 /// Reads a single blob from a blob file
 pub struct Reader<'a, F: FileSystem = StdFileSystem> {
     blob_file: &'a BlobFile<F>,
-    file: &'a File,
+    file: &'a F::File,
 }
 
 impl<'a, F: FileSystem> Reader<'a, F> {
-    pub fn new(blob_file: &'a BlobFile<F>, file: &'a File) -> Self {
+    pub fn new(blob_file: &'a BlobFile<F>, file: &'a F::File) -> Self {
         Self { blob_file, file }
     }
 
@@ -131,7 +128,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
@@ -172,7 +169,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");

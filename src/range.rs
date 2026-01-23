@@ -13,7 +13,6 @@ use crate::{
     version::SuperVersion,
     BoxedIterator, InternalValue,
 };
-use self_cell::self_cell;
 use std::{
     ops::{Bound, RangeBounds},
     sync::Arc,
@@ -72,14 +71,38 @@ pub struct IterState<F: FileSystem = crate::fs::StdFileSystem> {
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
-self_cell!(
-    pub struct TreeIter<F: FileSystem + 'static> {
-        owner: IterState<F>,
+type TreeIterJoinedCell<'a, F> =
+    self_cell::unsafe_self_cell::JoinedCell<IterState<F>, BoxedMerge<'a>>;
 
-        #[covariant]
-        dependent: BoxedMerge,
+// NOTE: We avoid `self_cell!` here because it doesn't support a generic `F`.
+pub struct TreeIter<F: FileSystem + 'static> {
+    unsafe_self_cell: self_cell::unsafe_self_cell::UnsafeSelfCell<
+        TreeIter<F>,
+        IterState<F>,
+        BoxedMerge<'static>,
+    >,
+}
+
+impl<F: FileSystem + 'static> TreeIter<F> {
+    pub fn new(
+        owner: IterState<F>,
+        dependent_builder: impl for<'a> FnOnce(&'a IterState<F>) -> BoxedMerge<'a>,
+    ) -> Self {
+        // SAFETY: `self_cell` guarantees the dependent doesn't outlive `owner`.
+        unsafe {
+            self_cell::_self_cell_new_body!(TreeIterJoinedCell<'_, F>, owner, dependent_builder)
+        }
     }
-);
+
+    fn with_dependent_mut<Output>(
+        &mut self,
+        func: impl for<'a> FnOnce(&'a IterState<F>, &'a mut BoxedMerge<'a>) -> Output,
+    ) -> Output {
+        // SAFETY: `borrow_mut` enforces exclusive access to owner + dependent.
+        let (owner, dependent) = unsafe { self.unsafe_self_cell.borrow_mut() };
+        func(owner, dependent)
+    }
+}
 
 impl<F: FileSystem + 'static> Iterator for TreeIter<F> {
     type Item = crate::Result<InternalValue>;

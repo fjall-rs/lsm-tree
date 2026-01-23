@@ -25,7 +25,7 @@ pub struct Inner<F: FileSystem = StdFileSystem> {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub descriptor_table: Arc<DescriptorTable<F>>,
 
     /// Parsed metadata
     #[doc(hidden)]

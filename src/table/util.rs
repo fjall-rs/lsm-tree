@@ -32,7 +32,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 pub fn load_block<F: FileSystem>(
     table_id: GlobalTableId,
     path: &Path,
-    descriptor_table: &DescriptorTable,
+    descriptor_table: &DescriptorTable<F>,
     cache: &Cache,
     handle: &BlockHandle,
     block_type: BlockType,
@@ -79,7 +79,7 @@ pub fn load_block<F: FileSystem>(
         Arc::new(fd)
     };
 
-    let block = Block::from_file(&fd, *handle, compression)?;
+    let block = Block::from_file(fd.as_ref(), *handle, compression)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((

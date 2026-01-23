@@ -7,10 +7,12 @@ pub mod blob_file;
 mod handle;
 
 pub use {
-    accessor::Accessor, blob_file::merge::MergeScanner as BlobFileMergeScanner,
-    blob_file::multi_writer::MultiWriter as BlobFileWriter,
+    accessor::Accessor, blob_file::multi_writer::MultiWriter as BlobFileWriter,
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
+
+pub type BlobFileMergeScanner<F = crate::fs::StdFileSystem> =
+    blob_file::merge::MergeScanner<F>;
 
 use crate::{
     fs::FileSystem,
