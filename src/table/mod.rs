@@ -120,7 +120,7 @@ impl<F: FileSystem> Table<F> {
             let fd = if let Some(fd) = cached_fd {
                 fd
             } else {
-                Arc::new(F::open(&*self.path)?)
+                Arc::new(F::open(&self.path)?)
             };
 
             // Read the exact region using pread-style helper

@@ -119,6 +119,7 @@ pub struct Iter<F: FileSystem = StdFileSystem> {
 }
 
 impl<F: FileSystem> Iter<F> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         table_id: GlobalTableId,
         global_seqno: SeqNo,

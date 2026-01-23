@@ -61,7 +61,7 @@ impl<F: FileSystem> Drop for Inner<F> {
                 self.path.display(),
             );
 
-            if let Err(e) = F::remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&self.path) {
                 log::warn!(
                     "Failed to cleanup deleted blob file {:?} at {}: {e:?}",
                     self.id,

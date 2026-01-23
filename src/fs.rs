@@ -23,6 +23,12 @@ impl Metadata {
         self.len
     }
 
+    /// Returns whether this entry has zero length.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Returns whether this entry is a directory.
     #[must_use]
     pub fn is_dir(&self) -> bool {

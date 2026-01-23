@@ -37,7 +37,7 @@ fn pick_minimal_compaction<F: FileSystem>(
             return true;
         };
 
-        let key_range = aggregate_run_key_range(*window);
+        let key_range = aggregate_run_key_range(window);
 
         next_run.get_overlapping(&key_range).is_empty()
     }) {

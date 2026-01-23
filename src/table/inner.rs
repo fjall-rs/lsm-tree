@@ -75,7 +75,7 @@ impl<F: FileSystem> Drop for Inner<F> {
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
 
-            if let Err(e) = F::remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&self.path) {
                 log::warn!(
                     "Failed to cleanup deleted table {global_id:?} at {:?}: {e:?}",
                     self.path,
