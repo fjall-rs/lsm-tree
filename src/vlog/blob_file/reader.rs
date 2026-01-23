@@ -32,7 +32,13 @@ impl<'a, F: FileSystem> Reader<'a, F> {
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "blob sizes fit into usize on supported platforms"
+            )]
+            {
+                (u64::from(vhandle.on_disk_size) + add_size) as usize
+            },
         )?;
 
         let mut reader = Cursor::new(&value[..]);
@@ -56,7 +62,15 @@ impl<'a, F: FileSystem> Reader<'a, F> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
-        let raw_data = value.slice((add_size as usize)..);
+        let raw_data = value.slice(
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "blob sizes fit into usize on supported platforms"
+            )]
+            {
+                (add_size as usize)..
+            },
+        );
 
         {
             let checksum = {
@@ -84,7 +98,7 @@ impl<'a, F: FileSystem> Reader<'a, F> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)

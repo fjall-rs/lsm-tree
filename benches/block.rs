@@ -1,15 +1,13 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
-    coding::Encode,
     table::{
-        block::{header::Header as BlockHeader, offset::BlockOffset, ItemSize},
-        meta::CompressionType,
-        value_block::ValueBlock,
+        block::{decoder::ParsedItem, BlockType, Header},
+        Block, BlockHandle, BlockOffset, DataBlock,
     },
-    Checksum, InternalValue,
+    CompressionType, InternalValue, SeqNo, ValueType,
 };
 use rand::Rng;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 
 /* fn value_block_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("ValueBlock::size");
@@ -46,7 +44,7 @@ use std::io::Write;
 } */
 
 fn value_block_find(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ValueBlock::find_latest");
+    let mut group = c.benchmark_group("DataBlock::point_read");
 
     for item_count in [10, 100, 1_000, 10_000] {
         let mut items = vec![];
@@ -56,33 +54,35 @@ fn value_block_find(c: &mut Criterion) {
                 item.to_be_bytes(),
                 b"",
                 0,
-                lsm_tree::ValueType::Value,
+                ValueType::Value,
             ));
         }
 
-        let block = ValueBlock {
-            items: items.into_boxed_slice(),
-            header: BlockHeader {
-                compression: CompressionType::Lz4,
-                checksum: Checksum::from_raw(0),
-                data_length: 0,
-                previous_block_offset: BlockOffset(0),
-                uncompressed_length: 0,
+        let data = DataBlock::encode_into_vec(&items, 16, 0.0).unwrap();
+        let data_len = data.len();
+        let block = DataBlock::new(Block {
+            header: Header {
+                block_type: BlockType::Data,
+                checksum: lsm_tree::Checksum::from_raw(0),
+                data_length: data_len as u32,
+                uncompressed_length: data_len as u32,
             },
-        };
+            data: data.into(),
+        });
 
         let mut rng = rand::rng();
 
-        group.bench_function(format!("{item_count} items (linear)"), |b| {
+        group.bench_function(format!("{item_count} items (linear scan)"), |b| {
             b.iter(|| {
                 let needle = rng.random_range(0..item_count).to_be_bytes();
 
                 let item = block
-                    .items
                     .iter()
-                    .find(|item| &*item.key.user_key == needle)
-                    .cloned()
-                    .unwrap();
+                    .find(|item| {
+                        item.compare_key(&needle, block.as_slice()) == std::cmp::Ordering::Equal
+                    })
+                    .unwrap()
+                    .materialize(block.as_slice());
 
                 assert_eq!(item.key.user_key, needle);
             })
@@ -92,7 +92,7 @@ fn value_block_find(c: &mut Criterion) {
             b.iter(|| {
                 let needle = rng.random_range(0..item_count).to_be_bytes();
 
-                let item = block.get_latest(&needle).unwrap();
+                let item = block.point_read(&needle, SeqNo::MAX).unwrap();
                 assert_eq!(item.key.user_key, needle);
             })
         });
@@ -115,10 +115,10 @@ fn encode_block(c: &mut Criterion) {
                     x.to_be_bytes(),
                     x.to_string().repeat(50).as_bytes(),
                     63,
-                    lsm_tree::ValueType::Value,
+                    ValueType::Value,
                 );
 
-                size += value.size();
+                size += value.key.user_key.len() + value.value.len();
 
                 items.push(value);
 
@@ -127,11 +127,18 @@ fn encode_block(c: &mut Criterion) {
                 }
             }
 
+            let data = DataBlock::encode_into_vec(&items, 16, 0.0).unwrap();
+
             group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
                 b.iter(|| {
-                    // Serialize block
-                    let (mut header, data) =
-                        ValueBlock::to_bytes_compressed(&items, BlockOffset(0), comp_type).unwrap();
+                    let mut buf = Vec::new();
+                    let _header = Block::write_into(
+                        &mut buf,
+                        &data,
+                        BlockType::Data,
+                        comp_type,
+                    )
+                    .unwrap();
                 });
             });
         }
@@ -154,10 +161,10 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                     x.to_be_bytes(),
                     x.to_string().repeat(50).as_bytes(),
                     63,
-                    lsm_tree::ValueType::Value,
+                    ValueType::Value,
                 );
 
-                size += value.size();
+                size += value.key.user_key.len() + value.value.len();
 
                 items.push(value);
 
@@ -166,25 +173,30 @@ fn load_value_block_from_disk(c: &mut Criterion) {
                 }
             }
 
-            // Serialize block
-            let (mut header, data) =
-                ValueBlock::to_bytes_compressed(&items, BlockOffset(0), comp_type).unwrap();
+            let data = DataBlock::encode_into_vec(&items, 16, 0.0).unwrap();
+            let mut buf = Vec::new();
+            let header = Block::write_into(&mut buf, &data, BlockType::Data, comp_type).unwrap();
 
             let mut file = tempfile::tempfile().unwrap();
-            header.encode_into(&mut file).unwrap();
-            file.write_all(&data).unwrap();
+            file.write_all(&buf).unwrap();
+            file.seek(SeekFrom::Start(0)).unwrap();
 
-            let expected_block = ValueBlock {
-                items: items.clone().into_boxed_slice(),
+            let handle = BlockHandle::new(BlockOffset(0), buf.len() as u32);
+            let expected_block = DataBlock::new(Block {
                 header,
-            };
+                data: data.into(),
+            });
 
             group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
                 b.iter(|| {
-                    let loaded_block = ValueBlock::from_file(&mut file, BlockOffset(0)).unwrap();
+                    let loaded_block =
+                        DataBlock::new(Block::from_file(&file, handle, comp_type).unwrap());
 
-                    assert_eq!(loaded_block.items.len(), expected_block.items.len());
-                    assert_eq!(loaded_block.header.checksum, expected_block.header.checksum);
+                    assert_eq!(loaded_block.len(), expected_block.len());
+                    assert_eq!(
+                        loaded_block.inner.header.checksum,
+                        expected_block.inner.header.checksum
+                    );
                 });
             });
         }

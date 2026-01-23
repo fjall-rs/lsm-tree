@@ -429,7 +429,7 @@ impl<F: FileSystem> Table<F> {
     }
 
     /// Tries to recover a table from a file.
-    #[warn(
+    #[allow(
         clippy::too_many_arguments,
         clippy::too_many_lines,
         reason = "TODO: refactor"

@@ -88,7 +88,13 @@ pub fn recover_blob_files<F: FileSystem>(
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),
-                    metadata_section.len() as usize,
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "metadata section sizes fit into usize on supported platforms"
+                    )]
+                    {
+                        metadata_section.len() as usize
+                    },
                 )?;
 
                 Metadata::from_slice(&metadata_slice)?

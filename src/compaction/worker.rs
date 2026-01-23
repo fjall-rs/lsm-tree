@@ -227,6 +227,8 @@ fn move_tables<F: FileSystem>(
         return Err(e);
     }
 
+    drop(version_history_lock);
+
     Ok(())
 }
 

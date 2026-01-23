@@ -992,6 +992,7 @@ impl<F: FileSystem> Tree<F> {
     }
 
     /// Recovers the level manifest, loading all tables from disk.
+    #[allow(clippy::too_many_lines)]
     fn recover_levels<P: AsRef<Path>>(
         tree_path: P,
         tree_id: TreeId,

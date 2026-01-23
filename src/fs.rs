@@ -37,6 +37,7 @@ impl Metadata {
 }
 
 /// File abstraction for pluggable storage backends.
+#[allow(clippy::missing_errors_doc)]
 pub trait FileLike: Read + Write + Seek + Send + Sync {
     /// Reads bytes at a given offset without changing the current cursor.
     fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize>;
@@ -47,6 +48,7 @@ pub trait FileLike: Read + Write + Seek + Send + Sync {
 }
 
 /// Filesystem abstraction for pluggable storage backends.
+#[allow(clippy::missing_errors_doc)]
 pub trait FileSystem: Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe {
     /// File handle type for this filesystem.
     type File: FileLike;
@@ -161,6 +163,7 @@ impl FileSystem for StdFileSystem {
     }
 }
 
+#[allow(clippy::use_self)]
 impl FileLike for std::fs::File {
     fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
         #[cfg(unix)]

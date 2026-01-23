@@ -339,6 +339,7 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
         self.index.get_flush_lock()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,

@@ -3,10 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::binary_index::Reader as BinaryIndexReader;
-use crate::{
-    table::{block::Trailer, Block},
-    unwrap, SeqNo, Slice,
-};
+use crate::{table::{block::Trailer, Block}, SeqNo, Slice};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{io::Cursor, marker::PhantomData};
 

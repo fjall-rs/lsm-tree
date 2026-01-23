@@ -1,6 +1,24 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::binary_search::partition_point;
 use rand::Rng;
+
+fn partition_point<T, F>(slice: &[T], mut pred: F) -> usize
+where
+    F: FnMut(&T) -> bool,
+{
+    let mut left = 0;
+    let mut right = slice.len();
+
+    while left < right {
+        let mid = left + (right - left) / 2;
+        if pred(&slice[mid]) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+
+    left
+}
 
 fn bench_partition_point(c: &mut Criterion) {
     let mut group = c.benchmark_group("partition_point");

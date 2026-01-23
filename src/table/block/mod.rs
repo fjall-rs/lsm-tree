@@ -106,7 +106,7 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
@@ -167,7 +167,7 @@ impl Block {
                 #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 

@@ -1214,7 +1214,7 @@ fn table_partitioned_index() -> crate::Result<()> {
         true,
         true,
         #[cfg(feature = "metrics")]
-        Default::default(),
+        Arc::default(),
     )
     .unwrap();
 
@@ -1324,7 +1324,7 @@ fn table_global_seqno() -> crate::Result<()> {
         true,
         true,
         #[cfg(feature = "metrics")]
-        Default::default(),
+        Arc::default(),
     )
     .unwrap();
 

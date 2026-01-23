@@ -75,6 +75,7 @@ type TreeIterJoinedCell<'a, F> =
     self_cell::unsafe_self_cell::JoinedCell<IterState<F>, BoxedMerge<'a>>;
 
 // NOTE: We avoid `self_cell!` here because it doesn't support a generic `F`.
+#[allow(clippy::use_self)]
 pub struct TreeIter<F: FileSystem + 'static> {
     unsafe_self_cell:
         self_cell::unsafe_self_cell::UnsafeSelfCell<TreeIter<F>, IterState<F>, BoxedMerge<'static>>,

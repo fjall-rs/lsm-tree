@@ -28,7 +28,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Loads a block from disk or block cache, if cached.
 ///
 /// Also handles file descriptor opening and caching.
-#[warn(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn load_block<F: FileSystem>(
     table_id: GlobalTableId,
     path: &Path,
@@ -56,7 +56,6 @@ pub fn load_block<F: FileSystem>(
             BlockType::Data | BlockType::Meta => {
                 metrics.data_block_load_cached.fetch_add(1, Relaxed);
             }
-            _ => {}
         }
 
         return Ok(block);
@@ -111,7 +110,6 @@ pub fn load_block<F: FileSystem>(
                 .data_block_io_requested
                 .fetch_add(handle.size().into(), Relaxed);
         }
-        _ => {}
     }
 
     // Cache FD
