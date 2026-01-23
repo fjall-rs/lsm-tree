@@ -78,13 +78,8 @@ impl<T: Ranged> GenericLevel<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct Level<F: FileSystem = StdFileSystem>(Arc<GenericLevel<Table<F>>>);
-
-impl<F: FileSystem> Clone for Level<F> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl<F: FileSystem> std::ops::Deref for Level<F> {
     type Target = GenericLevel<Table<F>>;
@@ -169,16 +164,9 @@ pub struct VersionInner<F: FileSystem = StdFileSystem> {
 /// A version is an immutable, point-in-time view of a tree's structure
 ///
 /// Any time a table is created or deleted, a new version is created.
+#[derive(Clone)]
 pub struct Version<F: FileSystem = StdFileSystem> {
     inner: Arc<VersionInner<F>>,
-}
-
-impl<F: FileSystem> Clone for Version<F> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
 }
 
 impl<F: FileSystem> std::ops::Deref for Version<F> {

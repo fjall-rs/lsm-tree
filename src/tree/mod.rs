@@ -73,13 +73,8 @@ fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
 }
 
 /// A log-structured merge tree (LSM-tree/LSMT)
+#[derive(Clone)]
 pub struct Tree<F: FileSystem = StdFileSystem>(#[doc(hidden)] pub Arc<TreeInner<F>>);
-
-impl<F: FileSystem> Clone for Tree<F> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl<F: FileSystem> std::ops::Deref for Tree<F> {
     type Target = TreeInner<F>;

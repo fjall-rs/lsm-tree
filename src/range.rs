@@ -13,6 +13,7 @@ use crate::{
     version::SuperVersion,
     BoxedIterator, InternalValue,
 };
+use self_cell::self_cell;
 use std::{
     ops::{Bound, RangeBounds},
     sync::Arc,
@@ -71,39 +72,14 @@ pub struct IterState<F: FileSystem = crate::fs::StdFileSystem> {
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
-type TreeIterJoinedCell<'a, F> =
-    self_cell::unsafe_self_cell::JoinedCell<IterState<F>, BoxedMerge<'a>>;
-
-pub struct TreeIter<F: FileSystem + 'static> {
-    unsafe_self_cell: self_cell::unsafe_self_cell::UnsafeSelfCell<
-        TreeIter<F>,
-        IterState<F>,
-        BoxedMerge<'static>,
-    >,
-}
-
-impl<F: FileSystem + 'static> TreeIter<F> {
-    pub fn new(
+self_cell!(
+    pub struct TreeIter<F: FileSystem + 'static> {
         owner: IterState<F>,
-        dependent_builder: impl for<'a> FnOnce(&'a IterState<F>) -> BoxedMerge<'a>,
-    ) -> Self {
-        unsafe {
-            self_cell::_self_cell_new_body!(
-                TreeIterJoinedCell<'_, F>,
-                owner,
-                dependent_builder
-            )
-        }
-    }
 
-    fn with_dependent_mut<Output>(
-        &mut self,
-        func: impl for<'a> FnOnce(&'a IterState<F>, &'a mut BoxedMerge<'a>) -> Output,
-    ) -> Output {
-        let (owner, dependent) = unsafe { self.unsafe_self_cell.borrow_mut() };
-        func(owner, dependent)
+        #[covariant]
+        dependent: BoxedMerge,
     }
-}
+);
 
 impl<F: FileSystem + 'static> Iterator for TreeIter<F> {
     type Item = crate::Result<InternalValue>;
@@ -116,14 +92,6 @@ impl<F: FileSystem + 'static> Iterator for TreeIter<F> {
 impl<F: FileSystem + 'static> DoubleEndedIterator for TreeIter<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next_back())
-    }
-}
-
-impl<F: FileSystem + 'static> Drop for TreeIter<F> {
-    fn drop(&mut self) {
-        unsafe {
-            self.unsafe_self_cell.drop_joined::<BoxedMerge<'_>>();
-        }
     }
 }
 

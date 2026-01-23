@@ -131,21 +131,13 @@ fn resolve_value_handle<F: FileSystem>(
 /// This tree is a composite structure, consisting of an
 /// index tree (LSM-tree) and a log-structured value log
 /// to reduce write amplification.
+#[derive(Clone)]
 pub struct BlobTree<F: FileSystem = StdFileSystem> {
     /// Index tree that holds value handles or small inline values
     #[doc(hidden)]
     pub index: crate::Tree<F>,
 
     blobs_folder: Arc<PathBuf>,
-}
-
-impl<F: FileSystem> Clone for BlobTree<F> {
-    fn clone(&self) -> Self {
-        Self {
-            index: self.index.clone(),
-            blobs_folder: self.blobs_folder.clone(),
-        }
-    }
 }
 
 impl<F: FileSystem + 'static> BlobTree<F> {

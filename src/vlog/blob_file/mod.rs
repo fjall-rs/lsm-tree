@@ -73,13 +73,8 @@ impl<F: FileSystem> Drop for Inner<F> {
 }
 
 /// A blob file stores large values and is part of the value log
+#[derive(Clone)]
 pub struct BlobFile<F: FileSystem = StdFileSystem>(pub(crate) Arc<Inner<F>>);
-
-impl<F: FileSystem> Clone for BlobFile<F> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl<F: FileSystem> Eq for BlobFile<F> {}
 

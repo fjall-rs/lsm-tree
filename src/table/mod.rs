@@ -66,13 +66,8 @@ pub type TableInner<F> = Inner<F>;
 ///
 /// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
+#[derive(Clone)]
 pub struct Table<F: FileSystem = StdFileSystem>(Arc<Inner<F>>);
-
-impl<F: FileSystem> Clone for Table<F> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl<F: FileSystem> std::ops::Deref for Table<F> {
     type Target = Inner<F>;

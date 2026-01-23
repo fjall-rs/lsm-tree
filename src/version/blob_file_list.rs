@@ -5,13 +5,8 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub struct BlobFileList<F: FileSystem = StdFileSystem>(BTreeMap<BlobFileId, BlobFile<F>>);
-
-impl<F: FileSystem> Clone for BlobFileList<F> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl<F: FileSystem> Default for BlobFileList<F> {
     fn default() -> Self {
