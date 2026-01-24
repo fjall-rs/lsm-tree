@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use lsm_tree::{
     config::{BlockSizePolicy, KvSeparationOptions},
-    AbstractTree, Cache, Config, Guard, SequenceNumberCounter, SeqNo,
+    AbstractTree, Cache, Config, Guard, SeqNo, SequenceNumberCounter,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -21,9 +21,9 @@ fn full_scan(c: &mut Criterion) {
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
-                .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-                .open()
-                .unwrap();
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             for x in 0_u32..item_count {
                 let key = x.to_be_bytes();
@@ -46,9 +46,9 @@ fn full_scan(c: &mut Criterion) {
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
-                .use_cache(Arc::new(Cache::with_capacity_bytes(100_000_000)))
-                .open()
-                .unwrap();
+            .use_cache(Arc::new(Cache::with_capacity_bytes(100_000_000)))
+            .open()
+            .unwrap();
 
             for x in 0_u32..item_count {
                 let key = x.to_be_bytes();
@@ -79,9 +79,9 @@ fn scan_vs_query(c: &mut Criterion) {
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
-            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-            .open()
-            .unwrap();
+        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
 
         for x in 0..size as u64 {
             let key = x.to_be_bytes().to_vec();
@@ -149,9 +149,9 @@ fn scan_vs_prefix(c: &mut Criterion) {
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
-            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-            .open()
-            .unwrap();
+        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+        .open()
+        .unwrap();
 
         for _ in 0..size {
             let key = nanoid::nanoid!();
@@ -208,10 +208,10 @@ fn tree_get_pairs(c: &mut Criterion) {
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
-                .data_block_size_policy(BlockSizePolicy::all(1_024))
-                .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-                .open()
-                .unwrap();
+            .data_block_size_policy(BlockSizePolicy::all(1_024))
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             let mut x = 0_u64;
 
@@ -250,10 +250,10 @@ fn tree_get_pairs(c: &mut Criterion) {
                 SequenceNumberCounter::default(),
                 SequenceNumberCounter::default(),
             )
-                .data_block_size_policy(BlockSizePolicy::all(1_024))
-                .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-                .open()
-                .unwrap();
+            .data_block_size_policy(BlockSizePolicy::all(1_024))
+            .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+            .open()
+            .unwrap();
 
             let mut x = 0_u64;
 
@@ -297,10 +297,10 @@ fn disk_point_read(c: &mut Criterion) {
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-        .open()
-        .unwrap();
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .open()
+    .unwrap();
 
     for seqno in 0..5 {
         tree.insert("a", "b", seqno);
@@ -337,10 +337,10 @@ fn disjoint_tree_minmax(c: &mut Criterion) {
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
-        .data_block_size_policy(BlockSizePolicy::all(1_024))
-        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-        .open()
-        .unwrap();
+    .data_block_size_policy(BlockSizePolicy::all(1_024))
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .open()
+    .unwrap();
 
     tree.insert("a", "a", 0);
     tree.flush_active_memtable(0).unwrap();
@@ -400,10 +400,10 @@ fn blob_tree_get(c: &mut Criterion) {
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
     )
-        .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
-        .with_kv_separation(Some(KvSeparationOptions::default()))
-        .open()
-        .unwrap();
+    .use_cache(Arc::new(Cache::with_capacity_bytes(0)))
+    .with_kv_separation(Some(KvSeparationOptions::default()))
+    .open()
+    .unwrap();
 
     let value = b"powek5bowa".repeat(100);
 

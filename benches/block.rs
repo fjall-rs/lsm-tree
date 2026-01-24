@@ -132,13 +132,8 @@ fn encode_block(c: &mut Criterion) {
             group.bench_function(format!("{block_size} KiB [{comp_type}]"), |b| {
                 b.iter(|| {
                     let mut buf = Vec::new();
-                    let _header = Block::write_into(
-                        &mut buf,
-                        &data,
-                        BlockType::Data,
-                        comp_type,
-                    )
-                    .unwrap();
+                    let _header =
+                        Block::write_into(&mut buf, &data, BlockType::Data, comp_type).unwrap();
                 });
             });
         }

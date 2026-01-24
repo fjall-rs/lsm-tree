@@ -68,12 +68,7 @@ fn find_segment(c: &mut Criterion) {
                     .flat_map(|run| run.iter())
                     .cloned()
                     .collect::<Vec<_>>();
-                tables.sort_by(|a, b| {
-                    a.metadata
-                        .key_range
-                        .min()
-                        .cmp(b.metadata.key_range.min())
-                });
+                tables.sort_by(|a, b| a.metadata.key_range.min().cmp(b.metadata.key_range.min()));
 
                 b.iter(|| {
                     let idx = tables.partition_point(|table| table.metadata.key_range.max() < &key);
@@ -96,12 +91,7 @@ fn find_segment(c: &mut Criterion) {
                     .flat_map(|run| run.iter())
                     .cloned()
                     .collect::<Vec<_>>();
-                tables.sort_by(|a, b| {
-                    a.metadata
-                        .key_range
-                        .min()
-                        .cmp(b.metadata.key_range.min())
-                });
+                tables.sort_by(|a, b| a.metadata.key_range.min().cmp(b.metadata.key_range.min()));
 
                 b.iter(|| {
                     tables

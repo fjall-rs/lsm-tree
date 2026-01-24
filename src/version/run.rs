@@ -139,10 +139,7 @@ impl<T: Ranged> Run<T> {
             // find last index where pred holds
             let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
 
-            #[expect(
-                clippy::expect_used,
-                reason = "indices are derived from slice bounds"
-            )]
+            #[expect(clippy::expect_used, reason = "indices are derived from slice bounds")]
             {
                 s.get(start..end).expect("should be in range")
             }
