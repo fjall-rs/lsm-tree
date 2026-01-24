@@ -65,8 +65,6 @@ macro_rules! unwrap {
     }};
 }
 
-pub(crate) use unwrap;
-
 mod any_tree;
 
 mod r#abstract;
@@ -97,6 +95,9 @@ mod error;
 
 #[doc(hidden)]
 pub mod file;
+
+/// Filesystem abstraction
+pub mod fs;
 
 mod hash;
 mod ingestion;
@@ -178,6 +179,7 @@ pub use {
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
+    fs::{FileSystem, StdFileSystem},
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},

@@ -9,7 +9,7 @@ fn blob_tree_major_compact_relink() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

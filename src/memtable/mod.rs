@@ -37,6 +37,12 @@ pub struct Memtable {
     pub(crate) requested_rotation: AtomicBool,
 }
 
+impl Default for Memtable {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl Memtable {
     /// Returns the memtable ID.
     pub fn id(&self) -> MemtableId {

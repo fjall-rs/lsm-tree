@@ -9,7 +9,7 @@ fn blob_tree_compression() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

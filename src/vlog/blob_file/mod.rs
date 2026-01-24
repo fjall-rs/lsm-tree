@@ -9,21 +9,27 @@ pub mod reader;
 pub mod scanner;
 pub mod writer;
 
-use crate::{blob_tree::FragmentationMap, vlog::BlobFileId, Checksum};
+use crate::{
+    blob_tree::FragmentationMap,
+    fs::{FileSystem, StdFileSystem},
+    vlog::BlobFileId,
+    Checksum,
+};
 pub use meta::Metadata;
 use std::{
+    marker::PhantomData,
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
 
 /// A blob file is an immutable, sorted, contiguous file that contains large key-value pairs (blobs)
-#[derive(Debug)]
-pub struct Inner {
+pub struct Inner<F: FileSystem = StdFileSystem> {
     /// Blob file ID
     pub id: BlobFileId,
 
     /// File path
     pub path: PathBuf,
+    pub(crate) phantom: PhantomData<F>,
 
     /// Statistics
     pub meta: Metadata,
@@ -34,7 +40,19 @@ pub struct Inner {
     pub checksum: Checksum,
 }
 
-impl Drop for Inner {
+impl<F: FileSystem> std::fmt::Debug for Inner<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("id", &self.id)
+            .field("path", &self.path)
+            .field("meta", &self.meta)
+            .field("is_deleted", &self.is_deleted)
+            .field("checksum", &self.checksum)
+            .finish()
+    }
+}
+
+impl<F: FileSystem> Drop for Inner<F> {
     fn drop(&mut self) {
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!(
@@ -43,7 +61,7 @@ impl Drop for Inner {
                 self.path.display(),
             );
 
-            if let Err(e) = std::fs::remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&self.path) {
                 log::warn!(
                     "Failed to cleanup deleted blob file {:?} at {}: {e:?}",
                     self.id,
@@ -55,24 +73,29 @@ impl Drop for Inner {
 }
 
 /// A blob file stores large values and is part of the value log
-#[derive(Clone)]
-pub struct BlobFile(pub(crate) Arc<Inner>);
+pub struct BlobFile<F: FileSystem = StdFileSystem>(pub(crate) Arc<Inner<F>>);
 
-impl Eq for BlobFile {}
+impl<F: FileSystem> Clone for BlobFile<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
-impl PartialEq for BlobFile {
+impl<F: FileSystem> Eq for BlobFile<F> {}
+
+impl<F: FileSystem> PartialEq for BlobFile<F> {
     fn eq(&self, other: &Self) -> bool {
         self.id().eq(&other.id())
     }
 }
 
-impl std::hash::Hash for BlobFile {
+impl<F: FileSystem> std::hash::Hash for BlobFile<F> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id().hash(state);
     }
 }
 
-impl BlobFile {
+impl<F: FileSystem> BlobFile<F> {
     pub(crate) fn mark_as_deleted(&self) {
         self.0
             .is_deleted

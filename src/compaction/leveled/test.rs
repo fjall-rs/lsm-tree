@@ -6,7 +6,7 @@ use test_log::test;
 #[test]
 fn leveled_empty_levels() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -23,7 +23,7 @@ fn leveled_empty_levels() -> crate::Result<()> {
 #[test]
 fn leveled_l0_below_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -49,7 +49,7 @@ fn leveled_l0_below_limit() -> crate::Result<()> {
 #[test]
 fn leveled_l0_reached_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -77,7 +77,7 @@ fn leveled_l0_reached_limit() -> crate::Result<()> {
 #[test]
 fn leveled_l0_reached_limit_disjoint() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -102,7 +102,7 @@ fn leveled_l0_reached_limit_disjoint() -> crate::Result<()> {
 #[test]
 fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -140,7 +140,7 @@ fn leveled_l0_reached_limit_disjoint_l1() -> crate::Result<()> {
 #[expect(clippy::unwrap_used)]
 fn leveled_sequential_inserts() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
-    let tree = Config::new(
+    let tree = Config::<crate::fs::StdFileSystem>::new(
         dir.path(),
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

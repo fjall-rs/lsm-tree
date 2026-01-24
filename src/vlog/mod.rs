@@ -7,12 +7,14 @@ pub mod blob_file;
 mod handle;
 
 pub use {
-    accessor::Accessor, blob_file::merge::MergeScanner as BlobFileMergeScanner,
-    blob_file::multi_writer::MultiWriter as BlobFileWriter,
+    accessor::Accessor, blob_file::multi_writer::MultiWriter as BlobFileWriter,
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
+pub type BlobFileMergeScanner<F = crate::fs::StdFileSystem> = blob_file::merge::MergeScanner<F>;
+
 use crate::{
+    fs::FileSystem,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
     Checksum,
 };
@@ -21,11 +23,11 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-pub fn recover_blob_files(
+pub fn recover_blob_files<F: FileSystem>(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
-) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
-    if !folder.try_exists()? {
+) -> crate::Result<(Vec<BlobFile<F>>, Vec<PathBuf>)> {
+    if !F::exists(folder)? {
         return Ok((vec![], vec![]));
     }
 
@@ -42,8 +44,7 @@ pub fn recover_blob_files(
     let mut blob_files = Vec::with_capacity(ids.len());
     let mut orphaned_blob_files = vec![];
 
-    for (idx, dirent) in std::fs::read_dir(folder)?.enumerate() {
-        let dirent = dirent?;
+    for (idx, dirent) in F::read_dir(folder)?.into_iter().enumerate() {
         let file_name = dirent.file_name();
 
         // https://en.wikipedia.org/wiki/.DS_Store
@@ -57,7 +58,7 @@ pub fn recover_blob_files(
         }
 
         let blob_file_name = file_name.to_str().ok_or_else(|| {
-            log::error!("invalid table file name {}", file_name.display());
+            log::error!("invalid table file name {}", file_name.to_string_lossy());
             crate::Error::Unrecoverable
         })?;
 
@@ -66,8 +67,8 @@ pub fn recover_blob_files(
             crate::Error::Unrecoverable
         })?;
 
-        let blob_file_path = dirent.path();
-        assert!(!blob_file_path.is_dir());
+        let blob_file_path = dirent.path().to_path_buf();
+        assert!(!dirent.is_dir());
 
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
             log::trace!("Recovering blob file #{blob_file_id:?}");
@@ -82,12 +83,18 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let file = std::fs::File::open(&blob_file_path)?;
+                let file = F::open(&blob_file_path)?;
 
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),
-                    metadata_section.len() as usize,
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "metadata section sizes fit into usize on supported platforms"
+                    )]
+                    {
+                        metadata_section.len() as usize
+                    },
                 )?;
 
                 Metadata::from_slice(&metadata_slice)?
@@ -96,6 +103,7 @@ pub fn recover_blob_files(
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,
                 path: blob_file_path,
+                phantom: std::marker::PhantomData,
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
@@ -129,7 +137,10 @@ mod tests {
     #[test]
     fn vlog_recovery_missing_blob_file() {
         assert!(matches!(
-            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))]),
+            recover_blob_files::<crate::fs::StdFileSystem>(
+                Path::new("."),
+                &[(0, Checksum::from_raw(0))]
+            ),
             Err(crate::Error::Unrecoverable),
         ));
     }

@@ -12,6 +12,7 @@ pub trait Ranged {
 /// Item inside a run
 ///
 /// May point to an interval [min, max] of tables in the next run.
+#[allow(dead_code)]
 pub struct Indexed<T: Ranged> {
     inner: T,
     // cascade_indexes: (u32, u32),
@@ -138,7 +139,10 @@ impl<T: Ranged> Run<T> {
             // find last index where pred holds
             let end = s.iter().rposition(&pred).map_or(start, |i| i + 1);
 
-            s.get(start..end).expect("should be in range")
+            #[expect(clippy::expect_used, reason = "indices are derived from slice bounds")]
+            {
+                s.get(start..end).expect("should be in range")
+            }
         }
 
         let range = key_range.min()..=key_range.max();

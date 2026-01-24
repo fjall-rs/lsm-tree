@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::{FileSystem, StdFileSystem},
     vlog::{
         blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
         ValueHandle,
@@ -10,19 +11,16 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::{
-    fs::File,
-    io::{Cursor, Read, Seek},
-};
+use std::io::{Cursor, Read, Seek};
 
 /// Reads a single blob from a blob file
-pub struct Reader<'a> {
-    blob_file: &'a BlobFile,
-    file: &'a File,
+pub struct Reader<'a, F: FileSystem = StdFileSystem> {
+    blob_file: &'a BlobFile<F>,
+    file: &'a F::File,
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(blob_file: &'a BlobFile, file: &'a File) -> Self {
+impl<'a, F: FileSystem> Reader<'a, F> {
+    pub fn new(blob_file: &'a BlobFile<F>, file: &'a F::File) -> Self {
         Self { blob_file, file }
     }
 
@@ -34,7 +32,13 @@ impl<'a> Reader<'a> {
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "blob sizes fit into usize on supported platforms"
+            )]
+            {
+                (u64::from(vhandle.on_disk_size) + add_size) as usize
+            },
         )?;
 
         let mut reader = Cursor::new(&value[..]);
@@ -58,7 +62,15 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
-        let raw_data = value.slice((add_size as usize)..);
+        let raw_data = value.slice(
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "blob sizes fit into usize on supported platforms"
+            )]
+            {
+                (add_size as usize)..
+            },
+        );
 
         {
             let checksum = {
@@ -86,7 +98,7 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)
@@ -112,8 +124,11 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path())?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+        )?
+        .use_target_size(u64::MAX);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
@@ -126,7 +141,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
@@ -140,9 +155,12 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path())?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
@@ -163,7 +181,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");

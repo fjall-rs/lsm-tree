@@ -6,7 +6,7 @@ use test_log::test;
 fn leveled_trivial_move_into_l1() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

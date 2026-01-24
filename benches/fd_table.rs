@@ -9,7 +9,8 @@ fn file_descriptor_table(c: &mut Criterion) {
     let mut group = c.benchmark_group("Get file descriptor");
 
     let id = (0, 523).into();
-    let descriptor_table = lsm_tree::descriptor_table::DescriptorTable::new(100);
+    let descriptor_table =
+        lsm_tree::descriptor_table::DescriptorTable::<lsm_tree::StdFileSystem>::new(100);
     descriptor_table.insert_for_table(id, Arc::new(file.into_file()));
 
     group.bench_function("descriptor table", |b: &mut criterion::Bencher<'_>| {
@@ -40,7 +41,9 @@ fn file_descriptor_table_threading(c: &mut Criterion) {
 
     for thread_count in [1, 2, 4, 8, 16] {
         let id = (0, 523).into();
-        let descriptor_table = Arc::new(lsm_tree::descriptor_table::DescriptorTable::new(100));
+        let descriptor_table = Arc::new(lsm_tree::descriptor_table::DescriptorTable::<
+            lsm_tree::StdFileSystem,
+        >::new(100));
         descriptor_table.insert_for_table(id, file.clone());
 
         group.bench_function(

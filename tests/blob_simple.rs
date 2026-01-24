@@ -10,7 +10,7 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -58,7 +58,7 @@ fn blob_tree_simple_flush_read() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = lsm_tree::Config::new(
+        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

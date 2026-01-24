@@ -9,7 +9,7 @@ fn tree_recovery_version_free_list() -> lsm_tree::Result<()> {
     let path = folder.path();
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -29,7 +29,7 @@ fn tree_recovery_version_free_list() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

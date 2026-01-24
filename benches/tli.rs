@@ -1,29 +1,37 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use lsm_tree::table::{
-    block::offset::BlockOffset, block_index::KeyedBlockIndex, value_block::CachePolicy,
+use lsm_tree::{
+    table::{
+        block::{decoder::ParsedItem, BlockType, Header},
+        Block, BlockHandle, BlockOffset, IndexBlock, KeyedBlockHandle,
+    },
+    Checksum,
 };
 use rand::Rng;
 
 fn tli_find_item(c: &mut Criterion) {
-    use lsm_tree::table::block_index::{block_handle::KeyedBlockHandle, top_level::TopLevelIndex};
-
     let mut group = c.benchmark_group("TLI find item");
 
     for item_count in [10u64, 100, 1_000, 10_000, 25_000, 100_000] {
-        let items = {
-            let mut items = Vec::with_capacity(item_count as usize);
+        let items = (0..item_count)
+            .map(|x| {
+                KeyedBlockHandle::new(
+                    x.to_be_bytes().into(),
+                    0,
+                    BlockHandle::new(BlockOffset(x), 0),
+                )
+            })
+            .collect::<Vec<_>>();
 
-            for x in 0..item_count {
-                items.push(KeyedBlockHandle {
-                    end_key: x.to_be_bytes().into(),
-                    offset: BlockOffset(x),
-                });
-            }
-
-            items
-        };
-
-        let index = TopLevelIndex::from_boxed_slice(items.into());
+        let bytes = IndexBlock::encode_into_vec(&items).unwrap();
+        let index = IndexBlock::new(Block {
+            data: bytes.into(),
+            header: Header {
+                block_type: BlockType::Index,
+                checksum: Checksum::from_raw(0),
+                data_length: 0,
+                uncompressed_length: 0,
+            },
+        });
 
         let mut rng = rand::rng();
 
@@ -33,14 +41,13 @@ fn tli_find_item(c: &mut Criterion) {
                 b.iter(|| {
                     let needle = rng.random_range(0..item_count).to_be_bytes();
 
-                    assert_eq!(
-                        needle,
-                        &*index
-                            .get_lowest_block_containing_key(&needle, CachePolicy::Read)
-                            .unwrap()
-                            .unwrap()
-                            .end_key,
-                    );
+                    let mut iter = index.iter();
+                    assert!(iter.seek(&needle, 0));
+                    let item = iter
+                        .next()
+                        .expect("should exist")
+                        .materialize(&index.inner.data);
+                    assert_eq!(&needle[..], item.end_key().as_ref());
                 })
             },
         );

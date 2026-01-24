@@ -10,7 +10,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -33,7 +33,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -45,7 +45,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -57,7 +57,7 @@ fn tree_block_size_after_recovery() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::new(
+        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
