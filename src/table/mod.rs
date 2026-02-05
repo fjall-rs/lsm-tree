@@ -445,14 +445,14 @@ impl Table {
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
 
+        log::debug!("Recovering table from file {}", file_path.display());
+        let mut file = std::fs::File::open(&file_path)?;
+        let file_path = Arc::new(file_path);
+
         #[cfg(feature = "metrics")]
         metrics
             .table_file_opened_uncached
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        log::debug!("Recovering table from file {}", file_path.display());
-        let mut file = std::fs::File::open(&file_path)?;
-        let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
