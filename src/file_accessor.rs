@@ -9,6 +9,7 @@ use std::{fs::File, sync::Arc};
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
+/// Allows accessing a file (either cached or pinned)
 #[derive(Clone)]
 pub enum FileAccessor {
     File(Arc<File>),
@@ -68,9 +69,9 @@ impl FileAccessor {
 impl std::fmt::Debug for FileAccessor {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::File(_) => write!(f, "FileAccessor::File(...)"),
+            Self::File(_) => write!(f, "FileAccessor::Pinned(...)"),
             Self::DescriptorTable(_) => {
-                write!(f, "FileAccessor::DescriptorTable(...)")
+                write!(f, "FileAccessor::Cached(...)")
             }
         }
     }
