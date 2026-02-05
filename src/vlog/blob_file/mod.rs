@@ -39,6 +39,7 @@ pub struct Inner {
     pub descriptor_table: Arc<DescriptorTable>,
 }
 
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for BlobFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BlobFile(#{})", self.id())
@@ -64,8 +65,6 @@ impl Drop for Inner {
 
             self.descriptor_table
                 .remove_for_blob_file(&GlobalTableId::from((self.tree_id, self.id)));
-
-            // TODO: delete blob file FD from descriptor cache... need Arc to descriptor cache in Inner
         }
     }
 }
