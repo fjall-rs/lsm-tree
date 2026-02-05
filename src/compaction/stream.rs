@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{InternalValue, SeqNo, UserKey, ValueType};
+use crate::{InternalValue, SeqNo, UserKey, UserValue, ValueType};
 use std::iter::Peekable;
 
 type Item = crate::Result<InternalValue>;
@@ -11,14 +11,35 @@ type Item = crate::Result<InternalValue>;
 ///
 /// Used for counting blobs that are not referenced anymore because of
 /// vHandles that are being dropped through compaction.
-pub trait ExpiredKvCallback {
-    fn on_expired(&mut self, kv: &InternalValue);
+pub trait DroppedKvCallback {
+    fn on_dropped(&mut self, kv: &InternalValue);
+}
+
+/// A callback for modifying KVs in the stream.
+pub trait StreamFilter {
+    /// Handle an item, possibly modifying it.
+    fn filter_item(
+        &mut self,
+        item: &InternalValue,
+    ) -> crate::Result<Option<(ValueType, UserValue)>>;
+}
+
+/// A [`StreamFilter`] that does not modify anything.
+pub struct NoFilter;
+
+impl StreamFilter for NoFilter {
+    fn filter_item(
+        &mut self,
+        _item: &InternalValue,
+    ) -> crate::Result<Option<(ValueType, UserValue)>> {
+        Ok(None)
+    }
 }
 
 /// Consumes a stream of KVs and emits a new stream according to GC and tombstone rules
 ///
 /// This iterator is used during flushing & compaction.
-pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
+pub struct CompactionStream<'a, I: Iterator<Item = Item>, F: StreamFilter = NoFilter> {
     /// KV stream
     inner: Peekable<I>,
 
@@ -26,14 +47,17 @@ pub struct CompactionStream<'a, I: Iterator<Item = Item>> {
     gc_seqno_threshold: SeqNo,
 
     /// Event emitter that receives all expired KVs
-    expiration_callback: Option<&'a mut dyn ExpiredKvCallback>,
+    dropped_callback: Option<&'a mut dyn DroppedKvCallback>,
+
+    /// Stream filter
+    filter: F,
 
     evict_tombstones: bool,
 
     zero_seqnos: bool,
 }
 
-impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
+impl<I: Iterator<Item = Item>> CompactionStream<'_, I, NoFilter> {
     /// Initializes a new merge iterator
     #[must_use]
     pub fn new(iter: I, gc_seqno_threshold: SeqNo) -> Self {
@@ -42,9 +66,24 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
         Self {
             inner: iter,
             gc_seqno_threshold,
-            expiration_callback: None,
+            dropped_callback: None,
+            filter: NoFilter,
             evict_tombstones: false,
             zero_seqnos: false,
+        }
+    }
+}
+
+impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I, F> {
+    /// Installs a filter into this stream
+    pub fn with_filter<NF: StreamFilter>(self, filter: NF) -> CompactionStream<'a, I, NF> {
+        CompactionStream {
+            inner: self.inner,
+            gc_seqno_threshold: self.gc_seqno_threshold,
+            dropped_callback: self.dropped_callback,
+            filter,
+            evict_tombstones: self.evict_tombstones,
+            zero_seqnos: self.zero_seqnos,
         }
     }
 
@@ -54,8 +93,8 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     }
 
     /// Installs a callback that receives all expired KVs.
-    pub fn with_expiration_callback(mut self, cb: &'a mut dyn ExpiredKvCallback) -> Self {
-        self.expiration_callback = Some(cb);
+    pub fn with_drop_callback(mut self, cb: &'a mut dyn DroppedKvCallback) -> Self {
+        self.dropped_callback = Some(cb);
         self
     }
 
@@ -75,8 +114,8 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
                     let expired = kv.key.user_key == key;
 
                     if expired {
-                        if let Some(watcher) = &mut self.expiration_callback {
-                            watcher.on_expired(kv);
+                        if let Some(watcher) = &mut self.dropped_callback {
+                            watcher.on_dropped(kv);
                         }
                     }
 
@@ -93,12 +132,23 @@ impl<'a, I: Iterator<Item = Item>> CompactionStream<'a, I> {
     }
 }
 
-impl<I: Iterator<Item = Item>> Iterator for CompactionStream<'_, I> {
+impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for CompactionStream<'a, I, F> {
     type Item = Item;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let mut head = fail_iter!(self.inner.next()?);
+
+            if !head.is_tombstone() {
+                if let Some((new_type, new_value)) = fail_iter!(self.filter.filter_item(&head)) {
+                    // if we are replacing this item's value, call the dropped callback for the previous item
+                    if let Some(watcher) = &mut self.dropped_callback {
+                        watcher.on_dropped(&head);
+                    }
+                    head.value = new_value;
+                    head.key.value_type = new_type;
+                }
+            }
 
             if let Some(peeked) = self.inner.peek() {
                 let Ok(peeked) = peeked else {
@@ -191,20 +241,20 @@ mod tests {
         };
     }
 
+    #[derive(Default)]
+    struct TrackCallback {
+        items: Vec<InternalValue>,
+    }
+
+    impl DroppedKvCallback for TrackCallback {
+        fn on_dropped(&mut self, kv: &InternalValue) {
+            self.items.push(kv.clone());
+        }
+    }
+
     #[test]
     #[expect(clippy::unwrap_used)]
     fn compaction_stream_expired_callback_1() -> crate::Result<()> {
-        #[derive(Default)]
-        struct MyCallback {
-            items: Vec<InternalValue>,
-        }
-
-        impl ExpiredKvCallback for MyCallback {
-            fn on_expired(&mut self, kv: &InternalValue) {
-                self.items.push(kv.clone());
-            }
-        }
-
         #[rustfmt::skip]
         let vec = stream![
           "a", "", "T",
@@ -212,10 +262,10 @@ mod tests {
           "a", "", "T",
         ];
 
-        let mut my_watcher = MyCallback::default();
+        let mut my_watcher = TrackCallback::default();
 
         let iter = vec.iter().cloned().map(Ok);
-        let mut iter = CompactionStream::new(iter, 1_000).with_expiration_callback(&mut my_watcher);
+        let mut iter = CompactionStream::new(iter, 1_000).with_drop_callback(&mut my_watcher);
 
         assert_eq!(
             InternalValue::from_components(*b"a", *b"", 999, ValueType::Tombstone),
@@ -545,5 +595,60 @@ mod tests {
         iter_closed!(iter);
 
         Ok(())
+    }
+
+    #[test]
+    fn compaction_stream_filter_1() {
+        struct Filter(&'static [u8]);
+        impl StreamFilter for Filter {
+            fn filter_item(
+                &mut self,
+                value: &InternalValue,
+            ) -> crate::Result<Option<(ValueType, UserValue)>> {
+                if value.value < self.0 {
+                    Ok(Some((ValueType::Tombstone, UserValue::empty())))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+
+        #[rustfmt::skip]
+        let vec = stream![
+            "a", "9", "V",
+            "a", "8", "V",
+            "a", "7", "V",
+            // subsequent values will be filtered out
+            "a", "6", "V",
+            "a", "5", "V",
+            // subsequent values below gc threshold after filter
+            "a", "4", "V",
+        ];
+
+        let mut drop_cb = TrackCallback { items: vec![] };
+        let iter = vec.iter().cloned().map(Ok);
+        let iter = CompactionStream::new(iter, 995)
+            .with_filter(Filter(b"7"))
+            .with_drop_callback(&mut drop_cb);
+
+        let out: Vec<InternalValue> = iter.map(Result::unwrap).collect();
+
+        #[rustfmt::skip]
+        assert_eq!(out, stream![
+            "a", "9", "V",
+            "a", "8", "V",
+            "a", "7", "V",
+            "a", "", "T",
+            "a", "", "T",
+        ]);
+
+        let fc = InternalValue::from_components;
+
+        #[rustfmt::skip]
+        assert_eq!(drop_cb.items, [
+            fc(b"a", b"6", 996, ValueType::Value),
+            fc(b"a", b"5", 995, ValueType::Value),
+            fc(b"a", b"4", 994, ValueType::Value),
+        ]);
     }
 }
