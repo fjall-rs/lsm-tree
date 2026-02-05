@@ -18,12 +18,12 @@ pub use offset::BlockOffset;
 pub use r#type::BlockType;
 pub(crate) use trailer::{Trailer, TRAILER_START_MARKER};
 
+use crate::fs::FileLike;
 use crate::{
     coding::{Decode, Encode},
     table::BlockHandle,
     Checksum, CompressionType, Slice,
 };
-use std::fs::File;
 
 /// A block on disk
 ///
@@ -106,7 +106,7 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
@@ -129,7 +129,7 @@ impl Block {
 
     /// Reads a block from a file.
     pub fn from_file(
-        file: &File,
+        file: &impl FileLike,
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
@@ -167,7 +167,7 @@ impl Block {
                 #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                #[warn(unsafe_code)]
+                #[expect(unsafe_code, reason = "buffer is fully initialized by decompressor")]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 

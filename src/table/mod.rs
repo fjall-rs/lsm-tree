@@ -30,6 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    fs::{FileLike, FileSystem, StdFileSystem},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -44,7 +45,6 @@ use inner::Inner;
 use iter::Iter;
 use std::{
     borrow::Cow,
-    fs::File,
     ops::{Bound, RangeBounds},
     path::PathBuf,
     sync::Arc,
@@ -54,7 +54,7 @@ use util::load_block;
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-pub type TableInner = Inner;
+pub type TableInner<F> = Inner<F>;
 
 /// A disk segment (a.k.a. `Table`, `SSTable`, `SST`, `sorted string table`) that is located on disk
 ///
@@ -65,11 +65,16 @@ pub type TableInner = Inner;
 ///
 /// Tables can be merged together to improve read performance and free unneeded disk space by removing outdated item versions.
 #[doc(alias("sstable", "sst", "sorted string table"))]
-#[derive(Clone)]
-pub struct Table(Arc<Inner>);
+pub struct Table<F: FileSystem = StdFileSystem>(Arc<Inner<F>>);
 
-impl std::ops::Deref for Table {
-    type Target = Inner;
+impl<F: FileSystem> Clone for Table<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<F: FileSystem> std::ops::Deref for Table<F> {
+    type Target = Inner<F>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -77,13 +82,13 @@ impl std::ops::Deref for Table {
 }
 
 #[cfg_attr(coverage_nightly, coverage(off))]
-impl std::fmt::Debug for Table {
+impl<F: FileSystem> std::fmt::Debug for Table<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Table:{}({:?})", self.id(), self.metadata.key_range)
     }
 }
 
-impl Table {
+impl<F: FileSystem> Table<F> {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
         self.0.global_seqno
@@ -115,11 +120,12 @@ impl Table {
             let fd = if let Some(fd) = cached_fd {
                 fd
             } else {
-                Arc::new(File::open(&*self.path)?)
+                Arc::new(F::open(&self.path)?)
             };
 
             // Read the exact region using pread-style helper
-            let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
+            let buf =
+                crate::file::read_exact(fd.as_ref(), *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
@@ -200,7 +206,7 @@ impl Table {
         block_type: BlockType,
         compression: CompressionType,
     ) -> crate::Result<Block> {
-        load_block(
+        load_block::<F>(
             self.global_id(),
             &self.path,
             &self.descriptor_table,
@@ -333,7 +339,7 @@ impl Table {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn scan(&self) -> crate::Result<Scanner> {
+    pub fn scan(&self) -> crate::Result<Scanner<F>> {
         #[expect(
             clippy::expect_used,
             reason = "there shouldn't be 4 billion data blocks in a single table"
@@ -344,7 +350,7 @@ impl Table {
             .try_into()
             .expect("data block count should fit");
 
-        Scanner::new(
+        Scanner::<F>::new_with_fs(
             &self.path,
             block_count,
             self.metadata.data_block_compression,
@@ -405,7 +411,7 @@ impl Table {
 
     fn read_tli(
         regions: &ParsedRegions,
-        file: &File,
+        file: &impl FileLike,
         compression: CompressionType,
     ) -> crate::Result<IndexBlock> {
         log::trace!("Reading TLI block, with tli_ptr={:?}", regions.tli);
@@ -423,7 +429,7 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
-    #[warn(
+    #[allow(
         clippy::too_many_arguments,
         clippy::too_many_lines,
         reason = "TODO: refactor"
@@ -434,7 +440,7 @@ impl Table {
         global_seqno: SeqNo,
         tree_id: TreeId,
         cache: Arc<Cache>,
-        descriptor_table: Arc<DescriptorTable>,
+        descriptor_table: Arc<DescriptorTable<F>>,
         pin_filter: bool,
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -449,7 +455,7 @@ impl Table {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         log::debug!("Recovering table from file {}", file_path.display());
-        let mut file = std::fs::File::open(&file_path)?;
+        let mut file = F::open(&file_path)?;
         let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
@@ -472,6 +478,7 @@ impl Table {
                 descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
+                phantom: std::marker::PhantomData,
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),
@@ -494,6 +501,7 @@ impl Table {
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
+                phantom: std::marker::PhantomData,
 
                 #[cfg(feature = "metrics")]
                 metrics: metrics.clone(),

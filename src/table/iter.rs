@@ -4,6 +4,7 @@
 
 use super::{data_block::Iter as DataBlockIter, BlockOffset, DataBlock, GlobalTableId};
 use crate::{
+    fs::{FileSystem, StdFileSystem},
     table::{
         block::ParsedItem,
         block_index::{BlockIndexIter, BlockIndexIterImpl},
@@ -90,16 +91,16 @@ fn create_data_block_reader(block: DataBlock) -> OwnedDataBlockIter {
     OwnedDataBlockIter::new(block, super::data_block::DataBlock::iter)
 }
 
-pub struct Iter {
+pub struct Iter<F: FileSystem = StdFileSystem> {
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
 
     global_seqno: SeqNo,
 
     #[expect(clippy::struct_field_names)]
-    index_iter: BlockIndexIterImpl,
+    index_iter: BlockIndexIterImpl<F>,
 
-    descriptor_table: Arc<DescriptorTable>,
+    descriptor_table: Arc<DescriptorTable<F>>,
     cache: Arc<Cache>,
     compression: CompressionType,
 
@@ -117,13 +118,14 @@ pub struct Iter {
     metrics: Arc<Metrics>,
 }
 
-impl Iter {
+impl<F: FileSystem> Iter<F> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         table_id: GlobalTableId,
         global_seqno: SeqNo,
         path: Arc<PathBuf>,
-        index_iter: BlockIndexIterImpl,
-        descriptor_table: Arc<DescriptorTable>,
+        index_iter: BlockIndexIterImpl<F>,
+        descriptor_table: Arc<DescriptorTable<F>>,
         cache: Arc<Cache>,
         compression: CompressionType,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -163,7 +165,7 @@ impl Iter {
     }
 }
 
-impl Iterator for Iter {
+impl<F: FileSystem> Iterator for Iter<F> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -248,7 +250,7 @@ impl Iterator for Iter {
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {
-                    fail_iter!(load_block(
+                    fail_iter!(load_block::<F>(
                         self.table_id,
                         &self.path,
                         &self.descriptor_table,
@@ -291,7 +293,7 @@ impl Iterator for Iter {
     }
 }
 
-impl DoubleEndedIterator for Iter {
+impl<F: FileSystem> DoubleEndedIterator for Iter<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         // Mirror the forward iterator: prefer consuming buffered items from the high data block to
         // avoid touching the index once a block has been materialized.
@@ -369,7 +371,7 @@ impl DoubleEndedIterator for Iter {
             let block = match self.cache.get_block(self.table_id, handle.offset()) {
                 Some(block) => block,
                 None => {
-                    fail_iter!(load_block(
+                    fail_iter!(load_block::<F>(
                         self.table_id,
                         &self.path,
                         &self.descriptor_table,

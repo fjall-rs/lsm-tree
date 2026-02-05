@@ -5,6 +5,7 @@
 use super::{Choice, CompactionStrategy};
 use crate::{
     compaction::{state::CompactionState, Input},
+    fs::FileSystem,
     version::Version,
     Config,
 };
@@ -14,13 +15,13 @@ use crate::{
 /// Used for unit tests.
 pub struct Strategy(pub u8, pub u8);
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         "PullDownCompaction"
     }
 
     #[expect(clippy::expect_used)]
-    fn choose(&self, version: &Version, _: &Config, _: &CompactionState) -> Choice {
+    fn choose(&self, version: &Version<F>, _: &Config<F>, _: &CompactionState) -> Choice {
         let level = version
             .level(usize::from(self.0))
             .expect("source level should exist");

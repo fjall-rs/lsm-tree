@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
-    KeyRange, Table,
+    fs::FileSystem, table::block::BlockType, version::run::Ranged, Cache, CompressionType,
+    DescriptorTable, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -13,7 +13,7 @@ use std::{path::Path, sync::Arc};
 use crate::metrics::Metrics;
 
 #[must_use]
-pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+pub fn aggregate_run_key_range<F: FileSystem>(tables: &[Table<F>]) -> KeyRange {
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
     let lo = tables.first().expect("run should never be empty");
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
@@ -28,11 +28,11 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Loads a block from disk or block cache, if cached.
 ///
 /// Also handles file descriptor opening and caching.
-#[warn(clippy::too_many_arguments)]
-pub fn load_block(
+#[allow(clippy::too_many_arguments)]
+pub fn load_block<F: FileSystem>(
     table_id: GlobalTableId,
     path: &Path,
-    descriptor_table: &DescriptorTable,
+    descriptor_table: &DescriptorTable<F>,
     cache: &Cache,
     handle: &BlockHandle,
     block_type: BlockType,
@@ -56,7 +56,6 @@ pub fn load_block(
             BlockType::Data | BlockType::Meta => {
                 metrics.data_block_load_cached.fetch_add(1, Relaxed);
             }
-            _ => {}
         }
 
         return Ok(block);
@@ -71,7 +70,7 @@ pub fn load_block(
 
         fd
     } else {
-        let fd = std::fs::File::open(path)?;
+        let fd = F::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
@@ -79,7 +78,7 @@ pub fn load_block(
         Arc::new(fd)
     };
 
-    let block = Block::from_file(&fd, *handle, compression)?;
+    let block = Block::from_file(fd.as_ref(), *handle, compression)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((
@@ -111,7 +110,6 @@ pub fn load_block(
                 .data_block_io_requested
                 .fetch_add(handle.size().into(), Relaxed);
         }
-        _ => {}
     }
 
     // Cache FD

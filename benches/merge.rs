@@ -26,7 +26,7 @@ fn merger(c: &mut Criterion) {
             b.iter_with_large_drop(|| {
                 let iters = memtables
                     .iter()
-                    .map(|x| x.iter().map(Ok))
+                    .map(|x| x.iter().map(Ok::<_, lsm_tree::Error>))
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 
@@ -61,7 +61,7 @@ fn mvcc_stream(c: &mut Criterion) {
             b.iter_with_large_drop(|| {
                 let iters = memtables
                     .iter()
-                    .map(|x| x.iter().map(Ok))
+                    .map(|x| x.iter().map(Ok::<_, lsm_tree::Error>))
                     .map(|x| Box::new(x) as BoxedIterator<'_>)
                     .collect();
 

@@ -55,7 +55,7 @@ impl AnyIngestion<'_> {
     /// ```
     /// # use lsm_tree::Config;
     /// # let folder = tempfile::tempdir()?;
-    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// # let tree = Config::<lsm_tree::fs::StdFileSystem>::new(folder, Default::default(), Default::default()).open()?;
     /// #
     /// let mut ingestion = tree.ingestion()?;
     /// ingestion.write("a", "abc")?;

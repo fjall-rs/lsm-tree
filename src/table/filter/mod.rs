@@ -48,11 +48,27 @@ impl BloomConstructionPolicy {
             reason = "truncation is fine because this is an estimation"
         )]
         match self {
-            Self::BitsPerKey(bpk) => (*bpk * (n as f32)) as usize / 8,
+            Self::BitsPerKey(bpk) => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "lossy cast is acceptable for size estimation"
+                )]
+                {
+                    (*bpk * (n as f32)) as usize / 8
+                }
+            }
             Self::FalsePositiveRate(fpr) => {
                 let m = StandardBloomFilterBuilder::calculate_m(n, *fpr);
                 let bpk = (m / n) as f32;
-                (bpk * (n as f32)) as usize / 8
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "lossy cast is acceptable for size estimation"
+                )]
+                {
+                    (bpk * (n as f32)) as usize / 8
+                }
             }
         }
     }
@@ -105,7 +121,13 @@ mod tests {
         let n = 1_000_000;
         let estimated_size = policy.estimated_filter_size(n);
         // For 1 million keys and 1% false positive rate, the size should be around 1.2 MB
-        assert!((estimated_size as f32) < 1_300_000.0);
-        assert!((estimated_size as f32) > 1_100_000.0);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "test compares approximate values"
+        )]
+        {
+            assert!((estimated_size as f32) < 1_300_000.0);
+            assert!((estimated_size as f32) > 1_100_000.0);
+        }
     }
 }

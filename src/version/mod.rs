@@ -18,6 +18,7 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::checksum::ChecksumType;
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
+use crate::fs::{FileSystem, StdFileSystem};
 use crate::version::recovery::Recovery;
 use crate::TreeType;
 use crate::{
@@ -33,7 +34,7 @@ pub const DEFAULT_LEVEL_COUNT: u8 = 7;
 /// Monotonically increasing ID of a version.
 pub type VersionId = u64;
 
-impl Ranged for Table {
+impl<F: FileSystem> Ranged for Table<F> {
     fn key_range(&self) -> &KeyRange {
         &self.metadata.key_range
     }
@@ -77,23 +78,28 @@ impl<T: Ranged> GenericLevel<T> {
     }
 }
 
-#[derive(Clone)]
-pub struct Level(Arc<GenericLevel<Table>>);
+pub struct Level<F: FileSystem = StdFileSystem>(Arc<GenericLevel<Table<F>>>);
 
-impl std::ops::Deref for Level {
-    type Target = GenericLevel<Table>;
+impl<F: FileSystem> Clone for Level<F> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<F: FileSystem> std::ops::Deref for Level<F> {
+    type Target = GenericLevel<Table<F>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Level {
+impl<F: FileSystem> Level<F> {
     pub fn empty() -> Self {
         Self::from_runs(vec![])
     }
 
-    pub fn from_runs(runs: Vec<Arc<Run<Table>>>) -> Self {
+    pub fn from_runs(runs: Vec<Arc<Run<Table<F>>>>) -> Self {
         Self(Arc::new(GenericLevel { runs }))
     }
 
@@ -104,7 +110,7 @@ impl Level {
             .collect()
     }
 
-    pub fn first_run(&self) -> Option<&Arc<Run<Table>>> {
+    pub fn first_run(&self) -> Option<&Arc<Run<Table<F>>>> {
         self.runs.first()
     }
 
@@ -138,14 +144,14 @@ impl Level {
     }
 }
 
-pub struct VersionInner {
+pub struct VersionInner<F: FileSystem = StdFileSystem> {
     /// The version's ID
     id: VersionId,
 
     tree_type: TreeType,
 
     /// The individual LSM-tree levels which consist of runs of tables
-    levels: Vec<Level>,
+    levels: Vec<Level<F>>,
 
     // NOTE: We purposefully use Arc<_> to avoid deep cloning the blob files again and again
     //
@@ -154,7 +160,7 @@ pub struct VersionInner {
     //
     /// Blob files for large values (value log)
     #[doc(hidden)]
-    pub blob_files: Arc<BlobFileList>,
+    pub blob_files: Arc<BlobFileList<F>>,
 
     /// Blob file fragmentation
     gc_stats: Arc<FragmentationMap>,
@@ -163,13 +169,20 @@ pub struct VersionInner {
 /// A version is an immutable, point-in-time view of a tree's structure
 ///
 /// Any time a table is created or deleted, a new version is created.
-#[derive(Clone)]
-pub struct Version {
-    inner: Arc<VersionInner>,
+pub struct Version<F: FileSystem = StdFileSystem> {
+    inner: Arc<VersionInner<F>>,
 }
 
-impl std::ops::Deref for Version {
-    type Target = VersionInner;
+impl<F: FileSystem> Clone for Version<F> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<F: FileSystem> std::ops::Deref for Version<F> {
+    type Target = VersionInner<F>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -177,7 +190,7 @@ impl std::ops::Deref for Version {
 }
 
 // TODO: impl using generics so we can easily unit test Version transformation functions
-impl Version {
+impl<F: FileSystem> Version<F> {
     /// Returns the initial tree type.
     pub fn tree_type(&self) -> TreeType {
         self.tree_type
@@ -192,7 +205,7 @@ impl Version {
         &self.gc_stats
     }
 
-    pub fn l0(&self) -> &Level {
+    pub fn l0(&self) -> &Level<F> {
         #[expect(clippy::expect_used)]
         self.levels.first().expect("L0 should exist")
     }
@@ -224,8 +237,8 @@ impl Version {
 
     pub(crate) fn from_recovery(
         recovery: Recovery,
-        tables: &[Table],
-        blob_files: &[BlobFile],
+        tables: &[Table<F>],
+        blob_files: &[BlobFile<F>],
     ) -> crate::Result<Self> {
         let version_levels = recovery
             .table_ids
@@ -272,8 +285,8 @@ impl Version {
     pub fn from_levels(
         id: VersionId,
         tree_type: TreeType,
-        levels: Vec<Level>,
-        blob_files: BlobFileList,
+        levels: Vec<Level<F>>,
+        blob_files: BlobFileList<F>,
         gc_stats: FragmentationMap,
     ) -> Self {
         Self {
@@ -293,7 +306,7 @@ impl Version {
     }
 
     /// Returns an iterator through all levels.
-    pub fn iter_levels(&self) -> impl Iterator<Item = &Level> {
+    pub fn iter_levels(&self) -> impl Iterator<Item = &Level<F>> {
         self.levels.iter()
     }
 
@@ -307,27 +320,27 @@ impl Version {
     }
 
     /// Returns an iterator over all tables.
-    pub fn iter_tables(&self) -> impl Iterator<Item = &Table> {
+    pub fn iter_tables(&self) -> impl Iterator<Item = &Table<F>> {
         self.levels
             .iter()
             .flat_map(|x| x.iter())
             .flat_map(|x| x.iter())
     }
 
-    pub(crate) fn get_table(&self, id: TableId) -> Option<&Table> {
+    pub(crate) fn get_table(&self, id: TableId) -> Option<&Table<F>> {
         self.iter_tables().find(|x| x.metadata.id == id)
     }
 
     /// Gets the n-th level.
-    pub fn level(&self, n: usize) -> Option<&Level> {
+    pub fn level(&self, n: usize) -> Option<&Level<F>> {
         self.levels.get(n)
     }
 
     /// Creates a new version with the additional run added to the "top" of L0.
     pub fn with_new_l0_run(
         &self,
-        run: &[Table],
-        blob_files: Option<&[BlobFile]>,
+        run: &[Table<F>],
+        blob_files: Option<&[BlobFile<F>]>,
         diff: Option<FragmentationMap>,
     ) -> Self {
         let id = self.id + 1;
@@ -368,9 +381,9 @@ impl Version {
 
         // Value log
         let value_log = if let Some(blob_files) = blob_files {
-            let mut copy = self.blob_files.deref().clone();
+            let mut copy: BlobFileList<F> = self.blob_files.as_ref().clone();
             copy.extend(blob_files.iter().cloned().map(|bf| (bf.id(), bf)));
-            copy.into()
+            Arc::new(copy)
         } else {
             self.blob_files.clone()
         };
@@ -378,7 +391,7 @@ impl Version {
         let gc_stats = if let Some(diff) = diff {
             let mut copy = self.gc_stats.deref().clone();
             diff.merge_into(&mut copy);
-            copy.prune(&value_log);
+            copy.prune(value_log.as_ref());
             Arc::new(copy)
         } else {
             self.gc_stats.clone()
@@ -401,13 +414,13 @@ impl Version {
     pub fn with_dropped(
         &self,
         ids: &[TableId],
-        dropped_blob_files: &mut Vec<BlobFile>,
+        dropped_blob_files: &mut Vec<BlobFile<F>>,
     ) -> crate::Result<Self> {
         let id = self.id + 1;
 
         let mut levels = vec![];
 
-        let mut dropped_tables: Vec<Table> = vec![];
+        let mut dropped_tables: Vec<Table<F>> = vec![];
 
         for level in &self.levels {
             let runs = level
@@ -463,7 +476,7 @@ impl Version {
         let value_log = if dropped_tables.is_empty() {
             self.blob_files.clone()
         } else {
-            let mut copy = self.blob_files.deref().clone();
+            let mut copy: BlobFileList<F> = self.blob_files.as_ref().clone();
             dropped_blob_files.extend(copy.prune_dead(&gc_stats));
             Arc::new(copy)
         };
@@ -482,10 +495,10 @@ impl Version {
     pub fn with_merge(
         &self,
         old_ids: &[TableId],
-        new_tables: &[Table],
+        new_tables: &[Table<F>],
         dest_level: usize,
         diff: Option<FragmentationMap>,
-        new_blob_files: Vec<BlobFile>,
+        new_blob_files: Vec<BlobFile<F>>,
         blob_files_to_drop: &HashSet<BlobFileId>,
     ) -> Self {
         let id = self.id + 1;
@@ -520,7 +533,7 @@ impl Version {
 
         let value_log = if has_diff || !new_blob_files.is_empty() || !blob_files_to_drop.is_empty()
         {
-            let mut copy = self.blob_files.deref().clone();
+            let mut copy: BlobFileList<F> = self.blob_files.as_ref().clone();
 
             for blob_file in new_blob_files {
                 copy.insert(blob_file.id(), blob_file);
@@ -542,7 +555,7 @@ impl Version {
                 diff.merge_into(&mut copy);
             }
 
-            copy.prune(&value_log);
+            copy.prune(value_log.as_ref());
 
             Arc::new(copy)
         } else {
@@ -609,7 +622,7 @@ impl Version {
     }
 }
 
-impl Version {
+impl<F: FileSystem> Version<F> {
     pub(crate) fn encode_into(
         &self,
         writer: &mut sfa::Writer<impl std::io::Write + std::io::Seek>,

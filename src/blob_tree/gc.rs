@@ -4,7 +4,7 @@
 
 use crate::{
     blob_tree::handle::BlobIndirection, coding::Decode, compaction::stream::ExpiredKvCallback,
-    version::BlobFileList, vlog::BlobFileId,
+    fs::FileSystem, version::BlobFileList, vlog::BlobFileId,
 };
 
 /// Tracks fragmentation information in a blob file
@@ -58,7 +58,7 @@ impl FragmentationMap {
 
     /// Removes blob file entries that are not part of the value log (anymore)
     /// to reduce linear memory growth.
-    pub fn prune(&mut self, value_log: &BlobFileList) {
+    pub fn prune<F: FileSystem>(&mut self, value_log: &BlobFileList<F>) {
         self.0.retain(|&k, _| value_log.contains_key(k));
     }
 

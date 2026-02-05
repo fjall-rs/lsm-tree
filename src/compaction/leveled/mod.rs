@@ -9,6 +9,7 @@ use super::{Choice, CompactionStrategy, Input as CompactionInput};
 use crate::{
     compaction::state::{hidden_set::HiddenSet, CompactionState},
     config::Config,
+    fs::FileSystem,
     slice_windows::{GrowingWindowsExt, ShrinkingWindowsExt},
     table::{util::aggregate_run_key_range, Table},
     version::{Run, Version},
@@ -16,11 +17,11 @@ use crate::{
 };
 
 /// Tries to find the most optimal compaction set from one level into the other.
-fn pick_minimal_compaction(
-    curr_run: &Run<Table>,
-    next_run: Option<&Run<Table>>,
+fn pick_minimal_compaction<F: FileSystem>(
+    curr_run: &Run<Table<F>>,
+    next_run: Option<&Run<Table<F>>>,
     hidden_set: &HiddenSet,
-    overshoot: u64,
+    _overshoot: u64,
     table_base_size: u64,
 ) -> Option<(HashSet<TableId>, bool)> {
     // NOTE: Find largest trivial move (if it exists)
@@ -232,7 +233,7 @@ impl Strategy {
     }
 }
 
-impl CompactionStrategy for Strategy {
+impl<F: FileSystem> CompactionStrategy<F> for Strategy {
     fn get_name(&self) -> &'static str {
         NAME
     }
@@ -274,7 +275,11 @@ impl CompactionStrategy for Strategy {
     }
 
     #[expect(clippy::too_many_lines)]
-    fn choose(&self, version: &Version, _: &Config, state: &CompactionState) -> Choice {
+    #[expect(
+        clippy::expect_used,
+        reason = "level indexes are valid for configured trees"
+    )]
+    fn choose(&self, version: &Version<F>, _: &Config<F>, state: &CompactionState) -> Choice {
         assert!(version.level_count() == 7, "should have exactly 7 levels");
 
         // Trivial move into Lmax
@@ -297,9 +302,14 @@ impl CompactionStrategy for Strategy {
                     .aggregate_key_range()
                     .overlaps_with_key_range(&l0.aggregate_key_range())
                 {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "level count fits into u8 by configuration"
+                    )]
+                    let dest_level = lmax_index as u8;
                     return Choice::Move(CompactionInput {
                         table_ids: l0.list_ids(),
-                        dest_level: lmax_index as u8,
+                        dest_level,
                         canonical_level: 1,
                         target_size: self.target_size,
                     });

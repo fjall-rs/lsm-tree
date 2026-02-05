@@ -7,7 +7,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -64,7 +64,7 @@ fn tree_delete_by_prefix() -> lsm_tree::Result<()> {
 fn tree_delete_by_range() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::new(
+    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

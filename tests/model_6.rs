@@ -16,7 +16,7 @@ fn model_6() -> Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
+    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(path, SequenceNumberCounter::default(), SequenceNumberCounter::default())
         .data_block_compression_policy(CompressionPolicy::disabled())
         .index_block_compression_policy(CompressionPolicy::disabled())
         .data_block_size_policy(BlockSizePolicy::all(100))
