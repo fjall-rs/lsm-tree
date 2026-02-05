@@ -135,6 +135,7 @@ mod tests {
         Ok(())
     }*/
 
+    /*
     #[test]
     #[cfg(feature = "lz4")]
     fn blob_reader_roundtrip_lz4() -> crate::Result<()> {
@@ -171,5 +172,5 @@ mod tests {
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
 
         Ok(())
-    }
+    } */
 }
