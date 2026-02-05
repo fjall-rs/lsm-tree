@@ -356,7 +356,7 @@ impl AbstractTree for BlobTree {
         let index_partitioning = self.index.config.index_block_partitioning_policy.get(0);
         let filter_partitioning = self.index.config.filter_block_partitioning_policy.get(0);
 
-        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}");
+        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}");
         log::debug!("=> to table(s) in {}", table_folder.display());
         log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
