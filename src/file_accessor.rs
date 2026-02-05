@@ -9,6 +9,7 @@ use std::{fs::File, sync::Arc};
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
+/// Allows accessing a file (either cached or pinned)
 #[derive(Clone)]
 pub enum FileAccessor {
     File(Arc<File>),
