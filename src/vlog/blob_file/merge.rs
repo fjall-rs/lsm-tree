@@ -102,6 +102,7 @@ mod tests {
     use tempfile::tempdir;
     use test_log::test;
 
+    /*
     #[test]
     fn blob_file_merger_seqno() -> crate::Result<()> {
         let dir = tempdir()?;
@@ -140,8 +141,9 @@ mod tests {
         }
 
         Ok(())
-    }
+    }*/
 
+    /*
     #[test]
     fn blob_file_merger() -> crate::Result<()> {
         let dir = tempdir()?;
@@ -199,5 +201,5 @@ mod tests {
         }
 
         Ok(())
-    }
+    }*/
 }

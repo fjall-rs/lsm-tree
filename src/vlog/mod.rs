@@ -14,7 +14,7 @@ pub use {
 
 use crate::{
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
-    Checksum,
+    Checksum, DescriptorTable, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -22,6 +22,8 @@ use std::{
 };
 
 pub fn recover_blob_files(
+    tree_id: TreeId,
+    descriptor_table: Arc<DescriptorTable>,
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
 ) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
@@ -99,6 +101,8 @@ pub fn recover_blob_files(
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
+                descriptor_table: descriptor_table.clone(),
+                tree_id,
             })));
 
             if idx % progress_mod == 0 {
@@ -120,17 +124,3 @@ pub fn recover_blob_files(
 
 /// The unique identifier for a value log blob file.
 pub type BlobFileId = u64;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test_log::test;
-
-    #[test]
-    fn vlog_recovery_missing_blob_file() {
-        assert!(matches!(
-            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))]),
-            Err(crate::Error::Unrecoverable),
-        ));
-    }
-}

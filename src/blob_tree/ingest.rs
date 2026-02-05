@@ -8,7 +8,7 @@ use crate::{
     table::Table,
     tree::ingest::Ingestion as TableIngestion,
     vlog::{BlobFileWriter, ValueHandle},
-    SeqNo, UserKey, UserValue,
+    AbstractTree, SeqNo, UserKey, UserValue,
 };
 
 /// Bulk ingestion for [`BlobTree`]
@@ -50,6 +50,8 @@ impl<'a> BlobIngestion<'a> {
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
+            tree.id(),
+            tree.tree_config().descriptor_table.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);

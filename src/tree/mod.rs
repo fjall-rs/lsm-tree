@@ -1101,6 +1101,8 @@ impl Tree {
         log::debug!("Successfully recovered {} tables", tables.len());
 
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
+            tree_id,
+            config.descriptor_table.clone(),
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
         )?;

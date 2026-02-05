@@ -8,7 +8,7 @@ use crate::{
         blob_file::{Inner as BlobFileInner, Metadata},
         BlobFileId,
     },
-    BlobFile, CompressionType, SeqNo, SequenceNumberCounter,
+    BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -28,6 +28,9 @@ pub struct MultiWriter {
 
     compression: CompressionType,
     passthrough_compression: CompressionType,
+
+    descriptor_table: Arc<DescriptorTable>,
+    tree_id: TreeId,
 }
 
 impl MultiWriter {
@@ -40,6 +43,8 @@ impl MultiWriter {
     pub fn new<P: AsRef<Path>>(
         id_generator: SequenceNumberCounter,
         folder: P,
+        tree_id: TreeId,
+        descriptor_table: Arc<DescriptorTable>,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -51,12 +56,20 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id)?,
+            active_writer: Writer::new(
+                blob_file_path,
+                blob_file_id,
+                tree_id,
+                descriptor_table.clone(),
+            )?,
 
             results: Vec::new(),
 
             compression: CompressionType::None,
             passthrough_compression: CompressionType::None,
+
+            tree_id,
+            descriptor_table,
         })
     }
 
@@ -103,8 +116,13 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer =
-            Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
+        let new_writer = Writer::new(
+            blob_file_path,
+            new_blob_file_id,
+            self.tree_id,
+            self.descriptor_table.clone(),
+        )?
+        .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
         let blob_file = Self::consume_writer(old_writer, self.passthrough_compression)?;
@@ -127,6 +145,9 @@ impl MultiWriter {
                 writer.uncompressed_bytes,
             );
 
+            let tree_id = writer.tree_id;
+            let descriptor_table = writer.descriptor_table.clone();
+
             let (metadata, checksum) = writer.finish()?;
 
             let blob_file = BlobFile(Arc::new(BlobFileInner {
@@ -148,6 +169,8 @@ impl MultiWriter {
                         passthrough_compression
                     },
                 },
+                tree_id,
+                descriptor_table,
             }));
 
             Ok(Some(blob_file))

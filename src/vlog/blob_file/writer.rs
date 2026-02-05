@@ -5,13 +5,14 @@
 use super::meta::Metadata;
 use crate::{
     checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
-    KeyRange, SeqNo, UserKey,
+    DescriptorTable, KeyRange, SeqNo, TreeId, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
@@ -41,6 +42,9 @@ pub struct Writer {
     pub(crate) last_key: Option<UserKey>,
 
     pub(crate) compression: CompressionType,
+
+    pub(crate) tree_id: TreeId,
+    pub(crate) descriptor_table: Arc<DescriptorTable>,
 }
 
 impl Writer {
@@ -50,7 +54,12 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        blob_file_id: BlobFileId,
+        tree_id: TreeId,
+        descriptor_table: Arc<DescriptorTable>,
+    ) -> crate::Result<Self> {
         let path = path.as_ref();
 
         let writer = BufWriter::new(File::create(path)?);
@@ -73,6 +82,9 @@ impl Writer {
             last_key: None,
 
             compression: CompressionType::None,
+
+            tree_id,
+            descriptor_table,
         })
     }
 

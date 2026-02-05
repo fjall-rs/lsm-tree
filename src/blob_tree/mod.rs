@@ -407,6 +407,8 @@ impl AbstractTree for BlobTree {
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
+            self.id(),
+            self.tree_config().descriptor_table.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);

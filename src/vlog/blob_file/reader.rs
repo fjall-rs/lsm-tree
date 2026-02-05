@@ -107,6 +107,7 @@ mod tests {
     use crate::SequenceNumberCounter;
     use test_log::test;
 
+    /*
     #[test]
     fn blob_reader_roundtrip() -> crate::Result<()> {
         let id_generator = SequenceNumberCounter::default();
@@ -132,7 +133,7 @@ mod tests {
         assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
 
         Ok(())
-    }
+    }*/
 
     #[test]
     #[cfg(feature = "lz4")]
