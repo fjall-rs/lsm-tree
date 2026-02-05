@@ -12,7 +12,12 @@ use crate::metrics::Metrics;
 /// Allows accessing a file (either cached or pinned)
 #[derive(Clone)]
 pub enum FileAccessor {
+    /// Pinned file descriptor
+    ///
+    /// This is used in case file descriptor cache is `None` (to skip cache lookups)
     File(Arc<File>),
+
+    /// Access to file descriptor cache
     DescriptorTable(Arc<DescriptorTable>),
 }
 
