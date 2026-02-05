@@ -111,6 +111,7 @@ pub fn recover_blob_files(
                 is_deleted: AtomicBool::new(false),
                 checksum,
                 file_accessor,
+                tree_id,
             })));
 
             if idx % progress_mod == 0 {

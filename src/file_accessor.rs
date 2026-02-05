@@ -16,6 +16,13 @@ pub enum FileAccessor {
 }
 
 impl FileAccessor {
+    pub fn as_descriptor_table(&self) -> Option<&DescriptorTable> {
+        match self {
+            Self::DescriptorTable(d) => Some(&d),
+            Self::File(_) => None,
+        }
+    }
+
     #[must_use]
     pub fn access_for_table(
         &self,

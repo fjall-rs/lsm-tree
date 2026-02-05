@@ -58,7 +58,7 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id)?,
+            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id)?,
 
             results: Vec::new(),
 
@@ -113,14 +113,13 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer =
-            Writer::new(blob_file_path, new_blob_file_id)?.use_compression(self.compression);
+        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
+            .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
         let blob_file = Self::consume_writer(
             old_writer,
             self.passthrough_compression,
-            self.tree_id,
             self.descriptor_table.clone(),
         )?;
         self.results.extend(blob_file);
@@ -131,7 +130,6 @@ impl MultiWriter {
     fn consume_writer(
         writer: Writer,
         passthrough_compression: CompressionType,
-        tree_id: TreeId,
         descriptor_table: Option<Arc<DescriptorTable>>,
     ) -> crate::Result<Option<BlobFile>> {
         if writer.item_count > 0 {
@@ -144,6 +142,8 @@ impl MultiWriter {
                 writer.uncompressed_bytes,
             );
 
+            let tree_id = writer.tree_id;
+
             let (metadata, checksum) = writer.finish()?;
 
             let file = Arc::new(File::open(&path)?);
@@ -154,6 +154,7 @@ impl MultiWriter {
 
             let blob_file = BlobFile(Arc::new(BlobFileInner {
                 checksum,
+                tree_id,
                 path,
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
@@ -237,7 +238,6 @@ impl MultiWriter {
         let blob_file = Self::consume_writer(
             self.active_writer,
             self.passthrough_compression,
-            self.tree_id,
             self.descriptor_table.clone(),
         )?;
         self.results.extend(blob_file);
