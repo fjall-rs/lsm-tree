@@ -191,6 +191,7 @@ fn test_with_table(
 
     std::fs::remove_file(&file)?;
 
+    // Test with partitioned indexes
     {
         let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
 
