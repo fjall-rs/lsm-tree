@@ -19,7 +19,7 @@ pub enum FileAccessor {
 impl FileAccessor {
     pub fn as_descriptor_table(&self) -> Option<&DescriptorTable> {
         match self {
-            Self::DescriptorTable(d) => Some(&d),
+            Self::DescriptorTable(d) => Some(d),
             Self::File(_) => None,
         }
     }
@@ -69,9 +69,9 @@ impl FileAccessor {
 impl std::fmt::Debug for FileAccessor {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::File(_) => write!(f, "FileAccessor::Pinned(...)"),
+            Self::File(_) => write!(f, "FileAccessor::Pinned"),
             Self::DescriptorTable(_) => {
-                write!(f, "FileAccessor::Cached(...)")
+                write!(f, "FileAccessor::Cached")
             }
         }
     }
