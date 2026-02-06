@@ -308,3 +308,35 @@ fn range_tombstone_sst_point_read() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// --- Test L: Table skip — tombstone in memtable covers entire SST ---
+#[test]
+fn range_tombstone_table_skip_in_iteration() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree(folder.path());
+
+    // Insert data and flush to SST
+    for (i, key) in ["a", "b", "c", "d", "e"].iter().enumerate() {
+        tree.insert(*key, "val", i as SeqNo);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Now insert a range tombstone in the active memtable that covers the entire SST
+    // with seqno higher than any KV in the SST
+    tree.active_memtable()
+        .insert_range_tombstone(RangeTombstone::new("a".into(), "f".into(), 100));
+
+    // Insert some new data outside the tombstone range
+    tree.insert("z", "val", 200);
+
+    // Range iteration should skip the fully-covered SST and only return "z"
+    let keys: Vec<_> = tree
+        .range::<&str, _>(.., SeqNo::MAX, None)
+        .map(|g| g.key().unwrap())
+        .collect();
+
+    assert_eq!(1, keys.len());
+    assert_eq!(b"z", &*keys[0]);
+
+    Ok(())
+}
