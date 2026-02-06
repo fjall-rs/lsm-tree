@@ -64,9 +64,7 @@ pub fn load_block(
 
     let (fd, fd_cache_miss) = if let Some(cached_fd) = file_accessor.access_for_table(&table_id) {
         #[cfg(feature = "metrics")]
-        metrics
-            .table_file_opened_cached
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        metrics.table_file_opened_cached.fetch_add(1, Relaxed);
 
         (cached_fd, false)
     } else {
