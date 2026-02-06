@@ -237,6 +237,20 @@ impl TreeIter {
                 all_tombstones.extend(memtable.range_tombstones_by_start());
             }
 
+            // From SST tables
+            for run in lock
+                .version
+                .version
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+            {
+                for table in run.iter() {
+                    if let Ok(tombstones) = table.range_tombstones_by_start_iter() {
+                        all_tombstones.extend(tombstones);
+                    }
+                }
+            }
+
             // Sort by (start asc, seqno desc, end asc) — the Ord impl on RangeTombstone
             all_tombstones.sort();
 

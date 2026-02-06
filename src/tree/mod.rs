@@ -660,11 +660,13 @@ impl Tree {
                 None => return Ok(None),
             };
 
-            // Check range tombstone suppression from same memtable
-            if super_version
-                .active_memtable
-                .is_suppressed_by_range_tombstone(key, entry.key.seqno, seqno)
-            {
+            // Check range tombstone suppression from all sources
+            if Self::is_suppressed_by_range_tombstone(
+                super_version,
+                key,
+                entry.key.seqno,
+                seqno,
+            )? {
                 return Ok(None);
             }
 
@@ -680,13 +682,13 @@ impl Tree {
                 None => return Ok(None),
             };
 
-            // Check range tombstone suppression from all memtables
-            if Self::is_suppressed_by_range_tombstone_in_memtables(
+            // Check range tombstone suppression from all sources
+            if Self::is_suppressed_by_range_tombstone(
                 super_version,
                 key,
                 entry.key.seqno,
                 seqno,
-            ) {
+            )? {
                 return Ok(None);
             }
 
@@ -697,13 +699,13 @@ impl Tree {
         let entry = Self::get_internal_entry_from_tables(&super_version.version, key, seqno)?;
 
         if let Some(entry) = entry {
-            // Check range tombstone suppression from all memtables
-            if Self::is_suppressed_by_range_tombstone_in_memtables(
+            // Check range tombstone suppression from all sources
+            if Self::is_suppressed_by_range_tombstone(
                 super_version,
                 key,
                 entry.key.seqno,
                 seqno,
-            ) {
+            )? {
                 return Ok(None);
             }
 
@@ -713,26 +715,42 @@ impl Tree {
         Ok(None)
     }
 
-    fn is_suppressed_by_range_tombstone_in_memtables(
+    fn is_suppressed_by_range_tombstone(
         super_version: &SuperVersion,
         key: &[u8],
         kv_seqno: SeqNo,
         read_seqno: SeqNo,
-    ) -> bool {
+    ) -> crate::Result<bool> {
+        // Check memtables
         if super_version
             .active_memtable
             .is_suppressed_by_range_tombstone(key, kv_seqno, read_seqno)
         {
-            return true;
+            return Ok(true);
         }
 
         for mt in super_version.sealed_memtables.iter() {
             if mt.is_suppressed_by_range_tombstone(key, kv_seqno, read_seqno) {
-                return true;
+                return Ok(true);
             }
         }
 
-        false
+        // Check SST tables
+        for table in super_version
+            .version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .flat_map(|run| run.iter())
+        {
+            if table
+                .query_range_tombstone_suppression(key, kv_seqno, read_seqno)?
+                .is_some()
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn get_internal_entry_from_tables(
