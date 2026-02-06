@@ -108,17 +108,14 @@ impl Table {
         use byteorder::{ReadBytesExt, LE};
 
         Ok(if let Some(handle) = &self.regions.linked_blob_files {
-            // Try to get FD from descriptor table first, similar to util::load_block
             let table_id = self.global_id();
-            let (fd, fd_cache_miss) = if let Some(fd) = self.file_accessor.access_for_table(
-                &table_id,
-                #[cfg(feature = "metrics")]
-                &self.metrics,
-            ) {
-                (fd, false)
-            } else {
-                (Arc::new(File::open(&*self.path)?), true)
-            };
+
+            let (fd, fd_cache_miss) =
+                if let Some(fd) = self.file_accessor.access_for_table(&table_id) {
+                    (fd, false)
+                } else {
+                    (Arc::new(File::open(&*self.path)?), true)
+                };
 
             // Read the exact region using pread-style helper
             let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
