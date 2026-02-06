@@ -14,7 +14,9 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
+    range_tombstone::RangeTombstone,
     table::{
+        range_tombstone_encoder,
         writer::{
             filter::{FilterWriter, FullFilterWriter},
             index::FullIndexWriter,
@@ -91,6 +93,9 @@ pub struct Writer {
 
     linked_blob_files: Vec<LinkedFile>,
 
+    /// Range tombstones to write into the table
+    range_tombstones: Vec<RangeTombstone>,
+
     initial_level: u8,
 }
 
@@ -140,6 +145,8 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+
+            range_tombstones: Vec::new(),
         })
     }
 
@@ -231,6 +238,13 @@ impl Writer {
         self.bloom_policy = bloom_policy;
         self.filter_writer = self.filter_writer.set_filter_policy(bloom_policy);
         self
+    }
+
+    /// Adds a range tombstone to be written with this table.
+    pub fn write_range_tombstone(&mut self, rt: RangeTombstone) {
+        self.meta.lowest_seqno = self.meta.lowest_seqno.min(rt.seqno);
+        self.meta.highest_seqno = self.meta.highest_seqno.max(rt.seqno);
+        self.range_tombstones.push(rt);
     }
 
     /// Writes an item.
@@ -407,6 +421,40 @@ impl Writer {
             }
         }
 
+        // Write range tombstone blocks (if any)
+        let range_tombstone_count = self.range_tombstones.len();
+
+        if !self.range_tombstones.is_empty() {
+            // Sort by (start asc, seqno desc, end asc) — natural Ord
+            self.range_tombstones.sort();
+
+            // Write ByStart block
+            self.file_writer.start("range_tombstone_by_start")?;
+            let by_start_data = range_tombstone_encoder::encode_by_start(&self.range_tombstones);
+            Block::write_into(
+                &mut self.file_writer,
+                &by_start_data,
+                super::block::BlockType::RangeTombstoneStart,
+                CompressionType::None,
+            )?;
+
+            // Sort by (end desc, seqno desc) for ByEndDesc block
+            use std::cmp::Reverse;
+            self.range_tombstones.sort_by(|a, b| {
+                (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno)))
+            });
+
+            // Write ByEndDesc block
+            self.file_writer.start("range_tombstone_by_end")?;
+            let by_end_data = range_tombstone_encoder::encode_by_end_desc(&self.range_tombstones);
+            Block::write_into(
+                &mut self.file_writer,
+                &by_end_data,
+                super::block::BlockType::RangeTombstoneEnd,
+                CompressionType::None,
+            )?;
+        }
+
         self.file_writer.start("table_version")?;
         self.file_writer.write_all(&[0x3])?;
 
@@ -466,6 +514,10 @@ impl Writer {
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta(
+                    "range_tombstone_count",
+                    &(range_tombstone_count as u64).to_le_bytes(),
+                ),
                 meta(
                     "restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),
