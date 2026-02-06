@@ -6,9 +6,6 @@ use crate::descriptor_table::DescriptorTable;
 use crate::GlobalTableId;
 use std::{fs::File, sync::Arc};
 
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
-
 /// Allows accessing a file (either cached or pinned)
 #[derive(Clone)]
 pub enum FileAccessor {
@@ -30,21 +27,10 @@ impl FileAccessor {
     }
 
     #[must_use]
-    pub fn access_for_table(
-        &self,
-        table_id: &GlobalTableId,
-        #[cfg(feature = "metrics")] metrics: &Metrics,
-    ) -> Option<Arc<File>> {
+    pub fn access_for_table(&self, table_id: &GlobalTableId) -> Option<Arc<File>> {
         match self {
             Self::File(fd) => Some(fd.clone()),
-            Self::DescriptorTable(descriptor_table) => {
-                #[cfg(feature = "metrics")]
-                metrics
-                    .table_file_opened_cached
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                descriptor_table.access_for_table(table_id)
-            }
+            Self::DescriptorTable(descriptor_table) => descriptor_table.access_for_table(table_id),
         }
     }
 

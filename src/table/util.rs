@@ -62,11 +62,12 @@ pub fn load_block(
         return Ok(block);
     }
 
-    let (fd, fd_cache_miss) = if let Some(cached_fd) = file_accessor.access_for_table(
-        &table_id,
+    let (fd, fd_cache_miss) = if let Some(cached_fd) = file_accessor.access_for_table(&table_id) {
         #[cfg(feature = "metrics")]
-        metrics,
-    ) {
+        metrics
+            .table_file_opened_cached
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
         (cached_fd, false)
     } else {
         let fd = std::fs::File::open(path)?;
