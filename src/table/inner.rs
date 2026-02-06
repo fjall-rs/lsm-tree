@@ -5,7 +5,11 @@
 #[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 
-use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
+use super::{
+    block_index::BlockIndexImpl, meta::ParsedMeta,
+    range_tombstone_block_by_end::RangeTombstoneBlockByEndDesc,
+    range_tombstone_block_by_start::RangeTombstoneBlockByStart, regions::ParsedRegions,
+};
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
@@ -49,6 +53,12 @@ pub struct Inner {
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
+
+    /// Range tombstone block sorted by (start asc, seqno desc, end asc)
+    pub(crate) range_tombstone_by_start: Option<RangeTombstoneBlockByStart>,
+
+    /// Range tombstone block sorted by (end desc, seqno desc)
+    pub(crate) range_tombstone_by_end: Option<RangeTombstoneBlockByEndDesc>,
 
     /// True when the table was compacted away or dropped
     ///

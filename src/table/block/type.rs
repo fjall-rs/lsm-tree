@@ -8,6 +8,8 @@ pub enum BlockType {
     Index,
     Filter,
     Meta,
+    RangeTombstoneStart,
+    RangeTombstoneEnd,
 }
 
 impl From<BlockType> for u8 {
@@ -17,6 +19,8 @@ impl From<BlockType> for u8 {
             BlockType::Index => 1,
             BlockType::Filter => 2,
             BlockType::Meta => 3,
+            BlockType::RangeTombstoneStart => 4,
+            BlockType::RangeTombstoneEnd => 5,
         }
     }
 }
@@ -30,6 +34,8 @@ impl TryFrom<u8> for BlockType {
             1 => Ok(Self::Index),
             2 => Ok(Self::Filter),
             3 => Ok(Self::Meta),
+            4 => Ok(Self::RangeTombstoneStart),
+            5 => Ok(Self::RangeTombstoneEnd),
             _ => Err(crate::Error::InvalidTag(("BlockType", value))),
         }
     }

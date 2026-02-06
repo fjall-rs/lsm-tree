@@ -335,6 +335,7 @@ impl AbstractTree for BlobTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::{
             coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
@@ -392,6 +393,9 @@ impl AbstractTree for BlobTree {
         if filter_partitioning {
             table_writer = table_writer.use_partitioned_filter();
         }
+
+        // Pass range tombstones to be written into all output tables
+        table_writer.add_range_tombstones(range_tombstones);
 
         #[expect(
             clippy::expect_used,

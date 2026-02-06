@@ -48,6 +48,8 @@ pub struct ParsedMeta {
     pub weak_tombstone_count: u64,
     pub weak_tombstone_reclaimable: u64,
 
+    pub range_tombstone_count: u64,
+
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
 }
@@ -147,6 +149,16 @@ impl ParsedMeta {
         let weak_tombstone_count = read_u64!(block, b"weak_tombstone_count");
         let weak_tombstone_reclaimable = read_u64!(block, b"weak_tombstone_reclaimable");
 
+        // Read optionally for backward compatibility with old v3 tables
+        // that don't have this key yet.
+        let range_tombstone_count = block
+            .point_read(b"range_tombstone_count", SeqNo::MAX)
+            .map(|entry| {
+                let mut bytes = &entry.value[..];
+                bytes.read_u64::<LittleEndian>().unwrap_or(0)
+            })
+            .unwrap_or(0);
+
         let created_at = {
             let bytes = block
                 .point_read(b"created_at", SeqNo::MAX)
@@ -219,6 +231,7 @@ impl ParsedMeta {
             tombstone_count,
             weak_tombstone_count,
             weak_tombstone_reclaimable,
+            range_tombstone_count,
             data_block_compression,
             index_block_compression,
         })

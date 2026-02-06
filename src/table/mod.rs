@@ -12,6 +12,12 @@ mod inner;
 mod iter;
 mod meta;
 pub(crate) mod multi_writer;
+/// Range tombstone block sorted by end key (descending)
+pub mod range_tombstone_block_by_end;
+/// Range tombstone block sorted by start key (ascending)
+pub mod range_tombstone_block_by_start;
+/// Encoder for range tombstone blocks
+pub mod range_tombstone_encoder;
 mod regions;
 mod scanner;
 pub mod util;
@@ -30,10 +36,13 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    range_tombstone::{CoveringRt, RangeTombstone},
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
         filter::block::FilterBlock,
+        range_tombstone_block_by_end::RangeTombstoneBlockByEndDesc,
+        range_tombstone_block_by_start::RangeTombstoneBlockByStart,
         regions::ParsedRegions,
         writer::LinkedFile,
     },
@@ -540,6 +549,33 @@ impl Table {
             None
         };
 
+        // Load range tombstone blocks (if present)
+        let range_tombstone_by_start = if let Some(handle) = regions.range_tombstone_by_start {
+            let block = Block::from_file(&file, handle, CompressionType::None)?;
+            if block.header.block_type != BlockType::RangeTombstoneStart {
+                return Err(crate::Error::InvalidTag((
+                    "BlockType",
+                    block.header.block_type.into(),
+                )));
+            }
+            Some(RangeTombstoneBlockByStart::parse(block.data.to_vec())?)
+        } else {
+            None
+        };
+
+        let range_tombstone_by_end = if let Some(handle) = regions.range_tombstone_by_end {
+            let block = Block::from_file(&file, handle, CompressionType::None)?;
+            if block.header.block_type != BlockType::RangeTombstoneEnd {
+                return Err(crate::Error::InvalidTag((
+                    "BlockType",
+                    block.header.block_type.into(),
+                )));
+            }
+            Some(RangeTombstoneBlockByEndDesc::parse(block.data.to_vec())?)
+        } else {
+            None
+        };
+
         descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
 
         log::trace!("Table #{} recovered", metadata.id);
@@ -562,6 +598,9 @@ impl Table {
             pinned_filter_index,
 
             pinned_filter_block,
+
+            range_tombstone_by_start,
+            range_tombstone_by_end,
 
             is_deleted: AtomicBool::default(),
 
@@ -625,5 +664,68 @@ impl Table {
         todo!()
 
         //  self.metadata.tombstone_count as f32 / self.metadata.key_count as f32
+    }
+
+    /// Checks if a range tombstone in this table suppresses a key.
+    ///
+    /// Returns the seqno of the suppressing tombstone if one exists.
+    pub fn query_range_tombstone_suppression(
+        &self,
+        key: &[u8],
+        key_seqno: SeqNo,
+        read_seqno: SeqNo,
+    ) -> crate::Result<Option<SeqNo>> {
+        if let Some(block) = &self.range_tombstone_by_start {
+            block.query_suppression(key, key_seqno, read_seqno)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns the highest-seqno covering tombstone for a key range `[min, max]`.
+    pub fn query_covering_rt_for_range(
+        &self,
+        min: &[u8],
+        max: &[u8],
+        read_seqno: SeqNo,
+    ) -> crate::Result<Option<CoveringRt>> {
+        if let Some(block) = &self.range_tombstone_by_start {
+            block.query_covering_rt_for_range(min, max, read_seqno)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns all tombstones overlapping with `key` and visible at `read_seqno`.
+    ///
+    /// Used for seek initialization.
+    pub fn overlapping_tombstones(
+        &self,
+        key: &[u8],
+        read_seqno: SeqNo,
+    ) -> crate::Result<Vec<RangeTombstone>> {
+        if let Some(block) = &self.range_tombstone_by_start {
+            block.overlapping_tombstones(key, read_seqno)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Returns all tombstones in start-asc order. Used for compaction/flush.
+    pub fn range_tombstones_by_start_iter(&self) -> crate::Result<Vec<RangeTombstone>> {
+        if let Some(block) = &self.range_tombstone_by_start {
+            block.iter()
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Returns all tombstones in end-desc order. Used for reverse iteration.
+    pub fn range_tombstones_by_end_iter(&self) -> crate::Result<Vec<RangeTombstone>> {
+        if let Some(block) = &self.range_tombstone_by_end {
+            block.iter()
+        } else {
+            Ok(Vec::new())
+        }
     }
 }

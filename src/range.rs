@@ -7,7 +7,10 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    range_tombstone::RangeTombstone,
+    range_tombstone_filter::RangeTombstoneFilter,
     run_reader::RunReader,
+    table::Table,
     value::{SeqNo, UserKey},
     version::SuperVersion,
     BoxedIterator, InternalValue,
@@ -21,6 +24,25 @@ use std::{
 #[must_use]
 pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
     item_seqno < seqno
+}
+
+/// Returns `true` if a table is fully covered by a range tombstone visible at `read_seqno`.
+///
+/// A table can be skipped when a tombstone fully covers its key range `[min, max]`
+/// and has a seqno greater than the table's highest seqno, meaning every entry
+/// in the table is suppressed.
+#[must_use]
+fn is_table_fully_covered(table: &Table, tombstones: &[RangeTombstone], read_seqno: SeqNo) -> bool {
+    let key_range = &table.metadata.key_range;
+    let table_min = key_range.min().as_ref();
+    let table_max = key_range.max().as_ref();
+    let table_max_seqno = table.get_highest_seqno();
+
+    tombstones.iter().any(|rt| {
+        rt.visible_at(read_seqno)
+            && rt.fully_covers(table_min, table_max)
+            && rt.seqno > table_max_seqno
+    })
 }
 
 /// Calculates the prefix's upper range.
@@ -145,6 +167,36 @@ impl TreeIter {
 
             let range = (lo, hi);
 
+            // Collect range tombstones from all sources for forward suppression
+            let mut all_tombstones: Vec<RangeTombstone> = Vec::new();
+
+            // From active memtable
+            all_tombstones.extend(lock.version.active_memtable.range_tombstones_by_start());
+
+            // From sealed memtables
+            for memtable in lock.version.sealed_memtables.iter() {
+                all_tombstones.extend(memtable.range_tombstones_by_start());
+            }
+
+            // From SST tables (skip if no SST has range tombstones)
+            if lock.version.has_sst_range_tombstones {
+                for run in lock
+                    .version
+                    .version
+                    .iter_levels()
+                    .flat_map(|lvl| lvl.iter())
+                {
+                    for table in run.iter() {
+                        if let Ok(tombstones) = table.range_tombstones_by_start_iter() {
+                            all_tombstones.extend(tombstones);
+                        }
+                    }
+                }
+            }
+
+            // Sort by (start asc, seqno desc, end asc) — the Ord impl on RangeTombstone
+            all_tombstones.sort();
+
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
             for run in lock
@@ -165,6 +217,11 @@ impl TreeIter {
                             range.start_bound().map(|x| &*x.user_key),
                             range.end_bound().map(|x| &*x.user_key),
                         )) {
+                            // Skip table if fully covered by a range tombstone
+                            if is_table_fully_covered(table, &all_tombstones, seqno) {
+                                continue;
+                            }
+
                             let reader = table
                                 .range((
                                     range.start_bound().map(|x| &x.user_key).cloned(),
@@ -227,10 +284,19 @@ impl TreeIter {
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
 
-            Box::new(iter.filter(|x| match x {
-                Ok(value) => !value.key.is_tombstone(),
-                Err(_) => true,
-            }))
+            if all_tombstones.is_empty() {
+                Box::new(iter.filter(|x| match x {
+                    Ok(value) => !value.key.is_tombstone(),
+                    Err(_) => true,
+                }))
+            } else {
+                let iter = RangeTombstoneFilter::new(iter, all_tombstones, seqno);
+
+                Box::new(iter.filter(|x| match x {
+                    Ok(value) => !value.key.is_tombstone(),
+                    Err(_) => true,
+                }))
+            }
         })
     }
 }

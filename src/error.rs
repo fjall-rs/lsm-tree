@@ -40,6 +40,9 @@ pub enum Error {
 
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
+
+    /// Invalid or corrupt block data
+    InvalidBlock(&'static str),
 }
 
 impl std::fmt::Display for Error {

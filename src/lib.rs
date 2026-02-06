@@ -67,6 +67,9 @@ macro_rules! unwrap {
 
 pub(crate) use unwrap;
 
+/// Active tombstone set for tracking range tombstones during iteration
+pub mod active_tombstone_set;
+
 mod any_tree;
 
 mod r#abstract;
@@ -123,6 +126,11 @@ mod path;
 
 #[doc(hidden)]
 pub mod range;
+
+/// Range tombstone types for deleting key ranges
+pub mod range_tombstone;
+
+pub(crate) mod range_tombstone_filter;
 
 #[doc(hidden)]
 pub mod table;
@@ -182,6 +190,7 @@ pub use {
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},
     r#abstract::AbstractTree,
+    range_tombstone::{CoveringRt, RangeTombstone},
     seqno::SequenceNumberCounter,
     slice::Slice,
     tree::Tree,

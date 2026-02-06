@@ -4,8 +4,12 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection,
+    range_tombstone::{self, RangeTombstone},
+    table::writer::LinkedFile,
+    value::InternalValue,
+    vlog::BlobFileId,
+    Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -45,6 +49,9 @@ pub struct MultiWriter {
     current_key: Option<UserKey>,
 
     linked_blobs: HashMap<BlobFileId, LinkedFile>,
+
+    /// Range tombstones to include in all output tables
+    range_tombstones: Vec<RangeTombstone>,
 
     /// Level the tables are written to
     initial_level: u8,
@@ -91,6 +98,8 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+
+            range_tombstones: Vec::new(),
         })
     }
 
@@ -212,11 +221,31 @@ impl MultiWriter {
         }
         self.linked_blobs.clear();
 
+        // Write range tombstones clipped to the old table's key range.
+        // Use current_key as the last key because meta.last_key is only set
+        // during spill_block(), which may not have been called yet.
+        if let (Some(first_key), Some(last_key)) = (
+            old_writer.meta.first_key.clone(),
+            old_writer.current_key.clone(),
+        ) {
+            let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
+            for rt in &self.range_tombstones {
+                if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {
+                    old_writer.write_range_tombstone(clipped);
+                }
+            }
+        }
+
         if let Some((table_id, checksum)) = old_writer.finish()? {
             self.results.push((table_id, checksum));
         }
 
         Ok(())
+    }
+
+    /// Adds range tombstones to be written into all output tables.
+    pub fn add_range_tombstones(&mut self, tombstones: Vec<RangeTombstone>) {
+        self.range_tombstones.extend(tombstones);
     }
 
     /// Writes an item
@@ -247,6 +276,21 @@ impl MultiWriter {
                 linked.bytes,
                 linked.on_disk_bytes,
             );
+        }
+
+        // Write range tombstones clipped to the final table's key range.
+        // Use current_key as the last key because meta.last_key is only set
+        // during spill_block(), which may not have been called yet.
+        if let (Some(first_key), Some(last_key)) = (
+            self.writer.meta.first_key.clone(),
+            self.writer.current_key.clone(),
+        ) {
+            let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
+            for rt in &self.range_tombstones {
+                if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {
+                    self.writer.write_range_tombstone(clipped);
+                }
+            }
         }
 
         if let Some((table_id, checksum)) = self.writer.finish()? {

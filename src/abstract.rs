@@ -98,9 +98,15 @@ pub trait AbstractTree {
         );
         let stream = CompactionStream::new(merger, seqno_threshold);
 
+        // Collect range tombstones from sealed memtables
+        let mut range_tombstones = Vec::new();
+        for mt in latest.sealed_memtables.iter() {
+            range_tombstones.extend(mt.range_tombstones_by_start());
+        }
+
         drop(version_history);
 
-        if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
+        if let Some((tables, blob_files)) = self.flush_to_tables(stream, range_tombstones)? {
             self.register_tables(
                 &tables,
                 blob_files.as_deref(),
@@ -216,6 +222,7 @@ pub trait AbstractTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<FlushToTablesResult>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.

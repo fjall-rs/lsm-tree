@@ -24,18 +24,31 @@ pub struct SuperVersion {
     pub(crate) version: Version,
 
     pub(crate) seqno: SeqNo,
+
+    /// Fast-path flag: `true` when any SST table has range tombstones.
+    pub(crate) has_sst_range_tombstones: bool,
+}
+
+fn compute_has_sst_range_tombstones(version: &Version) -> bool {
+    version
+        .iter_levels()
+        .flat_map(|lvl| lvl.iter())
+        .flat_map(|run| run.iter())
+        .any(|t| t.range_tombstone_by_start.is_some())
 }
 
 pub struct SuperVersions(VecDeque<SuperVersion>);
 
 impl SuperVersions {
     pub fn new(version: Version) -> Self {
+        let has_sst_range_tombstones = compute_has_sst_range_tombstones(&version);
         Self(
             vec![SuperVersion {
                 active_memtable: Arc::new(Memtable::new(0)),
                 sealed_memtables: Arc::default(),
                 version,
                 seqno: 0,
+                has_sst_range_tombstones,
             }]
             .into(),
         )
@@ -145,12 +158,14 @@ impl SuperVersions {
         Ok(())
     }
 
-    pub fn append_version(&mut self, version: SuperVersion) {
+    pub fn append_version(&mut self, mut version: SuperVersion) {
+        version.has_sst_range_tombstones = compute_has_sst_range_tombstones(&version.version);
         self.0.push_back(version);
     }
 
-    pub fn replace_latest_version(&mut self, version: SuperVersion) {
+    pub fn replace_latest_version(&mut self, mut version: SuperVersion) {
         if self.0.pop_back().is_some() {
+            version.has_sst_range_tombstones = compute_has_sst_range_tombstones(&version.version);
             self.0.push_back(version);
         }
     }
@@ -208,18 +223,21 @@ mod tests {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 2,
                 },
             ]
@@ -241,18 +259,21 @@ mod tests {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 2,
                 },
             ]
@@ -274,24 +295,28 @@ mod tests {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 1,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 2,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 8,
                 },
             ]
@@ -313,12 +338,14 @@ mod tests {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 8,
                 },
             ]
@@ -340,12 +367,14 @@ mod tests {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 0,
                 },
                 SuperVersion {
                     active_memtable: Arc::new(Memtable::new(0)),
                     sealed_memtables: Arc::default(),
                     version: Version::new(0, crate::TreeType::Standard),
+                    has_sst_range_tombstones: false,
                     seqno: 2,
                 },
             ]

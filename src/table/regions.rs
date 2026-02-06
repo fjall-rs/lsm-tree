@@ -48,6 +48,8 @@ pub struct ParsedRegions {
     pub filter_tli: Option<BlockHandle>,
     pub filter: Option<BlockHandle>,
     pub linked_blob_files: Option<BlockHandle>,
+    pub range_tombstone_by_start: Option<BlockHandle>,
+    pub range_tombstone_by_end: Option<BlockHandle>,
     pub metadata: BlockHandle,
 }
 
@@ -65,6 +67,12 @@ impl ParsedRegions {
             index: toc.section(b"index").map(toc_entry_to_handle),
             filter: toc.section(b"filter").map(toc_entry_to_handle),
             linked_blob_files: toc.section(b"linked_blob_files").map(toc_entry_to_handle),
+            range_tombstone_by_start: toc
+                .section(b"range_tombstone_by_start")
+                .map(toc_entry_to_handle),
+            range_tombstone_by_end: toc
+                .section(b"range_tombstone_by_end")
+                .map(toc_entry_to_handle),
             metadata: toc
                 .section(b"meta")
                 .map(toc_entry_to_handle)
