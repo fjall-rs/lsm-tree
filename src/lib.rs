@@ -130,6 +130,8 @@ pub mod range;
 /// Range tombstone types for deleting key ranges
 pub mod range_tombstone;
 
+pub(crate) mod range_tombstone_filter;
+
 #[doc(hidden)]
 pub mod table;
 

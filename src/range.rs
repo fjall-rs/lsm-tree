@@ -7,6 +7,8 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    range_tombstone::RangeTombstone,
+    range_tombstone_filter::RangeTombstoneFilter,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -224,8 +226,23 @@ impl TreeIter {
                 iters.push(iter);
             }
 
+            // Collect range tombstones from all sources for forward suppression
+            let mut all_tombstones: Vec<RangeTombstone> = Vec::new();
+
+            // From active memtable
+            all_tombstones.extend(lock.version.active_memtable.range_tombstones_by_start());
+
+            // From sealed memtables
+            for memtable in lock.version.sealed_memtables.iter() {
+                all_tombstones.extend(memtable.range_tombstones_by_start());
+            }
+
+            // Sort by (start asc, seqno desc, end asc) — the Ord impl on RangeTombstone
+            all_tombstones.sort();
+
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
+            let iter = RangeTombstoneFilter::new(iter, all_tombstones, seqno);
 
             Box::new(iter.filter(|x| match x {
                 Ok(value) => !value.key.is_tombstone(),
