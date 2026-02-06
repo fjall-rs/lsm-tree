@@ -12,6 +12,12 @@ mod inner;
 mod iter;
 mod meta;
 pub(crate) mod multi_writer;
+/// Range tombstone block sorted by end key (descending)
+pub mod range_tombstone_block_by_end;
+/// Range tombstone block sorted by start key (ascending)
+pub mod range_tombstone_block_by_start;
+/// Encoder for range tombstone blocks
+pub mod range_tombstone_encoder;
 mod regions;
 mod scanner;
 pub mod util;
