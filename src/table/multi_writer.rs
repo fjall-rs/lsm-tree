@@ -224,9 +224,10 @@ impl MultiWriter {
         // Write range tombstones clipped to the old table's key range.
         // Use current_key as the last key because meta.last_key is only set
         // during spill_block(), which may not have been called yet.
-        if let (Some(first_key), Some(last_key)) =
-            (old_writer.meta.first_key.clone(), old_writer.current_key.clone())
-        {
+        if let (Some(first_key), Some(last_key)) = (
+            old_writer.meta.first_key.clone(),
+            old_writer.current_key.clone(),
+        ) {
             let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
             for rt in &self.range_tombstones {
                 if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {
@@ -280,9 +281,10 @@ impl MultiWriter {
         // Write range tombstones clipped to the final table's key range.
         // Use current_key as the last key because meta.last_key is only set
         // during spill_block(), which may not have been called yet.
-        if let (Some(first_key), Some(last_key)) =
-            (self.writer.meta.first_key.clone(), self.writer.current_key.clone())
-        {
+        if let (Some(first_key), Some(last_key)) = (
+            self.writer.meta.first_key.clone(),
+            self.writer.current_key.clone(),
+        ) {
             let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
             for rt in &self.range_tombstones {
                 if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {

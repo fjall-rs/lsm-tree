@@ -27,6 +27,10 @@ pub struct RangeTombstoneBlockByStart {
 
 impl RangeTombstoneBlockByStart {
     /// Parses the backward-parseable footer to construct the block.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is malformed or too small.
     pub fn parse(data: Vec<u8>) -> crate::Result<Self> {
         if data.len() < 8 {
             return Err(crate::Error::InvalidBlock(
@@ -80,11 +84,9 @@ impl RangeTombstoneBlockByStart {
 
         // Step 7: global_max_end
         let gme_start = gme_len_pos - global_max_end_len;
-        let global_max_end = data
-            .get(gme_start..gme_start + global_max_end_len)
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone block: global_max_end out of bounds",
-            ))?;
+        let global_max_end = data.get(gme_start..gme_start + global_max_end_len).ok_or(
+            crate::Error::InvalidBlock("range tombstone block: global_max_end out of bounds"),
+        )?;
         let global_max_end = UserKey::from(global_max_end);
 
         // Step 8: Window max_ends blob
@@ -114,11 +116,13 @@ impl RangeTombstoneBlockByStart {
     }
 
     /// Returns `true` if the block contains no tombstones.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Returns the number of tombstones.
+    #[must_use]
     pub fn count(&self) -> u32 {
         self.count
     }
@@ -129,6 +133,10 @@ impl RangeTombstoneBlockByStart {
     /// - `rt.start <= key < rt.end`
     /// - `rt.seqno > key_seqno`
     /// - `rt.seqno <= read_seqno`
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is corrupt.
     pub fn query_suppression(
         &self,
         key: &[u8],
@@ -176,7 +184,7 @@ impl RangeTombstoneBlockByStart {
                 }
                 if rt.should_suppress(key, key_seqno, read_seqno) {
                     let s = rt.seqno;
-                    if best_seqno.map_or(true, |b| s > b) {
+                    if best_seqno.is_none_or(|b| s > b) {
                         best_seqno = Some(s);
                     }
                 }
@@ -190,6 +198,10 @@ impl RangeTombstoneBlockByStart {
     ///
     /// Used for seek initialization: returns tombstones where
     /// `start <= key < end` and `seqno <= read_seqno`.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is corrupt.
     pub fn overlapping_tombstones(
         &self,
         key: &[u8],
@@ -235,6 +247,10 @@ impl RangeTombstoneBlockByStart {
     /// - `rt.start <= min`
     /// - `max < rt.end` (half-open)
     /// - `rt.seqno <= read_seqno`
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is corrupt.
     pub fn query_covering_rt_for_range(
         &self,
         min: &[u8],
@@ -266,10 +282,11 @@ impl RangeTombstoneBlockByStart {
                 if rt.start.as_ref() > min {
                     break; // Can't cover [min, max]
                 }
-                if rt.fully_covers(min, max) && rt.visible_at(read_seqno) {
-                    if best.as_ref().map_or(true, |b| rt.seqno > b.seqno) {
-                        best = Some(CoveringRt::from(&rt));
-                    }
+                if rt.fully_covers(min, max)
+                    && rt.visible_at(read_seqno)
+                    && best.as_ref().is_none_or(|b| rt.seqno > b.seqno)
+                {
+                    best = Some(CoveringRt::from(&rt));
                 }
             }
         }
@@ -278,6 +295,10 @@ impl RangeTombstoneBlockByStart {
     }
 
     /// Iterates all tombstones in sort order. Used for compaction/flush.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is corrupt.
     pub fn iter(&self) -> crate::Result<Vec<RangeTombstone>> {
         if self.is_empty() {
             return Ok(Vec::new());
@@ -323,13 +344,13 @@ impl RangeTombstoneBlockByStart {
 
     /// Decodes all entries in window `wi`.
     fn decode_window(&self, wi: usize) -> crate::Result<Vec<RangeTombstone>> {
-        let start_offset = self
-            .restart_offsets
-            .get(wi)
-            .copied()
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone block: window index out of bounds",
-            ))? as usize;
+        let start_offset =
+            self.restart_offsets
+                .get(wi)
+                .copied()
+                .ok_or(crate::Error::InvalidBlock(
+                    "range tombstone block: window index out of bounds",
+                ))? as usize;
 
         let end_offset = self
             .restart_offsets
@@ -353,14 +374,21 @@ impl RangeTombstoneBlockByStart {
     }
 
     /// Decodes a single entry at the given byte offset.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "cursor positions are bounded by block size which fits in usize"
+    )]
     fn decode_entry_at_offset(
         &self,
         offset: usize,
         prev_start: Option<&UserKey>,
     ) -> crate::Result<(RangeTombstone, usize)> {
-        let slice = self.data.get(offset..self.entries_end).ok_or(
-            crate::Error::InvalidBlock("range tombstone block: entry offset out of bounds"),
-        )?;
+        let slice = self
+            .data
+            .get(offset..self.entries_end)
+            .ok_or(crate::Error::InvalidBlock(
+                "range tombstone block: entry offset out of bounds",
+            ))?;
         let mut cursor = Cursor::new(slice);
 
         let shared_prefix_len = cursor.read_u32_varint().map_err(|_| {
@@ -398,13 +426,9 @@ impl RangeTombstoneBlockByStart {
             cursor.set_position((suffix_start + start_suffix_len) as u64);
 
             let mut reconstructed = Vec::with_capacity(shared_prefix_len + start_suffix_len);
-            reconstructed.extend_from_slice(
-                prev.as_ref()
-                    .get(..shared_prefix_len)
-                    .ok_or(crate::Error::InvalidBlock(
-                        "range tombstone block: prefix slice out of bounds",
-                    ))?,
-            );
+            reconstructed.extend_from_slice(prev.as_ref().get(..shared_prefix_len).ok_or(
+                crate::Error::InvalidBlock("range tombstone block: prefix slice out of bounds"),
+            )?);
             reconstructed.extend_from_slice(suffix);
             UserKey::from(reconstructed)
         };
@@ -414,11 +438,12 @@ impl RangeTombstoneBlockByStart {
             crate::Error::InvalidBlock("range tombstone block: failed to read end_key_len")
         })? as usize;
         let end_start = cursor.position() as usize;
-        let end = slice
-            .get(end_start..end_start + end_key_len)
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone block: end key out of bounds",
-            ))?;
+        let end =
+            slice
+                .get(end_start..end_start + end_key_len)
+                .ok_or(crate::Error::InvalidBlock(
+                    "range tombstone block: end key out of bounds",
+                ))?;
         cursor.set_position((end_start + end_key_len) as u64);
         let end = UserKey::from(end);
 
@@ -450,9 +475,11 @@ fn parse_window_max_ends(
     for _ in 0..count {
         let len = read_u16_le(data, offset)? as usize;
         offset += 2;
-        let key = data.get(offset..offset + len).ok_or(
-            crate::Error::InvalidBlock("range tombstone block: window max_end out of bounds"),
-        )?;
+        let key = data
+            .get(offset..offset + len)
+            .ok_or(crate::Error::InvalidBlock(
+                "range tombstone block: window max_end out of bounds",
+            ))?;
         result.push(UserKey::from(key));
         offset += len;
     }
@@ -463,34 +490,41 @@ fn parse_window_max_ends(
 fn read_u16_le(data: &[u8], offset: usize) -> crate::Result<u16> {
     let slice = data
         .get(offset..offset + 2)
-        .ok_or(crate::Error::InvalidBlock("range tombstone block: u16 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone block: u16 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u16::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone block: failed to read u16")
-    })?)
+    cursor
+        .read_u16::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone block: failed to read u16"))
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> crate::Result<u32> {
     let slice = data
         .get(offset..offset + 4)
-        .ok_or(crate::Error::InvalidBlock("range tombstone block: u32 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone block: u32 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u32::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone block: failed to read u32")
-    })?)
+    cursor
+        .read_u32::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone block: failed to read u32"))
 }
 
 fn read_u64_le(data: &[u8], offset: usize) -> crate::Result<u64> {
     let slice = data
         .get(offset..offset + 8)
-        .ok_or(crate::Error::InvalidBlock("range tombstone block: u64 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone block: u64 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u64::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone block: failed to read u64")
-    })?)
+    cursor
+        .read_u64::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone block: failed to read u64"))
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::indexing_slicing, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::table::range_tombstone_encoder::encode_by_start;
@@ -542,43 +576,24 @@ mod tests {
         let block = roundtrip(&tombstones);
 
         // Key in range, lower seqno → suppressed
-        assert_eq!(
-            block.query_suppression(b"c", 5, 100).unwrap(),
-            Some(10),
-        );
+        assert_eq!(block.query_suppression(b"c", 5, 100).unwrap(), Some(10),);
 
         // Key at end (exclusive) → not suppressed
-        assert_eq!(
-            block.query_suppression(b"y", 5, 100).unwrap(),
-            None,
-        );
+        assert_eq!(block.query_suppression(b"y", 5, 100).unwrap(), None,);
 
         // Key before start → not suppressed
-        assert_eq!(
-            block.query_suppression(b"a", 5, 100).unwrap(),
-            None,
-        );
+        assert_eq!(block.query_suppression(b"a", 5, 100).unwrap(), None,);
 
         // Key with higher seqno → not suppressed
-        assert_eq!(
-            block.query_suppression(b"c", 15, 100).unwrap(),
-            None,
-        );
+        assert_eq!(block.query_suppression(b"c", 15, 100).unwrap(), None,);
 
         // Tombstone not visible at read_seqno → not suppressed
-        assert_eq!(
-            block.query_suppression(b"c", 5, 9).unwrap(),
-            None,
-        );
+        assert_eq!(block.query_suppression(b"c", 5, 9).unwrap(), None,);
     }
 
     #[test]
     fn overlapping_tombstones_basic() {
-        let tombstones = vec![
-            rt(b"a", b"f", 10),
-            rt(b"d", b"m", 20),
-            rt(b"p", b"z", 5),
-        ];
+        let tombstones = vec![rt(b"a", b"f", 10), rt(b"d", b"m", 20), rt(b"p", b"z", 5)];
         let block = roundtrip(&tombstones);
 
         let overlaps = block.overlapping_tombstones(b"e", 100).unwrap();
@@ -596,16 +611,12 @@ mod tests {
         let tombstones = vec![rt(b"a", b"z", 50)];
         let block = roundtrip(&tombstones);
 
-        let crt = block
-            .query_covering_rt_for_range(b"b", b"y", 100)
-            .unwrap();
+        let crt = block.query_covering_rt_for_range(b"b", b"y", 100).unwrap();
         assert!(crt.is_some());
         assert_eq!(crt.unwrap().seqno, 50);
 
         // Not fully covered
-        let crt = block
-            .query_covering_rt_for_range(b"a", b"z", 100)
-            .unwrap();
+        let crt = block.query_covering_rt_for_range(b"a", b"z", 100).unwrap();
         assert!(crt.is_none()); // max == end, half-open
     }
 

@@ -31,6 +31,7 @@ pub fn seqno_filter(item_seqno: SeqNo, seqno: SeqNo) -> bool {
 /// A table can be skipped when a tombstone fully covers its key range `[min, max]`
 /// and has a seqno greater than the table's highest seqno, meaning every entry
 /// in the table is suppressed.
+#[must_use]
 fn is_table_fully_covered(table: &Table, tombstones: &[RangeTombstone], read_seqno: SeqNo) -> bool {
     let key_range = &table.metadata.key_range;
     let table_min = key_range.min().as_ref();

@@ -440,9 +440,8 @@ impl Writer {
 
             // Sort by (end desc, seqno desc) for ByEndDesc block
             use std::cmp::Reverse;
-            self.range_tombstones.sort_by(|a, b| {
-                (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno)))
-            });
+            self.range_tombstones
+                .sort_by(|a, b| (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno))));
 
             // Write ByEndDesc block
             self.file_writer.start("range_tombstone_by_end")?;

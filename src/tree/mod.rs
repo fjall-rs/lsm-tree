@@ -665,12 +665,7 @@ impl Tree {
             };
 
             // Check range tombstone suppression from all sources
-            if Self::is_suppressed_by_range_tombstone(
-                super_version,
-                key,
-                entry.key.seqno,
-                seqno,
-            )? {
+            if Self::is_suppressed_by_range_tombstone(super_version, key, entry.key.seqno, seqno)? {
                 return Ok(None);
             }
 
@@ -687,12 +682,7 @@ impl Tree {
             };
 
             // Check range tombstone suppression from all sources
-            if Self::is_suppressed_by_range_tombstone(
-                super_version,
-                key,
-                entry.key.seqno,
-                seqno,
-            )? {
+            if Self::is_suppressed_by_range_tombstone(super_version, key, entry.key.seqno, seqno)? {
                 return Ok(None);
             }
 
@@ -704,12 +694,7 @@ impl Tree {
 
         if let Some(entry) = entry {
             // Check range tombstone suppression from all sources
-            if Self::is_suppressed_by_range_tombstone(
-                super_version,
-                key,
-                entry.key.seqno,
-                seqno,
-            )? {
+            if Self::is_suppressed_by_range_tombstone(super_version, key, entry.key.seqno, seqno)? {
                 return Ok(None);
             }
 

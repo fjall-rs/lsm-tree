@@ -26,12 +26,14 @@ impl RangeTombstone {
     ///
     /// Debug-asserts that `start < end`. Callers must validate untrusted input
     /// before constructing a `RangeTombstone`.
+    #[must_use]
     pub fn new(start: UserKey, end: UserKey, seqno: SeqNo) -> Self {
         debug_assert!(start < end, "range tombstone start must be < end");
         Self { start, end, seqno }
     }
 
     /// Returns `true` if `key` is within `[start, end)`.
+    #[must_use]
     pub fn contains_key(&self, key: &[u8]) -> bool {
         self.start.as_ref() <= key && key < self.end.as_ref()
     }
@@ -39,6 +41,7 @@ impl RangeTombstone {
     /// Returns `true` if this tombstone is visible at the given read seqno.
     ///
     /// A tombstone is visible when `self.seqno <= read_seqno`.
+    #[must_use]
     pub fn visible_at(&self, read_seqno: SeqNo) -> bool {
         self.seqno <= read_seqno
     }
@@ -47,6 +50,7 @@ impl RangeTombstone {
     /// at the given read snapshot.
     ///
     /// Suppress iff: `kv_seqno < self.seqno AND self.contains_key(key) AND self.visible_at(read_seqno)`
+    #[must_use]
     pub fn should_suppress(&self, key: &[u8], kv_seqno: SeqNo, read_seqno: SeqNo) -> bool {
         self.visible_at(read_seqno) && self.contains_key(key) && kv_seqno < self.seqno
     }
@@ -55,6 +59,7 @@ impl RangeTombstone {
     /// if the ranges do not overlap.
     ///
     /// The resulting tombstone has the same seqno as `self`.
+    #[must_use]
     pub fn intersect_opt(&self, min: &[u8], max: &[u8]) -> Option<Self> {
         let new_start_ref = if self.start.as_ref() > min {
             self.start.as_ref()
@@ -83,6 +88,7 @@ impl RangeTombstone {
     /// "Fully covers" means `self.start <= min` AND `max < self.end`.
     /// This uses the half-open convention: the inclusive `max` must be
     /// strictly less than the exclusive `end`.
+    #[must_use]
     pub fn fully_covers(&self, min: &[u8], max: &[u8]) -> bool {
         self.start.as_ref() <= min && max < self.end.as_ref()
     }
@@ -125,6 +131,7 @@ pub struct CoveringRt {
 impl CoveringRt {
     /// Returns `true` if this covering tombstone fully covers the given
     /// key range `[min, max]` and has a higher seqno than the table's max.
+    #[must_use]
     pub fn covers_table(&self, table_min: &[u8], table_max: &[u8], table_max_seqno: SeqNo) -> bool {
         self.start.as_ref() <= table_min
             && table_max < self.end.as_ref()
@@ -147,6 +154,7 @@ impl From<&RangeTombstone> for CoveringRt {
 /// Given a key, returns the next key in lexicographic order by appending `0x00`.
 /// This is useful for converting inclusive upper bounds to exclusive ones
 /// in range-cover queries.
+#[must_use]
 pub fn upper_bound_exclusive(key: &[u8]) -> UserKey {
     let mut result = Vec::with_capacity(key.len() + 1);
     result.extend_from_slice(key);
@@ -155,6 +163,7 @@ pub fn upper_bound_exclusive(key: &[u8]) -> UserKey {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

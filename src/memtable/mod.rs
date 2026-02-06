@@ -50,7 +50,12 @@ pub struct Memtable {
 
     /// Range tombstones indexed by `(Reverse(end), Reverse(seqno))` for
     /// reverse iteration. Yields tombstones in end-desc order.
-    pub(crate) tombstones_by_end: RwLock<BTreeMap<(Reverse<UserKey>, Reverse<SeqNo>), RangeTombstone>>,
+    #[expect(
+        clippy::type_complexity,
+        reason = "compound key is inherent to the dual-index design"
+    )]
+    pub(crate) tombstones_by_end:
+        RwLock<BTreeMap<(Reverse<UserKey>, Reverse<SeqNo>), RangeTombstone>>,
 }
 
 impl Memtable {
@@ -219,10 +224,7 @@ impl Memtable {
         {
             #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
             let mut by_end = self.tombstones_by_end.write().expect("lock poisoned");
-            by_end.insert(
-                (Reverse(rt.end.clone()), Reverse(rt.seqno)),
-                rt,
-            );
+            by_end.insert((Reverse(rt.end.clone()), Reverse(rt.seqno)), rt);
         }
     }
 
@@ -242,11 +244,7 @@ impl Memtable {
     /// Returns all range tombstones overlapping with `key` and visible at `read_seqno`.
     ///
     /// Used for seek initialization.
-    pub fn overlapping_tombstones(
-        &self,
-        key: &[u8],
-        read_seqno: SeqNo,
-    ) -> Vec<RangeTombstone> {
+    pub fn overlapping_tombstones(&self, key: &[u8], read_seqno: SeqNo) -> Vec<RangeTombstone> {
         #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
         let tree = self.range_tombstones.read().expect("lock poisoned");
         tree.overlapping_tombstones(key, read_seqno)

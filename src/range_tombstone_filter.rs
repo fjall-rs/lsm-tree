@@ -35,12 +35,11 @@ impl<I> RangeTombstoneFilter<I> {
     ///
     /// `tombstones` is sorted by `(start asc, seqno desc, end asc)` (the natural Ord).
     /// Internally, a second copy sorted by `(end desc, seqno desc)` is created for reverse.
+    #[must_use]
     pub fn new(inner: I, fwd_tombstones: Vec<RangeTombstone>, read_seqno: SeqNo) -> Self {
         // Build reverse-sorted copy: (end desc, seqno desc)
         let mut rev_tombstones = fwd_tombstones.clone();
-        rev_tombstones.sort_by(|a, b| {
-            (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno)))
-        });
+        rev_tombstones.sort_by(|a, b| (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno))));
 
         Self {
             inner,
@@ -55,10 +54,9 @@ impl<I> RangeTombstoneFilter<I> {
 
     /// Activates forward tombstones whose start <= current_key.
     fn fwd_activate_up_to(&mut self, key: &[u8]) {
-        while self.fwd_idx < self.fwd_tombstones.len() {
-            if self.fwd_tombstones[self.fwd_idx].start.as_ref() <= key {
-                self.fwd_active
-                    .activate(&self.fwd_tombstones[self.fwd_idx]);
+        while let Some(rt) = self.fwd_tombstones.get(self.fwd_idx) {
+            if rt.start.as_ref() <= key {
+                self.fwd_active.activate(rt);
                 self.fwd_idx += 1;
             } else {
                 break;
@@ -68,10 +66,9 @@ impl<I> RangeTombstoneFilter<I> {
 
     /// Activates reverse tombstones whose end > current_key.
     fn rev_activate_up_to(&mut self, key: &[u8]) {
-        while self.rev_idx < self.rev_tombstones.len() {
-            if self.rev_tombstones[self.rev_idx].end.as_ref() > key {
-                self.rev_active
-                    .activate(&self.rev_tombstones[self.rev_idx]);
+        while let Some(rt) = self.rev_tombstones.get(self.rev_idx) {
+            if rt.end.as_ref() > key {
+                self.rev_active.activate(rt);
                 self.rev_idx += 1;
             } else {
                 break;
@@ -187,8 +184,7 @@ mod tests {
     #[test]
     fn tombstone_does_not_suppress_newer_kv() {
         // Tombstone [a, z) at seqno 5 does NOT suppress KV at seqno 10
-        let items: Vec<crate::Result<InternalValue>> =
-            vec![Ok(kv(b"b", 10)), Ok(kv(b"c", 3))];
+        let items: Vec<crate::Result<InternalValue>> = vec![Ok(kv(b"b", 10)), Ok(kv(b"c", 3))];
 
         let tombstones = vec![rt(b"a", b"z", 5)];
         let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);
@@ -271,11 +267,8 @@ mod tests {
     #[test]
     fn reverse_half_open() {
         // Tombstone [a, m) at seqno 10. m is NOT covered.
-        let items: Vec<crate::Result<InternalValue>> = vec![
-            Ok(kv(b"a", 5)),
-            Ok(kv(b"l", 5)),
-            Ok(kv(b"m", 5)),
-        ];
+        let items: Vec<crate::Result<InternalValue>> =
+            vec![Ok(kv(b"a", 5)), Ok(kv(b"l", 5)), Ok(kv(b"m", 5))];
 
         let tombstones = vec![rt(b"a", b"m", 10)];
         let filter = RangeTombstoneFilter::new(items.into_iter(), tombstones, SeqNo::MAX);

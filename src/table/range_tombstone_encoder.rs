@@ -26,6 +26,11 @@ pub const RESTART_INTERVAL: usize = 16;
 /// [max_seqno:u64][window_max_ends_bytes_len:u32][window_max_ends_count:u32]
 /// [restart_offsets: count * u32][count:u32][restart_count:u32]
 /// ```
+///
+/// # Panics
+///
+/// Panics if writing to the internal buffer fails (should not happen).
+#[must_use]
 pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let mut buf = Vec::new();
 
@@ -41,11 +46,7 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let mut prev_start: Option<UserKey> = None;
     let mut max_seqno: u64 = 0;
     #[expect(clippy::expect_used, reason = "non-empty tombstones checked above")]
-    let mut global_max_end: UserKey = tombstones
-        .first()
-        .expect("non-empty")
-        .end
-        .clone();
+    let mut global_max_end: UserKey = tombstones.first().expect("non-empty").end.clone();
 
     for (i, rt) in tombstones.iter().enumerate() {
         if rt.seqno > max_seqno {
@@ -63,10 +64,7 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
                 window_max_ends.push(max_end);
             }
 
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "block size fits in u32"
-            )]
+            #[expect(clippy::cast_possible_truncation, reason = "block size fits in u32")]
             restart_offsets.push(buf.len() as u32);
             current_window_max_end = Some(rt.end.clone());
 
@@ -86,10 +84,7 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
 
             write_varint_usize(&mut buf, shared); // shared_prefix_len
             write_varint_usize(&mut buf, rt.start.len() - shared); // start_suffix_len
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "shared <= rt.start.len()"
-            )]
+            #[expect(clippy::indexing_slicing, reason = "shared <= rt.start.len()")]
             buf.extend_from_slice(&rt.start.as_ref()[shared..]); // start_suffix
             write_varint_usize(&mut buf, rt.end.len()); // end_key_len (always full)
             buf.extend_from_slice(rt.end.as_ref()); // end_key
@@ -120,28 +115,19 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
     // Write window max_ends blob
     let window_max_ends_start = buf.len();
     for max_end in &window_max_ends {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "key length bounded by u16"
-        )]
+        #[expect(clippy::cast_possible_truncation, reason = "key length bounded by u16")]
         let len = max_end.len() as u16;
         buf.write_u16::<LittleEndian>(len).expect("write to vec");
         buf.extend_from_slice(max_end.as_ref());
     }
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "blob size fits in u32"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "blob size fits in u32")]
     let window_max_ends_bytes_len = (buf.len() - window_max_ends_start) as u32;
 
     // Write global_max_end
     buf.extend_from_slice(global_max_end.as_ref());
 
     // Write global_max_end_len
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "key length bounded by u16"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "key length bounded by u16")]
     let global_max_end_len = global_max_end.len() as u16;
     buf.write_u16::<LittleEndian>(global_max_end_len)
         .expect("write to vec");
@@ -155,10 +141,7 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
         .expect("write to vec");
 
     // Write window_max_ends_count
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "restart count fits in u32"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "restart count fits in u32")]
     let window_max_ends_count = window_max_ends.len() as u32;
     buf.write_u32::<LittleEndian>(window_max_ends_count)
         .expect("write to vec");
@@ -177,10 +160,7 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let count = tombstones.len() as u32;
     buf.write_u32::<LittleEndian>(count).expect("write to vec");
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "restart count fits in u32"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "restart count fits in u32")]
     let restart_count = restart_offsets.len() as u32;
     buf.write_u32::<LittleEndian>(restart_count)
         .expect("write to vec");
@@ -195,6 +175,11 @@ pub fn encode_by_start(tombstones: &[RangeTombstone]) -> Vec<u8> {
 /// [entries][global_max_end][max_end_len:u16][max_seqno:u64]
 /// [restart_offsets: count * u32][count:u32][restart_count:u32]
 /// ```
+///
+/// # Panics
+///
+/// Panics if writing to the internal buffer fails (should not happen).
+#[must_use]
 pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let mut buf = Vec::new();
 
@@ -208,11 +193,7 @@ pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let mut max_seqno: u64 = 0;
     // Since sorted by end desc, first entry has the max end
     #[expect(clippy::expect_used, reason = "non-empty tombstones checked above")]
-    let global_max_end = tombstones
-        .first()
-        .expect("non-empty")
-        .end
-        .clone();
+    let global_max_end = tombstones.first().expect("non-empty").end.clone();
 
     for (i, rt) in tombstones.iter().enumerate() {
         if rt.seqno > max_seqno {
@@ -222,10 +203,7 @@ pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
         let is_restart = i % RESTART_INTERVAL == 0;
 
         if is_restart {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "block size fits in u32"
-            )]
+            #[expect(clippy::cast_possible_truncation, reason = "block size fits in u32")]
             restart_offsets.push(buf.len() as u32);
 
             // Full entry: shared_prefix_len = 0
@@ -244,10 +222,7 @@ pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
 
             write_varint_usize(&mut buf, shared); // shared_prefix_len
             write_varint_usize(&mut buf, rt.end.len() - shared); // end_suffix_len
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "shared <= rt.end.len()"
-            )]
+            #[expect(clippy::indexing_slicing, reason = "shared <= rt.end.len()")]
             buf.extend_from_slice(&rt.end.as_ref()[shared..]); // end_suffix
             write_varint_usize(&mut buf, rt.start.len()); // start_key_len (always full)
             buf.extend_from_slice(rt.start.as_ref()); // start_key
@@ -261,10 +236,7 @@ pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
     buf.extend_from_slice(global_max_end.as_ref());
 
     // Write max_end_len
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "key length bounded by u16"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "key length bounded by u16")]
     let max_end_len = global_max_end.len() as u16;
     buf.write_u16::<LittleEndian>(max_end_len)
         .expect("write to vec");
@@ -287,10 +259,7 @@ pub fn encode_by_end_desc(tombstones: &[RangeTombstone]) -> Vec<u8> {
     let count = tombstones.len() as u32;
     buf.write_u32::<LittleEndian>(count).expect("write to vec");
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "restart count fits in u32"
-    )]
+    #[expect(clippy::cast_possible_truncation, reason = "restart count fits in u32")]
     let restart_count = restart_offsets.len() as u32;
     buf.write_u32::<LittleEndian>(restart_count)
         .expect("write to vec");
@@ -369,10 +338,7 @@ mod tests {
 
     #[test]
     fn encode_multiple_by_start_with_prefix_compression() {
-        let tombstones = vec![
-            rt(b"abc", b"def", 10),
-            rt(b"abd", b"ghi", 5),
-        ];
+        let tombstones = vec![rt(b"abc", b"def", 10), rt(b"abd", b"ghi", 5)];
         let data = encode_by_start(&tombstones);
         assert!(data.len() > 8);
     }

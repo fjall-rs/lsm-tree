@@ -90,6 +90,10 @@ impl Node {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "rotation invariant: left child must exist"
+)]
 fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.left.take().expect("rotate_right requires left child");
     node.left = new_root.right.take();
@@ -99,11 +103,12 @@ fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     new_root
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "rotation invariant: right child must exist"
+)]
 fn rotate_left(mut node: Box<Node>) -> Box<Node> {
-    let mut new_root = node
-        .right
-        .take()
-        .expect("rotate_left requires right child");
+    let mut new_root = node.right.take().expect("rotate_left requires right child");
     node.right = new_root.left.take();
     node.update_augmentation();
     new_root.left = Some(node);
@@ -111,6 +116,10 @@ fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     new_root
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "balance factor guarantees child existence"
+)]
 fn balance(mut node: Box<Node>) -> Box<Node> {
     node.update_augmentation();
     let bf = node.balance_factor();
@@ -234,9 +243,7 @@ fn collect_covering(
         && n.tombstone.fully_covers(min, max)
         && n.tombstone.visible_at(read_seqno)
     {
-        let dominated = best
-            .as_ref()
-            .map_or(false, |b| n.tombstone.seqno <= b.seqno);
+        let dominated = best.as_ref().is_some_and(|b| n.tombstone.seqno <= b.seqno);
         if !dominated {
             *best = Some(CoveringRt::from(&n.tombstone));
         }
@@ -250,6 +257,7 @@ fn collect_covering(
 
 impl IntervalTree {
     /// Creates a new empty interval tree.
+    #[must_use]
     pub fn new() -> Self {
         Self { root: None, len: 0 }
     }
@@ -264,12 +272,7 @@ impl IntervalTree {
     /// any range tombstone visible at `read_seqno`.
     ///
     /// O(log n + k) where k is the number of overlapping tombstones.
-    pub fn query_suppression(
-        &self,
-        key: &[u8],
-        key_seqno: SeqNo,
-        read_seqno: SeqNo,
-    ) -> bool {
+    pub fn query_suppression(&self, key: &[u8], key_seqno: SeqNo, read_seqno: SeqNo) -> bool {
         let mut result = Vec::new();
         collect_overlapping(&self.root, key, read_seqno, &mut result);
         result.iter().any(|rt| rt.seqno > key_seqno)
@@ -279,11 +282,7 @@ impl IntervalTree {
     ///
     /// Used for seek initialization: returns tombstones where `start <= key < end`
     /// and `seqno <= read_seqno`.
-    pub fn overlapping_tombstones(
-        &self,
-        key: &[u8],
-        read_seqno: SeqNo,
-    ) -> Vec<RangeTombstone> {
+    pub fn overlapping_tombstones(&self, key: &[u8], read_seqno: SeqNo) -> Vec<RangeTombstone> {
         let mut result = Vec::new();
         collect_overlapping(&self.root, key, read_seqno, &mut result);
         result
@@ -314,11 +313,13 @@ impl IntervalTree {
     }
 
     /// Returns the number of tombstones in the tree.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns `true` if the tree is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -331,6 +332,7 @@ impl Default for IntervalTree {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
 
@@ -388,7 +390,7 @@ mod tests {
 
         // "e" covered by both [a,f)@10 and [d,m)@20
         assert!(tree.query_suppression(b"e", 15, 100)); // 15 < 20
-        assert!(tree.query_suppression(b"e", 5, 100));  // 5 < 20
+        assert!(tree.query_suppression(b"e", 5, 100)); // 5 < 20
         assert!(!tree.query_suppression(b"e", 25, 100)); // 25 > 20
 
         // "q" covered by [p,z)@5

@@ -34,6 +34,7 @@ impl ActiveTombstoneSet {
     /// Creates a new forward active tombstone set.
     ///
     /// Only tombstones with `seqno <= cutoff_seqno` will be activated.
+    #[must_use]
     pub fn new(cutoff_seqno: SeqNo) -> Self {
         Self {
             seqno_counts: BTreeMap::new(),
@@ -64,6 +65,10 @@ impl ActiveTombstoneSet {
     /// In the half-open convention `[start, end)`, a tombstone stops covering
     /// keys at `end`. So when `current_key >= end`, the tombstone no longer
     /// applies and is removed from the active set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an expiry pop has no matching activation in the seqno multiset.
     pub fn expire_until(&mut self, current_key: &[u8]) {
         while let Some(Reverse((ref end, _, seqno))) = self.pending_expiry.peek() {
             if current_key >= end.as_ref() {
@@ -89,6 +94,7 @@ impl ActiveTombstoneSet {
 
     /// Returns the highest seqno among all active tombstones, or `None` if
     /// no tombstones are active.
+    #[must_use]
     pub fn max_active_seqno(&self) -> Option<SeqNo> {
         self.seqno_counts.keys().next_back().copied()
     }
@@ -96,9 +102,9 @@ impl ActiveTombstoneSet {
     /// Returns `true` if a KV with the given seqno is suppressed by any
     /// active tombstone (i.e., there exists an active tombstone with a
     /// higher seqno).
+    #[must_use]
     pub fn is_suppressed(&self, key_seqno: SeqNo) -> bool {
-        self.max_active_seqno()
-            .map_or(false, |max| key_seqno < max)
+        self.max_active_seqno().is_some_and(|max| key_seqno < max)
     }
 
     /// Bulk-activates tombstones at a seek position.
@@ -117,6 +123,7 @@ impl ActiveTombstoneSet {
     }
 
     /// Returns `true` if there are no active tombstones.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()
     }
@@ -149,6 +156,7 @@ impl ActiveTombstoneSetReverse {
     /// Creates a new reverse active tombstone set.
     ///
     /// Only tombstones with `seqno <= cutoff_seqno` will be activated.
+    #[must_use]
     pub fn new(cutoff_seqno: SeqNo) -> Self {
         Self {
             seqno_counts: BTreeMap::new(),
@@ -174,14 +182,17 @@ impl ActiveTombstoneSetReverse {
         let id = self.next_id;
         self.next_id += 1;
         *self.seqno_counts.entry(rt.seqno).or_insert(0) += 1;
-        self.pending_expiry
-            .push((rt.start.clone(), id, rt.seqno));
+        self.pending_expiry.push((rt.start.clone(), id, rt.seqno));
     }
 
     /// Expires tombstones whose `start > current_key`.
     ///
     /// During reverse iteration, when the scan moves to a key that is
     /// before a tombstone's start, that tombstone no longer applies.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an expiry pop has no matching activation in the seqno multiset.
     pub fn expire_until(&mut self, current_key: &[u8]) {
         while let Some((ref start, _, seqno)) = self.pending_expiry.peek() {
             if current_key < start.as_ref() {
@@ -207,6 +218,7 @@ impl ActiveTombstoneSetReverse {
 
     /// Returns the highest seqno among all active tombstones, or `None` if
     /// no tombstones are active.
+    #[must_use]
     pub fn max_active_seqno(&self) -> Option<SeqNo> {
         self.seqno_counts.keys().next_back().copied()
     }
@@ -214,9 +226,9 @@ impl ActiveTombstoneSetReverse {
     /// Returns `true` if a KV with the given seqno is suppressed by any
     /// active tombstone (i.e., there exists an active tombstone with a
     /// higher seqno).
+    #[must_use]
     pub fn is_suppressed(&self, key_seqno: SeqNo) -> bool {
-        self.max_active_seqno()
-            .map_or(false, |max| key_seqno < max)
+        self.max_active_seqno().is_some_and(|max| key_seqno < max)
     }
 
     /// Bulk-activates tombstones at a seek position (for reverse).
@@ -227,6 +239,7 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Returns `true` if there are no active tombstones.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()
     }

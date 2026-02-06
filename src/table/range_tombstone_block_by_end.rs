@@ -9,7 +9,7 @@
 //! of the design doc for rationale.
 
 use crate::range_tombstone::RangeTombstone;
-use crate::{SeqNo, UserKey};
+use crate::UserKey;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 use varint_rs::VarintReader;
@@ -27,6 +27,10 @@ pub struct RangeTombstoneBlockByEndDesc {
 
 impl RangeTombstoneBlockByEndDesc {
     /// Parses the backward-parseable footer.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is malformed or too small.
     pub fn parse(data: Vec<u8>) -> crate::Result<Self> {
         if data.len() < 8 {
             return Err(crate::Error::InvalidBlock(
@@ -71,11 +75,11 @@ impl RangeTombstoneBlockByEndDesc {
 
         // Step 5: global_max_end
         let gme_start = max_end_len_pos - max_end_len;
-        let global_max_end = data
-            .get(gme_start..gme_start + max_end_len)
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone by-end: global_max_end out of bounds",
-            ))?;
+        let global_max_end =
+            data.get(gme_start..gme_start + max_end_len)
+                .ok_or(crate::Error::InvalidBlock(
+                    "range tombstone by-end: global_max_end out of bounds",
+                ))?;
         let global_max_end = UserKey::from(global_max_end);
 
         // entries_end = start of global_max_end blob
@@ -93,21 +97,25 @@ impl RangeTombstoneBlockByEndDesc {
     }
 
     /// Returns `true` if the block contains no tombstones.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Returns the number of tombstones.
+    #[must_use]
     pub fn count(&self) -> u32 {
         self.count
     }
 
     /// Returns the global max end key (fast-reject metadata).
+    #[must_use]
     pub fn global_max_end(&self) -> &UserKey {
         &self.global_max_end
     }
 
     /// Returns the max seqno in the block.
+    #[must_use]
     pub fn max_seqno(&self) -> u64 {
         self.max_seqno
     }
@@ -116,6 +124,10 @@ impl RangeTombstoneBlockByEndDesc {
     ///
     /// For reverse iteration, tombstones are streamed from largest `end` to smallest.
     /// Tombstones with `end > current_key` are activated immediately during reverse scan init.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is corrupt.
     pub fn iter(&self) -> crate::Result<Vec<RangeTombstone>> {
         if self.is_empty() {
             return Ok(Vec::new());
@@ -130,13 +142,13 @@ impl RangeTombstoneBlockByEndDesc {
 
     /// Decodes all entries in window `wi`.
     fn decode_window(&self, wi: usize) -> crate::Result<Vec<RangeTombstone>> {
-        let start_offset = self
-            .restart_offsets
-            .get(wi)
-            .copied()
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone by-end: window index out of bounds",
-            ))? as usize;
+        let start_offset =
+            self.restart_offsets
+                .get(wi)
+                .copied()
+                .ok_or(crate::Error::InvalidBlock(
+                    "range tombstone by-end: window index out of bounds",
+                ))? as usize;
 
         let end_offset = self
             .restart_offsets
@@ -160,14 +172,21 @@ impl RangeTombstoneBlockByEndDesc {
     }
 
     /// Decodes a single entry. ByEndDesc prefix-compresses `end` keys.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "cursor positions are bounded by block size which fits in usize"
+    )]
     fn decode_entry_at_offset(
         &self,
         offset: usize,
         prev_end: Option<&UserKey>,
     ) -> crate::Result<(RangeTombstone, usize)> {
-        let slice = self.data.get(offset..self.entries_end).ok_or(
-            crate::Error::InvalidBlock("range tombstone by-end: entry offset out of bounds"),
-        )?;
+        let slice = self
+            .data
+            .get(offset..self.entries_end)
+            .ok_or(crate::Error::InvalidBlock(
+                "range tombstone by-end: entry offset out of bounds",
+            ))?;
         let mut cursor = Cursor::new(slice);
 
         // Read shared_prefix_len (for END key prefix compression)
@@ -206,13 +225,9 @@ impl RangeTombstoneBlockByEndDesc {
             cursor.set_position((suffix_start + end_suffix_len) as u64);
 
             let mut reconstructed = Vec::with_capacity(shared_prefix_len + end_suffix_len);
-            reconstructed.extend_from_slice(
-                prev.as_ref()
-                    .get(..shared_prefix_len)
-                    .ok_or(crate::Error::InvalidBlock(
-                        "range tombstone by-end: prefix slice out of bounds",
-                    ))?,
-            );
+            reconstructed.extend_from_slice(prev.as_ref().get(..shared_prefix_len).ok_or(
+                crate::Error::InvalidBlock("range tombstone by-end: prefix slice out of bounds"),
+            )?);
             reconstructed.extend_from_slice(suffix);
             UserKey::from(reconstructed)
         };
@@ -222,11 +237,9 @@ impl RangeTombstoneBlockByEndDesc {
             crate::Error::InvalidBlock("range tombstone by-end: failed to read start_key_len")
         })? as usize;
         let start_start = cursor.position() as usize;
-        let start = slice
-            .get(start_start..start_start + start_key_len)
-            .ok_or(crate::Error::InvalidBlock(
-                "range tombstone by-end: start key out of bounds",
-            ))?;
+        let start = slice.get(start_start..start_start + start_key_len).ok_or(
+            crate::Error::InvalidBlock("range tombstone by-end: start key out of bounds"),
+        )?;
         cursor.set_position((start_start + start_key_len) as u64);
         let start = UserKey::from(start);
 
@@ -250,34 +263,41 @@ impl RangeTombstoneBlockByEndDesc {
 fn read_u16_le(data: &[u8], offset: usize) -> crate::Result<u16> {
     let slice = data
         .get(offset..offset + 2)
-        .ok_or(crate::Error::InvalidBlock("range tombstone by-end: u16 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone by-end: u16 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u16::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone by-end: failed to read u16")
-    })?)
+    cursor
+        .read_u16::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone by-end: failed to read u16"))
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> crate::Result<u32> {
     let slice = data
         .get(offset..offset + 4)
-        .ok_or(crate::Error::InvalidBlock("range tombstone by-end: u32 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone by-end: u32 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u32::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone by-end: failed to read u32")
-    })?)
+    cursor
+        .read_u32::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone by-end: failed to read u32"))
 }
 
 fn read_u64_le(data: &[u8], offset: usize) -> crate::Result<u64> {
     let slice = data
         .get(offset..offset + 8)
-        .ok_or(crate::Error::InvalidBlock("range tombstone by-end: u64 read out of bounds"))?;
+        .ok_or(crate::Error::InvalidBlock(
+            "range tombstone by-end: u64 read out of bounds",
+        ))?;
     let mut cursor = Cursor::new(slice);
-    Ok(cursor.read_u64::<LittleEndian>().map_err(|_| {
-        crate::Error::InvalidBlock("range tombstone by-end: failed to read u64")
-    })?)
+    cursor
+        .read_u64::<LittleEndian>()
+        .map_err(|_| crate::Error::InvalidBlock("range tombstone by-end: failed to read u64"))
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, clippy::indexing_slicing, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::table::range_tombstone_encoder::encode_by_end_desc;
@@ -326,10 +346,7 @@ mod tests {
 
     #[test]
     fn global_max_end_and_max_seqno() {
-        let tombstones = vec![
-            rt(b"a", b"zzz", 20),
-            rt(b"b", b"mmm", 30),
-        ];
+        let tombstones = vec![rt(b"a", b"zzz", 20), rt(b"b", b"mmm", 30)];
         let block = roundtrip(&tombstones);
         assert_eq!(block.global_max_end().as_ref(), b"zzz");
         assert_eq!(block.max_seqno(), 30);
@@ -368,11 +385,7 @@ mod tests {
     fn deterministic_tiebreaker_start_asc() {
         // Test that entries with same (end, seqno) but different start
         // are preserved in input order (which should include start asc tiebreaker)
-        let tombstones = vec![
-            rt(b"a", b"z", 10),
-            rt(b"b", b"z", 10),
-            rt(b"c", b"z", 10),
-        ];
+        let tombstones = vec![rt(b"a", b"z", 10), rt(b"b", b"z", 10), rt(b"c", b"z", 10)];
         let block = roundtrip(&tombstones);
         let decoded = block.iter().unwrap();
         assert_eq!(decoded, tombstones);

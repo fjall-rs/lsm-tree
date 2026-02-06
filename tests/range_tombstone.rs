@@ -1,6 +1,4 @@
-use lsm_tree::{
-    AbstractTree, Config, Guard, RangeTombstone, SeqNo, SequenceNumberCounter,
-};
+use lsm_tree::{AbstractTree, Config, Guard, RangeTombstone, SeqNo, SequenceNumberCounter};
 
 fn open_tree(folder: &std::path::Path) -> lsm_tree::AnyTree {
     Config::new(
