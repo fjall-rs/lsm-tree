@@ -4,9 +4,12 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, range_tombstone::RangeTombstone,
-    table::writer::LinkedFile, value::InternalValue, vlog::BlobFileId, Checksum, CompressionType,
-    HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection,
+    range_tombstone::{self, RangeTombstone},
+    table::writer::LinkedFile,
+    value::InternalValue,
+    vlog::BlobFileId,
+    Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -218,9 +221,18 @@ impl MultiWriter {
         }
         self.linked_blobs.clear();
 
-        // Write range tombstones to the rotated-out table
-        for rt in &self.range_tombstones {
-            old_writer.write_range_tombstone(rt.clone());
+        // Write range tombstones clipped to the old table's key range.
+        // Use current_key as the last key because meta.last_key is only set
+        // during spill_block(), which may not have been called yet.
+        if let (Some(first_key), Some(last_key)) =
+            (old_writer.meta.first_key.clone(), old_writer.current_key.clone())
+        {
+            let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
+            for rt in &self.range_tombstones {
+                if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {
+                    old_writer.write_range_tombstone(clipped);
+                }
+            }
         }
 
         if let Some((table_id, checksum)) = old_writer.finish()? {
@@ -265,9 +277,18 @@ impl MultiWriter {
             );
         }
 
-        // Write range tombstones to the final table
-        for rt in &self.range_tombstones {
-            self.writer.write_range_tombstone(rt.clone());
+        // Write range tombstones clipped to the final table's key range.
+        // Use current_key as the last key because meta.last_key is only set
+        // during spill_block(), which may not have been called yet.
+        if let (Some(first_key), Some(last_key)) =
+            (self.writer.meta.first_key.clone(), self.writer.current_key.clone())
+        {
+            let clip_end = range_tombstone::upper_bound_exclusive(&last_key);
+            for rt in &self.range_tombstones {
+                if let Some(clipped) = rt.intersect_opt(&first_key, &clip_end) {
+                    self.writer.write_range_tombstone(clipped);
+                }
+            }
         }
 
         if let Some((table_id, checksum)) = self.writer.finish()? {

@@ -84,7 +84,7 @@ pub struct Writer {
     /// Stores the previous block position (used for creating back links)
     prev_pos: (BlockOffset, BlockOffset),
 
-    current_key: Option<UserKey>,
+    pub(crate) current_key: Option<UserKey>,
 
     bloom_policy: BloomConstructionPolicy,
 
