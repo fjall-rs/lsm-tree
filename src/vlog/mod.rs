@@ -75,7 +75,9 @@ pub fn recover_blob_files(
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
             log::trace!("Recovering blob file #{blob_file_id:?}");
 
-            let (meta, file) = {
+            let file = std::fs::File::open(&blob_file_path)?;
+
+            let meta = {
                 let reader = sfa::Reader::new(&blob_file_path)?;
                 let toc = reader.toc();
 
@@ -85,23 +87,20 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let file = std::fs::File::open(&blob_file_path)?;
-
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),
                     metadata_section.len() as usize,
                 )?;
 
-                (Metadata::from_slice(&metadata_slice)?, Arc::new(file))
+                Metadata::from_slice(&metadata_slice)?
             };
 
             let file_accessor = if let Some(dt) = descriptor_table.cloned() {
                 let file_accessor = FileAccessor::DescriptorTable(dt);
-                file_accessor.insert_for_blob_file((tree_id, blob_file_id).into(), file);
                 file_accessor
             } else {
-                FileAccessor::File(file)
+                FileAccessor::File(Arc::new(file))
             };
 
             blob_files.push(BlobFile(Arc::new(BlobFileInner {

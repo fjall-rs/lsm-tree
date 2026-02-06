@@ -461,9 +461,9 @@ impl Table {
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
 
         let file = Arc::new(file);
+
         let file_accessor = if let Some(dt) = descriptor_table {
             let file_accessor = FileAccessor::DescriptorTable(dt);
-            file_accessor.insert_for_table((tree_id, metadata.id).into(), file.clone());
             file_accessor
         } else {
             FileAccessor::File(file.clone())
@@ -476,6 +476,7 @@ impl Table {
             );
 
             let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+
             BlockIndexImpl::TwoLevel(TwoLevelBlockIndex {
                 top_level_index: block,
                 cache: cache.clone(),
