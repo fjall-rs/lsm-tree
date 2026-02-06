@@ -340,3 +340,42 @@ fn range_tombstone_table_skip_in_iteration() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// --- Test M: Tombstone eviction at bottom level makes data visible again ---
+#[test]
+fn range_tombstone_eviction_makes_data_visible() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree(folder.path());
+
+    // Insert data at low seqnos
+    tree.insert("a", "val_a", 1);
+    tree.insert("b", "val_b", 2);
+    tree.insert("c", "val_c", 3);
+
+    // Insert range tombstone [a, d) at seqno 10
+    tree.active_memtable()
+        .insert_range_tombstone(RangeTombstone::new("a".into(), "d".into(), 10));
+
+    // Flush everything to SST
+    tree.flush_active_memtable(0)?;
+
+    // Verify data is suppressed before eviction
+    assert!(tree.get("a", SeqNo::MAX)?.is_none());
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert!(tree.get("c", SeqNo::MAX)?.is_none());
+
+    // Compact at last level with gc_watermark > tombstone seqno
+    // This should evict the range tombstone
+    tree.major_compact(u64::MAX, 20)?;
+
+    // After eviction, data should be visible again because the values
+    // are the only version of their keys and survive compaction
+    assert!(tree.get("a", SeqNo::MAX)?.is_some());
+    assert_eq!(b"val_a", &*tree.get("a", SeqNo::MAX)?.unwrap());
+    assert!(tree.get("b", SeqNo::MAX)?.is_some());
+    assert_eq!(b"val_b", &*tree.get("b", SeqNo::MAX)?.unwrap());
+    assert!(tree.get("c", SeqNo::MAX)?.is_some());
+    assert_eq!(b"val_c", &*tree.get("c", SeqNo::MAX)?.unwrap());
+
+    Ok(())
+}
