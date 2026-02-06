@@ -391,6 +391,19 @@ fn merge_tables(
     let table_writer =
         super::flavour::prepare_table_writer(&current_super_version.version, opts, payload)?;
 
+    // Collect range tombstones from all input tables
+    let mut range_tombstones = Vec::new();
+    for table in &tables {
+        if let Ok(tombstones) = table.range_tombstones_by_start_iter() {
+            range_tombstones.extend(tombstones);
+        }
+    }
+
+    // Evict range tombstones at the last level if they are below the GC watermark
+    if is_last_level {
+        range_tombstones.retain(|rt| rt.seqno >= opts.mvcc_gc_watermark);
+    }
+
     let start = Instant::now();
 
     let mut compactor = match &opts.config.kv_separation_opts {
@@ -456,6 +469,11 @@ fn merge_tables(
 
     // IMPORTANT: Unlock exclusive compaction lock as we are now doing the actual (CPU-intensive) compaction
     drop(compaction_state);
+
+    // Pass collected range tombstones to the output tables
+    if !range_tombstones.is_empty() {
+        compactor.add_range_tombstones(range_tombstones);
+    }
 
     hidden_guard(payload, opts, || {
         for (idx, item) in merge_iter.enumerate() {
