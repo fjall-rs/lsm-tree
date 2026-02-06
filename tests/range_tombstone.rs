@@ -377,3 +377,86 @@ fn range_tombstone_eviction_makes_data_visible() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+// --- Test N: Fast path does not suppress data when no range tombstones exist ---
+#[test]
+fn range_tombstone_fast_path_no_tombstones() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree(folder.path());
+
+    // Insert normal KVs at various seqnos — no range tombstones at all
+    for (i, key) in ["a", "b", "c", "d", "e"].iter().enumerate() {
+        tree.insert(*key, "val", i as SeqNo);
+    }
+
+    // Point reads should all succeed (fast path must not accidentally suppress)
+    for key in ["a", "b", "c", "d", "e"] {
+        assert!(
+            tree.get(key, SeqNo::MAX)?.is_some(),
+            "key {key} missing in memtable"
+        );
+    }
+
+    // Range iteration should return all 5 keys
+    assert_eq!(5, tree.range::<&str, _>(.., SeqNo::MAX, None).count());
+
+    // Flush to SST and verify again
+    tree.flush_active_memtable(0)?;
+
+    for key in ["a", "b", "c", "d", "e"] {
+        assert!(
+            tree.get(key, SeqNo::MAX)?.is_some(),
+            "key {key} missing after flush"
+        );
+    }
+    assert_eq!(5, tree.range::<&str, _>(.., SeqNo::MAX, None).count());
+
+    // Compact and verify again
+    tree.major_compact(u64::MAX, 0)?;
+
+    for key in ["a", "b", "c", "d", "e"] {
+        assert!(
+            tree.get(key, SeqNo::MAX)?.is_some(),
+            "key {key} missing after compaction"
+        );
+    }
+    assert_eq!(5, tree.range::<&str, _>(.., SeqNo::MAX, None).count());
+
+    Ok(())
+}
+
+// --- Test O: Compaction deduplicates redundant overlapping range tombstones ---
+#[test]
+fn range_tombstone_compaction_dedup() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+    let tree = open_tree(folder.path());
+
+    // Insert data
+    for (i, key) in ["a", "b", "c", "d", "e"].iter().enumerate() {
+        tree.insert(*key, "val", i as SeqNo);
+    }
+
+    // Insert overlapping range tombstones:
+    // [a, e) at seqno 10  — covers everything
+    // [b, d) at seqno 8   — fully covered by the first (subset range, lower seqno)
+    // [a, c) at seqno 10  — fully covered by the first (subset range, equal seqno)
+    let mt = tree.active_memtable();
+    mt.insert_range_tombstone(RangeTombstone::new("a".into(), "e".into(), 10));
+    mt.insert_range_tombstone(RangeTombstone::new("b".into(), "d".into(), 8));
+    mt.insert_range_tombstone(RangeTombstone::new("a".into(), "c".into(), 10));
+
+    tree.flush_active_memtable(0)?;
+
+    // Compact — dedup should remove the redundant tombstones
+    tree.major_compact(u64::MAX, 0)?;
+
+    // Data should still be correctly suppressed
+    assert!(tree.get("a", SeqNo::MAX)?.is_none());
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert!(tree.get("c", SeqNo::MAX)?.is_none());
+    assert!(tree.get("d", SeqNo::MAX)?.is_none());
+    // "e" is outside [a, e) (end exclusive)
+    assert!(tree.get("e", SeqNo::MAX)?.is_some());
+
+    Ok(())
+}

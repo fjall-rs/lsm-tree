@@ -43,6 +43,10 @@ pub struct Memtable {
 
     pub(crate) requested_rotation: AtomicBool,
 
+    /// Fast-path flag: set to `true` once any range tombstone is inserted.
+    /// Checked before acquiring the interval tree RwLock.
+    pub(crate) has_range_tombstones: AtomicBool,
+
     /// Range tombstones indexed by start for efficient point queries
     /// and overlap collection (used for forward scans and seek init).
     #[doc(hidden)]
@@ -85,6 +89,7 @@ impl Memtable {
             approximate_size: AtomicU64::default(),
             highest_seqno: AtomicU64::default(),
             requested_rotation: AtomicBool::default(),
+            has_range_tombstones: AtomicBool::new(false),
             range_tombstones: RwLock::new(IntervalTree::new()),
             tombstones_by_end: RwLock::new(BTreeMap::new()),
         }
@@ -215,6 +220,9 @@ impl Memtable {
         self.highest_seqno
             .fetch_max(rt.seqno, std::sync::atomic::Ordering::AcqRel);
 
+        self.has_range_tombstones
+            .store(true, std::sync::atomic::Ordering::Release);
+
         {
             #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
             let mut tree = self.range_tombstones.write().expect("lock poisoned");
@@ -236,6 +244,13 @@ impl Memtable {
         key_seqno: SeqNo,
         read_seqno: SeqNo,
     ) -> bool {
+        if !self
+            .has_range_tombstones
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return false;
+        }
+
         #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
         let tree = self.range_tombstones.read().expect("lock poisoned");
         tree.query_suppression(key, key_seqno, read_seqno)
@@ -268,6 +283,13 @@ impl Memtable {
     ///
     /// Used for flush / encoding the ByStart block.
     pub fn range_tombstones_by_start(&self) -> Vec<RangeTombstone> {
+        if !self
+            .has_range_tombstones
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Vec::new();
+        }
+
         #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
         let tree = self.range_tombstones.read().expect("lock poisoned");
         tree.iter_sorted()
@@ -277,6 +299,13 @@ impl Memtable {
     ///
     /// Used for flush / encoding the ByEndDesc block.
     pub fn range_tombstones_by_end_desc(&self) -> Vec<RangeTombstone> {
+        if !self
+            .has_range_tombstones
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Vec::new();
+        }
+
         #[expect(clippy::expect_used, reason = "lock poisoning is unrecoverable")]
         let by_end = self.tombstones_by_end.read().expect("lock poisoned");
         by_end.values().cloned().collect()

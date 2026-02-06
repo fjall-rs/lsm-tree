@@ -724,18 +724,20 @@ impl Tree {
             }
         }
 
-        // Check SST tables
-        for table in super_version
-            .version
-            .iter_levels()
-            .flat_map(|lvl| lvl.iter())
-            .flat_map(|run| run.iter())
-        {
-            if table
-                .query_range_tombstone_suppression(key, kv_seqno, read_seqno)?
-                .is_some()
+        // Check SST tables (skip entirely if no SST has range tombstones)
+        if super_version.has_sst_range_tombstones {
+            for table in super_version
+                .version
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+                .flat_map(|run| run.iter())
             {
-                return Ok(true);
+                if table
+                    .query_range_tombstone_suppression(key, kv_seqno, read_seqno)?
+                    .is_some()
+                {
+                    return Ok(true);
+                }
             }
         }
 

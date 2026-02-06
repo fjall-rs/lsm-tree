@@ -404,6 +404,18 @@ fn merge_tables(
         range_tombstones.retain(|rt| rt.seqno >= opts.mvcc_gc_watermark);
     }
 
+    // Deduplicate range tombstones: remove tombstones fully covered by a
+    // retained tombstone with equal or higher seqno.
+    // With Ord (start asc, seqno desc, end asc), consecutive pairs where
+    // the retained element (b) has start <= candidate (a) and end >= a
+    // and seqno >= a means a is fully redundant.
+    range_tombstones.sort();
+    range_tombstones.dedup_by(|a, b| {
+        b.start.as_ref() <= a.start.as_ref()
+            && b.end.as_ref() >= a.end.as_ref()
+            && b.seqno >= a.seqno
+    });
+
     let start = Instant::now();
 
     let mut compactor = match &opts.config.kv_separation_opts {

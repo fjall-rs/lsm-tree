@@ -178,16 +178,18 @@ impl TreeIter {
                 all_tombstones.extend(memtable.range_tombstones_by_start());
             }
 
-            // From SST tables
-            for run in lock
-                .version
-                .version
-                .iter_levels()
-                .flat_map(|lvl| lvl.iter())
-            {
-                for table in run.iter() {
-                    if let Ok(tombstones) = table.range_tombstones_by_start_iter() {
-                        all_tombstones.extend(tombstones);
+            // From SST tables (skip if no SST has range tombstones)
+            if lock.version.has_sst_range_tombstones {
+                for run in lock
+                    .version
+                    .version
+                    .iter_levels()
+                    .flat_map(|lvl| lvl.iter())
+                {
+                    for table in run.iter() {
+                        if let Ok(tombstones) = table.range_tombstones_by_start_iter() {
+                            all_tombstones.extend(tombstones);
+                        }
                     }
                 }
             }
@@ -281,12 +283,20 @@ impl TreeIter {
 
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
-            let iter = RangeTombstoneFilter::new(iter, all_tombstones, seqno);
 
-            Box::new(iter.filter(|x| match x {
-                Ok(value) => !value.key.is_tombstone(),
-                Err(_) => true,
-            }))
+            if all_tombstones.is_empty() {
+                Box::new(iter.filter(|x| match x {
+                    Ok(value) => !value.key.is_tombstone(),
+                    Err(_) => true,
+                }))
+            } else {
+                let iter = RangeTombstoneFilter::new(iter, all_tombstones, seqno);
+
+                Box::new(iter.filter(|x| match x {
+                    Ok(value) => !value.key.is_tombstone(),
+                    Err(_) => true,
+                }))
+            }
         })
     }
 }
