@@ -4,8 +4,9 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, range_tombstone::RangeTombstone,
+    table::writer::LinkedFile, value::InternalValue, vlog::BlobFileId, Checksum, CompressionType,
+    HashMap, SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -45,6 +46,9 @@ pub struct MultiWriter {
     current_key: Option<UserKey>,
 
     linked_blobs: HashMap<BlobFileId, LinkedFile>,
+
+    /// Range tombstones to include in all output tables
+    range_tombstones: Vec<RangeTombstone>,
 
     /// Level the tables are written to
     initial_level: u8,
@@ -91,6 +95,8 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+
+            range_tombstones: Vec::new(),
         })
     }
 
@@ -212,11 +218,21 @@ impl MultiWriter {
         }
         self.linked_blobs.clear();
 
+        // Write range tombstones to the rotated-out table
+        for rt in &self.range_tombstones {
+            old_writer.write_range_tombstone(rt.clone());
+        }
+
         if let Some((table_id, checksum)) = old_writer.finish()? {
             self.results.push((table_id, checksum));
         }
 
         Ok(())
+    }
+
+    /// Adds range tombstones to be written into all output tables.
+    pub fn add_range_tombstones(&mut self, tombstones: Vec<RangeTombstone>) {
+        self.range_tombstones.extend(tombstones);
     }
 
     /// Writes an item
@@ -247,6 +263,11 @@ impl MultiWriter {
                 linked.bytes,
                 linked.on_disk_bytes,
             );
+        }
+
+        // Write range tombstones to the final table
+        for rt in &self.range_tombstones {
+            self.writer.write_range_tombstone(rt.clone());
         }
 
         if let Some((table_id, checksum)) = self.writer.finish()? {
