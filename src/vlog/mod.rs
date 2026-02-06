@@ -73,7 +73,10 @@ pub fn recover_blob_files(
         assert!(!blob_file_path.is_dir());
 
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
-            log::trace!("Recovering blob file #{blob_file_id:?}");
+            log::trace!(
+                "Recovering blob file #{blob_file_id:?} from {}",
+                blob_file_path.display(),
+            );
 
             let file = std::fs::File::open(&blob_file_path)?;
 

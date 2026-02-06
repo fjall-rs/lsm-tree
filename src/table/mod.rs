@@ -552,9 +552,11 @@ impl Table {
             None
         };
 
-        log::trace!("Table #{} recovered", metadata.id);
-
-        log::debug!("Recovered table from {}", file_path.display());
+        log::debug!(
+            "Recovered table #{} from {}",
+            metadata.id,
+            file_path.display(),
+        );
 
         Ok(Self(Arc::new(Inner {
             path: file_path,
