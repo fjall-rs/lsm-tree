@@ -6,6 +6,11 @@ pub mod ingest;
 pub mod inner;
 pub mod sealed;
 
+#[cfg(target_os = "linux")]
+mod multi_get_linux;
+
+#[cfg(feature = "metrics")]
+use crate::metrics::Metrics;
 use crate::{
     compaction::{drop_range::OwnedBounds, state::CompactionState, CompactionStrategy},
     config::Config,
@@ -28,9 +33,6 @@ use std::{
     path::Path,
     sync::{Arc, Mutex, RwLock},
 };
-
-#[cfg(feature = "metrics")]
-use crate::metrics::Metrics;
 
 /// Iterator value guard
 pub struct Guard(crate::Result<(UserKey, UserValue)>);
@@ -598,6 +600,17 @@ impl AbstractTree for Tree {
             .map(|x| x.value))
     }
 
+    fn multi_get(&self, keys: &[&[u8]], seqno: SeqNo) -> crate::Result<Vec<Option<UserValue>>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        Self::get_internal_entries_from_version(&super_version, keys, seqno, |x| x.value)
+    }
+
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,
@@ -669,6 +682,36 @@ impl Tree {
         Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
     }
 
+    pub(crate) fn get_internal_entries_from_version<V: Clone>(
+        super_version: &SuperVersion,
+        keys: &[&[u8]], // keys must be sorted
+        seqno: SeqNo,
+        mapper: impl FnMut(InternalValue) -> V + Copy,
+    ) -> crate::Result<Vec<Option<V>>> {
+        let mut result = vec![None; keys.len()];
+        let mut needs_resolution = Vec::with_capacity(keys.len());
+        for ((idx, &key), res) in keys.iter().enumerate().zip(result.iter_mut()) {
+            if let Some(entry) = super_version.active_memtable.get(key, seqno) {
+                *res = ignore_tombstone_value(entry).map(mapper);
+            }
+            // Now look in sealed memtables
+            if let Some(entry) =
+                Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
+            {
+                *res = ignore_tombstone_value(entry).map(mapper);
+            }
+            needs_resolution.push((idx, key))
+        }
+        // Now look in tables... this may involve disk I/O
+        Self::get_internal_entries_from_tables(
+            &super_version.version,
+            &needs_resolution,
+            seqno,
+            |value, idx| result[idx] = ignore_tombstone_value(value).map(mapper),
+        )?;
+        Ok(result)
+    }
+
     fn get_internal_entry_from_tables(
         version: &Version,
         key: &[u8],
@@ -689,6 +732,33 @@ impl Tree {
         }
 
         Ok(None)
+    }
+
+    fn get_internal_entries_from_tables(
+        version: &Version,
+        keys_and_indices: &[(usize, &[u8])],
+        seqno: SeqNo,
+        mut resolve: impl FnMut(InternalValue, usize),
+    ) -> crate::Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            multi_get_linux::multi_get(version, keys_and_indices, seqno, &mut resolve)
+        }
+        // TODO: Windows also supports IoRing, so we should implement this for Windows as well
+        // to improve performance on that platform.
+        // See: https://learn.microsoft.com/en-us/windows/win32/api/ioringapi/
+        #[cfg(not(target_os = "linux"))]
+        {
+            keys_and_indices
+                .into_iter()
+                .try_for_each(|(idx, key)| -> crate::Result<()> {
+                    let value = Self::get_internal_entry_from_tables(version, key, seqno)?;
+                    if let Some(value) = value {
+                        resolve(value, *idx)
+                    }
+                    Ok(())
+                })
+        }
     }
 
     fn get_internal_entry_from_sealed_memtables(

@@ -100,6 +100,9 @@ pub mod file;
 
 mod hash;
 mod ingestion;
+
+#[cfg(target_os = "linux")]
+pub(crate) mod iouring;
 mod iter_guard;
 mod key;
 mod key_range;
