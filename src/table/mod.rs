@@ -460,8 +460,7 @@ impl Table {
         let file = Arc::new(file);
 
         let file_accessor = if let Some(dt) = descriptor_table {
-            let file_accessor = FileAccessor::DescriptorTable(dt);
-            file_accessor
+            FileAccessor::DescriptorTable(dt)
         } else {
             FileAccessor::File(file.clone())
         };

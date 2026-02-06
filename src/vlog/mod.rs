@@ -100,8 +100,7 @@ pub fn recover_blob_files(
             };
 
             let file_accessor = if let Some(dt) = descriptor_table.cloned() {
-                let file_accessor = FileAccessor::DescriptorTable(dt);
-                file_accessor
+                FileAccessor::DescriptorTable(dt)
             } else {
                 FileAccessor::File(Arc::new(file))
             };
