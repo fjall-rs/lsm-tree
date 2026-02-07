@@ -320,9 +320,11 @@ impl Config {
         self
     }
 
+    /// Sets the file descriptor cache.
+    ///
+    /// Can be shared across trees.
     #[must_use]
-    #[doc(hidden)]
-    pub fn descriptor_table(mut self, descriptor_table: Option<Arc<DescriptorTable>>) -> Self {
+    pub fn use_descriptor_table(mut self, descriptor_table: Option<Arc<DescriptorTable>>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

@@ -14,7 +14,7 @@ fn blob_tree_with_pinned_fd() -> lsm_tree::Result<()> {
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
-        .descriptor_table(None)
+        .use_descriptor_table(None)
         .with_kv_separation(Some(
             KvSeparationOptions::default().compression(lsm_tree::CompressionType::None),
         ))
@@ -40,7 +40,7 @@ fn blob_tree_with_pinned_fd() -> lsm_tree::Result<()> {
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
         )
-        .descriptor_table(None)
+        .use_descriptor_table(None)
         .with_kv_separation(Some(Default::default()))
         .open()?;
 
