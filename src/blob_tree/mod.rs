@@ -166,6 +166,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
+        self.index.print_trace(key)
+    }
+
     fn table_file_cache_size(&self) -> usize {
         self.index.table_file_cache_size()
     }

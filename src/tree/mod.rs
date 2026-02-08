@@ -12,6 +12,7 @@ use crate::{
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
     iter_guard::{IterGuard, IterGuardImpl},
+    key::InternalKey,
     manifest::Manifest,
     memtable::Memtable,
     slice::Slice,
@@ -108,6 +109,49 @@ impl AbstractTree for Tree {
 
     fn blob_file_count(&self) -> usize {
         0
+    }
+
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
+
+        let key = Slice::from(key);
+
+        for kv in super_version
+            .active_memtable
+            .range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..)
+        {
+            log::info!("[Active] {kv:?}");
+        }
+
+        for mt in super_version.sealed_memtables.iter().rev() {
+            for kv in mt.range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..) {
+                log::info!("[Sealed #{}] {kv:?}", mt.id());
+            }
+        }
+
+        for table in super_version
+            .version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .filter_map(|run| run.get_for_key(&key))
+        {
+            for kv in table.range(..) {
+                let kv = kv?;
+
+                if kv.key.user_key != key {
+                    break;
+                }
+
+                log::info!("[Table #{}] {kv:?}", table.id());
+            }
+        }
+
+        Ok(())
     }
 
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
