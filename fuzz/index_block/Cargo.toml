@@ -9,4 +9,4 @@ arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
 lsm-tree = { path = "../.." }
 rand_chacha = "0.9"
-rand = "0.9"
+rand = "0.10"
