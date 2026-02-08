@@ -85,7 +85,10 @@ impl std::ops::Deref for Tree {
 
 impl AbstractTree for Tree {
     fn table_file_cache_size(&self) -> usize {
-        self.config.descriptor_table.len()
+        self.config
+            .descriptor_table
+            .as_ref()
+            .map_or(0, |dt| dt.len())
     }
 
     fn get_version_history_lock(
@@ -316,7 +319,7 @@ impl AbstractTree for Tree {
         let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}",
             folder.display(),
         );
 
@@ -1103,6 +1106,8 @@ impl Tree {
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files(
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
+            tree_id,
+            config.descriptor_table.as_ref(),
         )?;
 
         let version = Version::from_recovery(recovery, &tables, &blob_files)?;

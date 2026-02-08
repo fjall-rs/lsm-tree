@@ -50,6 +50,8 @@ impl<'a> BlobIngestion<'a> {
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
+            tree.index.id,
+            tree.index.config.descriptor_table.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);

@@ -109,7 +109,7 @@ mod tests {
         let blob_file_path = dir.path().join("0");
         {
             {
-                let mut writer = BlobFileWriter::new(&blob_file_path, 0)?;
+                let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
 
                 writer.write(b"a", 1, &b"1".repeat(100))?;
                 writer.write(b"a", 0, &b"0".repeat(100))?;
@@ -153,7 +153,7 @@ mod tests {
             let keys = [b"a", b"c", b"e"];
 
             {
-                let mut writer = BlobFileWriter::new(&blob_file_0_path, 0)?;
+                let mut writer = BlobFileWriter::new(&blob_file_0_path, 0, 0)?;
 
                 for key in keys {
                     writer.write(key, 0, &key.repeat(100))?;
@@ -167,7 +167,7 @@ mod tests {
             let keys = [b"b", b"d"];
 
             {
-                let mut writer = BlobFileWriter::new(&blob_file_1_path, 1)?;
+                let mut writer = BlobFileWriter::new(&blob_file_1_path, 1, 0)?;
 
                 for key in keys {
                     writer.write(key, 1, &key.repeat(100))?;
