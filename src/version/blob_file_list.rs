@@ -30,10 +30,18 @@ impl BlobFileList {
     }
 
     pub fn prune_dead(&mut self, gc_stats: &FragmentationMap) -> Vec<BlobFile> {
-        self.0
-            .extract_if(.., |_, blob_file| blob_file.is_dead(gc_stats))
-            .map(|(_, v)| v)
-            .collect()
+        let mut dead = Vec::new();
+
+        self.0.retain(|_, blob_file| {
+            if blob_file.is_dead(gc_stats) {
+                dead.push(blob_file.to_owned());
+                false
+            } else {
+                true
+            }
+        });
+
+        dead
     }
 
     pub fn insert(&mut self, key: BlobFileId, value: BlobFile) {
