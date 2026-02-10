@@ -1,10 +1,9 @@
-use std::sync::{Arc, Mutex};
-
 use lsm_tree::compaction::filter::{
     CompactionFilter, CompactionFilterFactory, FilterVerdict, ItemAccessor,
 };
 use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
+use std::sync::{Arc, Mutex};
 
 fn u32_s(n: u32) -> [u8; 4] {
     n.to_be_bytes()
@@ -36,6 +35,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     }));
 
     struct Filter(Arc<Mutex<FilterState>>);
+
     impl CompactionFilter for Filter {
         fn filter_item(&mut self, item: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
             let mut state = self.0.lock().unwrap();
@@ -75,7 +75,9 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
             state.finished = true;
         }
     }
+
     struct FilterFactory(Arc<Mutex<FilterState>>);
+
     impl CompactionFilterFactory for FilterFactory {
         fn make_filter(&self) -> Box<dyn CompactionFilter> {
             Box::new(Filter(self.0.clone()))
@@ -183,6 +185,7 @@ fn filter_snapshot() -> lsm_tree::Result<()> {
             Ok(FilterVerdict::Remove)
         }
     }
+
     struct DropEverythingFactory;
     impl CompactionFilterFactory for DropEverythingFactory {
         fn make_filter(&self) -> Box<dyn CompactionFilter> {
