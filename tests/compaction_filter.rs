@@ -9,10 +9,10 @@ fn u32_s(n: u32) -> [u8; 4] {
     n.to_be_bytes()
 }
 
-fn u32_f(buf: &[u8]) -> u32 {
-    let mut n = [0u8; 4];
-    n.copy_from_slice(buf);
-    u32::from_be_bytes(n)
+fn u32_f(mut buf: &[u8]) -> u32 {
+    use byteorder::{ReadBytesExt, BE};
+
+    buf.read_u32::<BE>().unwrap()
 }
 
 fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
