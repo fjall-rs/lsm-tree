@@ -444,10 +444,14 @@ fn merge_tables(
                         .collect::<crate::Result<Vec<_>>>()?,
                 );
 
-                let writer =
-                    BlobFileWriter::new(opts.blob_file_id_generator.clone(), &blobs_folder)?
-                        .use_target_size(blob_opts.file_target_size)
-                        .use_passthrough_compression(blob_opts.compression);
+                let writer = BlobFileWriter::new(
+                    opts.blob_file_id_generator.clone(),
+                    &blobs_folder,
+                    opts.tree_id,
+                    opts.config.descriptor_table.clone(),
+                )?
+                .use_target_size(blob_opts.file_target_size)
+                .use_passthrough_compression(blob_opts.compression);
 
                 let inner = StandardCompaction::new(table_writer, tables);
 

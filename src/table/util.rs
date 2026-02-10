@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    table::block::BlockType, version::run::Ranged, Cache, CompressionType, DescriptorTable,
-    KeyRange, Table,
+    file_accessor::FileAccessor, table::block::BlockType, version::run::Ranged, Cache,
+    CompressionType, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -32,7 +32,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 pub fn load_block(
     table_id: GlobalTableId,
     path: &Path,
-    descriptor_table: &DescriptorTable,
+    file_accessor: &FileAccessor,
     cache: &Cache,
     handle: &BlockHandle,
     block_type: BlockType,
@@ -62,21 +62,18 @@ pub fn load_block(
         return Ok(block);
     }
 
-    let cached_fd = descriptor_table.access_for_table(&table_id);
-    let fd_cache_miss = cached_fd.is_none();
-
-    let fd = if let Some(fd) = cached_fd {
+    let (fd, fd_cache_miss) = if let Some(cached_fd) = file_accessor.access_for_table(&table_id) {
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_cached.fetch_add(1, Relaxed);
 
-        fd
+        (cached_fd, false)
     } else {
         let fd = std::fs::File::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
 
-        Arc::new(fd)
+        (Arc::new(fd), true)
     };
 
     let block = Block::from_file(&fd, *handle, compression)?;
@@ -116,7 +113,7 @@ pub fn load_block(
 
     // Cache FD
     if fd_cache_miss {
-        descriptor_table.insert_for_table(table_id, fd);
+        file_accessor.insert_for_table(table_id, fd);
     }
 
     cache.insert_block(table_id, handle.offset(), block.clone());
@@ -132,7 +129,6 @@ pub fn longest_shared_prefix_length(s1: &[u8], s2: &[u8]) -> usize {
         .count()
 }
 
-// TODO: Fuzz test
 #[must_use]
 pub fn compare_prefixed_slice(prefix: &[u8], suffix: &[u8], needle: &[u8]) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Equal, Greater};

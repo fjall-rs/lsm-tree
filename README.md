@@ -1,7 +1,3 @@
-<!-- TODO: remove at some point after 3.0.0 -->
-> [!WARNING]
-> This is the 3.x source code - the 2.x source is available at https://github.com/fjall-rs/lsm-tree/tree/2.x.x
-
 <p align="center">
   <img src="/logo.png" height="160">
 </p>

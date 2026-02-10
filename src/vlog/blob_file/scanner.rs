@@ -139,7 +139,7 @@ mod tests {
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0)?;
+            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;

@@ -18,6 +18,10 @@ type FlushToTablesResult = (Vec<Table>, Option<Vec<BlobFile>>);
 /// Generic Tree API
 #[enum_dispatch::enum_dispatch]
 pub trait AbstractTree {
+    /// Debug method for tracing the MVCC history of a key.
+    #[doc(hidden)]
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()>;
+
     /// Returns the number of cached table file descriptors.
     fn table_file_cache_size(&self) -> usize;
 

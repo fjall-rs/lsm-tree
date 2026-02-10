@@ -9,8 +9,9 @@ type IterItem = crate::Result<InternalValue>;
 
 pub type BoxedIterator<'a> = Box<dyn DoubleEndedIterator<Item = IterItem> + Send + 'a>;
 
-#[derive(Eq)]
 struct HeapItem(usize, InternalValue);
+
+impl Eq for HeapItem {}
 
 impl PartialEq for HeapItem {
     fn eq(&self, other: &Self) -> bool {

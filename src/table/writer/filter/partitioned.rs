@@ -163,16 +163,9 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "truncation is fine because this is an estimation"
-        )]
-        let estimated_key_bits =
-            self.bloom_policy
-                .estimated_key_bits(self.bloom_hash_buffer.len()) as usize;
-
-        self.approx_filter_size += estimated_key_bits;
+        self.approx_filter_size = self
+            .bloom_policy
+            .estimated_filter_size(self.bloom_hash_buffer.len());
 
         self.last_key = Some(key.clone());
 

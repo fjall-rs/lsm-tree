@@ -13,8 +13,9 @@ pub use {
 };
 
 use crate::{
+    file_accessor::FileAccessor,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
-    Checksum,
+    Checksum, DescriptorTable, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -24,6 +25,8 @@ use std::{
 pub fn recover_blob_files(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
+    tree_id: TreeId,
+    descriptor_table: Option<&Arc<DescriptorTable>>,
 ) -> crate::Result<(Vec<BlobFile>, Vec<PathBuf>)> {
     if !folder.try_exists()? {
         return Ok((vec![], vec![]));
@@ -70,7 +73,12 @@ pub fn recover_blob_files(
         assert!(!blob_file_path.is_dir());
 
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
-            log::trace!("Recovering blob file #{blob_file_id:?}");
+            log::trace!(
+                "Recovering blob file #{blob_file_id:?} from {}",
+                blob_file_path.display(),
+            );
+
+            let file = std::fs::File::open(&blob_file_path)?;
 
             let meta = {
                 let reader = sfa::Reader::new(&blob_file_path)?;
@@ -82,8 +90,6 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let file = std::fs::File::open(&blob_file_path)?;
-
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),
@@ -93,12 +99,20 @@ pub fn recover_blob_files(
                 Metadata::from_slice(&metadata_slice)?
             };
 
+            let file_accessor = if let Some(dt) = descriptor_table.cloned() {
+                FileAccessor::DescriptorTable(dt)
+            } else {
+                FileAccessor::File(Arc::new(file))
+            };
+
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,
                 path: blob_file_path,
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
+                file_accessor,
+                tree_id,
             })));
 
             if idx % progress_mod == 0 {
@@ -129,7 +143,7 @@ mod tests {
     #[test]
     fn vlog_recovery_missing_blob_file() {
         assert!(matches!(
-            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))]),
+            recover_blob_files(Path::new("."), &[(0, Checksum::from_raw(0))], 0, None),
             Err(crate::Error::Unrecoverable),
         ));
     }

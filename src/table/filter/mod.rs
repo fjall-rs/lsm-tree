@@ -40,17 +40,19 @@ impl BloomConstructionPolicy {
         }
     }
 
+    /// Returns the estimated filter size in bytes.
     #[must_use]
-    pub fn estimated_key_bits(&self, n: usize) -> f32 {
+    pub fn estimated_filter_size(&self, n: usize) -> usize {
         #[expect(
             clippy::cast_precision_loss,
             reason = "truncation is fine because this is an estimation"
         )]
         match self {
-            Self::BitsPerKey(bpk) => *bpk,
+            Self::BitsPerKey(bpk) => (*bpk * (n as f32)) as usize / 8,
             Self::FalsePositiveRate(fpr) => {
                 let m = StandardBloomFilterBuilder::calculate_m(n, *fpr);
-                (m / n) as f32
+                let bpk = (m / n) as f32;
+                (bpk * (n as f32)) as usize / 8
             }
         }
     }
@@ -80,5 +82,30 @@ impl From<FilterType> for u8 {
             FilterType::StandardBloom => 0,
             FilterType::BlockedBloom => 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_log::test;
+
+    #[test]
+    fn bloom_estimated_size_bpk() {
+        let policy = BloomConstructionPolicy::BitsPerKey(10.0);
+        let n = 1_000_000;
+        let estimated_size = policy.estimated_filter_size(n);
+        // For 1 million keys and 10 bits per key, the size should be around 1.25 MB
+        assert_eq!(estimated_size, 1_250_000);
+    }
+
+    #[test]
+    fn bloom_estimated_size_fpr() {
+        let policy = BloomConstructionPolicy::FalsePositiveRate(0.01);
+        let n = 1_000_000;
+        let estimated_size = policy.estimated_filter_size(n);
+        // For 1 million keys and 1% false positive rate, the size should be around 1.2 MB
+        assert!((estimated_size as f32) < 1_300_000.0);
+        assert!((estimated_size as f32) > 1_100_000.0);
     }
 }
