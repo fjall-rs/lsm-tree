@@ -92,6 +92,9 @@ pub mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
+#[doc(hidden)]
+pub mod file_accessor;
+
 mod double_ended_peekable;
 mod error;
 

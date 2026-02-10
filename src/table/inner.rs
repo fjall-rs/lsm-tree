@@ -8,7 +8,7 @@ use crate::metrics::Metrics;
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
     cache::Cache,
-    descriptor_table::DescriptorTable,
+    file_accessor::FileAccessor,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -24,7 +24,7 @@ pub struct Inner {
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub(crate) file_accessor: FileAccessor,
 
     /// Parsed metadata
     #[doc(hidden)]
@@ -44,11 +44,15 @@ pub struct Inner {
     #[doc(hidden)]
     pub cache: Arc<Cache>,
 
+    /// Pinned filter index (in case of partitioned filters)
     pub(super) pinned_filter_index: Option<IndexBlock>,
 
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
 
+    /// True when the table was compacted away or dropped
+    ///
+    /// May be kept alive until all Arcs to the table have been dropped (to facilitate snapshots)
     pub is_deleted: AtomicBool,
 
     pub(super) checksum: Checksum,
@@ -63,9 +67,17 @@ pub struct Inner {
     pub(crate) cached_blob_bytes: OnceLock<u64>,
 }
 
+impl Inner {
+    /// Gets the global table ID.
+    #[must_use]
+    pub(super) fn global_id(&self) -> GlobalTableId {
+        (self.tree_id, self.metadata.id).into()
+    }
+}
+
 impl Drop for Inner {
     fn drop(&mut self) {
-        let global_id: GlobalTableId = (self.tree_id, self.metadata.id).into();
+        let global_id = self.global_id();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
@@ -76,6 +88,10 @@ impl Drop for Inner {
                     self.path,
                 );
             }
+
+            self.file_accessor.as_descriptor_table().inspect(|d| {
+                d.remove_for_table(&global_id);
+            });
         }
     }
 }

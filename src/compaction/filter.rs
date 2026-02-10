@@ -65,7 +65,6 @@ impl AccessorShared<'_> {
             user_key,
             vhandle,
             &self.opts.config.cache,
-            &self.opts.config.descriptor_table,
         )
     }
 }
@@ -176,6 +175,8 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             let writer = BlobFileWriter::new(
                 self.shared.opts.blob_file_id_generator.clone(),
                 self.shared.blobs_folder,
+                self.shared.opts.tree_id,
+                self.shared.opts.config.descriptor_table.clone(),
             )?
             .use_target_size(blob_opts.file_target_size)
             .use_compression(blob_opts.compression);

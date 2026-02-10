@@ -50,6 +50,8 @@ impl<'a> BlobIngestion<'a> {
         let blob = BlobFileWriter::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
+            tree.index.id,
+            tree.index.config.descriptor_table.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);
@@ -128,6 +130,27 @@ impl<'a> BlobIngestion<'a> {
 
         let cloned_key = key.clone();
         let res = self.table.write_tombstone(key);
+        if res.is_ok() {
+            self.last_key = Some(cloned_key);
+        }
+        res
+    }
+
+    /// Writes a weak tombstone for a key.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn write_weak_tombstone(&mut self, key: UserKey) -> crate::Result<()> {
+        if let Some(prev) = &self.last_key {
+            assert!(
+                key > *prev,
+                "next key in ingestion must be greater than last key"
+            );
+        }
+
+        let cloned_key = key.clone();
+        let res = self.table.write_weak_tombstone(key);
         if res.is_ok() {
             self.last_key = Some(cloned_key);
         }

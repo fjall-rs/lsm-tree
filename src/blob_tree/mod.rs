@@ -12,20 +12,18 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 use crate::{
     abstract_tree::{AbstractTree, RangeItem},
     coding::Decode,
-    file::{fsync_directory, BLOBS_FOLDER},
     iter_guard::{IterGuard, IterGuardImpl},
     table::Table,
     tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Cache, Config, DescriptorTable, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
+    Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{
-    io::Cursor,
     ops::RangeBounds,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, MutexGuard},
 };
 
@@ -48,7 +46,6 @@ impl IterGuard for Guard {
                 self.tree.id(),
                 self.tree.blobs_folder.as_path(),
                 &self.tree.index.config.cache,
-                &self.tree.index.config.descriptor_table,
                 &self.version,
                 kv,
             )
@@ -66,7 +63,7 @@ impl IterGuard for Guard {
         let kv = self.kv?;
 
         if kv.key.value_type.is_indirection() {
-            let mut cursor = Cursor::new(kv.value);
+            let mut cursor = std::io::Cursor::new(kv.value);
             Ok(BlobIndirection::decode_from(&mut cursor)?.size)
         } else {
             #[expect(clippy::cast_possible_truncation, reason = "values are u32 max length")]
@@ -79,7 +76,6 @@ impl IterGuard for Guard {
             self.tree.id(),
             self.tree.blobs_folder.as_path(),
             &self.tree.index.config.cache,
-            &self.tree.index.config.descriptor_table,
             &self.version,
             self.kv?,
         )
@@ -88,14 +84,13 @@ impl IterGuard for Guard {
 
 fn resolve_value_handle(
     tree_id: TreeId,
-    blobs_folder: &std::path::Path,
-    cache: &Arc<Cache>,
-    descriptor_table: &Arc<DescriptorTable>,
+    blobs_folder: &Path,
+    cache: &Cache,
     version: &Version,
     item: InternalValue,
 ) -> RangeItem {
     if item.key.value_type.is_indirection() {
-        let mut cursor = Cursor::new(item.value);
+        let mut cursor = std::io::Cursor::new(item.value);
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
@@ -105,7 +100,6 @@ fn resolve_value_handle(
             &item.key.user_key,
             &vptr.vhandle,
             cache,
-            descriptor_table,
         ) {
             Ok(Some(v)) => {
                 let k = item.key.user_key;
@@ -143,6 +137,8 @@ pub struct BlobTree {
 
 impl BlobTree {
     pub(crate) fn open(config: Config) -> crate::Result<Self> {
+        use crate::file::{fsync_directory, BLOBS_FOLDER};
+
         let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
@@ -170,6 +166,10 @@ impl BlobTree {
 }
 
 impl AbstractTree for BlobTree {
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
+        self.index.print_trace(key)
+    }
+
     fn table_file_cache_size(&self) -> usize {
         self.index.table_file_cache_size()
     }
@@ -297,7 +297,7 @@ impl AbstractTree for BlobTree {
         };
 
         Ok(Some(if item.key.value_type.is_indirection() {
-            let mut cursor = Cursor::new(item.value);
+            let mut cursor = std::io::Cursor::new(item.value);
             let vptr = BlobIndirection::decode_from(&mut cursor)?;
             vptr.size
         } else {
@@ -336,7 +336,10 @@ impl AbstractTree for BlobTree {
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
-        use crate::{coding::Encode, file::TABLES_FOLDER, table::multi_writer::MultiWriter};
+        use crate::{
+            coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
+            table::multi_writer::MultiWriter,
+        };
 
         let start = std::time::Instant::now();
 
@@ -357,7 +360,7 @@ impl AbstractTree for BlobTree {
         let index_partitioning = self.index.config.index_block_partitioning_policy.get(0);
         let filter_partitioning = self.index.config.filter_block_partitioning_policy.get(0);
 
-        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}");
+        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}");
         log::debug!("=> to table(s) in {}", table_folder.display());
         log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
@@ -404,6 +407,8 @@ impl AbstractTree for BlobTree {
         let mut blob_writer = BlobFileWriter::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
+            self.id(),
+            self.index.config.descriptor_table.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);
@@ -604,7 +609,6 @@ impl AbstractTree for BlobTree {
             self.id(),
             self.blobs_folder.as_path(),
             &self.index.config.cache,
-            &self.index.config.descriptor_table,
             &super_version.version,
             item,
         )?;

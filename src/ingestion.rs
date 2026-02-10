@@ -48,6 +48,33 @@ impl AnyIngestion<'_> {
         }
     }
 
+    /// Writes a weak tombstone for a key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use lsm_tree::Config;
+    /// # let folder = tempfile::tempdir()?;
+    /// # let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// #
+    /// let mut ingestion = tree.ingestion()?;
+    /// ingestion.write("a", "abc")?;
+    /// ingestion.write_weak_tombstone("b")?;
+    /// ingestion.finish()?;
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    pub fn write_weak_tombstone<K: Into<UserKey>>(&mut self, key: K) -> crate::Result<()> {
+        match self {
+            Self::Standard(i) => i.write_weak_tombstone(key.into()),
+            Self::Blob(b) => b.write_weak_tombstone(key.into()),
+        }
+    }
+
     /// Finalizes ingestion and registers created tables (and blob files if present).
     ///
     /// # Errors

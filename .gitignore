@@ -13,6 +13,8 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+.directory
+
 .lsm.data
 .test*
 .bench
@@ -21,6 +23,4 @@ mutants*
 profile.json
 fuzz*/**/out*
 
-microbench/**/data.jsonl
-microbench/**/*.svg
 old

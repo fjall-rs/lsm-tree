@@ -30,6 +30,7 @@ pub use writer::Writer;
 use crate::{
     cache::Cache,
     descriptor_table::DescriptorTable,
+    file_accessor::FileAccessor,
     table::{
         block::{BlockType, ParsedItem},
         block_index::{BlockIndex, FullBlockIndex, TwoLevelBlockIndex, VolatileBlockIndex},
@@ -107,23 +108,21 @@ impl Table {
         use byteorder::{ReadBytesExt, LE};
 
         Ok(if let Some(handle) = &self.regions.linked_blob_files {
-            // Try to get FD from descriptor table first, similar to util::load_block
             let table_id = self.global_id();
-            let cached_fd = self.descriptor_table.access_for_table(&table_id);
-            let fd_cache_miss = cached_fd.is_none();
 
-            let fd = if let Some(fd) = cached_fd {
-                fd
-            } else {
-                Arc::new(File::open(&*self.path)?)
-            };
+            let (fd, fd_cache_miss) =
+                if let Some(fd) = self.file_accessor.access_for_table(&table_id) {
+                    (fd, false)
+                } else {
+                    (Arc::new(File::open(&*self.path)?), true)
+                };
 
             // Read the exact region using pread-style helper
             let buf = crate::file::read_exact(&fd, *handle.offset(), handle.size() as usize)?;
 
             // If we opened the file here, cache the FD for future accesses
             if fd_cache_miss {
-                self.descriptor_table.insert_for_table(table_id, fd);
+                self.file_accessor.insert_for_table(table_id, fd);
             }
 
             // Parse the buffer
@@ -203,7 +202,7 @@ impl Table {
         load_block(
             self.global_id(),
             &self.path,
-            &self.descriptor_table,
+            &self.file_accessor,
             &self.cache,
             handle,
             block_type,
@@ -381,7 +380,7 @@ impl Table {
             self.global_seqno(),
             self.path.clone(),
             index_iter,
-            self.descriptor_table.clone(),
+            self.file_accessor.clone(),
             self.cache.clone(),
             self.metadata.data_block_compression,
             #[cfg(feature = "metrics")]
@@ -434,7 +433,7 @@ impl Table {
         global_seqno: SeqNo,
         tree_id: TreeId,
         cache: Arc<Cache>,
-        descriptor_table: Arc<DescriptorTable>,
+        descriptor_table: Option<Arc<DescriptorTable>>,
         pin_filter: bool,
         pin_index: bool,
         #[cfg(feature = "metrics")] metrics: Arc<Metrics>,
@@ -443,20 +442,28 @@ impl Table {
         use regions::ParsedRegions;
         use std::sync::atomic::AtomicBool;
 
+        log::debug!("Recovering table from file {}", file_path.display());
+        let mut file = std::fs::File::open(&file_path)?;
+        let file_path = Arc::new(file_path);
+
         #[cfg(feature = "metrics")]
         metrics
             .table_file_opened_uncached
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        log::debug!("Recovering table from file {}", file_path.display());
-        let mut file = std::fs::File::open(&file_path)?;
-        let file_path = Arc::new(file_path);
 
         let trailer = sfa::Reader::from_reader(&mut file)?;
         let regions = ParsedRegions::parse_from_toc(trailer.toc())?;
 
         log::trace!("Reading meta block, with meta_ptr={:?}", regions.metadata);
         let metadata = ParsedMeta::load_with_handle(&file, &regions.metadata)?;
+
+        let file = Arc::new(file);
+
+        let file_accessor = if let Some(dt) = descriptor_table {
+            FileAccessor::DescriptorTable(dt)
+        } else {
+            FileAccessor::File(file.clone())
+        };
 
         let block_index = if regions.index.is_some() {
             log::trace!(
@@ -465,12 +472,13 @@ impl Table {
             );
 
             let block = Self::read_tli(&regions, &file, metadata.index_block_compression)?;
+
             BlockIndexImpl::TwoLevel(TwoLevelBlockIndex {
                 top_level_index: block,
                 cache: cache.clone(),
                 compression: metadata.index_block_compression,
-                descriptor_table: descriptor_table.clone(),
                 path: Arc::clone(&file_path),
+                file_accessor: file_accessor.clone(),
                 table_id: (tree_id, metadata.id).into(),
 
                 #[cfg(feature = "metrics")]
@@ -490,7 +498,7 @@ impl Table {
             BlockIndexImpl::VolatileFull(VolatileBlockIndex {
                 cache: cache.clone(),
                 compression: metadata.index_block_compression,
-                descriptor_table: descriptor_table.clone(),
+                file_accessor: file_accessor.clone(),
                 handle: regions.tli,
                 path: Arc::clone(&file_path),
                 table_id: (tree_id, metadata.id).into(),
@@ -540,11 +548,11 @@ impl Table {
             None
         };
 
-        descriptor_table.insert_for_table((tree_id, metadata.id).into(), Arc::new(file));
-
-        log::trace!("Table #{} recovered", metadata.id);
-
-        log::debug!("Recovered table from {}", file_path.display());
+        log::debug!(
+            "Recovered table #{} from {}",
+            metadata.id,
+            file_path.display(),
+        );
 
         Ok(Self(Arc::new(Inner {
             path: file_path,
@@ -555,7 +563,7 @@ impl Table {
 
             cache,
 
-            descriptor_table,
+            file_accessor,
 
             block_index: Arc::new(block_index),
 

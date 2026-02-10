@@ -9,7 +9,10 @@ pub mod reader;
 pub mod scanner;
 pub mod writer;
 
-use crate::{blob_tree::FragmentationMap, vlog::BlobFileId, Checksum};
+use crate::{
+    blob_tree::FragmentationMap, file_accessor::FileAccessor, vlog::BlobFileId, Checksum,
+    GlobalTableId, TreeId,
+};
 pub use meta::Metadata;
 use std::{
     path::{Path, PathBuf},
@@ -22,6 +25,8 @@ pub struct Inner {
     /// Blob file ID
     pub id: BlobFileId,
 
+    pub tree_id: TreeId,
+
     /// File path
     pub path: PathBuf,
 
@@ -32,6 +37,14 @@ pub struct Inner {
     pub is_deleted: AtomicBool,
 
     pub checksum: Checksum,
+
+    pub(crate) file_accessor: FileAccessor,
+}
+
+impl Inner {
+    fn global_id(&self) -> GlobalTableId {
+        GlobalTableId::from((self.tree_id, self.id))
+    }
 }
 
 impl Drop for Inner {
@@ -50,6 +63,10 @@ impl Drop for Inner {
                     self.path.display(),
                 );
             }
+
+            self.file_accessor
+                .as_descriptor_table()
+                .inspect(|d| d.remove_for_blob_file(&self.global_id()));
         }
     }
 }
@@ -95,6 +112,12 @@ impl BlobFile {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.0.path
+    }
+
+    /// Returns the blob file accessor.
+    #[must_use]
+    pub(crate) fn file_accessor(&self) -> &FileAccessor {
+        &self.0.file_accessor
     }
 
     /// Returns the number of items in the blob file.
