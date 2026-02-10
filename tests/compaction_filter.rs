@@ -179,6 +179,7 @@ fn filter_no_blob() -> lsm_tree::Result<()> {
 #[test]
 fn filter_snapshot() -> lsm_tree::Result<()> {
     struct DropEverything;
+
     impl CompactionFilter for DropEverything {
         fn filter_item(&mut self, _: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
             // data? what data?
@@ -187,6 +188,7 @@ fn filter_snapshot() -> lsm_tree::Result<()> {
     }
 
     struct DropEverythingFactory;
+
     impl CompactionFilterFactory for DropEverythingFactory {
         fn make_filter(&self) -> Box<dyn CompactionFilter> {
             Box::new(DropEverything)
