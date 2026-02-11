@@ -1,4 +1,4 @@
-use lsm_tree::{AbstractTree, Config, Guard, RangeTombstone, SeqNo, SequenceNumberCounter};
+use lsm_tree::{AbstractTree, Config, Guard, SeqNo, SequenceNumberCounter};
 
 fn open_tree(folder: &std::path::Path) -> lsm_tree::AnyTree {
     Config::new(
@@ -22,8 +22,7 @@ fn range_tombstone_memtable_point_read() -> lsm_tree::Result<()> {
     }
 
     // Insert range tombstone [b, e) at seqno 10
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     // "a" should be visible (outside range)
     assert!(tree.get("a", SeqNo::MAX)?.is_some());
@@ -47,8 +46,7 @@ fn range_tombstone_memtable_range_iter() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     let keys: Vec<_> = tree
         .range::<&str, _>(.., SeqNo::MAX, None)
@@ -73,8 +71,7 @@ fn range_tombstone_survives_flush() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     tree.flush_active_memtable(0)?;
     assert_eq!(1, tree.table_count());
@@ -103,8 +100,7 @@ fn range_tombstone_survives_compaction() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     tree.flush_active_memtable(0)?;
     tree.major_compact(u64::MAX, 0)?;
@@ -129,8 +125,7 @@ fn range_tombstone_end_exclusive() -> lsm_tree::Result<()> {
     tree.insert("m", "val", 2);
 
     // Range tombstone [a, m) at seqno 10
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "m".into(), 10));
+    tree.remove_range("a", "m", 10);
 
     // "l" is suppressed (inside [a,m))
     assert!(tree.get("l", SeqNo::MAX)?.is_none());
@@ -150,8 +145,7 @@ fn range_tombstone_reverse_iteration() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     let keys: Vec<_> = tree
         .range::<&str, _>(.., SeqNo::MAX, None)
@@ -177,8 +171,7 @@ fn range_tombstone_mvcc_visibility() -> lsm_tree::Result<()> {
     tree.insert("b", "old", 5);
 
     // Range tombstone [a, c) at seqno 10
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "c".into(), 10));
+    tree.remove_range("a", "c", 10);
 
     // Insert key "b" at seqno 15 (newer than tombstone)
     tree.insert("b", "new", 15);
@@ -205,10 +198,8 @@ fn range_tombstone_overlapping() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "d".into(), 10));
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("c".into(), "f".into(), 10));
+    tree.remove_range("a", "d", 10);
+    tree.remove_range("c", "f", 10);
 
     assert!(tree.get("a", SeqNo::MAX)?.is_none());
     assert!(tree.get("b", SeqNo::MAX)?.is_none());
@@ -234,8 +225,7 @@ fn range_tombstone_across_memtable_and_sst() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     // Insert range tombstone in active memtable (newer seqno)
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     // SST keys should be suppressed by memtable tombstone
     assert!(tree.get("a", SeqNo::MAX)?.is_some());
@@ -260,8 +250,7 @@ fn range_tombstone_persists_below_gc_threshold() -> lsm_tree::Result<()> {
         tree.insert(*key, "val", i as SeqNo);
     }
 
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "d".into(), 10));
+    tree.remove_range("a", "d", 10);
 
     tree.flush_active_memtable(0)?;
 
@@ -288,8 +277,7 @@ fn range_tombstone_sst_point_read() -> lsm_tree::Result<()> {
     }
 
     // Insert tombstone and flush everything together
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("b".into(), "e".into(), 10));
+    tree.remove_range("b", "e", 10);
 
     tree.flush_active_memtable(0)?;
 
@@ -321,8 +309,7 @@ fn range_tombstone_table_skip_in_iteration() -> lsm_tree::Result<()> {
 
     // Now insert a range tombstone in the active memtable that covers the entire SST
     // with seqno higher than any KV in the SST
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "f".into(), 100));
+    tree.remove_range("a", "f", 100);
 
     // Insert some new data outside the tombstone range
     tree.insert("z", "val", 200);
@@ -351,8 +338,7 @@ fn range_tombstone_eviction_makes_data_visible() -> lsm_tree::Result<()> {
     tree.insert("c", "val_c", 3);
 
     // Insert range tombstone [a, d) at seqno 10
-    tree.active_memtable()
-        .insert_range_tombstone(RangeTombstone::new("a".into(), "d".into(), 10));
+    tree.remove_range("a", "d", 10);
 
     // Flush everything to SST
     tree.flush_active_memtable(0)?;
@@ -440,10 +426,9 @@ fn range_tombstone_compaction_dedup() -> lsm_tree::Result<()> {
     // [a, e) at seqno 10  — covers everything
     // [b, d) at seqno 8   — fully covered by the first (subset range, lower seqno)
     // [a, c) at seqno 10  — fully covered by the first (subset range, equal seqno)
-    let mt = tree.active_memtable();
-    mt.insert_range_tombstone(RangeTombstone::new("a".into(), "e".into(), 10));
-    mt.insert_range_tombstone(RangeTombstone::new("b".into(), "d".into(), 8));
-    mt.insert_range_tombstone(RangeTombstone::new("a".into(), "c".into(), 10));
+    tree.remove_range("a", "e", 10);
+    tree.remove_range("b", "d", 8);
+    tree.remove_range("a", "c", 10);
 
     tree.flush_active_memtable(0)?;
 

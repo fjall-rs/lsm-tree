@@ -626,4 +626,8 @@ impl AbstractTree for BlobTree {
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
     }
+
+    fn remove_range<K: AsRef<[u8]>>(&self, start: K, end: K, seqno: SeqNo) {
+        self.index.remove_range(start, end, seqno)
+    }
 }

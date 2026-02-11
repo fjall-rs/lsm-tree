@@ -605,4 +605,9 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
+
+    /// Inserts a range tombstone that suppresses all keys in `[start, end)` with
+    /// sequence numbers strictly less than `seqno`.
+    #[doc(hidden)]
+    fn remove_range<K: AsRef<[u8]>>(&self, start: K, end: K, seqno: SeqNo);
 }

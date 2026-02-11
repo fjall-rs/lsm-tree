@@ -621,6 +621,13 @@ impl AbstractTree for Tree {
         let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
+
+    fn remove_range<K: AsRef<[u8]>>(&self, start: K, end: K, seqno: SeqNo) {
+        use crate::range_tombstone::RangeTombstone;
+
+        let rt = RangeTombstone::new(start.as_ref().into(), end.as_ref().into(), seqno);
+        self.active_memtable().insert_range_tombstone(rt);
+    }
 }
 
 impl Tree {
