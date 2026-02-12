@@ -1,6 +1,15 @@
-//! Compaction filters
-
-use std::{panic::RefUnwindSafe, path::Path};
+//! Definitions for compaction filters
+//!
+//! Compaction filters allow users to run custom logic during compactions, e.g. custom cleanup rules such as TTL.
+//! Because compactions run in background workers, using compactions filters instead of scans can massively increase the efficiency of the storage engine.
+//!
+//! # Examples
+//!
+//! Defining a compaction filter to drop data using some TTL rule:
+//!
+//! ```
+//! // TODO: add an example to drop old data using "TTL"
+//! ```
 
 use crate::{
     coding::{Decode, Encode},
@@ -10,36 +19,40 @@ use crate::{
     vlog::{Accessor, BlobFileWriter, ValueHandle},
     BlobIndirection, InternalValue, KvSeparationOptions, UserKey, UserValue, ValueType,
 };
+use std::{panic::RefUnwindSafe, path::Path};
 
-/// Verdict returned by a [`CompactionFilter`].
-pub enum FilterVerdict {
-    /// Keep the item.
+/// Verdict returned by a [`CompactionFilter`]
+pub enum Verdict {
+    /// Keeps the item.
     Keep,
-    /// Remove the item.
+
+    /// Removes the item.
     Remove,
-    /// Remove the item and replace it with a weak tombstone. This may cause
+
+    /// Removes the item and replace it with a weak tombstone. This may cause
     /// old versions of this item to be ressurected. The semantics of this
     /// operation are identical to [`remove_weak`](crate::AbstractTree::remove_weak).
     RemoveWeak,
-    /// Replace the value of the item.
+
+    /// Replaces the value of the item.
     ReplaceValue(UserValue),
 }
 
-/// Trait for compaction filter objects.
+/// Trait for compaction filter objects
 pub trait CompactionFilter: Send {
     /// Returns whether an item should be kept during compaction.
     ///
     /// # Errors
     ///
-    /// Returning an error will abort the running compaction. This should only
-    /// be done when strictly necessary, such as when fetching a value fails.
-    fn filter_item(&mut self, item: ItemAccessor<'_>) -> crate::Result<FilterVerdict>;
+    /// Returning an error will abort the running compaction.
+    /// This should only be done when **strictly** necessary, such as when fetching a value fails.
+    fn filter_item(&mut self, item: ItemAccessor<'_>) -> crate::Result<Verdict>;
 
-    /// Called when compaction is finished to consume self.
+    /// Called when compaction is finished.
     fn finish(self: Box<Self>) {}
 }
 
-/// Trait that creates compaction filter objects for each compaction.
+/// Trait that creates compaction filter objects for each compaction
 pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
     /// Returns a new compaction filter.
     fn make_filter(&self) -> Box<dyn CompactionFilter>;
@@ -58,8 +71,7 @@ impl AccessorShared<'_> {
         user_key: &[u8],
         vhandle: &ValueHandle,
     ) -> crate::Result<Option<UserValue>> {
-        let accessor = Accessor::new(&self.version.blob_files);
-        accessor.get(
+        Accessor::new(&self.version.blob_files).get(
             self.opts.tree_id,
             self.blobs_folder,
             user_key,
@@ -69,7 +81,7 @@ impl AccessorShared<'_> {
     }
 }
 
-/// Accessor for the key/value from a compaction filter.
+/// Accessor for the key/value from a compaction filter
 pub struct ItemAccessor<'a> {
     item: &'a InternalValue,
     shared: &'a AccessorShared<'a>,
@@ -209,10 +221,10 @@ impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
             item,
             shared: &self.shared,
         })? {
-            FilterVerdict::Keep => Ok(None),
-            FilterVerdict::Remove => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
-            FilterVerdict::RemoveWeak => Ok(Some((ValueType::WeakTombstone, UserValue::empty()))),
-            FilterVerdict::ReplaceValue(new_value) => {
+            Verdict::Keep => Ok(None),
+            Verdict::Remove => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
+            Verdict::RemoveWeak => Ok(Some((ValueType::WeakTombstone, UserValue::empty()))),
+            Verdict::ReplaceValue(new_value) => {
                 self.handle_write(&item.key, new_value).map(Option::Some)
             }
         }

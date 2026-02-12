@@ -1,14 +1,14 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, FilterVerdict, ItemAccessor,
+    CompactionFilter, CompactionFilterFactory, Verdict, ItemAccessor,
 };
 use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 
 struct NukeFilter;
 
 impl CompactionFilter for NukeFilter {
-    fn filter_item(&mut self, _: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
+    fn filter_item(&mut self, _: ItemAccessor<'_>) -> lsm_tree::Result<Verdict> {
         // data? what data?
-        Ok(FilterVerdict::Remove)
+        Ok(Verdict::Remove)
     }
 }
 

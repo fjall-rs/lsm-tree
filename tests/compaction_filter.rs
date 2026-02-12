@@ -1,5 +1,5 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, FilterVerdict, ItemAccessor,
+    CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict,
 };
 use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
@@ -37,16 +37,16 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct Filter(Arc<Mutex<FilterState>>);
 
     impl CompactionFilter for Filter {
-        fn filter_item(&mut self, item: ItemAccessor<'_>) -> lsm_tree::Result<FilterVerdict> {
+        fn filter_item(&mut self, item: ItemAccessor<'_>) -> lsm_tree::Result<Verdict> {
             let mut state = self.0.lock().unwrap();
             if state.disable {
-                return Ok(FilterVerdict::Keep);
+                return Ok(Verdict::Keep);
             }
 
             let key = u32_f(item.key());
 
             if key == 0x00abcdef {
-                Ok(FilterVerdict::RemoveWeak)
+                Ok(Verdict::RemoveWeak)
             } else if key >= 0xff000000 {
                 let value = u32_f(&item.value()?);
                 assert_eq!(key & 0xff, value);
@@ -54,18 +54,16 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
                 state.saw_value = true;
 
                 if !state.do_rewrite {
-                    Ok(FilterVerdict::Keep)
+                    Ok(Verdict::Keep)
                 } else {
-                    Ok(FilterVerdict::ReplaceValue(
-                        vec![b'a'; value as usize].into(),
-                    ))
+                    Ok(Verdict::ReplaceValue(vec![b'a'; value as usize].into()))
                 }
             } else {
                 assert_eq!(item.value().expect("failed fetch"), b"a");
                 if key < state.drop_threshold {
-                    Ok(FilterVerdict::Remove)
+                    Ok(Verdict::Remove)
                 } else {
-                    Ok(FilterVerdict::Keep)
+                    Ok(Verdict::Keep)
                 }
             }
         }

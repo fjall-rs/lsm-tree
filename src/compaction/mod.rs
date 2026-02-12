@@ -19,6 +19,7 @@ pub(crate) mod stream;
 pub(crate) mod worker;
 
 pub use fifo::Strategy as Fifo;
+pub use filter::{CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict};
 pub use leveled::Strategy as Leveled;
 // pub use tiered::Strategy as SizeTiered;
 
@@ -37,7 +38,7 @@ use crate::{
     compaction::state::CompactionState, config::Config, version::Version, HashSet, KvPair, TableId,
 };
 
-/// Input for compactor.
+/// Input for compactor
 ///
 /// The compaction strategy chooses which tables to compact and how.
 /// That information is given to the compactor.
