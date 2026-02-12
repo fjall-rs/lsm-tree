@@ -65,7 +65,7 @@ struct AccessorShared<'a> {
 }
 
 impl AccessorShared<'_> {
-    /// Fetch a value from the blob store.
+    /// Fetches a value from the blob store.
     fn get_indirect_value(
         &self,
         user_key: &[u8],
@@ -88,7 +88,7 @@ pub struct ItemAccessor<'a> {
 }
 
 impl<'a> ItemAccessor<'a> {
-    /// Get the key of this item
+    /// Get the key of this item.
     #[must_use]
     pub fn key(&self) -> &'a UserKey {
         &self.item.key.user_key
@@ -96,11 +96,12 @@ impl<'a> ItemAccessor<'a> {
 
     /// Returns whether this item's value is stored separately.
     #[must_use]
+    #[doc(hidden)]
     pub fn is_indirection(&self) -> bool {
         self.item.key.value_type.is_indirection()
     }
 
-    /// Get the value of this item
+    /// Get the value of this item.
     ///
     /// # Errors
     ///
@@ -113,6 +114,7 @@ impl<'a> ItemAccessor<'a> {
                 let mut reader = &self.item.value[..];
                 let indirection = BlobIndirection::decode_from(&mut reader)?;
                 let vhandle = indirection.vhandle;
+
                 let value = self
                     .shared
                     .get_indirect_value(&self.item.key.user_key, &vhandle)?;
@@ -134,8 +136,9 @@ impl<'a> ItemAccessor<'a> {
     }
 }
 
-/// Adapts a [`CompactionFilter`] to a [`StreamFilter`].
-// note: this slightly helps insulate CompactionStream from lifetime spam
+/// Adapts a [`CompactionFilter`] to a [`StreamFilter`]
+//
+// NOTE: this slightly helps insulate CompactionStream from lifetime spam
 pub(crate) struct StreamFilterAdapter<'a, 'b: 'a> {
     filter: Option<&'a mut (dyn CompactionFilter + 'b)>,
     shared: AccessorShared<'a>,
@@ -163,8 +166,8 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
         }
     }
 
-    /// Redirect a write to a blob file if KV separation is enabled and the value meets
-    /// the separation threshold.
+    /// Redirects a write to a blob file if KV separation is enabled and
+    /// the value meets the separation threshold.
     fn handle_write(
         &mut self,
         prev_key: &InternalKey,
@@ -176,6 +179,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
 
         #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
         let value_size = new_value.len() as u32;
+
         if value_size < blob_opts.separation_threshold {
             return Ok((ValueType::Value, new_value));
         }
@@ -183,7 +187,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
         let writer = if let Some(writer) = self.blob_writer {
             writer
         } else {
-            // instantiate writer as necessary
+            // Instantiate writer as necessary
             let writer = BlobFileWriter::new(
                 self.shared.opts.blob_file_id_generator.clone(),
                 self.shared.blobs_folder,
@@ -192,6 +196,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             )?
             .use_target_size(blob_opts.file_target_size)
             .use_compression(blob_opts.compression);
+
             self.blob_writer.insert(writer)
         };
 
