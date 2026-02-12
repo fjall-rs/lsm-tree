@@ -22,6 +22,7 @@ use crate::{
 use std::{panic::RefUnwindSafe, path::Path};
 
 /// Verdict returned by a [`CompactionFilter`]
+#[non_exhaustive]
 pub enum Verdict {
     /// Keeps the item.
     Keep,
@@ -29,13 +30,19 @@ pub enum Verdict {
     /// Removes the item.
     Remove,
 
-    /// Removes the item and replace it with a weak tombstone. This may cause
-    /// old versions of this item to be ressurected. The semantics of this
-    /// operation are identical to [`remove_weak`](crate::AbstractTree::remove_weak).
+    /// Removes the item and replace it with a weak tombstone.
+    ///
+    /// This may cause old versions of this item to be resurrected.
+    /// The semantics of this operation are identical to [`remove_weak`](crate::AbstractTree::remove_weak).
     RemoveWeak,
 
     /// Replaces the value of the item.
     ReplaceValue(UserValue),
+    /* /// Destroys a value - does not leave behind a tombstone.
+    ///
+    /// Only use in situations where you absolutely 100% know your
+    /// item key is never written or updated multiple times.
+    Destroy, */
 }
 
 /// Trait for compaction filter objects
@@ -226,6 +233,7 @@ impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
             item,
             shared: &self.shared,
         })? {
+            // Verdict::Destroy => todo!(),
             Verdict::Keep => Ok(None),
             Verdict::Remove => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
             Verdict::RemoveWeak => Ok(Some((ValueType::WeakTombstone, UserValue::empty()))),
