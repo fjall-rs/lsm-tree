@@ -1,5 +1,5 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, Verdict, ItemAccessor,
+    CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict,
 };
 use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 
