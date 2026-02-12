@@ -34,6 +34,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Multi-threaded flushing (immutable/sealed memtables)
 - Key-value separation (optional) [[2]](#footnotes)
 - Single deletion tombstones ("weak" deletion)
+- Optional compaction filters to run custom logic during compactions
 
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
 As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
