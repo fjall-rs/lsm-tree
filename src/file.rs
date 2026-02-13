@@ -91,7 +91,7 @@ pub fn fsync_directory<F: FileSystem>(_path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
+    use crate::fs::FileSystem;
     use std::io::Write;
     use test_log::test;
 
@@ -101,7 +101,7 @@ mod tests {
 
         let path = dir.path().join("test.txt");
         {
-            let mut file = File::create(&path)?;
+            let mut file = <crate::fs::StdFileSystem as FileSystem>::create(&path)?;
             write!(file, "asdasdasdasdasd")?;
         }
 
