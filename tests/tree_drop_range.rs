@@ -1,7 +1,7 @@
 use lsm_tree::{get_tmp_folder, AbstractTree, AnyTree, Config, SeqNo, SequenceNumberCounter};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 
-fn populate_tables(tree: &AnyTree) -> lsm_tree::Result<()> {
+fn populate_tables<F: lsm_tree::FileSystem + 'static>(tree: &AnyTree<F>) -> lsm_tree::Result<()> {
     for key in 'a'..='e' {
         tree.insert([key as u8], "", 0);
         tree.flush_active_memtable(0)?;

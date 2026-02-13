@@ -40,7 +40,7 @@ impl Ord for IteratorValue {
 }
 
 /// Interleaves multiple blob file readers into a single, sorted stream
-pub struct MergeScanner<F: FileSystem = crate::fs::StdFileSystem> {
+pub struct MergeScanner<F: FileSystem> {
     readers: Vec<BlobFileScanner<F>>,
     heap: IntervalHeap<IteratorValue>,
 }
@@ -113,7 +113,7 @@ mod tests {
         {
             {
                 let mut writer =
-                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0)?;
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0, 0)?;
 
                 writer.write(b"a", 1, &b"1".repeat(100))?;
                 writer.write(b"a", 0, &b"0".repeat(100))?;
@@ -158,7 +158,7 @@ mod tests {
 
             {
                 let mut writer =
-                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_0_path, 0)?;
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_0_path, 0, 0)?;
 
                 for key in keys {
                     writer.write(key, 0, &key.repeat(100))?;
@@ -173,7 +173,7 @@ mod tests {
 
             {
                 let mut writer =
-                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_1_path, 1)?;
+                    BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_1_path, 1, 0)?;
 
                 for key in keys {
                     writer.write(key, 1, &key.repeat(100))?;

@@ -33,11 +33,8 @@ pub use movedown::Strategy as MoveDown;
 pub use pulldown::Strategy as PullDown;
 
 use crate::{
-    compaction::state::CompactionState,
-    config::Config,
-    fs::{FileSystem, StdFileSystem},
-    version::Version,
-    HashSet, KvPair, TableId,
+    compaction::state::CompactionState, config::Config, fs::FileSystem, version::Version, HashSet,
+    KvPair, TableId,
 };
 
 /// Input for compactor.
@@ -86,7 +83,7 @@ pub enum Choice {
 /// The strategy receives the levels of the LSM-tree as argument
 /// and emits a choice on what to do.
 #[expect(clippy::module_name_repetitions)]
-pub trait CompactionStrategy<F: FileSystem = StdFileSystem> {
+pub trait CompactionStrategy<F: FileSystem> {
     /// Gets the compaction strategy name.
     fn get_name(&self) -> &'static str;
 

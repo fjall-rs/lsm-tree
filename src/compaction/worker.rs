@@ -12,7 +12,7 @@ use crate::{
         Choice,
     },
     file::BLOBS_FOLDER,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     merge::Merger,
     run_scanner::RunScanner,
     stop_signal::StopSignal,
@@ -32,7 +32,7 @@ use crate::metrics::Metrics;
 pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalValue>> + 'a>;
 
 /// Compaction options
-pub struct Options<F: FileSystem = StdFileSystem> {
+pub struct Options<F: FileSystem> {
     pub tree_id: TreeId,
 
     pub global_seqno: SequenceNumberCounter,
@@ -432,6 +432,8 @@ fn merge_tables<F: FileSystem>(
                 let writer = BlobFileWriter::<F>::new(
                     opts.blob_file_id_generator.clone(),
                     opts.config.path.join(BLOBS_FOLDER),
+                    opts.tree_id,
+                    opts.config.descriptor_table.clone(),
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);

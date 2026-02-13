@@ -4,19 +4,16 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection,
-    fs::{FileSystem, StdFileSystem},
-    table::writer::LinkedFile,
-    value::InternalValue,
-    vlog::BlobFileId,
-    Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, fs::FileSystem, table::writer::LinkedFile,
+    value::InternalValue, vlog::BlobFileId, Checksum, CompressionType, HashMap,
+    SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
 /// Like `Writer` but will rotate to a new table, once a table grows larger than `target_size`
 ///
 /// This results in a sorted "run" of tables
-pub struct MultiWriter<F: FileSystem = StdFileSystem> {
+pub struct MultiWriter<F: FileSystem> {
     pub(crate) base_path: PathBuf,
 
     data_block_hash_ratio: f32,

@@ -4,10 +4,8 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry,
-    fs::{FileSystem, StdFileSystem},
-    table::multi_writer::MultiWriter,
-    BlobIndirection, SeqNo, UserKey, UserValue,
+    config::FilterPolicyEntry, fs::FileSystem, table::multi_writer::MultiWriter, BlobIndirection,
+    SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
 
@@ -19,7 +17,7 @@ pub const INITIAL_CANONICAL_LEVEL: usize = 1;
 ///
 /// Ingested data bypasses memtables and is written directly into new tables,
 /// using the same table writer configuration that is used for flush and compaction.
-pub struct Ingestion<'a, F: FileSystem = StdFileSystem> {
+pub struct Ingestion<'a, F: FileSystem> {
     folder: PathBuf,
     tree: &'a Tree<F>,
     pub(crate) writer: MultiWriter<F>,

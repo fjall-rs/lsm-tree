@@ -10,10 +10,8 @@ pub mod scanner;
 pub mod writer;
 
 use crate::{
-    blob_tree::FragmentationMap,
-    fs::{FileSystem, StdFileSystem},
-    vlog::BlobFileId,
-    Checksum,
+    blob_tree::FragmentationMap, file_accessor::FileAccessor, fs::FileSystem, vlog::BlobFileId,
+    Checksum, GlobalTableId, TreeId,
 };
 pub use meta::Metadata;
 use std::{
@@ -23,9 +21,11 @@ use std::{
 };
 
 /// A blob file is an immutable, sorted, contiguous file that contains large key-value pairs (blobs)
-pub struct Inner<F: FileSystem = StdFileSystem> {
+pub struct Inner<F: FileSystem> {
     /// Blob file ID
     pub id: BlobFileId,
+
+    pub tree_id: TreeId,
 
     /// File path
     pub path: PathBuf,
@@ -38,6 +38,14 @@ pub struct Inner<F: FileSystem = StdFileSystem> {
     pub is_deleted: AtomicBool,
 
     pub checksum: Checksum,
+
+    pub(crate) file_accessor: FileAccessor<F>,
+}
+
+impl<F: FileSystem> Inner<F> {
+    fn global_id(&self) -> GlobalTableId {
+        GlobalTableId::from((self.tree_id, self.id))
+    }
 }
 
 impl<F: FileSystem> std::fmt::Debug for Inner<F> {
@@ -61,19 +69,23 @@ impl<F: FileSystem> Drop for Inner<F> {
                 self.path.display(),
             );
 
-            if let Err(e) = F::remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&self.path) {
                 log::warn!(
                     "Failed to cleanup deleted blob file {:?} at {}: {e:?}",
                     self.id,
                     self.path.display(),
                 );
             }
+
+            self.file_accessor
+                .as_descriptor_table()
+                .inspect(|d| d.remove_for_blob_file(&self.global_id()));
         }
     }
 }
 
 /// A blob file stores large values and is part of the value log
-pub struct BlobFile<F: FileSystem = StdFileSystem>(pub(crate) Arc<Inner<F>>);
+pub struct BlobFile<F: FileSystem>(pub(crate) Arc<Inner<F>>);
 
 impl<F: FileSystem> Clone for BlobFile<F> {
     fn clone(&self) -> Self {
@@ -118,6 +130,12 @@ impl<F: FileSystem> BlobFile<F> {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.0.path
+    }
+
+    /// Returns the blob file accessor.
+    #[must_use]
+    pub(crate) fn file_accessor(&self) -> &FileAccessor<F> {
+        &self.0.file_accessor
     }
 
     /// Returns the number of items in the blob file.

@@ -14,7 +14,7 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
-    fs::{FileLike, FileSystem, StdFileSystem},
+    fs::{FileLike, FileSystem},
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -38,7 +38,7 @@ pub struct LinkedFile {
 }
 
 /// Serializes and compresses values into blocks and writes them to disk as a table
-pub struct Writer<F: FileSystem = StdFileSystem> {
+pub struct Writer<F: FileSystem> {
     /// Table file path
     pub(crate) path: PathBuf,
 

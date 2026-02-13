@@ -11,7 +11,7 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
     coding::Decode,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
     table::Table,
@@ -19,7 +19,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
-    Cache, Config, DescriptorTable, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
+    Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{
@@ -29,7 +29,7 @@ use std::{
 };
 
 /// Iterator value guard
-pub struct Guard<F: FileSystem = StdFileSystem> {
+pub struct Guard<F: FileSystem> {
     tree: crate::BlobTree<F>,
     version: Version<F>,
     kv: crate::Result<InternalValue>,
@@ -47,7 +47,6 @@ impl<F: FileSystem + 'static> IterGuard for Guard<F> {
                 self.tree.id(),
                 self.tree.blobs_folder.as_path(),
                 &self.tree.index.config.cache,
-                &self.tree.index.config.descriptor_table,
                 &self.version,
                 kv,
             )
@@ -78,7 +77,6 @@ impl<F: FileSystem + 'static> IterGuard for Guard<F> {
             self.tree.id(),
             self.tree.blobs_folder.as_path(),
             &self.tree.index.config.cache,
-            &self.tree.index.config.descriptor_table,
             &self.version,
             self.kv?,
         )
@@ -89,7 +87,6 @@ fn resolve_value_handle<F: FileSystem>(
     tree_id: TreeId,
     blobs_folder: &Path,
     cache: &Cache,
-    descriptor_table: &DescriptorTable<F>,
     version: &Version<F>,
     item: InternalValue,
 ) -> RangeItem {
@@ -104,7 +101,6 @@ fn resolve_value_handle<F: FileSystem>(
             &item.key.user_key,
             &vptr.vhandle,
             cache,
-            descriptor_table,
         ) {
             Ok(Some(v)) => {
                 let k = item.key.user_key;
@@ -131,7 +127,7 @@ fn resolve_value_handle<F: FileSystem>(
 /// This tree is a composite structure, consisting of an
 /// index tree (LSM-tree) and a log-structured value log
 /// to reduce write amplification.
-pub struct BlobTree<F: FileSystem = StdFileSystem> {
+pub struct BlobTree<F: FileSystem> {
     /// Index tree that holds value handles or small inline values
     #[doc(hidden)]
     pub index: crate::Tree<F>,
@@ -179,6 +175,9 @@ impl<F: FileSystem + 'static> BlobTree<F> {
 }
 
 impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
+        self.index.print_trace(key)
+    }
     fn table_file_cache_size(&self) -> usize {
         self.index.table_file_cache_size()
     }
@@ -367,7 +366,7 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
         let index_partitioning = self.index.config.index_block_partitioning_policy.get(0);
         let filter_partitioning = self.index.config.filter_block_partitioning_policy.get(0);
 
-        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}");
+        log::debug!("Flushing memtable(s) and performing key-value separation, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}");
         log::debug!("=> to table(s) in {}", table_folder.display());
         log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
@@ -414,6 +413,8 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
         let mut blob_writer = BlobFileWriter::<F>::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
+            self.id(),
+            self.index.config.descriptor_table.clone(),
         )?
         .use_target_size(kv_opts.file_target_size)
         .use_compression(kv_opts.compression);
@@ -614,7 +615,6 @@ impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
             self.id(),
             self.blobs_folder.as_path(),
             &self.index.config.cache,
-            &self.index.config.descriptor_table,
             &super_version.version,
             item,
         )?;

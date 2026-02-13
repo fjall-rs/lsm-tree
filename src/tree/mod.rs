@@ -11,8 +11,9 @@ use crate::{
     config::Config,
     file::CURRENT_VERSION_FILE,
     format_version::FormatVersion,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     iter_guard::{IterGuard, IterGuardImpl},
+    key::InternalKey,
     manifest::Manifest,
     memtable::Memtable,
     slice::Slice,
@@ -73,7 +74,7 @@ fn ignore_tombstone_value(item: InternalValue) -> Option<InternalValue> {
 }
 
 /// A log-structured merge tree (LSM-tree/LSMT)
-pub struct Tree<F: FileSystem = StdFileSystem>(#[doc(hidden)] pub Arc<TreeInner<F>>);
+pub struct Tree<F: FileSystem>(#[doc(hidden)] pub Arc<TreeInner<F>>);
 
 impl<F: FileSystem> Clone for Tree<F> {
     fn clone(&self) -> Self {
@@ -91,7 +92,10 @@ impl<F: FileSystem> std::ops::Deref for Tree<F> {
 
 impl<F: FileSystem + 'static> AbstractTree<F> for Tree<F> {
     fn table_file_cache_size(&self) -> usize {
-        self.config.descriptor_table.len()
+        self.config
+            .descriptor_table
+            .as_ref()
+            .map_or(0, |dt| dt.len())
     }
 
     fn get_version_history_lock(
@@ -111,6 +115,49 @@ impl<F: FileSystem + 'static> AbstractTree<F> for Tree<F> {
 
     fn blob_file_count(&self) -> usize {
         0
+    }
+
+    fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version();
+
+        let key = Slice::from(key);
+
+        for kv in super_version
+            .active_memtable
+            .range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..)
+        {
+            log::info!("[Active] {kv:?}");
+        }
+
+        for mt in super_version.sealed_memtables.iter().rev() {
+            for kv in mt.range(InternalKey::new(key.clone(), SeqNo::MAX, ValueType::Value)..) {
+                log::info!("[Sealed #{}] {kv:?}", mt.id());
+            }
+        }
+
+        for table in super_version
+            .version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .filter_map(|run| run.get_for_key(&key))
+        {
+            for kv in table.range(..) {
+                let kv = kv?;
+
+                if kv.key.user_key != key {
+                    break;
+                }
+
+                log::info!("[Table #{}] {kv:?}", table.id());
+            }
+        }
+
+        Ok(())
     }
 
     fn get_internal_entry(&self, key: &[u8], seqno: SeqNo) -> crate::Result<Option<InternalValue>> {
@@ -322,7 +369,7 @@ impl<F: FileSystem + 'static> AbstractTree<F> for Tree<F> {
         let filter_partitioning = self.config.filter_block_partitioning_policy.get(0);
 
         log::debug!(
-            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}",
+            "Flushing memtable(s) to {}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}",
             folder.display(),
         );
 
@@ -1119,6 +1166,8 @@ impl<F: FileSystem> Tree<F> {
         let (blob_files, orphaned_blob_files) = crate::vlog::recover_blob_files::<F>(
             &tree_path.join(crate::file::BLOBS_FOLDER),
             &recovery.blob_file_ids,
+            tree_id,
+            config.descriptor_table.as_ref(),
         )?;
 
         let version = Version::<F>::from_recovery(recovery, &tables, &blob_files)?;

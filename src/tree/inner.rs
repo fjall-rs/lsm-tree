@@ -5,7 +5,7 @@
 use crate::{
     compaction::state::CompactionState,
     config::Config,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     stop_signal::StopSignal,
     version::{persist_version, SuperVersions, Version},
     SequenceNumberCounter, TableId,
@@ -31,7 +31,7 @@ pub fn get_next_tree_id() -> TreeId {
     TREE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-pub struct TreeInner<F: FileSystem = StdFileSystem> {
+pub struct TreeInner<F: FileSystem> {
     /// Unique tree ID
     pub id: TreeId,
 

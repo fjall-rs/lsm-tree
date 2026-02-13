@@ -4,14 +4,15 @@
 
 use super::KeyedBlockHandle;
 use crate::{
-    fs::{FileSystem, StdFileSystem},
+    file_accessor::FileAccessor,
+    fs::FileSystem,
     table::{
         block::BlockType,
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
         util::load_block,
         BlockHandle, IndexBlock,
     },
-    Cache, CompressionType, DescriptorTable, GlobalTableId, SeqNo, UserKey,
+    Cache, CompressionType, GlobalTableId, SeqNo, UserKey,
 };
 use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
@@ -21,10 +22,10 @@ use crate::Metrics;
 /// Index that translates item keys to data block handles
 ///
 /// The index is loaded on demand.
-pub struct VolatileBlockIndex<F: FileSystem = StdFileSystem> {
+pub struct VolatileBlockIndex<F: FileSystem> {
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) descriptor_table: Arc<DescriptorTable<F>>,
+    pub(crate) file_accessor: FileAccessor<F>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) handle: BlockHandle,
     pub(crate) compression: CompressionType,
@@ -46,11 +47,11 @@ impl<F: FileSystem> VolatileBlockIndex<F> {
     }
 }
 
-pub struct Iter<F: FileSystem = StdFileSystem> {
+pub struct Iter<F: FileSystem> {
     inner: Option<OwnedIndexBlockIter>,
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    descriptor_table: Arc<DescriptorTable<F>>,
+    file_accessor: FileAccessor<F>,
     cache: Arc<Cache>,
     handle: BlockHandle,
     compression: CompressionType,
@@ -69,7 +70,7 @@ impl<F: FileSystem> Iter<F> {
             inner: None,
             table_id: index.table_id,
             path: index.path.clone(),
-            descriptor_table: index.descriptor_table.clone(),
+            file_accessor: index.file_accessor.clone(),
             cache: index.cache.clone(),
             handle: index.handle,
             compression: index.compression,
@@ -106,7 +107,7 @@ impl<F: FileSystem> Iterator for Iter<F> {
             let block = fail_iter!(load_block::<F>(
                 self.table_id,
                 &self.path,
-                &self.descriptor_table,
+                &self.file_accessor,
                 &self.cache,
                 &self.handle,
                 BlockType::Index,
@@ -146,7 +147,7 @@ impl<F: FileSystem> DoubleEndedIterator for Iter<F> {
             let block = fail_iter!(load_block::<F>(
                 self.table_id,
                 &self.path,
-                &self.descriptor_table,
+                &self.file_accessor,
                 &self.cache,
                 &self.handle,
                 BlockType::Index,

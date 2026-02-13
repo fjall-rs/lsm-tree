@@ -28,9 +28,7 @@ pub fn read_exact(file: &impl FileLike, offset: u64, size: usize) -> std::io::Re
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
     {
-        let bytes_read: usize;
-
-        bytes_read = file.read_at(&mut builder, offset)?;
+        let bytes_read = file.read_at(&mut builder, offset)?;
 
         if bytes_read != size {
             return Err(std::io::Error::new(

@@ -2,18 +2,16 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+use crate::file_accessor::FileAccessor;
 use crate::table::{IndexBlock, KeyedBlockHandle};
-use crate::{
-    fs::{FileSystem, StdFileSystem},
-    SeqNo,
-};
+use crate::{fs::FileSystem, SeqNo};
 use crate::{
     table::{
         block::BlockType,
         block_index::{iter::OwnedIndexBlockIter, BlockIndexIter},
         util::load_block,
     },
-    Cache, CompressionType, DescriptorTable, GlobalTableId, UserKey,
+    Cache, CompressionType, GlobalTableId, UserKey,
 };
 use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
@@ -23,11 +21,11 @@ use crate::Metrics;
 /// Index that translates item keys to data block handles
 ///
 /// Only the top-level index is loaded into memory.
-pub struct TwoLevelBlockIndex<F: FileSystem = StdFileSystem> {
+pub struct TwoLevelBlockIndex<F: FileSystem> {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) descriptor_table: Arc<DescriptorTable<F>>,
+    pub(crate) file_accessor: FileAccessor<F>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
     pub(crate) phantom: PhantomData<F>,
@@ -47,7 +45,7 @@ impl<F: FileSystem> TwoLevelBlockIndex<F> {
             hi: None,
             table_id: self.table_id,
             path: self.path.clone(),
-            descriptor_table: self.descriptor_table.clone(),
+            file_accessor: self.file_accessor.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
             phantom: PhantomData,
@@ -58,7 +56,7 @@ impl<F: FileSystem> TwoLevelBlockIndex<F> {
     }
 }
 
-pub struct Iter<F: FileSystem = StdFileSystem> {
+pub struct Iter<F: FileSystem> {
     tli_block: IndexBlock,
     tli: Option<OwnedIndexBlockIter>,
 
@@ -70,7 +68,7 @@ pub struct Iter<F: FileSystem = StdFileSystem> {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    descriptor_table: Arc<DescriptorTable<F>>,
+    file_accessor: FileAccessor<F>,
     cache: Arc<Cache>,
     compression: CompressionType,
     phantom: PhantomData<F>,
@@ -133,7 +131,7 @@ impl<F: FileSystem> Iterator for Iter<F> {
                 let block = fail_iter!(load_block::<F>(
                     self.table_id,
                     &self.path,
-                    &self.descriptor_table,
+                    &self.file_accessor,
                     &self.cache,
                     &handle.into_inner(),
                     BlockType::Index,
@@ -196,7 +194,7 @@ impl<F: FileSystem> DoubleEndedIterator for Iter<F> {
                 let block = fail_iter!(load_block::<F>(
                     self.table_id,
                     &self.path,
-                    &self.descriptor_table,
+                    &self.file_accessor,
                     &self.cache,
                     &handle.into_inner(),
                     BlockType::Index,

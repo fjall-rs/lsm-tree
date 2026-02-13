@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     vlog::{
         blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
         ValueHandle,
@@ -14,7 +14,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read, Seek};
 
 /// Reads a single blob from a blob file
-pub struct Reader<'a, F: FileSystem = StdFileSystem> {
+pub struct Reader<'a, F: FileSystem> {
     blob_file: &'a BlobFile<F>,
     file: &'a F::File,
 }
@@ -113,6 +113,8 @@ mod tests {
         let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
             id_generator,
             folder.path(),
+            0,
+            None,
         )?
         .use_target_size(u64::MAX);
 
@@ -127,7 +129,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = StdFileSystem::open(&blob_file.0.path)?;
+        let file = crate::fs::StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
@@ -144,6 +146,8 @@ mod tests {
         let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
             id_generator,
             folder.path(),
+            0,
+            None,
         )?
         .use_target_size(u64::MAX)
         .use_compression(CompressionType::Lz4);
@@ -167,7 +171,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = StdFileSystem::open(&blob_file.0.path)?;
+        let file = crate::fs::StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");

@@ -5,7 +5,7 @@
 use crate::{
     blob_tree::handle::BlobIndirection,
     file::BLOBS_FOLDER,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     table::Table,
     tree::ingest::Ingestion as TableIngestion,
     vlog::{BlobFileWriter, ValueHandle},
@@ -18,7 +18,7 @@ use crate::{
 ///
 /// Uses table ingestion for the index and a blob file writer for large
 /// values so both streams advance together.
-pub struct BlobIngestion<'a, F: FileSystem = StdFileSystem> {
+pub struct BlobIngestion<'a, F: FileSystem> {
     tree: &'a crate::BlobTree<F>,
     pub(crate) table: TableIngestion<'a, F>,
     pub(crate) blob: BlobFileWriter<F>,
@@ -51,6 +51,8 @@ impl<'a, F: FileSystem + 'static> BlobIngestion<'a, F> {
         let blob = BlobFileWriter::<F>::new(
             tree.index.0.blob_file_id_counter.clone(),
             tree.index.config.path.join(BLOBS_FOLDER),
+            tree.index.id,
+            tree.index.config.descriptor_table.clone(),
         )?
         .use_target_size(blob_file_size)
         .use_compression(kv.compression);

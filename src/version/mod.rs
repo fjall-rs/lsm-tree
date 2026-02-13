@@ -18,7 +18,7 @@ use crate::blob_tree::{FragmentationEntry, FragmentationMap};
 use crate::checksum::ChecksumType;
 use crate::coding::Encode;
 use crate::compaction::state::hidden_set::HiddenSet;
-use crate::fs::{FileSystem, StdFileSystem};
+use crate::fs::FileSystem;
 use crate::version::recovery::Recovery;
 use crate::TreeType;
 use crate::{
@@ -78,7 +78,7 @@ impl<T: Ranged> GenericLevel<T> {
     }
 }
 
-pub struct Level<F: FileSystem = StdFileSystem>(Arc<GenericLevel<Table<F>>>);
+pub struct Level<F: FileSystem>(Arc<GenericLevel<Table<F>>>);
 
 impl<F: FileSystem> Clone for Level<F> {
     fn clone(&self) -> Self {
@@ -144,7 +144,7 @@ impl<F: FileSystem> Level<F> {
     }
 }
 
-pub struct VersionInner<F: FileSystem = StdFileSystem> {
+pub struct VersionInner<F: FileSystem> {
     /// The version's ID
     id: VersionId,
 
@@ -169,7 +169,7 @@ pub struct VersionInner<F: FileSystem = StdFileSystem> {
 /// A version is an immutable, point-in-time view of a tree's structure
 ///
 /// Any time a table is created or deleted, a new version is created.
-pub struct Version<F: FileSystem = StdFileSystem> {
+pub struct Version<F: FileSystem> {
     inner: Arc<VersionInner<F>>,
 }
 

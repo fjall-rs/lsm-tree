@@ -8,7 +8,7 @@ use crate::{
     fs::{FileLike, FileSystem},
     time::unix_timestamp,
     vlog::BlobFileId,
-    Checksum, CompressionType, KeyRange, SeqNo, UserKey,
+    Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
@@ -26,7 +26,8 @@ pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
     + std::mem::size_of::<u32>(); // On-disk value length
 
 /// Blob file writer
-pub struct Writer<F: FileSystem = crate::fs::StdFileSystem> {
+pub struct Writer<F: FileSystem> {
+    pub(crate) tree_id: TreeId,
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
@@ -52,7 +53,11 @@ impl<F: FileSystem> Writer<F> {
     ///
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
-    pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        blob_file_id: BlobFileId,
+        tree_id: TreeId,
+    ) -> crate::Result<Self> {
         let path = path.as_ref();
 
         let writer = BufWriter::new(F::create(path)?);
@@ -61,6 +66,7 @@ impl<F: FileSystem> Writer<F> {
         writer.start("data")?;
 
         Ok(Self {
+            tree_id,
             path: path.into(),
             blob_file_id,
 

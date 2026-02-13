@@ -1,8 +1,6 @@
 use crate::{
-    blob_tree::Guard as BlobGuard,
-    fs::{FileSystem, StdFileSystem},
-    tree::Guard as StandardGuard,
-    KvPair, UserKey, UserValue,
+    blob_tree::Guard as BlobGuard, fs::FileSystem, tree::Guard as StandardGuard, KvPair, UserKey,
+    UserValue,
 };
 use enum_dispatch::enum_dispatch;
 
@@ -58,7 +56,7 @@ pub trait IterGuard {
 
 /// Generic iterator value
 #[enum_dispatch(IterGuard)]
-pub enum IterGuardImpl<F: FileSystem + 'static = StdFileSystem> {
+pub enum IterGuardImpl<F: FileSystem + 'static> {
     /// Iterator value of a standard LSM-tree
     Standard(StandardGuard),
 

@@ -8,8 +8,8 @@ use crate::metrics::Metrics;
 use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegions};
 use crate::{
     cache::Cache,
-    descriptor_table::DescriptorTable,
-    fs::{FileSystem, StdFileSystem},
+    file_accessor::FileAccessor,
+    fs::FileSystem,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -19,13 +19,13 @@ use std::{
     sync::{atomic::AtomicBool, Arc, OnceLock},
 };
 
-pub struct Inner<F: FileSystem = StdFileSystem> {
+pub struct Inner<F: FileSystem> {
     pub path: Arc<PathBuf>,
 
     pub(crate) tree_id: TreeId,
 
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable<F>>,
+    pub(crate) file_accessor: FileAccessor<F>,
 
     /// Parsed metadata
     #[doc(hidden)]
@@ -68,19 +68,31 @@ pub struct Inner<F: FileSystem = StdFileSystem> {
     pub(crate) cached_blob_bytes: OnceLock<u64>,
 }
 
+impl<F: FileSystem> Inner<F> {
+    /// Gets the global table ID.
+    #[must_use]
+    pub(super) fn global_id(&self) -> GlobalTableId {
+        (self.tree_id, self.metadata.id).into()
+    }
+}
+
 impl<F: FileSystem> Drop for Inner<F> {
     fn drop(&mut self) {
-        let global_id: GlobalTableId = (self.tree_id, self.metadata.id).into();
+        let global_id = self.global_id();
 
         if self.is_deleted.load(std::sync::atomic::Ordering::Acquire) {
             log::trace!("Cleanup deleted table {global_id:?} at {:?}", self.path);
 
-            if let Err(e) = F::remove_file(&*self.path) {
+            if let Err(e) = F::remove_file(&self.path) {
                 log::warn!(
                     "Failed to cleanup deleted table {global_id:?} at {:?}: {e:?}",
                     self.path,
                 );
             }
+
+            self.file_accessor.as_descriptor_table().inspect(|d| {
+                d.remove_for_table(&global_id);
+            });
         }
     }
 }

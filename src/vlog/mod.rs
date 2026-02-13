@@ -11,12 +11,13 @@ pub use {
     blob_file::scanner::Scanner as BlobFileScanner, blob_file::BlobFile, handle::ValueHandle,
 };
 
-pub type BlobFileMergeScanner<F = crate::fs::StdFileSystem> = blob_file::merge::MergeScanner<F>;
+pub type BlobFileMergeScanner<F> = blob_file::merge::MergeScanner<F>;
 
 use crate::{
+    file_accessor::FileAccessor,
     fs::FileSystem,
     vlog::blob_file::{Inner as BlobFileInner, Metadata},
-    Checksum,
+    Checksum, DescriptorTable, TreeId,
 };
 use std::{
     path::{Path, PathBuf},
@@ -26,6 +27,8 @@ use std::{
 pub fn recover_blob_files<F: FileSystem>(
     folder: &Path,
     ids: &[(BlobFileId, Checksum)],
+    tree_id: TreeId,
+    descriptor_table: Option<&Arc<DescriptorTable<F>>>,
 ) -> crate::Result<(Vec<BlobFile<F>>, Vec<PathBuf>)> {
     if !F::exists(folder)? {
         return Ok((vec![], vec![]));
@@ -71,7 +74,12 @@ pub fn recover_blob_files<F: FileSystem>(
         assert!(!dirent.is_dir());
 
         if let Some(&(_, checksum)) = ids.iter().find(|(id, _)| id == &blob_file_id) {
-            log::trace!("Recovering blob file #{blob_file_id:?}");
+            log::trace!(
+                "Recovering blob file #{blob_file_id:?} from {}",
+                blob_file_path.display(),
+            );
+
+            let file = F::open(&blob_file_path)?;
 
             let meta = {
                 let reader = sfa::Reader::new(&blob_file_path)?;
@@ -83,8 +91,6 @@ pub fn recover_blob_files<F: FileSystem>(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let file = F::open(&blob_file_path)?;
-
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),
@@ -94,6 +100,12 @@ pub fn recover_blob_files<F: FileSystem>(
                 Metadata::from_slice(&metadata_slice)?
             };
 
+            let file_accessor = if let Some(dt) = descriptor_table.cloned() {
+                FileAccessor::DescriptorTable(dt)
+            } else {
+                FileAccessor::File(Arc::new(file))
+            };
+
             blob_files.push(BlobFile(Arc::new(BlobFileInner {
                 id: blob_file_id,
                 path: blob_file_path,
@@ -101,6 +113,8 @@ pub fn recover_blob_files<F: FileSystem>(
                 meta,
                 is_deleted: AtomicBool::new(false),
                 checksum,
+                file_accessor,
+                tree_id,
             })));
 
             if idx % progress_mod == 0 {
@@ -133,7 +147,9 @@ mod tests {
         assert!(matches!(
             recover_blob_files::<crate::fs::StdFileSystem>(
                 Path::new("."),
-                &[(0, Checksum::from_raw(0))]
+                &[(0, Checksum::from_raw(0))],
+                0,
+                None,
             ),
             Err(crate::Error::Unrecoverable),
         ));

@@ -12,10 +12,7 @@ pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
 use super::KeyedBlockHandle;
-use crate::{
-    fs::{FileSystem, StdFileSystem},
-    SeqNo,
-};
+use crate::{fs::FileSystem, SeqNo};
 
 pub trait BlockIndex<F: FileSystem> {
     fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl<F>>;
@@ -27,7 +24,7 @@ pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHan
     fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool;
 }
 
-pub enum BlockIndexIterImpl<F: FileSystem = StdFileSystem> {
+pub enum BlockIndexIterImpl<F: FileSystem> {
     Full(self::full::Iter),
     Volatile(self::volatile::Iter<F>),
     TwoLevel(self::two_level::Iter<F>),
@@ -91,7 +88,7 @@ impl<F: FileSystem> DoubleEndedIterator for BlockIndexIterImpl<F> {
 /// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
 /// In the diagram above, searching for 'J' yields the block starting with 'G'.
 /// 'J' must be in that block, because the next block starts with 'M').
-pub enum BlockIndexImpl<F: FileSystem = StdFileSystem> {
+pub enum BlockIndexImpl<F: FileSystem> {
     Full(FullBlockIndex),
     VolatileFull(VolatileBlockIndex<F>),
     TwoLevel(TwoLevelBlockIndex<F>),

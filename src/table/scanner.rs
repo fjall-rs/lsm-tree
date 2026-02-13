@@ -11,7 +11,7 @@ use crate::{
 use std::{io::BufReader, path::Path};
 
 /// Table reader that is optimized for consuming an entire table
-pub struct Scanner<F: FileSystem = crate::fs::StdFileSystem> {
+pub struct Scanner<F: FileSystem> {
     reader: BufReader<F::File>,
     iter: OwnedDataBlockIter,
 

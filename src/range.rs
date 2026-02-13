@@ -65,7 +65,7 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 /// The iter state references the memtables used while the range is open
 ///
 /// Because of Rust rules, the state is referenced using `self_cell`, see below.
-pub struct IterState<F: FileSystem = crate::fs::StdFileSystem> {
+pub struct IterState<F: FileSystem> {
     pub(crate) version: SuperVersion<F>,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
 }

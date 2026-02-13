@@ -173,7 +173,7 @@ pub struct Config<F: FileSystem = StdFileSystem> {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable<F>>,
+    pub descriptor_table: Option<Arc<DescriptorTable<F>>>,
 
     /// Number of levels of the LSM tree (depth of tree)
     ///
@@ -248,7 +248,7 @@ impl<F: FileSystem> Default for Config<F> {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(DescriptorTable::new(256)),
+            descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
             seqno: SequenceNumberCounter::default(),
             visible_seqno: SequenceNumberCounter::default(),
 
@@ -300,8 +300,8 @@ impl<F: FileSystem> Default for Config<F> {
 }
 
 impl<F: FileSystem> Config<F> {
-    /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(
+    /// Initializes a new config for a specific filesystem implementation.
+    pub fn new_for_filesystem<P: AsRef<Path>>(
         path: P,
         seqno: SequenceNumberCounter,
         visible_seqno: SequenceNumberCounter,
@@ -313,7 +313,20 @@ impl<F: FileSystem> Config<F> {
             ..Default::default()
         }
     }
+}
 
+impl Config<StdFileSystem> {
+    /// Initializes a new config using the default [`StdFileSystem`].
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        seqno: SequenceNumberCounter,
+        visible_seqno: SequenceNumberCounter,
+    ) -> Self {
+        Self::new_for_filesystem(path, seqno, visible_seqno)
+    }
+}
+
+impl<F: FileSystem> Config<F> {
     /// Sets the global cache.
     ///
     /// You can create a global [`Cache`] and share it between multiple
@@ -326,9 +339,15 @@ impl<F: FileSystem> Config<F> {
         self
     }
 
+    /// Sets the file descriptor cache.
+    ///
+    /// Can be shared across trees.
     #[must_use]
     #[doc(hidden)]
-    pub fn use_descriptor_table(mut self, descriptor_table: Arc<DescriptorTable<F>>) -> Self {
+    pub fn use_descriptor_table(
+        mut self,
+        descriptor_table: Option<Arc<DescriptorTable<F>>>,
+    ) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

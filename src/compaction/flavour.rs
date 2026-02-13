@@ -8,7 +8,7 @@ use crate::coding::{Decode, Encode};
 use crate::compaction::worker::Options;
 use crate::compaction::Input as CompactionPayload;
 use crate::file::TABLES_FOLDER;
-use crate::fs::{FileSystem, StdFileSystem};
+use crate::fs::FileSystem;
 use crate::table::multi_writer::MultiWriter;
 use crate::version::{SuperVersions, Version};
 use crate::vlog::blob_file::scanner::ScanEntry;
@@ -65,7 +65,7 @@ pub(super) fn prepare_table_writer<F: FileSystem>(
     let filter_partitioning = opts.config.filter_block_partitioning_policy.get(dst_lvl);
 
     log::debug!(
-        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression}, index_block_compression={index_block_compression}, mvcc_gc_watermark={}",
+        "Compacting tables {:?} into L{} (canonical L{}), target_size={}, data_block_restart_interval={data_block_restart_interval}, index_block_restart_interval={index_block_restart_interval}, data_block_size={data_block_size}, data_block_compression={data_block_compression:?}, index_block_compression={index_block_compression:?}, mvcc_gc_watermark={}",
         payload.table_ids,
         payload.dest_level,
         payload.canonical_level,
@@ -133,7 +133,7 @@ pub(super) trait CompactionFlavour<F: FileSystem> {
 }
 
 /// Compaction worker that will relocate blobs that sit in blob files that are being rewritten
-pub struct RelocatingCompaction<F: FileSystem = StdFileSystem> {
+pub struct RelocatingCompaction<F: FileSystem> {
     inner: StandardCompaction<F>,
     blob_scanner: Peekable<BlobFileMergeScanner<F>>,
     blob_writer: BlobFileWriter<F>,
@@ -318,7 +318,7 @@ impl<F: FileSystem> CompactionFlavour<F> for RelocatingCompaction<F> {
 }
 
 /// Standard compaction worker that just passes through all its data
-pub struct StandardCompaction<F: FileSystem = StdFileSystem> {
+pub struct StandardCompaction<F: FileSystem> {
     start: Instant,
     table_writer: MultiWriter<F>,
     tables_to_rewrite: Vec<Table<F>>,

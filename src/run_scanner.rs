@@ -2,18 +2,13 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    fs::{FileSystem, StdFileSystem},
-    table::Scanner,
-    version::Run,
-    InternalValue, Table,
-};
+use crate::{fs::FileSystem, table::Scanner, version::Run, InternalValue, Table};
 use std::sync::Arc;
 
 /// Scans through a disjoint run
 ///
 /// Optimized for compaction, by using a `TableScanner` instead of `TableReader`.
-pub struct RunScanner<F: FileSystem = StdFileSystem> {
+pub struct RunScanner<F: FileSystem> {
     tables: Arc<Run<Table<F>>>,
     lo: usize,
     hi: usize,

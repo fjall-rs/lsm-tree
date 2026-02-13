@@ -92,6 +92,9 @@ pub mod config;
 #[doc(hidden)]
 pub mod descriptor_table;
 
+#[doc(hidden)]
+pub mod file_accessor;
+
 mod double_ended_peekable;
 mod error;
 
@@ -181,7 +184,7 @@ pub use {
     descriptor_table::DescriptorTable,
     error::{Error, Result},
     format_version::FormatVersion,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},

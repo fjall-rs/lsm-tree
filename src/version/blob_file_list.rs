@@ -1,11 +1,11 @@
 use crate::{
     blob_tree::FragmentationMap,
-    fs::{FileSystem, StdFileSystem},
+    fs::FileSystem,
     vlog::{BlobFile, BlobFileId},
 };
 use std::collections::BTreeMap;
 
-pub struct BlobFileList<F: FileSystem = StdFileSystem>(BTreeMap<BlobFileId, BlobFile<F>>);
+pub struct BlobFileList<F: FileSystem>(BTreeMap<BlobFileId, BlobFile<F>>);
 
 impl<F: FileSystem> Clone for BlobFileList<F> {
     fn clone(&self) -> Self {

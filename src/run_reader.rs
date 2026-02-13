@@ -2,18 +2,14 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{
-    fs::{FileSystem, StdFileSystem},
-    version::Run,
-    BoxedIterator, InternalValue, Table, UserKey,
-};
+use crate::{fs::FileSystem, version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
 };
 
 /// Reads through a disjoint run
-pub struct RunReader<F: FileSystem = StdFileSystem> {
+pub struct RunReader<F: FileSystem> {
     run: Arc<Run<Table<F>>>,
     lo: usize,
     hi: usize,

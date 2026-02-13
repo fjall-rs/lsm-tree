@@ -15,7 +15,7 @@ use std::{
 };
 
 /// Reads through a blob file in order
-pub struct Scanner<F: FileSystem = crate::fs::StdFileSystem> {
+pub struct Scanner<F: FileSystem> {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
     inner: BufReader<F::File>,
     is_terminated: bool,
@@ -149,7 +149,8 @@ mod tests {
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer = BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0)?;
+            let mut writer =
+                BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0, 0)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;
