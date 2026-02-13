@@ -6,7 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
-        filter::StreamFilterAdapter,
+        filter::{CompactionFilterContext, StreamFilterAdapter},
         flavour::{RelocatingCompaction, StandardCompaction},
         state::CompactionState,
         stream::CompactionStream,
@@ -396,7 +396,7 @@ fn merge_tables(
         .config
         .compaction_filter_factory
         .as_ref()
-        .map(|f| f.make_filter());
+        .map(|f| f.make_filter(CompactionFilterContext { is_last_level }));
 
     // this is used by the compaction filter if it wants to write new blobs
     let mut filter_blob_writer = None;

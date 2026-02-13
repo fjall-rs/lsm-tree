@@ -23,6 +23,7 @@ use std::{panic::RefUnwindSafe, path::Path};
 
 /// Verdict returned by a [`CompactionFilter`]
 #[non_exhaustive]
+#[derive(Debug)]
 pub enum Verdict {
     /// Keeps the item.
     Keep,
@@ -59,10 +60,18 @@ pub trait CompactionFilter: Send {
     fn finish(self: Box<Self>) {}
 }
 
+/// Context passed into [`CompactionFilterFactory::make_filter`] for each compaction run.
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct CompactionFilterContext {
+    /// Whether we are compacting into the last level.
+    pub is_last_level: bool,
+}
+
 /// Trait that creates compaction filter objects for each compaction
 pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
     /// Returns a new compaction filter.
-    fn make_filter(&self) -> Box<dyn CompactionFilter>;
+    fn make_filter(&self, context: CompactionFilterContext) -> Box<dyn CompactionFilter>;
 }
 
 struct AccessorShared<'a> {

@@ -1,5 +1,5 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict,
+    CompactionFilter, CompactionFilterContext, CompactionFilterFactory, ItemAccessor, Verdict,
 };
 use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
@@ -23,6 +23,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         saw_value: bool,
         drop_threshold: u32,
         finished: bool,
+        expect_last_level: Option<bool>,
     }
 
     let filter_state = Arc::new(Mutex::new(FilterState {
@@ -32,6 +33,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         saw_value: false,
         drop_threshold: 4,
         finished: false,
+        expect_last_level: None,
     }));
 
     struct Filter(Arc<Mutex<FilterState>>);
@@ -77,7 +79,13 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct FilterFactory(Arc<Mutex<FilterState>>);
 
     impl CompactionFilterFactory for FilterFactory {
-        fn make_filter(&self) -> Box<dyn CompactionFilter> {
+        fn make_filter(&self, context: CompactionFilterContext) -> Box<dyn CompactionFilter> {
+            {
+                let guard = self.0.lock().unwrap();
+                if let Some(expect_last_level) = guard.expect_last_level {
+                    assert_eq!(context.is_last_level, expect_last_level)
+                }
+            }
             Box::new(Filter(self.0.clone()))
         }
     }
@@ -117,6 +125,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     let mut state = filter_state.lock().unwrap();
     state.disable = false;
     state.expect_blob = blob;
+    state.expect_last_level = Some(false);
     drop(state);
 
     tree.compact(Arc::new(PullDown(0, 1)), SeqNo::MAX)?;
@@ -139,6 +148,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     // up the threshold
     state.drop_threshold = 8;
     state.do_rewrite = true;
+    state.expect_last_level = Some(true);
     drop(state);
 
     // compact to last level

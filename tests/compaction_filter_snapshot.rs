@@ -1,5 +1,5 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict,
+    CompactionFilter, CompactionFilterContext, CompactionFilterFactory, ItemAccessor, Verdict,
 };
 use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 
@@ -15,7 +15,7 @@ impl CompactionFilter for NukeFilter {
 struct NukeFilterFactory;
 
 impl CompactionFilterFactory for NukeFilterFactory {
-    fn make_filter(&self) -> Box<dyn CompactionFilter> {
+    fn make_filter(&self, _context: CompactionFilterContext) -> Box<dyn CompactionFilter> {
         Box::new(NukeFilter)
     }
 }
