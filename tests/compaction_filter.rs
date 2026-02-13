@@ -49,6 +49,8 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
             if key == 0x00abcdef {
                 Ok(Verdict::RemoveWeak)
+            } else if key == 0x01abcdef {
+                Ok(Verdict::Destroy)
             } else if key >= 0xff000000 {
                 let value = u32_f(&item.value()?);
                 assert_eq!(key & 0xff, value);
@@ -119,6 +121,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     }
 
     tree.insert(u32_s(0x00abcdef), "test", 0);
+    tree.insert(u32_s(0x01abcdef), "test", 0);
 
     tree.flush_active_memtable(0)?;
 
@@ -139,6 +142,8 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
     // ensure weak-deleted value is gone
     assert!(tree.get(u32_s(0x00abcdef), SeqNo::MAX)?.is_none());
+    // ensure destroyed value is gone
+    assert!(tree.get(u32_s(0x01abcdef), SeqNo::MAX)?.is_none());
 
     let mut state = filter_state.lock().unwrap();
     // filter should think it was called

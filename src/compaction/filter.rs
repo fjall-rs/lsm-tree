@@ -13,7 +13,10 @@
 
 use crate::{
     coding::{Decode, Encode},
-    compaction::{stream::StreamFilter, worker::Options},
+    compaction::{
+        stream::{StreamFilter, StreamFilterVerdict},
+        worker::Options,
+    },
     key::InternalKey,
     version::Version,
     vlog::{Accessor, BlobFileWriter, ValueHandle},
@@ -39,11 +42,11 @@ pub enum Verdict {
 
     /// Replaces the value of the item.
     ReplaceValue(UserValue),
-    /* /// Destroys a value - does not leave behind a tombstone.
+    /// Destroys a value - does not leave behind a tombstone.
     ///
     /// Only use in situations where you absolutely 100% know your
     /// item key is never written or updated multiple times.
-    Destroy, */
+    Destroy,
 }
 
 /// Trait for compaction filter objects
@@ -230,25 +233,28 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
 }
 
 impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
-    fn filter_item(
-        &mut self,
-        item: &InternalValue,
-    ) -> crate::Result<Option<(ValueType, UserValue)>> {
+    fn filter_item(&mut self, item: &InternalValue) -> crate::Result<StreamFilterVerdict> {
         let Some(filter) = self.filter.as_mut() else {
-            return Ok(None);
+            return Ok(StreamFilterVerdict::Keep);
         };
 
         match filter.filter_item(ItemAccessor {
             item,
             shared: &self.shared,
         })? {
-            // Verdict::Destroy => todo!(),
-            Verdict::Keep => Ok(None),
-            Verdict::Remove => Ok(Some((ValueType::Tombstone, UserValue::empty()))),
-            Verdict::RemoveWeak => Ok(Some((ValueType::WeakTombstone, UserValue::empty()))),
-            Verdict::ReplaceValue(new_value) => {
-                self.handle_write(&item.key, new_value).map(Option::Some)
-            }
+            Verdict::Destroy => Ok(StreamFilterVerdict::Drop),
+            Verdict::Keep => Ok(StreamFilterVerdict::Keep),
+            Verdict::Remove => Ok(StreamFilterVerdict::Replace((
+                ValueType::Tombstone,
+                UserValue::empty(),
+            ))),
+            Verdict::RemoveWeak => Ok(StreamFilterVerdict::Replace((
+                ValueType::WeakTombstone,
+                UserValue::empty(),
+            ))),
+            Verdict::ReplaceValue(new_value) => self
+                .handle_write(&item.key, new_value)
+                .map(StreamFilterVerdict::Replace),
         }
     }
 }

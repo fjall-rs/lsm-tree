@@ -15,24 +15,29 @@ pub trait DroppedKvCallback {
     fn on_dropped(&mut self, kv: &InternalValue);
 }
 
+/// Verdict returned by [`StreamFilter`]
+#[derive(Debug)]
+pub enum StreamFilterVerdict {
+    /// Keep the item as is.
+    Keep,
+    /// Replace the item.
+    Replace((ValueType, UserValue)),
+    /// Drop the item without leaving a tombstone.
+    Drop,
+}
+
 /// A callback for modifying KVs in the stream.
 pub trait StreamFilter {
     /// Handle an item, possibly modifying it.
-    fn filter_item(
-        &mut self,
-        item: &InternalValue,
-    ) -> crate::Result<Option<(ValueType, UserValue)>>;
+    fn filter_item(&mut self, item: &InternalValue) -> crate::Result<StreamFilterVerdict>;
 }
 
 /// A [`StreamFilter`] that does not modify anything.
 pub struct NoFilter;
 
 impl StreamFilter for NoFilter {
-    fn filter_item(
-        &mut self,
-        _item: &InternalValue,
-    ) -> crate::Result<Option<(ValueType, UserValue)>> {
-        Ok(None)
+    fn filter_item(&mut self, _item: &InternalValue) -> crate::Result<StreamFilterVerdict> {
+        Ok(StreamFilterVerdict::Keep)
     }
 }
 
@@ -140,13 +145,23 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
             let mut head = fail_iter!(self.inner.next()?);
 
             if !head.is_tombstone() {
-                if let Some((new_type, new_value)) = fail_iter!(self.filter.filter_item(&head)) {
-                    // if we are replacing this item's value, call the dropped callback for the previous item
-                    if let Some(watcher) = &mut self.dropped_callback {
-                        watcher.on_dropped(&head);
+                match fail_iter!(self.filter.filter_item(&head)) {
+                    StreamFilterVerdict::Keep => { /* do nothing */ }
+                    StreamFilterVerdict::Replace((new_type, new_value)) => {
+                        // if we are replacing this item's value, call the dropped callback for the previous item
+                        if let Some(watcher) = &mut self.dropped_callback {
+                            watcher.on_dropped(&head);
+                        }
+                        head.value = new_value;
+                        head.key.value_type = new_type;
                     }
-                    head.value = new_value;
-                    head.key.value_type = new_type;
+                    StreamFilterVerdict::Drop => {
+                        if let Some(watcher) = &mut self.dropped_callback {
+                            watcher.on_dropped(&head);
+                        }
+                        // ignore
+                        continue;
+                    }
                 }
             }
 
@@ -601,14 +616,16 @@ mod tests {
     fn compaction_stream_filter_1() {
         struct Filter(&'static [u8]);
         impl StreamFilter for Filter {
-            fn filter_item(
-                &mut self,
-                value: &InternalValue,
-            ) -> crate::Result<Option<(ValueType, UserValue)>> {
-                if value.value < self.0 {
-                    Ok(Some((ValueType::Tombstone, UserValue::empty())))
+            fn filter_item(&mut self, value: &InternalValue) -> crate::Result<StreamFilterVerdict> {
+                if value.key.user_key == b"b" {
+                    Ok(StreamFilterVerdict::Drop)
+                } else if value.value < self.0 {
+                    Ok(StreamFilterVerdict::Replace((
+                        ValueType::Tombstone,
+                        UserValue::empty(),
+                    )))
                 } else {
-                    Ok(None)
+                    Ok(StreamFilterVerdict::Keep)
                 }
             }
         }
@@ -623,6 +640,9 @@ mod tests {
             "a", "5", "V",
             // subsequent values below gc threshold after filter
             "a", "4", "V",
+
+            // this value will be dropped without leaving a tombstone
+            "b", "b", "V",
         ];
 
         let mut drop_cb = TrackCallback { items: vec![] };
@@ -649,6 +669,7 @@ mod tests {
             fc(b"a", b"6", 996, ValueType::Value),
             fc(b"a", b"5", 995, ValueType::Value),
             fc(b"a", b"4", 994, ValueType::Value),
+            fc(b"b", b"b", 999, ValueType::Value),
         ]);
     }
 }
