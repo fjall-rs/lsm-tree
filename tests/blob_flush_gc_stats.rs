@@ -10,7 +10,7 @@ fn blob_tree_flush_gc_stats() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = lsm_tree::Config::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -44,7 +44,7 @@ fn blob_tree_flush_gc_stats_tombstone() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = lsm_tree::Config::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

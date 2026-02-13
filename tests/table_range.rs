@@ -10,7 +10,7 @@ const ITEM_COUNT: usize = 1_000_000;
 fn a_lot_of_ranges() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -72,7 +72,7 @@ fn a_lot_of_ranges() -> lsm_tree::Result<()> {
 fn table_range_last_back() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -111,7 +111,7 @@ fn table_range_last_back() -> lsm_tree::Result<()> {
 fn table_range_last_back_2() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

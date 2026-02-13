@@ -7,12 +7,7 @@ fn dirty_snapshot_after_drop_range() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        dir.path(),
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(dir.path(), seqno.clone(), SequenceNumberCounter::default()).open()?;
 
     tree.insert("a", "a", seqno.next());
     tree.flush_active_memtable(0)?;

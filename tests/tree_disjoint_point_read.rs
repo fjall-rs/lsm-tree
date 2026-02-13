@@ -7,7 +7,7 @@ use test_log::test;
 fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -40,7 +40,7 @@ fn tree_disjoint_point_read() -> lsm_tree::Result<()> {
 fn tree_disjoint_point_read_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

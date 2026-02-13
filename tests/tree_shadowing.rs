@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -41,7 +41,7 @@ fn tree_shadowing_upsert() -> lsm_tree::Result<()> {
 fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -78,7 +78,7 @@ fn tree_shadowing_upsert_blob() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -113,7 +113,7 @@ fn tree_shadowing_delete() -> lsm_tree::Result<()> {
 fn tree_shadowing_delete_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -152,12 +152,7 @@ fn tree_shadowing_range() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -201,13 +196,9 @@ fn tree_shadowing_range_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -251,12 +242,7 @@ fn tree_shadowing_prefix() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let value = "old".as_bytes();
@@ -328,13 +314,9 @@ fn tree_shadowing_prefix_blob() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .with_kv_separation(Some(Default::default()))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .with_kv_separation(Some(Default::default()))
+        .open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let value = "old".as_bytes();

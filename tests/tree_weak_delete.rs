@@ -7,7 +7,7 @@ fn tree_weak_delete_simple() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -39,7 +39,7 @@ fn tree_weak_delete_flush() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -65,7 +65,7 @@ fn tree_weak_delete_semi_flush() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -93,7 +93,7 @@ fn tree_weak_delete_flush_point_read() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -119,7 +119,7 @@ fn tree_weak_delete_semi_flush_point_read() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -147,7 +147,7 @@ fn tree_weak_delete_resurrection() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

@@ -7,7 +7,7 @@ fn tree_sealed_memtable_tombstone_shadowing() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

@@ -7,7 +7,7 @@ const ITEM_COUNT: usize = 1_000;
 fn tree_memtable_count() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -40,7 +40,7 @@ fn tree_memtable_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -75,7 +75,7 @@ fn tree_flushed_count() -> lsm_tree::Result<()> {
 fn tree_flushed_count_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -113,7 +113,7 @@ fn tree_non_locking_count() -> lsm_tree::Result<()> {
 
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

@@ -273,7 +273,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -305,7 +305,7 @@ mod tests {
     fn table_multi_writer_same_key_norotate_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

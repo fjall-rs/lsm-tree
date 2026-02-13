@@ -6,7 +6,7 @@ fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -22,7 +22,7 @@ fn recovery_mac_ds_store() -> lsm_tree::Result<()> {
     assert!(ds_store.try_exists()?);
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

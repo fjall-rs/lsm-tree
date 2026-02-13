@@ -9,7 +9,7 @@ const ITEM_COUNT: usize = 100;
 fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -36,7 +36,7 @@ fn table_range_out_of_bounds_lo() -> lsm_tree::Result<()> {
 fn table_range_out_of_bounds_hi() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

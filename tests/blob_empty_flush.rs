@@ -8,7 +8,7 @@ fn blob_tree_flush_empty() -> lsm_tree::Result<()> {
 
     let medium_value = b"a".repeat(500);
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

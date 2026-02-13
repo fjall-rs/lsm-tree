@@ -9,12 +9,7 @@ fn snapshot_zombie_memtable() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
     for x in 0..ITEM_COUNT as u64 {
         let key = x.to_be_bytes();
@@ -54,12 +49,7 @@ fn snapshot_zombie_table() -> lsm_tree::Result<()> {
     let seqno = SequenceNumberCounter::default();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-            &folder,
-            seqno.clone(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
         for x in 0..ITEM_COUNT as u64 {
             let key = x.to_be_bytes();
@@ -96,12 +86,7 @@ fn snapshot_zombie_table() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-            &folder,
-            seqno.clone(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
+        let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default()).open()?;
 
         assert_eq!(tree.len(SeqNo::MAX, None)?, 0);
         assert_eq!(tree.iter(SeqNo::MAX, None).rev().count(), 0);

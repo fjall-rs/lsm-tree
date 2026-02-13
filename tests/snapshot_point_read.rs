@@ -10,14 +10,10 @@ fn snapshot_404() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let batch_seqno = seqno.next();
     tree.insert("a", "a", batch_seqno);
@@ -52,14 +48,10 @@ fn snapshot_lots_of_versions() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     let key = "abc";
 
@@ -94,14 +86,10 @@ fn snapshot_disk_point_reads() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for batch in 0..BATCHES {
         for x in 0..ITEM_COUNT as u64 {
@@ -155,14 +143,10 @@ fn snapshot_disk_and_memtable_reads() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
-        &folder,
-        seqno.clone(),
-        SequenceNumberCounter::default(),
-    )
-    .data_block_size_policy(BlockSizePolicy::all(1_024))
-    // .index_block_size_policy(BlockSizePolicy::all(1_024))
-    .open()?;
+    let tree = Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
+        .data_block_size_policy(BlockSizePolicy::all(1_024))
+        // .index_block_size_policy(BlockSizePolicy::all(1_024))
+        .open()?;
 
     for batch in 0..BATCHES {
         let batch_seqno = seqno.next();

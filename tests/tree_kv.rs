@@ -6,7 +6,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -59,7 +59,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -133,7 +133,7 @@ fn tree_first_last_kv() -> lsm_tree::Result<()> {
     }
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

@@ -36,7 +36,7 @@ mod tests {
     fn level_manifest_atomicity() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

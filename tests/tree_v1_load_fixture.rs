@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_load_v1() -> lsm_tree::Result<()> {
     let folder = "test_fixture/v1_tree";
 
-    let result = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let result = Config::new(
         folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -21,7 +21,7 @@ fn tree_load_v1() -> lsm_tree::Result<()> {
 fn tree_load_v1_corrupt() -> lsm_tree::Result<()> {
     let folder = "test_fixture/v1_tree_corrupt";
 
-    let result = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let result = Config::new(
         folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

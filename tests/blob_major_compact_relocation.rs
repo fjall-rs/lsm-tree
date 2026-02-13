@@ -13,7 +13,7 @@ fn blob_tree_major_compact_relocation_simple() -> lsm_tree::Result<()> {
     let new_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = lsm_tree::Config::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -108,7 +108,7 @@ fn blob_tree_major_compact_relocation_repeated_key() -> lsm_tree::Result<()> {
     let very_big_value = b"winter!".repeat(128_000);
 
     {
-        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = lsm_tree::Config::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -221,7 +221,7 @@ fn blob_tree_major_compact_relocation_interleaved() -> lsm_tree::Result<()> {
     let big_value = b"neptune!".repeat(2_000);
 
     {
-        let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = lsm_tree::Config::new(
             path,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

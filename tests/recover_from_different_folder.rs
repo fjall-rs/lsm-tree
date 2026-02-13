@@ -10,7 +10,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     let folder = ".test/asd";
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -29,7 +29,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     }
 
     {
-        let _tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let _tree = Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -43,7 +43,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     std::env::set_current_dir(".test/def")?;
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &absolute_folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -62,7 +62,7 @@ fn recover_from_different_folder() -> lsm_tree::Result<()> {
     }
 
     for _ in 0..10 {
-        let _tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let _tree = Config::new(
             &absolute_folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

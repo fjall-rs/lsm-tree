@@ -9,7 +9,7 @@ use std::time::Duration;
 fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -51,7 +51,7 @@ fn ingestion_autoflushes_active_memtable() -> lsm_tree::Result<()> {
 fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -91,7 +91,7 @@ fn ingestion_flushes_sealed_memtables() -> lsm_tree::Result<()> {
 fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -134,7 +134,7 @@ fn ingestion_blocks_memtable_writes_until_finish() -> lsm_tree::Result<()> {
 fn blob_ingestion_honors_invariants_and_blocks_writes() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

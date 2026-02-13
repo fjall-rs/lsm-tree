@@ -6,7 +6,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -25,7 +25,7 @@ fn tree_recovery_cleanup_orphans() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("tables").join("0"))?;
 
     {
-        let _tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let _tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -44,7 +44,7 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -74,7 +74,7 @@ fn tree_recovery_cleanup_orphans_blob() -> lsm_tree::Result<()> {
     std::fs::File::create(folder.path().join("blobs").join("0"))?;
 
     {
-        let _tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let _tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

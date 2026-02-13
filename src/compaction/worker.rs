@@ -627,7 +627,7 @@ mod tests {
     fn compaction_stream_run_not_found() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -647,7 +647,7 @@ mod tests {
     fn compaction_stream_run() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -684,7 +684,7 @@ mod tests {
     fn compaction_stream_run_2() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -721,7 +721,7 @@ mod tests {
     fn compaction_stream_run_3() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -758,7 +758,7 @@ mod tests {
     fn compaction_stream_run_4() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -794,7 +794,7 @@ mod tests {
     fn compaction_drop_tables() -> crate::Result<()> {
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -844,7 +844,7 @@ mod tests {
 
         let folder = tempfile::tempdir()?;
 
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

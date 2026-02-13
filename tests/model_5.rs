@@ -13,7 +13,7 @@ fn model_5() -> Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

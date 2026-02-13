@@ -7,7 +7,7 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
     let folder0 = get_tmp_folder();
     let folder1 = get_tmp_folder();
 
-    let tree0 = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree0 = Config::new(
         &folder0,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -36,7 +36,7 @@ fn tree_multi_table_ids() -> lsm_tree::Result<()> {
             .id
     );
 
-    let tree1 = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree1 = Config::new(
         &folder1,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

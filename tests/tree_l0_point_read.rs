@@ -5,7 +5,7 @@ use test_log::test;
 fn tree_l0_point_read() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

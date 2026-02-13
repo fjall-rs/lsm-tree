@@ -7,7 +7,7 @@ fn tree_weak_remove_flush_eviction() -> lsm_tree::Result<()> {
 
     let path = folder.path();
 
-    let tree = lsm_tree::Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = lsm_tree::Config::new(
         path,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

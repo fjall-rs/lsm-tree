@@ -10,7 +10,7 @@ const ITEM_COUNT: usize = 1_000;
 fn table_point_reads() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -37,7 +37,7 @@ fn table_point_reads() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -77,7 +77,7 @@ fn table_point_reads_mvcc() -> lsm_tree::Result<()> {
 fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),
@@ -125,7 +125,7 @@ fn table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
 fn blob_tree_table_point_reads_mvcc_slab() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

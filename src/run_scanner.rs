@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn run_scanner_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             &tempdir,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

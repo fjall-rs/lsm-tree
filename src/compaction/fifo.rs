@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn fifo_empty_levels() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn fifo_below_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn fifo_more_than_limit_blobs() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn fifo_ttl() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn fifo_ttl_then_limit_additional_drops_blob_unit() -> crate::Result<()> {
         let dir = tempfile::tempdir()?;
-        let tree = Config::<crate::fs::StdFileSystem>::new(
+        let tree = Config::new(
             dir.path(),
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

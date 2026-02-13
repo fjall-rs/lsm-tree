@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn run_reader_skip() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             &tempdir,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -187,7 +187,7 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn run_reader_basic() -> crate::Result<()> {
         let tempdir = tempfile::tempdir()?;
-        let tree = crate::Config::<crate::fs::StdFileSystem>::new(
+        let tree = crate::Config::new(
             &tempdir,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),

@@ -8,7 +8,7 @@ fn guard_into_inner_if() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
@@ -41,7 +41,7 @@ fn guard_into_inner_if_blob() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     {
-        let tree = Config::<lsm_tree::fs::StdFileSystem>::new(
+        let tree = Config::new(
             &folder,
             SequenceNumberCounter::default(),
             SequenceNumberCounter::default(),
