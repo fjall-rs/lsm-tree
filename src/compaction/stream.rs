@@ -651,7 +651,7 @@ mod tests {
             .with_filter(Filter(b"7"))
             .with_drop_callback(&mut drop_cb);
 
-        let out: Vec<InternalValue> = iter.map(Result::unwrap).collect();
+        let out: Vec<_> = iter.map(Result::unwrap).collect();
 
         #[rustfmt::skip]
         assert_eq!(out, stream![
@@ -671,5 +671,136 @@ mod tests {
             fc(b"a", b"4", 994, ValueType::Value),
             fc(b"b", b"b", 999, ValueType::Value),
         ]);
+    }
+
+    pub mod custom_mvcc {
+        use super::*;
+        use byteorder::{ReadBytesExt, BE};
+        use test_log::test;
+
+        fn kv(key: &[u8], seqno: SeqNo, value: &[u8], tomb: bool) -> InternalValue {
+            InternalValue::from_components(
+                {
+                    let mut v: Vec<u8> = vec![];
+                    v.extend(key);
+                    v.extend((!seqno).to_be_bytes()); // IMPORTANT: Invert the seqno for correct descending sort
+                    v.push(if tomb { 1 } else { 0 });
+                    v
+                },
+                value,
+                2_353, // does not matter for us
+                ValueType::Value,
+            )
+        }
+
+        struct Filter {
+            /// The previous user key
+            ///
+            /// Note that the user key is NOT the full KV key
+            /// because we embed MVCC information into the key (user_key#seqno#type).
+            prev_user_key: Option<UserKey>,
+
+            /// MVCC watermark we can safely delete if an item < watermark
+            /// is covered by a newer version.
+            mvcc_watermark: SeqNo,
+        }
+
+        impl StreamFilter for Filter {
+            fn filter_item(&mut self, value: &InternalValue) -> crate::Result<StreamFilterVerdict> {
+                let l = value.key.user_key.len();
+
+                match &self.prev_user_key {
+                    Some(prev) => {
+                        let user_key = &value.key.user_key[..l - 9];
+
+                        if prev == &user_key {
+                            // We found another, older version of the previous key
+                            let mut seqno = &value.key.user_key[l - 9..l - 1];
+                            // IMPORTANT: Invert the seqno back to normal value
+                            let seqno = !seqno.read_u64::<BE>().unwrap();
+
+                            if seqno < self.mvcc_watermark {
+                                return Ok(StreamFilterVerdict::Drop);
+                            }
+                        } else {
+                            let user_key = &value.key.user_key.slice(..l - 9);
+                            self.prev_user_key = Some(user_key.clone());
+                        }
+                    }
+                    None => {
+                        let user_key = &value.key.user_key.slice(..l - 9);
+                        self.prev_user_key = Some(user_key.clone());
+                    }
+                }
+
+                Ok(StreamFilterVerdict::Keep)
+            }
+        }
+
+        #[test]
+        fn compaction_filter_custom_mvcc() {
+            let vec = vec![
+                kv(b"abc", 4, b"c", false),
+                kv(b"abc", 3, b"b", false),
+                kv(b"abc", 2, b"a", false),
+            ];
+
+            let mut drop_cb = TrackCallback { items: vec![] };
+            let iter = vec.iter().cloned().map(Ok);
+            let iter = CompactionStream::new(iter, 995)
+                .with_filter(Filter {
+                    mvcc_watermark: 5,
+                    prev_user_key: None,
+                })
+                .with_drop_callback(&mut drop_cb);
+
+            let out: Vec<_> = iter.map(Result::unwrap).collect();
+
+            #[rustfmt::skip]
+            assert_eq!(out, vec![
+                kv(b"abc", 4, b"c", false),
+            ]);
+        }
+
+        #[test]
+        fn compaction_filter_custom_mvcc_multi_keys() {
+            let vec = vec![
+                kv(b"a", 4, b"c", false),
+                kv(b"a", 3, b"b", false),
+                kv(b"a", 2, b"a", false),
+                //
+                kv(b"b", 4, b"c", false),
+                kv(b"b", 3, b"b", false),
+                kv(b"b", 2, b"a", false),
+                //
+                kv(b"c", 1, b"c", false),
+                //
+                kv(b"d", 0, b"c", false),
+            ];
+
+            let mut drop_cb = TrackCallback { items: vec![] };
+            let iter = vec.iter().cloned().map(Ok);
+            let iter = CompactionStream::new(iter, 995)
+                .with_filter(Filter {
+                    mvcc_watermark: 3,
+                    prev_user_key: None,
+                })
+                .with_drop_callback(&mut drop_cb);
+
+            let out: Vec<_> = iter.map(Result::unwrap).collect();
+
+            #[rustfmt::skip]
+            assert_eq!(out, vec![
+                kv(b"a", 4, b"c", false),
+                kv(b"a", 3, b"b", false),
+                //
+                kv(b"b", 4, b"c", false),
+                kv(b"b", 3, b"b", false),
+                //
+                kv(b"c", 1, b"c", false),
+                //
+                kv(b"d", 0, b"c", false),
+            ]);
+        }
     }
 }
