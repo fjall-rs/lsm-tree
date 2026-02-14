@@ -675,7 +675,7 @@ mod tests {
 
     pub mod custom_mvcc {
         use super::*;
-        use byteorder::{ReadBytesExt, BE};
+        use byteorder::{ReadBytesExt, WriteBytesExt, BE};
         use test_log::test;
 
         /// MVCC trailer size (anything but user key)
@@ -687,12 +687,26 @@ mod tests {
         fn kv(key: &[u8], seqno: SeqNo, value: &[u8], tomb: bool) -> InternalValue {
             InternalValue::from_components(
                 {
-                    let mut v: Vec<u8> = vec![];
-                    v.extend(key);
-                    v.push(0); // Keys are variable size so we need a \0 delimiter
-                    v.extend((!seqno).to_be_bytes()); // IMPORTANT: Invert the seqno for correct descending sort
-                    v.push(if tomb { 1 } else { 0 });
-                    v
+                    use std::io::Write;
+
+                    let len = key.len() + TRAILER_SIZE;
+
+                    let mut key_builder = unsafe { UserKey::builder_unzeroed(len) };
+                    let mut cursor = std::io::Cursor::new(&mut key_builder[..]);
+
+                    cursor.write_all(key).unwrap();
+                    cursor.write_u8(0).unwrap(); // Keys are variable size so we need a \0 delimiter
+                    cursor
+                        .write_u64::<BE>(
+                            // IMPORTANT: Invert the seqno for correct descending sort
+                            !seqno,
+                        )
+                        .unwrap();
+                    cursor.write_u8(if tomb { 1 } else { 0 }).unwrap();
+
+                    debug_assert_eq!(len, cursor.position() as usize);
+
+                    key_builder.freeze()
                 },
                 value,
                 2_353, // does not matter for us
