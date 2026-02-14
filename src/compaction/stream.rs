@@ -678,11 +678,18 @@ mod tests {
         use byteorder::{ReadBytesExt, BE};
         use test_log::test;
 
+        /// MVCC trailer size (anything but user key)
+        const TRAILER_SIZE: usize = 10;
+
+        // Our keys become a multi map of: <key>#<seqno>
+        //
+        // (type does not really matter for ordering, because key+seqno are unique anyway)
         fn kv(key: &[u8], seqno: SeqNo, value: &[u8], tomb: bool) -> InternalValue {
             InternalValue::from_components(
                 {
                     let mut v: Vec<u8> = vec![];
                     v.extend(key);
+                    v.push(0); // Keys are variable size so we need a \0 delimiter
                     v.extend((!seqno).to_be_bytes()); // IMPORTANT: Invert the seqno for correct descending sort
                     v.push(if tomb { 1 } else { 0 });
                     v
@@ -709,13 +716,18 @@ mod tests {
             fn filter_item(&mut self, value: &InternalValue) -> crate::Result<StreamFilterVerdict> {
                 let l = value.key.user_key.len();
 
+                // User key len
+                let ukl = l - TRAILER_SIZE;
+
                 match &self.prev_user_key {
                     Some(prev) => {
-                        let user_key = &value.key.user_key[..l - 9];
+                        let user_key = &value.key.user_key[..ukl];
 
                         if prev == &user_key {
                             // We found another, older version of the previous key
-                            let mut seqno = &value.key.user_key[l - 9..l - 1];
+                            let mut seqno = &value.key.user_key[(ukl + 1)..l - 1];
+                            debug_assert_eq!(8, seqno.len());
+
                             // IMPORTANT: Invert the seqno back to normal value
                             let seqno = !seqno.read_u64::<BE>().unwrap();
 
@@ -723,12 +735,12 @@ mod tests {
                                 return Ok(StreamFilterVerdict::Drop);
                             }
                         } else {
-                            let user_key = &value.key.user_key.slice(..l - 9);
+                            let user_key = &value.key.user_key.slice(..ukl);
                             self.prev_user_key = Some(user_key.clone());
                         }
                     }
                     None => {
-                        let user_key = &value.key.user_key.slice(..l - 9);
+                        let user_key = &value.key.user_key.slice(..ukl);
                         self.prev_user_key = Some(user_key.clone());
                     }
                 }
