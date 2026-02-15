@@ -15,7 +15,7 @@ macro_rules! iter_closed {
 fn tree_disjoint_iter() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
-    let tree = crate::Config::new(
+    let tree = Config::new(
         &folder,
         SequenceNumberCounter::default(),
         SequenceNumberCounter::default(),

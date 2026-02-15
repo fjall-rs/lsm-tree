@@ -4,7 +4,7 @@
 
 use crate::file_accessor::FileAccessor;
 use crate::table::{IndexBlock, KeyedBlockHandle};
-use crate::SeqNo;
+use crate::{fs::FileSystem, SeqNo};
 use crate::{
     table::{
         block::BlockType,
@@ -13,7 +13,7 @@ use crate::{
     },
     Cache, CompressionType, GlobalTableId, UserKey,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{marker::PhantomData, path::PathBuf, sync::Arc};
 
 #[cfg(feature = "metrics")]
 use crate::Metrics;
@@ -21,20 +21,21 @@ use crate::Metrics;
 /// Index that translates item keys to data block handles
 ///
 /// Only the top-level index is loaded into memory.
-pub struct TwoLevelBlockIndex {
+pub struct TwoLevelBlockIndex<F: FileSystem> {
     pub(crate) top_level_index: IndexBlock,
     pub(crate) table_id: GlobalTableId,
     pub(crate) path: Arc<PathBuf>,
-    pub(crate) file_accessor: FileAccessor,
+    pub(crate) file_accessor: FileAccessor<F>,
     pub(crate) cache: Arc<Cache>,
     pub(crate) compression: CompressionType,
+    pub(crate) phantom: PhantomData<F>,
 
     #[cfg(feature = "metrics")]
     pub(crate) metrics: Arc<Metrics>,
 }
 
-impl TwoLevelBlockIndex {
-    pub fn iter(&self) -> Iter {
+impl<F: FileSystem> TwoLevelBlockIndex<F> {
+    pub fn iter(&self) -> Iter<F> {
         Iter {
             tli_block: self.top_level_index.clone(),
             tli: None,
@@ -47,6 +48,7 @@ impl TwoLevelBlockIndex {
             file_accessor: self.file_accessor.clone(),
             cache: self.cache.clone(),
             compression: self.compression,
+            phantom: PhantomData,
 
             #[cfg(feature = "metrics")]
             metrics: self.metrics.clone(),
@@ -54,7 +56,7 @@ impl TwoLevelBlockIndex {
     }
 }
 
-pub struct Iter {
+pub struct Iter<F: FileSystem> {
     tli_block: IndexBlock,
     tli: Option<OwnedIndexBlockIter>,
 
@@ -66,15 +68,16 @@ pub struct Iter {
 
     table_id: GlobalTableId,
     path: Arc<PathBuf>,
-    file_accessor: FileAccessor,
+    file_accessor: FileAccessor<F>,
     cache: Arc<Cache>,
     compression: CompressionType,
+    phantom: PhantomData<F>,
 
     #[cfg(feature = "metrics")]
     metrics: Arc<Metrics>,
 }
 
-impl Iter {
+impl<F: FileSystem> Iter<F> {
     fn init_tli(&mut self) -> bool {
         let mut iter = OwnedIndexBlockIter::new(self.tli_block.clone(), IndexBlock::iter);
 
@@ -95,7 +98,7 @@ impl Iter {
     }
 }
 
-impl BlockIndexIter for Iter {
+impl<F: FileSystem> BlockIndexIter for Iter<F> {
     fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
         self.lo = Some((key.into(), seqno));
         true
@@ -107,7 +110,7 @@ impl BlockIndexIter for Iter {
     }
 }
 
-impl Iterator for Iter {
+impl<F: FileSystem> Iterator for Iter<F> {
     type Item = crate::Result<KeyedBlockHandle>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -125,7 +128,7 @@ impl Iterator for Iter {
             let next_lowest_block = tli.next();
 
             if let Some(handle) = next_lowest_block {
-                let block = fail_iter!(load_block(
+                let block = fail_iter!(load_block::<F>(
                     self.table_id,
                     &self.path,
                     &self.file_accessor,
@@ -172,7 +175,7 @@ impl Iterator for Iter {
     }
 }
 
-impl DoubleEndedIterator for Iter {
+impl<F: FileSystem> DoubleEndedIterator for Iter<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(hi_block) = &mut self.hi_consumer {
             if let Some(item) = hi_block.next_back() {
@@ -188,7 +191,7 @@ impl DoubleEndedIterator for Iter {
             let next_highest_block = tli.next_back();
 
             if let Some(handle) = next_highest_block {
-                let block = fail_iter!(load_block(
+                let block = fail_iter!(load_block::<F>(
                     self.table_id,
                     &self.path,
                     &self.file_accessor,

@@ -11,6 +11,7 @@ pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
     coding::Decode,
+    fs::FileSystem,
     iter_guard::{IterGuard, IterGuardImpl},
     r#abstract::{AbstractTree, RangeItem},
     table::Table,
@@ -28,13 +29,13 @@ use std::{
 };
 
 /// Iterator value guard
-pub struct Guard {
-    tree: crate::BlobTree,
-    version: Version,
+pub struct Guard<F: FileSystem> {
+    tree: crate::BlobTree<F>,
+    version: Version<F>,
     kv: crate::Result<InternalValue>,
 }
 
-impl IterGuard for Guard {
+impl<F: FileSystem + 'static> IterGuard for Guard<F> {
     fn into_inner_if(
         self,
         pred: impl Fn(&UserKey) -> bool,
@@ -82,11 +83,11 @@ impl IterGuard for Guard {
     }
 }
 
-fn resolve_value_handle(
+fn resolve_value_handle<F: FileSystem>(
     tree_id: TreeId,
     blobs_folder: &Path,
     cache: &Cache,
-    version: &Version,
+    version: &Version<F>,
     item: InternalValue,
 ) -> RangeItem {
     if item.key.value_type.is_indirection() {
@@ -94,7 +95,7 @@ fn resolve_value_handle(
         let vptr = BlobIndirection::decode_from(&mut cursor)?;
 
         // Resolve indirection using value log
-        match Accessor::new(&version.blob_files).get(
+        match Accessor::new(version.blob_files.as_ref()).get(
             tree_id,
             blobs_folder,
             &item.key.user_key,
@@ -126,24 +127,32 @@ fn resolve_value_handle(
 /// This tree is a composite structure, consisting of an
 /// index tree (LSM-tree) and a log-structured value log
 /// to reduce write amplification.
-#[derive(Clone)]
-pub struct BlobTree {
+pub struct BlobTree<F: FileSystem> {
     /// Index tree that holds value handles or small inline values
     #[doc(hidden)]
-    pub index: crate::Tree,
+    pub index: crate::Tree<F>,
 
     blobs_folder: Arc<PathBuf>,
 }
 
-impl BlobTree {
-    pub(crate) fn open(config: Config) -> crate::Result<Self> {
+impl<F: FileSystem> Clone for BlobTree<F> {
+    fn clone(&self) -> Self {
+        Self {
+            index: self.index.clone(),
+            blobs_folder: self.blobs_folder.clone(),
+        }
+    }
+}
+
+impl<F: FileSystem + 'static> BlobTree<F> {
+    pub(crate) fn open(config: Config<F>) -> crate::Result<Self> {
         use crate::file::{fsync_directory, BLOBS_FOLDER};
 
         let index = crate::Tree::open(config)?;
 
         let blobs_folder = index.config.path.join(BLOBS_FOLDER);
-        std::fs::create_dir_all(&blobs_folder)?;
-        fsync_directory(&blobs_folder)?;
+        F::create_dir_all(&blobs_folder)?;
+        fsync_directory::<F>(&blobs_folder)?;
 
         let blob_file_id_to_continue_with = index
             .current_version()
@@ -165,18 +174,17 @@ impl BlobTree {
     }
 }
 
-impl AbstractTree for BlobTree {
+impl<F: FileSystem + 'static> AbstractTree<F> for BlobTree<F> {
     fn print_trace(&self, key: &[u8]) -> crate::Result<()> {
         self.index.print_trace(key)
     }
-
     fn table_file_cache_size(&self) -> usize {
         self.index.table_file_cache_size()
     }
 
     fn get_version_history_lock(
         &self,
-    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions> {
+    ) -> std::sync::RwLockWriteGuard<'_, crate::version::SuperVersions<F>> {
         self.index.get_version_history_lock()
     }
 
@@ -192,7 +200,7 @@ impl AbstractTree for BlobTree {
         self.index.get_internal_entry(key, seqno)
     }
 
-    fn current_version(&self) -> Version {
+    fn current_version(&self) -> Version<F> {
         self.index.current_version()
     }
 
@@ -210,7 +218,7 @@ impl AbstractTree for BlobTree {
         prefix: K,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static> {
         use crate::range::prefix_to_range;
 
         let super_version = self.index.get_version_for_snapshot(seqno);
@@ -219,15 +227,14 @@ impl AbstractTree for BlobTree {
         let range = prefix_to_range(prefix.as_ref());
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
-                    IterGuardImpl::Blob(Guard {
+            crate::Tree::<F>::create_internal_range(super_version.clone(), &range, seqno, index)
+                .map(move |kv| {
+                    IterGuardImpl::<F>::Blob(Guard {
                         tree: tree.clone(),
                         version: super_version.version.clone(),
                         kv,
                     })
-                },
-            ),
+                }),
         )
     }
 
@@ -236,20 +243,19 @@ impl AbstractTree for BlobTree {
         range: R,
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
-    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl> + Send + 'static> {
+    ) -> Box<dyn DoubleEndedIterator<Item = IterGuardImpl<F>> + Send + 'static> {
         let super_version = self.index.get_version_for_snapshot(seqno);
         let tree = self.clone();
 
         Box::new(
-            crate::Tree::create_internal_range(super_version.clone(), &range, seqno, index).map(
-                move |kv| {
-                    IterGuardImpl::Blob(Guard {
+            crate::Tree::<F>::create_internal_range(super_version.clone(), &range, seqno, index)
+                .map(move |kv| {
+                    IterGuardImpl::<F>::Blob(Guard {
                         tree: tree.clone(),
                         version: super_version.version.clone(),
                         kv,
                     })
-                },
-            ),
+                }),
         )
     }
 
@@ -335,7 +341,7 @@ impl AbstractTree for BlobTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
-    ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
+    ) -> crate::Result<Option<(Vec<Table<F>>, Option<Vec<BlobFile<F>>>)>> {
         use crate::{
             coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
             table::multi_writer::MultiWriter,
@@ -364,7 +370,7 @@ impl AbstractTree for BlobTree {
         log::debug!("=> to table(s) in {}", table_folder.display());
         log::debug!("=> to blob file(s) at {}", self.blobs_folder.display());
 
-        let mut table_writer = MultiWriter::new(
+        let mut table_writer = MultiWriter::<F>::new(
             table_folder.clone(),
             self.index.table_id_counter.clone(),
             64 * 1_024 * 1_024,
@@ -404,7 +410,7 @@ impl AbstractTree for BlobTree {
             .as_ref()
             .expect("kv separation options should exist");
 
-        let mut blob_writer = BlobFileWriter::new(
+        let mut blob_writer = BlobFileWriter::<F>::new(
             self.index.0.blob_file_id_counter.clone(),
             self.index.config.path.join(BLOBS_FOLDER),
             self.id(),
@@ -469,8 +475,8 @@ impl AbstractTree for BlobTree {
         // Load tables
         let tables = result
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table<F>> {
+                Table::<F>::recover(
                     table_folder.join(table_id.to_string()),
                     checksum,
                     0,
@@ -490,8 +496,8 @@ impl AbstractTree for BlobTree {
 
     fn register_tables(
         &self,
-        tables: &[Table],
-        blob_files: Option<&[BlobFile]>,
+        tables: &[Table<F>],
+        blob_files: Option<&[BlobFile<F>]>,
         frag_map: Option<FragmentationMap>,
         sealed_memtables_to_delete: &[MemtableId],
         gc_watermark: SeqNo,
@@ -507,7 +513,7 @@ impl AbstractTree for BlobTree {
 
     fn compact(
         &self,
-        strategy: Arc<dyn crate::compaction::CompactionStrategy>,
+        strategy: Arc<dyn crate::compaction::CompactionStrategy<F>>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<()> {
         self.index.compact(strategy, seqno_threshold)
@@ -517,7 +523,7 @@ impl AbstractTree for BlobTree {
         self.index.get_next_table_id()
     }
 
-    fn tree_config(&self) -> &Config {
+    fn tree_config(&self) -> &Config<F> {
         &self.index.config
     }
 

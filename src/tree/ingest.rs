@@ -4,8 +4,8 @@
 
 use super::Tree;
 use crate::{
-    config::FilterPolicyEntry, table::multi_writer::MultiWriter, BlobIndirection, SeqNo, UserKey,
-    UserValue,
+    config::FilterPolicyEntry, fs::FileSystem, table::multi_writer::MultiWriter, BlobIndirection,
+    SeqNo, UserKey, UserValue,
 };
 use std::path::PathBuf;
 
@@ -17,21 +17,21 @@ pub const INITIAL_CANONICAL_LEVEL: usize = 1;
 ///
 /// Ingested data bypasses memtables and is written directly into new tables,
 /// using the same table writer configuration that is used for flush and compaction.
-pub struct Ingestion<'a> {
+pub struct Ingestion<'a, F: FileSystem> {
     folder: PathBuf,
-    tree: &'a Tree,
-    pub(crate) writer: MultiWriter,
+    tree: &'a Tree<F>,
+    pub(crate) writer: MultiWriter<F>,
     seqno: SeqNo,
     last_key: Option<UserKey>,
 }
 
-impl<'a> Ingestion<'a> {
+impl<'a, F: FileSystem + 'static> Ingestion<'a, F> {
     /// Creates a new ingestion.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn new(tree: &'a Tree) -> crate::Result<Self> {
+    pub fn new(tree: &'a Tree<F>) -> crate::Result<Self> {
         let folder = tree.config.path.join(crate::file::TABLES_FOLDER);
         log::debug!("Ingesting into tables in {}", folder.display());
 
@@ -46,7 +46,7 @@ impl<'a> Ingestion<'a> {
             .get(INITIAL_CANONICAL_LEVEL);
 
         // TODO: maybe create a PrepareMultiWriter that can be used by flush, ingest and compaction worker
-        let mut writer = MultiWriter::new(
+        let mut writer = MultiWriter::<F>::new(
             folder.clone(),
             tree.table_id_counter.clone(),
             64 * 1_024 * 1_024,
@@ -290,8 +290,8 @@ impl<'a> Ingestion<'a> {
         // pressure unnecessarily.
         let created_tables = results
             .into_iter()
-            .map(|(table_id, checksum)| -> crate::Result<Table> {
-                Table::recover(
+            .map(|(table_id, checksum)| -> crate::Result<Table<F>> {
+                Table::<F>::recover(
                     self.folder.join(table_id.to_string()),
                     checksum,
                     global_seqno,
@@ -326,7 +326,7 @@ impl<'a> Ingestion<'a> {
 
         // Perform maintenance on the version history (e.g., clean up old versions).
         // We use gc_watermark=0 since ingestion doesn't affect sealed memtables.
-        if let Err(e) = version_lock.maintenance(&self.tree.config.path, 0) {
+        if let Err(e) = version_lock.maintenance::<F>(&self.tree.config.path, 0) {
             log::warn!("Version GC failed: {e:?}");
         }
 

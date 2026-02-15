@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::FileSystem,
     key::InternalKey,
     memtable::Memtable,
     merge::Merger,
@@ -12,7 +13,6 @@ use crate::{
     version::SuperVersion,
     BoxedIterator, InternalValue,
 };
-use self_cell::self_cell;
 use std::{
     ops::{Bound, RangeBounds},
     sync::Arc,
@@ -65,23 +65,43 @@ pub fn prefix_to_range(prefix: &[u8]) -> (Bound<UserKey>, Bound<UserKey>) {
 /// The iter state references the memtables used while the range is open
 ///
 /// Because of Rust rules, the state is referenced using `self_cell`, see below.
-pub struct IterState {
-    pub(crate) version: SuperVersion,
+pub struct IterState<F: FileSystem> {
+    pub(crate) version: SuperVersion<F>,
     pub(crate) ephemeral: Option<(Arc<Memtable>, SeqNo)>,
 }
 
 type BoxedMerge<'a> = Box<dyn DoubleEndedIterator<Item = crate::Result<InternalValue>> + Send + 'a>;
+type TreeIterJoinedCell<'a, F> =
+    self_cell::unsafe_self_cell::JoinedCell<IterState<F>, BoxedMerge<'a>>;
 
-self_cell!(
-    pub struct TreeIter {
-        owner: IterState,
+// NOTE: We avoid `self_cell!` here because it doesn't support a generic `F`.
+pub struct TreeIter<F: FileSystem + 'static> {
+    unsafe_self_cell:
+        self_cell::unsafe_self_cell::UnsafeSelfCell<TreeIter<F>, IterState<F>, BoxedMerge<'static>>,
+}
 
-        #[covariant]
-        dependent: BoxedMerge,
+impl<F: FileSystem + 'static> TreeIter<F> {
+    pub fn new(
+        owner: IterState<F>,
+        dependent_builder: impl for<'a> FnOnce(&'a IterState<F>) -> BoxedMerge<'a>,
+    ) -> Self {
+        // SAFETY: `self_cell` guarantees the dependent doesn't outlive `owner`.
+        unsafe {
+            self_cell::_self_cell_new_body!(TreeIterJoinedCell<'_, F>, owner, dependent_builder)
+        }
     }
-);
 
-impl Iterator for TreeIter {
+    fn with_dependent_mut<Output>(
+        &mut self,
+        func: impl for<'a> FnOnce(&'a IterState<F>, &'a mut BoxedMerge<'a>) -> Output,
+    ) -> Output {
+        // SAFETY: `borrow_mut` enforces exclusive access to owner + dependent.
+        let (owner, dependent) = unsafe { self.unsafe_self_cell.borrow_mut() };
+        func(owner, dependent)
+    }
+}
+
+impl<F: FileSystem + 'static> Iterator for TreeIter<F> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -89,15 +109,15 @@ impl Iterator for TreeIter {
     }
 }
 
-impl DoubleEndedIterator for TreeIter {
+impl<F: FileSystem + 'static> DoubleEndedIterator for TreeIter<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.with_dependent_mut(|_, iter| iter.next_back())
     }
 }
 
-impl TreeIter {
+impl<F: FileSystem> TreeIter<F> {
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
-        guard: IterState,
+        guard: IterState<F>,
         range: R,
         seqno: SeqNo,
     ) -> Self {
@@ -179,7 +199,7 @@ impl TreeIter {
                         }
                     }
                     _ => {
-                        if let Some(reader) = RunReader::new(
+                        if let Some(reader) = RunReader::<F>::new(
                             run.clone(),
                             (
                                 range.start_bound().map(|x| &x.user_key).cloned(),

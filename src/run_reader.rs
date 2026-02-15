@@ -2,25 +2,25 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{version::Run, BoxedIterator, InternalValue, Table, UserKey};
+use crate::{fs::FileSystem, version::Run, BoxedIterator, InternalValue, Table, UserKey};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
 };
 
 /// Reads through a disjoint run
-pub struct RunReader {
-    run: Arc<Run<Table>>,
+pub struct RunReader<F: FileSystem> {
+    run: Arc<Run<Table<F>>>,
     lo: usize,
     hi: usize,
     lo_reader: Option<BoxedIterator<'static>>,
     hi_reader: Option<BoxedIterator<'static>>,
 }
 
-impl RunReader {
+impl<F: FileSystem + 'static> RunReader<F> {
     #[must_use]
     pub fn new<R: RangeBounds<UserKey> + Clone + Send + 'static>(
-        run: Arc<Run<Table>>,
+        run: Arc<Run<Table<F>>>,
         range: R,
     ) -> Option<Self> {
         assert!(!run.is_empty(), "level reader cannot read empty level");
@@ -32,7 +32,7 @@ impl RunReader {
 
     #[must_use]
     pub fn culled<R: RangeBounds<UserKey> + Clone + Send + 'static>(
-        run: Arc<Run<Table>>,
+        run: Arc<Run<Table<F>>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
     ) -> Self {
@@ -69,7 +69,7 @@ impl RunReader {
     }
 }
 
-impl Iterator for RunReader {
+impl<F: FileSystem + 'static> Iterator for RunReader<F> {
     type Item = crate::Result<InternalValue>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -104,7 +104,7 @@ impl Iterator for RunReader {
     }
 }
 
-impl DoubleEndedIterator for RunReader {
+impl<F: FileSystem + 'static> DoubleEndedIterator for RunReader<F> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(hi_reader) = &mut self.hi_reader {

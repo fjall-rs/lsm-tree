@@ -12,10 +12,7 @@ use crate::{
     },
     CompressionType, UserKey,
 };
-use std::{
-    fs::File,
-    io::{BufWriter, Seek, Write},
-};
+use std::io::{BufWriter, Seek, Write};
 
 pub struct PartitionedFilterWriter {
     final_filter_buffer: Vec<u8>,
@@ -100,9 +97,9 @@ impl PartitionedFilterWriter {
         Ok(())
     }
 
-    fn write_top_level_index(
+    fn write_top_level_index<W: Write + Seek>(
         &mut self,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<W>>>,
         index_base_offset: BlockOffset,
     ) -> crate::Result<()> {
         file_writer.start("filter_tli")?;
@@ -178,7 +175,7 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
     fn finish(
         mut self: Box<Self>,
-        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+        file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<W>>>,
     ) -> crate::Result<usize> {
         if self.last_key.is_none() {
             log::trace!("Filter writer has not seen any writes - not building filter");

@@ -20,10 +20,13 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, SequenceNumberCounter, Tree,
+    fs::{FileSystem, StdFileSystem},
+    path::absolute_path,
+    version::DEFAULT_LEVEL_COUNT,
+    AnyTree, BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
+    marker::PhantomData,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -159,7 +162,7 @@ impl KvSeparationOptions {
 }
 
 /// Tree configuration builder
-pub struct Config {
+pub struct Config<F: FileSystem = StdFileSystem> {
     /// Folder path
     #[doc(hidden)]
     pub path: PathBuf,
@@ -170,7 +173,7 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Option<Arc<DescriptorTable>>,
+    pub descriptor_table: Option<Arc<DescriptorTable<F>>>,
 
     /// Number of levels of the LSM tree (depth of tree)
     ///
@@ -235,10 +238,13 @@ pub struct Config {
     pub(crate) seqno: SequenceNumberCounter,
 
     pub(crate) visible_seqno: SequenceNumberCounter,
+
+    #[doc(hidden)]
+    pub(crate) phantom: PhantomData<F>,
 }
 
 // TODO: remove default?
-impl Default for Config {
+impl<F: FileSystem> Default for Config<F> {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
@@ -249,7 +255,7 @@ impl Default for Config {
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
             )),
-
+            phantom: PhantomData,
             data_block_restart_interval_policy: RestartIntervalPolicy::all(16),
             index_block_restart_interval_policy: RestartIntervalPolicy::all(1),
 
@@ -293,9 +299,9 @@ impl Default for Config {
     }
 }
 
-impl Config {
-    /// Initializes a new config
-    pub fn new<P: AsRef<Path>>(
+impl<F: FileSystem> Config<F> {
+    /// Initializes a new config for a specific filesystem implementation.
+    pub fn new_for_filesystem<P: AsRef<Path>>(
         path: P,
         seqno: SequenceNumberCounter,
         visible_seqno: SequenceNumberCounter,
@@ -307,7 +313,20 @@ impl Config {
             ..Default::default()
         }
     }
+}
 
+impl Config<StdFileSystem> {
+    /// Initializes a new config using the default [`StdFileSystem`].
+    pub fn new<P: AsRef<Path>>(
+        path: P,
+        seqno: SequenceNumberCounter,
+        visible_seqno: SequenceNumberCounter,
+    ) -> Self {
+        Self::new_for_filesystem(path, seqno, visible_seqno)
+    }
+}
+
+impl<F: FileSystem> Config<F> {
     /// Sets the global cache.
     ///
     /// You can create a global [`Cache`] and share it between multiple
@@ -324,7 +343,11 @@ impl Config {
     ///
     /// Can be shared across trees.
     #[must_use]
-    pub fn use_descriptor_table(mut self, descriptor_table: Option<Arc<DescriptorTable>>) -> Self {
+    #[doc(hidden)]
+    pub fn use_descriptor_table(
+        mut self,
+        descriptor_table: Option<Arc<DescriptorTable<F>>>,
+    ) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }
@@ -454,13 +477,15 @@ impl Config {
         self.kv_separation_opts = opts;
         self
     }
+}
 
+impl<F: FileSystem + 'static> Config<F> {
     /// Opens a tree using the config.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn open(self) -> crate::Result<AnyTree> {
+    pub fn open(self) -> crate::Result<AnyTree<F>> {
         Ok(if self.kv_separation_opts.is_some() {
             AnyTree::Blob(BlobTree::open(self)?)
         } else {

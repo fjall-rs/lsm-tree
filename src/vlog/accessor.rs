@@ -3,16 +3,17 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::FileSystem,
     version::BlobFileList,
     vlog::{blob_file::reader::Reader, ValueHandle},
     Cache, GlobalTableId, TreeId, UserValue,
 };
-use std::{fs::File, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
-pub struct Accessor<'a>(&'a BlobFileList);
+pub struct Accessor<'a, F: FileSystem>(&'a BlobFileList<F>);
 
-impl<'a> Accessor<'a> {
-    pub fn new(blob_files: &'a BlobFileList) -> Self {
+impl<'a, F: FileSystem> Accessor<'a, F> {
+    pub fn new(blob_files: &'a BlobFileList<F>) -> Self {
         Self(blob_files)
     }
 
@@ -38,9 +39,7 @@ impl<'a> Accessor<'a> {
             if let Some(cached_fd) = blob_file.file_accessor().access_for_blob_file(&bf_id) {
                 (cached_fd, false)
             } else {
-                let file = Arc::new(File::open(
-                    base_path.join(vhandle.blob_file_id.to_string()),
-                )?);
+                let file = Arc::new(F::open(&base_path.join(vhandle.blob_file_id.to_string()))?);
                 (file, true)
             };
 

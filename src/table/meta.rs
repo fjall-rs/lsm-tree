@@ -3,12 +3,13 @@
 // (found in the LICENSE-* files in the repository)
 
 use super::{Block, BlockHandle, DataBlock};
+use crate::fs::FileLike;
 use crate::{
     checksum::ChecksumType, coding::Decode, table::block::BlockType, CompressionType, KeyRange,
     SeqNo, TableId,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::{fs::File, ops::Deref};
+use std::ops::Deref;
 
 /// Nanosecond timestamp.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
@@ -76,7 +77,7 @@ macro_rules! read_u64 {
 
 impl ParsedMeta {
     #[expect(clippy::expect_used, clippy::too_many_lines)]
-    pub fn load_with_handle(file: &File, handle: &BlockHandle) -> crate::Result<Self> {
+    pub fn load_with_handle(file: &impl FileLike, handle: &BlockHandle) -> crate::Result<Self> {
         let block = Block::from_file(file, *handle, CompressionType::None)?;
 
         if block.header.block_type != BlockType::Meta {

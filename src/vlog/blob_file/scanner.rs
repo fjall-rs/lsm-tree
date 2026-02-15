@@ -4,37 +4,47 @@
 
 use super::writer::BLOB_HEADER_MAGIC;
 use crate::{
+    fs::FileSystem,
     vlog::{blob_file::meta::METADATA_HEADER_MAGIC, BlobFileId},
     Checksum, SeqNo, UserKey, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
-    fs::File,
     io::{BufReader, Read, Seek},
     path::Path,
 };
 
 /// Reads through a blob file in order
-pub struct Scanner {
+pub struct Scanner<F: FileSystem> {
     pub(crate) blob_file_id: BlobFileId, // TODO: remove unused?
-    inner: BufReader<File>,
+    inner: BufReader<F::File>,
     is_terminated: bool,
 }
 
-impl Scanner {
+impl Scanner<crate::fs::StdFileSystem> {
     /// Initializes a new blob file reader.
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    #[allow(dead_code)]
     pub fn new<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
-        let file_reader = BufReader::with_capacity(32_000, File::open(path)?);
+        let file_reader =
+            BufReader::with_capacity(32_000, crate::fs::StdFileSystem::open(path.as_ref())?);
+        Ok(Self::with_reader(blob_file_id, file_reader))
+    }
+}
+
+impl<F: FileSystem> Scanner<F> {
+    /// Initializes a new blob file reader.
+    pub fn new_with_fs<P: AsRef<Path>>(path: P, blob_file_id: BlobFileId) -> crate::Result<Self> {
+        let file_reader = BufReader::with_capacity(32_000, F::open(path.as_ref())?);
         Ok(Self::with_reader(blob_file_id, file_reader))
     }
 
     /// Initializes a new blob file reader.
     #[must_use]
-    pub fn with_reader(blob_file_id: BlobFileId, file_reader: BufReader<File>) -> Self {
+    pub fn with_reader(blob_file_id: BlobFileId, file_reader: BufReader<F::File>) -> Self {
         Self {
             blob_file_id,
             inner: file_reader,
@@ -52,7 +62,7 @@ pub struct ScanEntry {
     pub uncompressed_len: u32,
 }
 
-impl Iterator for Scanner {
+impl<F: FileSystem> Iterator for Scanner<F> {
     type Item = crate::Result<ScanEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -139,7 +149,8 @@ mod tests {
         let keys = [b"a", b"b", b"c", b"d", b"e"];
 
         {
-            let mut writer = BlobFileWriter::new(&blob_file_path, 0, 0)?;
+            let mut writer =
+                BlobFileWriter::<crate::fs::StdFileSystem>::new(&blob_file_path, 0, 0)?;
 
             for key in keys {
                 writer.write(key, 0, &key.repeat(100))?;

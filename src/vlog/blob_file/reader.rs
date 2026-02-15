@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
+    fs::FileSystem,
     vlog::{
         blob_file::writer::{BLOB_HEADER_LEN, BLOB_HEADER_MAGIC},
         ValueHandle,
@@ -10,19 +11,16 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::{
-    fs::File,
-    io::{Cursor, Read, Seek},
-};
+use std::io::{Cursor, Read, Seek};
 
 /// Reads a single blob from a blob file
-pub struct Reader<'a> {
-    blob_file: &'a BlobFile,
-    file: &'a File,
+pub struct Reader<'a, F: FileSystem> {
+    blob_file: &'a BlobFile<F>,
+    file: &'a F::File,
 }
 
-impl<'a> Reader<'a> {
-    pub fn new(blob_file: &'a BlobFile, file: &'a File) -> Self {
+impl<'a, F: FileSystem> Reader<'a, F> {
+    pub fn new(blob_file: &'a BlobFile<F>, file: &'a F::File) -> Self {
         Self { blob_file, file }
     }
 
@@ -112,8 +110,13 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+        )?
+        .use_target_size(u64::MAX);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
@@ -126,7 +129,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = crate::fs::StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle)?, b"abcdef");
@@ -140,9 +143,14 @@ mod tests {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir()?;
-        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
-            .use_target_size(u64::MAX)
-            .use_compression(CompressionType::Lz4);
+        let mut writer = crate::vlog::BlobFileWriter::<crate::fs::StdFileSystem>::new(
+            id_generator,
+            folder.path(),
+            0,
+            None,
+        )?
+        .use_target_size(u64::MAX)
+        .use_compression(CompressionType::Lz4);
 
         let offset = writer.offset();
         let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
@@ -163,7 +171,7 @@ mod tests {
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();
 
-        let file = File::open(&blob_file.0.path)?;
+        let file = crate::fs::StdFileSystem::open(&blob_file.0.path)?;
         let reader = Reader::new(blob_file, &file);
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");

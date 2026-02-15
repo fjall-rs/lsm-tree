@@ -2,16 +2,16 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{BlobTree, Tree};
+use crate::{fs::FileSystem, BlobTree, Tree};
 use enum_dispatch::enum_dispatch;
 
 /// May be a standard [`Tree`] or a [`BlobTree`]
 #[derive(Clone)]
-#[enum_dispatch(AbstractTree)]
-pub enum AnyTree {
+#[enum_dispatch(AbstractTree<F>)]
+pub enum AnyTree<F: FileSystem + 'static> {
     /// Standard LSM-tree, see [`Tree`]
-    Standard(Tree),
+    Standard(Tree<F>),
 
     /// Key-value separated LSM-tree, see [`BlobTree`]
-    Blob(BlobTree),
+    Blob(BlobTree<F>),
 }

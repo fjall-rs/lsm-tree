@@ -4,8 +4,8 @@
 
 use super::{Block, BlockHandle, GlobalTableId};
 use crate::{
-    file_accessor::FileAccessor, table::block::BlockType, version::run::Ranged, Cache,
-    CompressionType, KeyRange, Table,
+    file_accessor::FileAccessor, fs::FileSystem, table::block::BlockType, version::run::Ranged,
+    Cache, CompressionType, KeyRange, Table,
 };
 use std::{path::Path, sync::Arc};
 
@@ -13,7 +13,7 @@ use std::{path::Path, sync::Arc};
 use crate::metrics::Metrics;
 
 #[must_use]
-pub fn aggregate_run_key_range(tables: &[Table]) -> KeyRange {
+pub fn aggregate_run_key_range<F: FileSystem>(tables: &[Table<F>]) -> KeyRange {
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
     let lo = tables.first().expect("run should never be empty");
     #[expect(clippy::expect_used, reason = "runs are never empty by definition")]
@@ -29,10 +29,10 @@ pub struct SliceIndexes(pub usize, pub usize);
 ///
 /// Also handles file descriptor opening and caching.
 #[warn(clippy::too_many_arguments)]
-pub fn load_block(
+pub fn load_block<F: FileSystem>(
     table_id: GlobalTableId,
     path: &Path,
-    file_accessor: &FileAccessor,
+    file_accessor: &FileAccessor<F>,
     cache: &Cache,
     handle: &BlockHandle,
     block_type: BlockType,
@@ -68,7 +68,7 @@ pub fn load_block(
 
         (cached_fd, false)
     } else {
-        let fd = std::fs::File::open(path)?;
+        let fd = F::open(path)?;
 
         #[cfg(feature = "metrics")]
         metrics.table_file_opened_uncached.fetch_add(1, Relaxed);
@@ -76,7 +76,7 @@ pub fn load_block(
         (Arc::new(fd), true)
     };
 
-    let block = Block::from_file(&fd, *handle, compression)?;
+    let block = Block::from_file(fd.as_ref(), *handle, compression)?;
 
     if block.header.block_type != block_type {
         return Err(crate::Error::InvalidTag((

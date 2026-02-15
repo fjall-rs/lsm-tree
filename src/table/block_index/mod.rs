@@ -12,11 +12,11 @@ pub use two_level::TwoLevelBlockIndex;
 pub use volatile::VolatileBlockIndex;
 
 use super::KeyedBlockHandle;
-use crate::SeqNo;
+use crate::{fs::FileSystem, SeqNo};
 
-pub trait BlockIndex {
-    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl>;
-    fn iter(&self) -> BlockIndexIterImpl;
+pub trait BlockIndex<F: FileSystem> {
+    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl<F>>;
+    fn iter(&self) -> BlockIndexIterImpl<F>;
 }
 
 pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHandle>> {
@@ -24,13 +24,13 @@ pub trait BlockIndexIter: DoubleEndedIterator<Item = crate::Result<KeyedBlockHan
     fn seek_upper(&mut self, key: &[u8], seqno: SeqNo) -> bool;
 }
 
-pub enum BlockIndexIterImpl {
+pub enum BlockIndexIterImpl<F: FileSystem> {
     Full(self::full::Iter),
-    Volatile(self::volatile::Iter),
-    TwoLevel(self::two_level::Iter),
+    Volatile(self::volatile::Iter<F>),
+    TwoLevel(self::two_level::Iter<F>),
 }
 
-impl BlockIndexIter for BlockIndexIterImpl {
+impl<F: FileSystem> BlockIndexIter for BlockIndexIterImpl<F> {
     fn seek_lower(&mut self, key: &[u8], seqno: SeqNo) -> bool {
         match self {
             Self::Full(i) => i.seek_lower(key, seqno),
@@ -48,7 +48,7 @@ impl BlockIndexIter for BlockIndexIterImpl {
     }
 }
 
-impl Iterator for BlockIndexIterImpl {
+impl<F: FileSystem> Iterator for BlockIndexIterImpl<F> {
     type Item = crate::Result<KeyedBlockHandle>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -60,7 +60,7 @@ impl Iterator for BlockIndexIterImpl {
     }
 }
 
-impl DoubleEndedIterator for BlockIndexIterImpl {
+impl<F: FileSystem> DoubleEndedIterator for BlockIndexIterImpl<F> {
     fn next_back(&mut self) -> Option<<Self as Iterator>::Item> {
         match self {
             Self::Full(i) => i.next_back(),
@@ -88,14 +88,14 @@ impl DoubleEndedIterator for BlockIndexIterImpl {
 /// found by finding the highest block that has a lower or equal end key than the searched key (by performing in-memory binary search).
 /// In the diagram above, searching for 'J' yields the block starting with 'G'.
 /// 'J' must be in that block, because the next block starts with 'M').
-pub enum BlockIndexImpl {
+pub enum BlockIndexImpl<F: FileSystem> {
     Full(FullBlockIndex),
-    VolatileFull(VolatileBlockIndex),
-    TwoLevel(TwoLevelBlockIndex),
+    VolatileFull(VolatileBlockIndex<F>),
+    TwoLevel(TwoLevelBlockIndex<F>),
 }
 
-impl BlockIndex for BlockIndexImpl {
-    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl> {
+impl<F: FileSystem> BlockIndex<F> for BlockIndexImpl<F> {
+    fn forward_reader(&self, needle: &[u8], seqno: SeqNo) -> Option<BlockIndexIterImpl<F>> {
         match self {
             Self::Full(index) => index
                 .forward_reader(needle, seqno)
@@ -121,7 +121,7 @@ impl BlockIndex for BlockIndexImpl {
         }
     }
 
-    fn iter(&self) -> BlockIndexIterImpl {
+    fn iter(&self) -> BlockIndexIterImpl<F> {
         match self {
             Self::Full(index) => BlockIndexIterImpl::Full(index.iter()),
             Self::VolatileFull(index) => BlockIndexIterImpl::Volatile(index.iter()),

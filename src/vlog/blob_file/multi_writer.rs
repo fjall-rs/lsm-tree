@@ -5,6 +5,7 @@
 use super::writer::Writer;
 use crate::{
     file_accessor::FileAccessor,
+    fs::FileSystem,
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
         BlobFileId,
@@ -12,19 +13,18 @@ use crate::{
     BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
-    fs::File,
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
 
 /// Blob file writer, may write multiple blob files
-pub struct MultiWriter {
+pub struct MultiWriter<F: FileSystem> {
     folder: PathBuf,
     target_size: u64,
 
-    active_writer: Writer,
+    active_writer: Writer<F>,
 
-    results: Vec<BlobFile>,
+    results: Vec<BlobFile<F>>,
 
     id_generator: SequenceNumberCounter,
 
@@ -32,10 +32,10 @@ pub struct MultiWriter {
     passthrough_compression: CompressionType,
 
     tree_id: TreeId,
-    descriptor_table: Option<Arc<DescriptorTable>>,
+    descriptor_table: Option<Arc<DescriptorTable<F>>>,
 }
 
-impl MultiWriter {
+impl<F: FileSystem> MultiWriter<F> {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
@@ -46,7 +46,7 @@ impl MultiWriter {
         id_generator: SequenceNumberCounter,
         folder: P,
         tree_id: TreeId,
-        descriptor_table: Option<Arc<DescriptorTable>>,
+        descriptor_table: Option<Arc<DescriptorTable<F>>>,
     ) -> crate::Result<Self> {
         let folder = folder.as_ref();
 
@@ -58,7 +58,7 @@ impl MultiWriter {
             folder: folder.into(),
             target_size: 64 * 1_024 * 1_024,
 
-            active_writer: Writer::new(blob_file_path, blob_file_id, tree_id)?,
+            active_writer: Writer::<F>::new(blob_file_path, blob_file_id, tree_id)?,
 
             results: Vec::new(),
 
@@ -113,7 +113,7 @@ impl MultiWriter {
         let new_blob_file_id = self.id_generator.next();
         let blob_file_path = self.folder.join(new_blob_file_id.to_string());
 
-        let new_writer = Writer::new(blob_file_path, new_blob_file_id, self.tree_id)?
+        let new_writer = Writer::<F>::new(blob_file_path, new_blob_file_id, self.tree_id)?
             .use_compression(self.compression);
 
         let old_writer = std::mem::replace(&mut self.active_writer, new_writer);
@@ -128,10 +128,10 @@ impl MultiWriter {
     }
 
     fn consume_writer(
-        writer: Writer,
+        writer: Writer<F>,
         passthrough_compression: CompressionType,
-        descriptor_table: Option<Arc<DescriptorTable>>,
-    ) -> crate::Result<Option<BlobFile>> {
+        descriptor_table: Option<Arc<DescriptorTable<F>>>,
+    ) -> crate::Result<Option<BlobFile<F>>> {
         if writer.item_count > 0 {
             let blob_file_id = writer.blob_file_id;
             let path = writer.path.clone();
@@ -146,7 +146,7 @@ impl MultiWriter {
 
             let (metadata, checksum) = writer.finish()?;
 
-            let file = Arc::new(File::open(&path)?);
+            let file = Arc::new(F::open(&path)?);
             let file_accessor = descriptor_table.map_or(FileAccessor::File(file.clone()), |dt| {
                 FileAccessor::DescriptorTable(dt)
             });
@@ -158,6 +158,7 @@ impl MultiWriter {
                 path,
                 is_deleted: AtomicBool::new(false),
                 id: blob_file_id,
+                phantom: std::marker::PhantomData,
                 file_accessor,
                 meta: Metadata {
                     id: blob_file_id,
@@ -182,7 +183,7 @@ impl MultiWriter {
                 writer.path.display(),
             );
 
-            if let Err(e) = std::fs::remove_file(&writer.path) {
+            if let Err(e) = F::remove_file(&writer.path) {
                 log::warn!(
                     "Could not delete empty blob file at {}: {e:?}",
                     writer.path.display(),
@@ -234,7 +235,7 @@ impl MultiWriter {
         Ok(bytes_written)
     }
 
-    pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {
+    pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile<F>>> {
         let blob_file = Self::consume_writer(
             self.active_writer,
             self.passthrough_compression,

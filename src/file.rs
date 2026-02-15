@@ -2,8 +2,11 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::Slice;
-use std::{fs::File, io::Write, path::Path};
+use crate::{
+    fs::{FileLike, FileSystem},
+    Slice,
+};
+use std::{io::Write, path::Path};
 
 pub const MAGIC_BYTES: [u8; 4] = [b'L', b'S', b'M', 3];
 
@@ -12,7 +15,7 @@ pub const BLOBS_FOLDER: &str = "blobs";
 pub const CURRENT_VERSION_FILE: &str = "current";
 
 /// Reads bytes from a file using `pread`.
-pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slice> {
+pub fn read_exact(file: &impl FileLike, offset: u64, size: usize) -> std::io::Result<Slice> {
     // SAFETY: This slice builder starts uninitialized, but we know its length
     //
     // We use read_at/seek_read which give us the number of bytes read
@@ -25,32 +28,15 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
     let mut builder = unsafe { Slice::builder_unzeroed(size) };
 
     {
-        let bytes_read: usize;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::FileExt;
-
-            bytes_read = file.read_at(&mut builder, offset)?;
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::FileExt;
-
-            bytes_read = file.seek_read(&mut builder, offset)?;
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            compile_error!("unsupported platform");
-            unimplemented!();
-        }
+        let bytes_read = file.read_at(&mut builder, offset)?;
 
         if bytes_read != size {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                format!("read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}", file.metadata()?.len()),
+                format!(
+                    "read_exact({bytes_read}) at {offset} did not read enough bytes {size}; file has length {}",
+                    file.metadata()?.len(),
+                ),
             ));
         }
     }
@@ -59,7 +45,7 @@ pub fn read_exact(file: &File, offset: u64, size: usize) -> std::io::Result<Slic
 }
 
 /// Atomically rewrites a file.
-pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub fn rewrite_atomic<F: FileSystem>(path: &Path, content: &[u8]) -> std::io::Result<()> {
     #[expect(
         clippy::expect_used,
         reason = "every file should have a parent directory"
@@ -75,7 +61,7 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     // TODO: not sure why it fails on Windows...
     #[cfg(not(target_os = "windows"))]
     {
-        let file = std::fs::File::open(path)?;
+        let file = F::open(path)?;
         file.sync_all()?;
 
         #[expect(
@@ -83,21 +69,21 @@ pub fn rewrite_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
             reason = "files should always have a parent directory"
         )]
         let folder = path.parent().expect("should have parent folder");
-        fsync_directory(folder)?;
+        fsync_directory::<F>(folder)?;
     }
 
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
-    let file = std::fs::File::open(path)?;
+pub fn fsync_directory<F: FileSystem>(path: &Path) -> std::io::Result<()> {
+    let file = F::open(path)?;
     debug_assert!(file.metadata()?.is_dir());
     file.sync_all()
 }
 
 #[cfg(target_os = "windows")]
-pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
+pub fn fsync_directory<F: FileSystem>(_path: &Path) -> std::io::Result<()> {
     // Cannot fsync directory on Windows
     Ok(())
 }
@@ -105,7 +91,7 @@ pub fn fsync_directory(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
+    use crate::fs::FileSystem;
     use std::io::Write;
     use test_log::test;
 
@@ -115,13 +101,13 @@ mod tests {
 
         let path = dir.path().join("test.txt");
         {
-            let mut file = File::create(&path)?;
+            let mut file = <crate::fs::StdFileSystem as FileSystem>::create(&path)?;
             write!(file, "asdasdasdasdasd")?;
         }
 
-        rewrite_atomic(&path, b"newcontent")?;
+        rewrite_atomic::<crate::fs::StdFileSystem>(&path, b"newcontent")?;
 
-        let content = std::fs::read_to_string(&path)?;
+        let content = crate::fs::StdFileSystem::read_to_string(&path)?;
         assert_eq!("newcontent", content);
 
         Ok(())

@@ -6,6 +6,7 @@ use super::*;
 use crate::{
     config::BloomConstructionPolicy, table::filter::standard_bloom::Builder as BloomBuilder,
 };
+use std::sync::Arc;
 use tempfile::tempdir;
 use test_log::test;
 
@@ -17,15 +18,16 @@ use test_log::test;
 )]
 fn test_with_table(
     items: &[InternalValue],
-    f: impl Fn(Table) -> crate::Result<()>,
+    f: impl Fn(Table<crate::fs::StdFileSystem>) -> crate::Result<()>,
     rotate_every: Option<usize>,
-    config_writer: Option<impl Fn(Writer) -> Writer>,
+    config_writer: Option<
+        impl Fn(Writer<crate::fs::StdFileSystem>) -> Writer<crate::fs::StdFileSystem>,
+    >,
 ) -> crate::Result<()> {
     let dir = tempdir()?;
     let file = dir.path().join("table");
-
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?;
+        let mut writer = Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?;
 
         if let Some(f) = &config_writer {
             writer = f(writer);
@@ -45,7 +47,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -75,7 +77,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -105,7 +107,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -135,7 +137,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -165,7 +167,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -189,11 +191,12 @@ fn test_with_table(
         }
     }
 
-    std::fs::remove_file(&file)?;
+    crate::fs::StdFileSystem::remove_file(&file)?;
 
     // Test with partitioned indexes
     {
-        let mut writer = Writer::new(file.clone(), 0, 0)?.use_partitioned_index();
+        let mut writer =
+            Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)?.use_partitioned_index();
 
         if let Some(f) = config_writer {
             writer = f(writer);
@@ -213,7 +216,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -242,7 +245,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -271,7 +274,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -301,7 +304,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file.clone(),
                 checksum,
                 0,
@@ -331,7 +334,7 @@ fn test_with_table(
             #[cfg(feature = "metrics")]
             let metrics = Arc::new(Metrics::default());
 
-            let table = Table::recover(
+            let table = Table::<crate::fs::StdFileSystem>::recover(
                 file,
                 checksum,
                 0,
@@ -468,7 +471,7 @@ fn table_range_exclusive_bounds() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_data_block_size(1)),
+        Some(|x: Writer<crate::fs::StdFileSystem>| x.use_data_block_size(1)),
     )
 }
 
@@ -670,7 +673,7 @@ fn table_range_multiple_data_blocks() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_data_block_size(1)),
+        Some(|x: Writer<crate::fs::StdFileSystem>| x.use_data_block_size(1)),
     )
 }
 
@@ -706,7 +709,7 @@ fn table_point_read_partitioned_filter_smoke_test() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_partitioned_filter()),
+        Some(|x: Writer<crate::fs::StdFileSystem>| x.use_partitioned_filter()),
     )
 }
 
@@ -794,7 +797,9 @@ fn table_partitioned_filter() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_partitioned_filter().use_meta_partition_size(3)),
+        Some(|x: Writer<crate::fs::StdFileSystem>| {
+            x.use_partitioned_filter().use_meta_partition_size(3)
+        }),
     )
 }
 
@@ -839,7 +844,9 @@ fn table_zero_bpk() -> crate::Result<()> {
             Ok(())
         },
         None,
-        Some(|x: Writer| x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))),
+        Some(|x: Writer<crate::fs::StdFileSystem>| {
+            x.use_bloom_policy(BloomConstructionPolicy::BitsPerKey(0.0))
+        }),
     )
 }
 
@@ -1206,7 +1213,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let data_block_size = 97;
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_data_block_size(data_block_size);
 
@@ -1216,7 +1223,7 @@ fn table_read_fuzz_1() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         0,
@@ -1278,7 +1285,7 @@ fn table_partitioned_index() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_partitioned_index()
         .use_data_block_size(5)
@@ -1290,7 +1297,7 @@ fn table_partitioned_index() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         0,
@@ -1388,7 +1395,7 @@ fn table_global_seqno() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("table_fuzz");
 
-    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+    let mut writer = crate::table::Writer::<crate::fs::StdFileSystem>::new(file.clone(), 0, 0)
         .unwrap()
         .use_partitioned_filter()
         .use_data_block_size(1)
@@ -1400,7 +1407,7 @@ fn table_global_seqno() -> crate::Result<()> {
 
     let _trailer = writer.finish().unwrap();
 
-    let table = crate::Table::recover(
+    let table = crate::Table::<crate::fs::StdFileSystem>::recover(
         file,
         crate::Checksum::from_raw(0),
         7,

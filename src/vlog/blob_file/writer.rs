@@ -4,12 +4,14 @@
 
 use super::meta::Metadata;
 use crate::{
-    checksum::ChecksummedWriter, time::unix_timestamp, vlog::BlobFileId, Checksum, CompressionType,
-    KeyRange, SeqNo, TreeId, UserKey,
+    checksum::ChecksummedWriter,
+    fs::{FileLike, FileSystem},
+    time::unix_timestamp,
+    vlog::BlobFileId,
+    Checksum, CompressionType, KeyRange, SeqNo, TreeId, UserKey,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::{
-    fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -24,13 +26,13 @@ pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
     + std::mem::size_of::<u32>(); // On-disk value length
 
 /// Blob file writer
-pub struct Writer {
+pub struct Writer<F: FileSystem> {
     pub(crate) tree_id: TreeId,
     pub path: PathBuf,
     pub(crate) blob_file_id: BlobFileId,
 
     #[expect(clippy::struct_field_names)]
-    writer: sfa::Writer<ChecksummedWriter<BufWriter<File>>>,
+    writer: sfa::Writer<ChecksummedWriter<BufWriter<F::File>>>,
 
     offset: u64,
 
@@ -44,7 +46,7 @@ pub struct Writer {
     pub(crate) compression: CompressionType,
 }
 
-impl Writer {
+impl<F: FileSystem> Writer<F> {
     /// Initializes a new blob file writer.
     ///
     /// # Errors
@@ -58,7 +60,7 @@ impl Writer {
     ) -> crate::Result<Self> {
         let path = path.as_ref();
 
-        let writer = BufWriter::new(File::create(path)?);
+        let writer = BufWriter::new(F::create(path)?);
         let writer = ChecksummedWriter::new(writer);
         let mut writer = sfa::Writer::from_writer(writer);
         writer.start("data")?;

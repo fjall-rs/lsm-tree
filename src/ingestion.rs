@@ -3,7 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::ingest::BlobIngestion, tree::ingest::Ingestion, AnyTree, UserKey, UserValue,
+    blob_tree::ingest::BlobIngestion, fs::FileSystem, tree::ingest::Ingestion, AnyTree, UserKey,
+    UserValue,
 };
 
 /// Unified ingestion builder over `AnyTree`
@@ -11,15 +12,15 @@ use crate::{
 // Ingestion calls use `&mut self` in tight loops; the active variant is stable and branch prediction makes the match cheap.
 // Allowing this lint preserves hot-path performance at the cost of a larger enum size.
 #[expect(clippy::large_enum_variant)]
-pub enum AnyIngestion<'a> {
+pub enum AnyIngestion<'a, F: FileSystem> {
     /// Ingestion for a standard LSM-tree
-    Standard(Ingestion<'a>),
+    Standard(Ingestion<'a, F>),
 
     /// Ingestion for a [`BlobTree`] with KV separation
-    Blob(BlobIngestion<'a>),
+    Blob(BlobIngestion<'a, F>),
 }
 
-impl AnyIngestion<'_> {
+impl<F: FileSystem + 'static> AnyIngestion<'_, F> {
     /// Writes a key-value pair.
     ///
     /// # Errors
@@ -88,13 +89,13 @@ impl AnyIngestion<'_> {
     }
 }
 
-impl AnyTree {
+impl<F: FileSystem + 'static> AnyTree<F> {
     /// Starts an ingestion for any tree type (standard or blob).
     ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn ingestion(&self) -> crate::Result<AnyIngestion<'_>> {
+    pub fn ingestion(&self) -> crate::Result<AnyIngestion<'_, F>> {
         match self {
             Self::Standard(t) => Ok(AnyIngestion::Standard(Ingestion::new(t)?)),
             Self::Blob(b) => Ok(AnyIngestion::Blob(BlobIngestion::new(b)?)),
