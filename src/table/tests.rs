@@ -1429,3 +1429,82 @@ fn table_global_seqno() -> crate::Result<()> {
 
     Ok(())
 }
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_should_skip_range_by_prefix_filter() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+    use crate::range::prefix_upper_range;
+    use std::ops::Bound;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    // Write a table containing keys with prefixes "aaa" and "bbb" only
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()));
+
+    for p in [b"aaa", b"bbb"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Absent prefix "zzz": filter should say skip
+    let prefix = b"zzz00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        table.should_skip_range_by_prefix_filter(&(start, end), ex.as_ref()),
+        "should skip: table does not contain prefix zzz"
+    );
+
+    // Present prefix "aaa": filter should NOT say skip
+    let prefix = b"aaa00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&(start, end), ex.as_ref()),
+        "should NOT skip: table contains prefix aaa"
+    );
+
+    // Incompatible extractor name: should not skip (conservative)
+    let other_ex: crate::prefix::SharedPrefixExtractor =
+        Arc::new(crate::prefix::FixedPrefixExtractor::new(3));
+    let prefix = b"zzz00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&(start, end), other_ex.as_ref()),
+        "should NOT skip: extractor name mismatch"
+    );
+
+    Ok(())
+}
