@@ -427,6 +427,8 @@ fn merge_tables(
                 let writer = BlobFileWriter::new(
                     opts.blob_file_id_generator.clone(),
                     opts.config.path.join(BLOBS_FOLDER),
+                    opts.tree_id,
+                    opts.config.descriptor_table.clone(),
                 )?
                 .use_target_size(blob_opts.file_target_size)
                 .use_passthrough_compression(blob_opts.compression);

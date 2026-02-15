@@ -170,7 +170,7 @@ pub struct Config {
 
     /// Descriptor table to use
     #[doc(hidden)]
-    pub descriptor_table: Arc<DescriptorTable>,
+    pub descriptor_table: Option<Arc<DescriptorTable>>,
 
     /// Number of levels of the LSM tree (depth of tree)
     ///
@@ -242,7 +242,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
-            descriptor_table: Arc::new(DescriptorTable::new(256)),
+            descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
             seqno: SequenceNumberCounter::default(),
             visible_seqno: SequenceNumberCounter::default(),
 
@@ -320,9 +320,11 @@ impl Config {
         self
     }
 
+    /// Sets the file descriptor cache.
+    ///
+    /// Can be shared across trees.
     #[must_use]
-    #[doc(hidden)]
-    pub fn use_descriptor_table(mut self, descriptor_table: Arc<DescriptorTable>) -> Self {
+    pub fn use_descriptor_table(mut self, descriptor_table: Option<Arc<DescriptorTable>>) -> Self {
         self.descriptor_table = descriptor_table;
         self
     }

@@ -60,4 +60,14 @@ impl DescriptorTable {
         let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
         self.inner.insert(key, item);
     }
+
+    pub fn remove_for_table(&self, id: &GlobalTableId) {
+        let key = CacheKey(TAG_BLOCK, id.tree_id(), id.table_id());
+        self.inner.remove(&key);
+    }
+
+    pub fn remove_for_blob_file(&self, id: &GlobalTableId) {
+        let key = CacheKey(TAG_BLOB, id.tree_id(), id.table_id());
+        self.inner.remove(&key);
+    }
 }

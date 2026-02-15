@@ -108,7 +108,7 @@ impl std::fmt::Debug for InternalValue {
             f,
             "{:?} => {:?}",
             self.key,
-            if self.value.len() >= 64 {
+            if self.value.len() >= 100 {
                 format!("[ ... {} bytes ]", self.value.len())
             } else {
                 format!("{:?}", self.value)
