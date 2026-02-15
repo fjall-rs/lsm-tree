@@ -1,8 +1,8 @@
 use crate::{
     blob_tree::FragmentationMap,
     vlog::{BlobFile, BlobFileId},
+    HashMap,
 };
-use std::collections::HashMap;
 
 #[derive(Clone, Default)]
 pub struct BlobFileList(HashMap<BlobFileId, BlobFile>);
