@@ -2,13 +2,13 @@ use crate::{
     blob_tree::FragmentationMap,
     vlog::{BlobFile, BlobFileId},
 };
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 #[derive(Clone, Default)]
-pub struct BlobFileList(BTreeMap<BlobFileId, BlobFile>);
+pub struct BlobFileList(HashMap<BlobFileId, BlobFile>);
 
 impl BlobFileList {
-    pub fn new(blob_files: BTreeMap<BlobFileId, BlobFile>) -> Self {
+    pub fn new(blob_files: HashMap<BlobFileId, BlobFile>) -> Self {
         Self(blob_files)
     }
 
@@ -30,18 +30,10 @@ impl BlobFileList {
     }
 
     pub fn prune_dead(&mut self, gc_stats: &FragmentationMap) -> Vec<BlobFile> {
-        let mut dead = Vec::new();
-
-        self.0.retain(|_, blob_file| {
-            if blob_file.is_dead(gc_stats) {
-                dead.push(blob_file.to_owned());
-                false
-            } else {
-                true
-            }
-        });
-
-        dead
+        self.0
+            .extract_if(|_, blob_file| blob_file.is_dead(gc_stats))
+            .map(|(_, v)| v)
+            .collect()
     }
 
     pub fn insert(&mut self, key: BlobFileId, value: BlobFile) {
