@@ -15,7 +15,7 @@ use crate::{
 };
 use std::{panic::RefUnwindSafe, path::Path};
 
-/// Verdict returned by a [`CompactionFilter`]
+/// Verdict returned by a [`CompactionFilter`].
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum Verdict {
