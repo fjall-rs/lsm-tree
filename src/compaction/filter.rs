@@ -69,6 +69,11 @@ pub struct CompactionFilterContext {
 
 /// Trait that creates compaction filter objects for each compaction
 pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
+    /// Returns the compaction filter name.
+    ///
+    /// This is currently only used for logging purposes.
+    fn name(&self) -> &str;
+
     /// Returns a new compaction filter.
     fn make_filter(&self, context: &CompactionFilterContext) -> Box<dyn CompactionFilter>;
 }

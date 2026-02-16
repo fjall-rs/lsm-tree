@@ -394,11 +394,10 @@ fn merge_tables(
     let filter_ctx = CompactionFilterContext { is_last_level };
 
     // construct the compaction filter
-    let mut compaction_filter = opts
-        .config
-        .compaction_filter_factory
-        .as_ref()
-        .map(|f| f.make_filter(&filter_ctx));
+    let mut compaction_filter = opts.config.compaction_filter_factory.as_ref().map(|f| {
+        log::trace!("Installing custom compaction filter {:?}", f.name());
+        f.make_filter(&filter_ctx)
+    });
 
     // this is used by the compaction filter if it wants to write new blobs
     let mut filter_blob_writer = None;

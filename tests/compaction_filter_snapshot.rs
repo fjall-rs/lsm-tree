@@ -19,6 +19,10 @@ impl CompactionFilter for NukeFilter {
 struct NukeFilterFactory;
 
 impl CompactionFilterFactory for NukeFilterFactory {
+    fn name(&self) -> &str {
+        "Nuke"
+    }
+
     fn make_filter(&self, _ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
         Box::new(NukeFilter)
     }

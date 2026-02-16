@@ -36,6 +36,10 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     struct TtlFilterFactory(Arc<AtomicU64>);
 
     impl CompactionFilterFactory for TtlFilterFactory {
+        fn name(&self) -> &str {
+            "TTL"
+        }
+
         fn make_filter(&self, _ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
             Box::new(TtlFilter(self.0.load(Relaxed)))
         }

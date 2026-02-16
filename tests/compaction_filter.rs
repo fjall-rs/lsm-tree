@@ -85,6 +85,10 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct FilterFactory(Arc<Mutex<FilterState>>);
 
     impl CompactionFilterFactory for FilterFactory {
+        fn name(&self) -> &str {
+            "Test"
+        }
+
         fn make_filter(&self, ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
             {
                 let guard = self.0.lock().unwrap();
