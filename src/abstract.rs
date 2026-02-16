@@ -602,4 +602,163 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
+
+    /// Verifies the checksums of all table and blob files in the tree.
+    ///
+    /// Iterates through all tables and blob files, computing their full file checksums
+    /// and comparing against the stored checksums. Returns a [`VerificationResult`] containing
+    /// information about any corrupted files found.
+    ///
+    /// This is a convenience method that uses default options. For progress reporting,
+    /// rate limiting, or cancellation support, use
+    /// [`verify_checksums_with_options`](Self::verify_checksums_with_options).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "abc", 0);
+    /// tree.flush_active_memtable(0)?;
+    ///
+    /// let result = tree.verify_checksums()?;
+    /// assert!(result.is_ok(), "no corruption detected");
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs (other than corruption).
+    fn verify_checksums(&self) -> crate::Result<crate::VerificationResult> {
+        let options = crate::VerificationOptions::default();
+        let cancel_token = crate::CancellationToken::new();
+        Ok(crate::verify::verify_version_with_options::<
+            fn(crate::VerificationProgress),
+        >(
+            &self.current_version(), &options, &cancel_token, None
+        ))
+    }
+
+    /// Verifies checksums with full configuration options.
+    ///
+    /// This method supports:
+    /// - **Parallel verification**: Multiple threads for faster verification
+    /// - **Progress reporting**: Real-time callbacks for monitoring progress
+    /// - **Rate limiting**: Control I/O bandwidth consumption
+    /// - **Cancellation**: Graceful abort of long-running verifications
+    /// - **Per-level filtering**: Verify specific LSM-tree levels
+    ///
+    /// # Examples
+    ///
+    /// ## Basic usage with options
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree, VerificationOptions};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "abc", 0);
+    /// tree.flush_active_memtable(0)?;
+    ///
+    /// let options = VerificationOptions::new()
+    ///     .parallelism(4)
+    ///     .buffer_size(1024 * 1024); // 1 MiB buffer
+    ///
+    /// let result = tree.verify_checksums_with_options(&options, None, None::<fn(_)>);
+    /// assert!(result.is_ok());
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// ## With progress callback
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree, VerificationOptions, VerificationProgress};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "abc", 0);
+    /// tree.flush_active_memtable(0)?;
+    ///
+    /// let options = VerificationOptions::new();
+    ///
+    /// let result = tree.verify_checksums_with_options(
+    ///     &options,
+    ///     None,
+    ///     Some(|progress: VerificationProgress| {
+    ///         println!(
+    ///             "Progress: {}/{} files, {:.1} MB/s",
+    ///             progress.files_verified,
+    ///             progress.files_total,
+    ///             progress.bytes_per_second / 1_000_000.0
+    ///         );
+    ///     }),
+    /// );
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// ## With cancellation support
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, CancellationToken, Config, Tree, VerificationOptions};
+    /// use std::thread;
+    /// use std::time::Duration;
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// let cancel_token = CancellationToken::new();
+    ///
+    /// // Cancel after 100ms in another thread
+    /// let cancel_clone = cancel_token.clone();
+    /// thread::spawn(move || {
+    ///     thread::sleep(Duration::from_millis(100));
+    ///     cancel_clone.cancel();
+    /// });
+    ///
+    /// let options = VerificationOptions::new();
+    /// let result = tree.verify_checksums_with_options(
+    ///     &options,
+    ///     Some(&cancel_token),
+    ///     None::<fn(_)>,
+    /// );
+    /// // result.was_cancelled may be true if cancelled before completion
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// ## Rate-limited verification
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree, VerificationOptions};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    ///
+    /// // Limit to 50 MB/s to reduce I/O impact
+    /// let options = VerificationOptions::new()
+    ///     .rate_limit(50 * 1024 * 1024)
+    ///     .parallelism(2);
+    ///
+    /// let result = tree.verify_checksums_with_options(&options, None, None::<fn(_)>);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    fn verify_checksums_with_options<F>(
+        &self,
+        options: &crate::VerificationOptions,
+        cancel_token: Option<&crate::CancellationToken>,
+        progress_callback: Option<F>,
+    ) -> crate::VerificationResult
+    where
+        F: Fn(crate::VerificationProgress) + Send + Sync + 'static,
+    {
+        let default_token = crate::CancellationToken::new();
+        let token = cancel_token.unwrap_or(&default_token);
+        crate::verify::verify_version_with_options(
+            &self.current_version(),
+            options,
+            token,
+            progress_callback,
+        )
+    }
 }
