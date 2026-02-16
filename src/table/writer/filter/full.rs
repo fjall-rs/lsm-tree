@@ -49,6 +49,11 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for FullFilterWriter {
         Ok(())
     }
 
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
+        self.bloom_hash_buffer.push(Builder::get_hash(bytes));
+        Ok(())
+    }
+
     fn finish(
         self: Box<Self>,
         file_writer: &mut sfa::Writer<ChecksummedWriter<BufWriter<File>>>,

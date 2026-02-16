@@ -50,6 +50,10 @@ pub struct Inner {
     /// Pinned AMQ filter
     pub pinned_filter_block: Option<FilterBlock>,
 
+    /// Name of the prefix extractor used when this table was created, if any.
+    /// Used to determine compatibility with the current extractor for prefix-aware filtering.
+    pub prefix_extractor_name: Option<String>,
+
     /// True when the table was compacted away or dropped
     ///
     /// May be kept alive until all Arcs to the table have been dropped (to facilitate snapshots)

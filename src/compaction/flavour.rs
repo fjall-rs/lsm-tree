@@ -113,7 +113,8 @@ pub(super) fn prepare_table_writer(
                     None => BloomConstructionPolicy::BitsPerKey(0.0),
                 }
             }
-        }))
+        })
+        .use_prefix_extractor(opts.config.prefix_extractor.clone()))
 }
 
 // TODO: find a better name

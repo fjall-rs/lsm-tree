@@ -160,6 +160,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         self
     }
 
+    fn notify_key(&mut self, key: &UserKey) {
+        self.last_key = Some(key.clone());
+    }
+
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(key));
 
@@ -171,6 +175,24 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
 
         if self.approx_filter_size >= self.partition_size as usize {
             self.spill_filter_partition(key)?;
+        }
+
+        Ok(())
+    }
+
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
+        self.bloom_hash_buffer.push(Builder::get_hash(bytes));
+
+        self.approx_filter_size = self
+            .bloom_policy
+            .estimated_filter_size(self.bloom_hash_buffer.len());
+
+        if self.approx_filter_size >= self.partition_size as usize {
+            // last_key is set by either register_key or notify_key.
+            // It should always be set before register_bytes is called.
+            if let Some(key) = self.last_key.clone() {
+                self.spill_filter_partition(&key)?;
+            }
         }
 
         Ok(())
@@ -192,6 +214,14 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
             )]
             let last_key = self.last_key.take().expect("last key should exist");
             self.spill_filter_partition(&last_key)?;
+        }
+
+        // If no filter partitions were created (e.g. a prefix extractor was
+        // configured but every key was shorter than the required prefix length,
+        // so no hashes were registered), skip writing the empty filter.
+        if self.tli_handles.is_empty() {
+            log::trace!("No filter partitions created - not building filter");
+            return Ok(0);
         }
 
         let index_base_offset = BlockOffset(file_writer.get_mut().stream_position()?);
