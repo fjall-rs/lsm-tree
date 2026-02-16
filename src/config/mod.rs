@@ -460,7 +460,7 @@ impl Config {
         self
     }
 
-    /// Installs a compaction filter factory.
+    /// Installs a custom compaction filter.
     #[must_use]
     pub fn with_compaction_filter_factory(
         mut self,
