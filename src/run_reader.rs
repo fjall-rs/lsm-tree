@@ -81,26 +81,25 @@ impl RunReader {
                         range.start_bound().map(AsRef::as_ref),
                         range.end_bound().map(AsRef::as_ref),
                     );
+                    // range_overlap_indexes already computes precise overlap bounds,
+                    // so every table in lo..=hi should overlap the query range.
+                    // Keep the check as a defensive fallback for release builds.
+                    debug_assert!(
+                        table.check_key_range_overlap(&bounds),
+                        "range_overlap_indexes returned a non-overlapping table in upfront pruning"
+                    );
                     if !table.check_key_range_overlap(&bounds) {
                         continue;
                     }
 
-                    // Use a bound key as the probe so the extractor can derive the prefix and
-                    // the filter index selection remains consistent.
-                    let probe = start_key.or_else(|| match range.end_bound() {
-                        Bound::Included(k) | Bound::Excluded(k) => Some(k.as_ref()),
-                        Bound::Unbounded => None,
-                    });
-                    if let Some(probe) = probe {
-                        if !matches!(
-                            table.maybe_contains_prefix(probe, ex.as_ref()),
-                            Ok(Some(false))
-                        ) {
-                            has_potential_match = true;
-                            break;
-                        }
-                    } else {
-                        // Without a concrete probe key, we cannot consult; treat as potential match
+                    // common_prefix.is_some() guarantees both bounds are
+                    // Included/Excluded (not Unbounded), so start_key is always Some.
+                    let probe =
+                        start_key.expect("common_prefix requires both bounds to be concrete");
+                    if !matches!(
+                        table.maybe_contains_prefix(probe, ex.as_ref()),
+                        Ok(Some(false))
+                    ) {
                         has_potential_match = true;
                         break;
                     }
@@ -209,6 +208,13 @@ impl Iterator for RunReader {
                             self.range_start.as_ref().map(AsRef::as_ref),
                             self.range_end.as_ref().map(AsRef::as_ref),
                         );
+                        // range_overlap_indexes already computes precise overlap bounds,
+                        // so every table in lo..hi should overlap the query range.
+                        // Keep the check as a defensive fallback for release builds.
+                        debug_assert!(
+                            table.check_key_range_overlap(&bounds),
+                            "range_overlap_indexes returned a non-overlapping table in forward lazy loop"
+                        );
                         if table.check_key_range_overlap(&bounds) {
                             if let Some(ex) = &self.extractor {
                                 let tmp_range = (self.range_start.clone(), self.range_end.clone());
@@ -265,6 +271,15 @@ impl DoubleEndedIterator for RunReader {
                             self.range_start.as_ref().map(AsRef::as_ref),
                             self.range_end.as_ref().map(AsRef::as_ref),
                         );
+
+                        // range_overlap_indexes already computes precise overlap bounds,
+                        // so every table in lo..hi should overlap the query range.
+                        // Keep the check as a defensive fallback for release builds.
+                        debug_assert!(
+                            table.check_key_range_overlap(&bounds),
+                            "range_overlap_indexes returned a non-overlapping table in backward lazy loop"
+                        );
+
                         if table.check_key_range_overlap(&bounds) {
                             if let Some(ex) = &self.extractor {
                                 let tmp_range = (self.range_start.clone(), self.range_end.clone());
@@ -907,6 +922,100 @@ mod tests {
         let results: Vec<_> = reader.unwrap().rev().flatten().collect();
         // Same 10 mmm keys, but in reverse order
         assert_eq!(results.len(), 10, "expected 10 mmm keys from 2 tables");
+        for item in &results {
+            assert!(
+                item.key.user_key.starts_with(b"mmm"),
+                "unexpected key: {:?}",
+                item.key.user_key
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Helper: 4 tables where only the first and last contain the target prefix.
+    ///
+    /// Layout (all tables share "aaa" and "zzz" anchors for wide key range):
+    ///   Table 0: "aaa", "mmm", "zzz"  — has target prefix (lo)
+    ///   Table 1: "aaa", "zzz"          — NO target prefix
+    ///   Table 2: "aaa", "zzz"          — NO target prefix
+    ///   Table 3: "aaa", "mmm", "zzz"  — has target prefix (hi)
+    ///
+    /// During backward iteration, after the hi reader (T3) is exhausted,
+    /// the inner loop must skip T2 and T1 (both lack "mmm"), decrementing
+    /// hi all the way down to lo — exercising the `hi <= lo` break.
+    fn create_run_for_backward_hi_meets_lo(
+    ) -> crate::Result<(tempfile::TempDir, Arc<Run<Table>>, SharedPrefixExtractor)> {
+        use crate::config::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry};
+
+        let tempdir = tempfile::tempdir()?;
+        let seqno = SequenceNumberCounter::default();
+        let ex: SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+        let tree = crate::Config::new(&tempdir, seqno.clone(), SequenceNumberCounter::default())
+            .prefix_extractor(ex.clone())
+            .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
+                BloomConstructionPolicy::BitsPerKey(50.0),
+            )))
+            .open()?;
+
+        let table_prefixes: &[&[&[u8]]] = &[
+            &[b"aaa", b"mmm", b"zzz"], // Table 0: has "mmm"
+            &[b"aaa", b"zzz"],         // Table 1: NO "mmm"
+            &[b"aaa", b"zzz"],         // Table 2: NO "mmm"
+            &[b"aaa", b"mmm", b"zzz"], // Table 3: has "mmm"
+        ];
+
+        for prefixes in table_prefixes {
+            for p in *prefixes {
+                for i in 0..5u32 {
+                    let mut k = p.to_vec();
+                    k.extend_from_slice(format!("{i:02}").as_bytes());
+                    tree.insert(k, b"v", seqno.next());
+                }
+            }
+            tree.flush_active_memtable(0)?;
+        }
+
+        let tables = tree
+            .current_version()
+            .iter_tables()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tables.len(),
+            4,
+            "expected exactly 4 L0 tables, got {}",
+            tables.len()
+        );
+
+        let level = Arc::new(Run::new(tables).unwrap());
+        Ok((tempdir, level, ex))
+    }
+
+    /// Backward lazy loop: hi decrements past all middle tables to meet lo.
+    ///
+    /// With T0 and T3 having "mmm" and T1/T2 lacking it, reverse iteration
+    /// exhausts hi_reader (T3), then the inner loop skips T2 and T1 via the
+    /// prefix filter, decrementing hi to 0 where `hi <= lo` triggers the break.
+    /// Iteration then falls through to lo_reader (T0).
+    #[test]
+    fn run_reader_backward_lazy_hi_meets_lo() -> crate::Result<()> {
+        let (_dir, level, ex) = create_run_for_backward_hi_meets_lo()?;
+
+        let start = Bound::Included(UserKey::from("mmm00"));
+        let end = Bound::Included(UserKey::from("mmm99"));
+
+        let reader = RunReader::new(level, (start, end), Some(ex));
+        assert!(reader.is_some());
+
+        let results: Vec<_> = reader.unwrap().rev().flatten().collect();
+        // T3 has 5 "mmm" keys, T0 has 5 "mmm" keys → 10 total
+        assert_eq!(
+            results.len(),
+            10,
+            "expected 10 mmm keys from tables 0 and 3"
+        );
         for item in &results {
             assert!(
                 item.key.user_key.starts_with(b"mmm"),
