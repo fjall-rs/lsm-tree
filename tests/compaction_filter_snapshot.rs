@@ -1,16 +1,12 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterContext, CompactionFilterFactory, ItemAccessor, Verdict,
+    CompactionFilter, CompactionFilterFactory, Context, ItemAccessor, Verdict,
 };
 use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 
 struct NukeFilter;
 
 impl CompactionFilter for NukeFilter {
-    fn filter_item(
-        &mut self,
-        _: ItemAccessor<'_>,
-        _ctx: &CompactionFilterContext,
-    ) -> lsm_tree::Result<Verdict> {
+    fn filter_item(&mut self, _: ItemAccessor<'_>, _ctx: &Context) -> lsm_tree::Result<Verdict> {
         // data? what data?
         Ok(Verdict::Remove)
     }
@@ -23,7 +19,7 @@ impl CompactionFilterFactory for NukeFilterFactory {
         "Nuke"
     }
 
-    fn make_filter(&self, _ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
+    fn make_filter(&self, _ctx: &Context) -> Box<dyn CompactionFilter> {
         Box::new(NukeFilter)
     }
 }

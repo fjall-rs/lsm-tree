@@ -49,11 +49,7 @@ pub trait CompactionFilter: Send {
     ///
     /// Returning an error will abort the running compaction.
     /// This should only be done when **strictly** necessary, such as when fetching a value fails.
-    fn filter_item(
-        &mut self,
-        item: ItemAccessor<'_>,
-        ctx: &CompactionFilterContext,
-    ) -> crate::Result<Verdict>;
+    fn filter_item(&mut self, item: ItemAccessor<'_>, ctx: &Context) -> crate::Result<Verdict>;
 
     /// Called when compaction is finished.
     fn finish(self: Box<Self>) {}
@@ -62,7 +58,7 @@ pub trait CompactionFilter: Send {
 /// Context passed to compaction filters and factories for each compaction run
 #[non_exhaustive]
 #[derive(Debug)]
-pub struct CompactionFilterContext {
+pub struct Context {
     /// Whether we are compacting into the last level.
     pub is_last_level: bool,
 }
@@ -75,7 +71,7 @@ pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
     fn name(&self) -> &str;
 
     /// Returns a new compaction filter.
-    fn make_filter(&self, context: &CompactionFilterContext) -> Box<dyn CompactionFilter>;
+    fn make_filter(&self, context: &Context) -> Box<dyn CompactionFilter>;
 }
 
 struct AccessorShared<'a> {
@@ -164,7 +160,7 @@ pub(crate) struct StreamFilterAdapter<'a, 'b: 'a> {
     shared: AccessorShared<'a>,
     blob_opts: Option<&'a KvSeparationOptions>,
     blob_writer: &'a mut Option<BlobFileWriter>,
-    ctx: &'a CompactionFilterContext,
+    ctx: &'a Context,
 }
 
 impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
@@ -174,7 +170,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
         version: &'a Version,
         blobs_folder: &'a Path,
         blob_writer: &'a mut Option<BlobFileWriter>,
-        ctx: &'a CompactionFilterContext,
+        ctx: &'a Context,
     ) -> Self {
         Self {
             filter,

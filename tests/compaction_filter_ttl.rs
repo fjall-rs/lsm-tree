@@ -1,6 +1,6 @@
 use lsm_tree::{
     compaction::filter::{
-        CompactionFilter, CompactionFilterContext, CompactionFilterFactory, ItemAccessor, Verdict,
+        CompactionFilter, Context, CompactionFilterFactory, ItemAccessor, Verdict,
     },
     AbstractTree, Config,
 };
@@ -20,7 +20,7 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
         fn filter_item(
             &mut self,
             item: ItemAccessor<'_>,
-            _ctx: &CompactionFilterContext,
+            _ctx: &Context,
         ) -> lsm_tree::Result<Verdict> {
             let watermark_bytes = &self.0.to_be_bytes();
 
@@ -40,7 +40,7 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
             "TTL"
         }
 
-        fn make_filter(&self, _ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
+        fn make_filter(&self, _ctx: &Context) -> Box<dyn CompactionFilter> {
             Box::new(TtlFilter(self.0.load(Relaxed)))
         }
     }

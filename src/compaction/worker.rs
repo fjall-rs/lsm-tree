@@ -6,7 +6,7 @@ use super::{CompactionStrategy, Input as CompactionPayload};
 use crate::{
     blob_tree::FragmentationMap,
     compaction::{
-        filter::{CompactionFilterContext, StreamFilterAdapter},
+        filter::{Context, StreamFilterAdapter},
         flavour::{RelocatingCompaction, StandardCompaction},
         state::CompactionState,
         stream::CompactionStream,
@@ -391,7 +391,7 @@ fn merge_tables(
 
     let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
 
-    let filter_ctx = CompactionFilterContext { is_last_level };
+    let filter_ctx = Context { is_last_level };
 
     // construct the compaction filter
     let mut compaction_filter = opts.config.compaction_filter_factory.as_ref().map(|f| {
