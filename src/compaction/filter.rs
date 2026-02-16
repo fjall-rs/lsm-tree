@@ -2,15 +2,6 @@
 //!
 //! Compaction filters allow users to run custom logic during compactions, e.g. custom cleanup rules such as TTL.
 //! Because compactions run in background workers, using compactions filters instead of scans can massively increase the efficiency of the storage engine.
-//!
-//! # Examples
-//!
-//! Defining a compaction filter to drop data using some TTL rule:
-//!
-//! ```
-//! // TODO: add an example to drop old data using "TTL"
-//! ```
-
 use crate::{
     coding::{Decode, Encode},
     compaction::{
@@ -42,6 +33,7 @@ pub enum Verdict {
 
     /// Replaces the value of the item.
     ReplaceValue(UserValue),
+
     /// Destroys a value - does not leave behind a tombstone.
     ///
     /// Only use in situations where you absolutely 100% know your
