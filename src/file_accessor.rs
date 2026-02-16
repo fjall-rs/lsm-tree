@@ -19,7 +19,7 @@ pub enum FileAccessor {
 }
 
 impl FileAccessor {
-    #[must_use] 
+    #[must_use]
     pub fn as_descriptor_table(&self) -> Option<&DescriptorTable> {
         match self {
             Self::DescriptorTable(d) => Some(d),
