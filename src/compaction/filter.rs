@@ -250,7 +250,7 @@ impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
                 item,
                 shared: &self.shared,
             },
-            &self.ctx,
+            self.ctx,
         )? {
             Verdict::Destroy => Ok(StreamFilterVerdict::Drop),
             Verdict::Keep => Ok(StreamFilterVerdict::Keep),
