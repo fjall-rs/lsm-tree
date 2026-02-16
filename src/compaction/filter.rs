@@ -59,7 +59,7 @@ pub trait CompactionFilter: Send {
     fn finish(self: Box<Self>) {}
 }
 
-/// Context passed into [`CompactionFilterFactory::make_filter`] for each compaction run.
+/// Context passed to compaction filters and factories for each compaction run
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct CompactionFilterContext {
