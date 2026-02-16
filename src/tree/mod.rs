@@ -162,7 +162,7 @@ impl AbstractTree for Tree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::get_internal_entry_from_version(&super_version, key, seqno)
+        Self::get_internal_entry_from_version(&super_version, key, seqno, &self.config)
     }
 
     fn current_version(&self) -> Version {
@@ -387,7 +387,11 @@ impl AbstractTree for Tree {
                 Bloom(policy) => policy,
                 None => BloomConstructionPolicy::BitsPerKey(0.0),
             }
-        });
+        })
+        // Ensure tables built during flush carry the configured extractor.
+        // This lets writers register prefixes and persist the extractor name in metadata
+        // for compatibility checks at read time.
+        .use_prefix_extractor(self.config.prefix_extractor.clone());
 
         if index_partitioning {
             table_writer = table_writer.use_partitioned_index();
@@ -673,6 +677,7 @@ impl Tree {
         range: &'a R,
         seqno: SeqNo,
         ephemeral: Option<(Arc<Memtable>, SeqNo)>,
+        prefix_extractor: Option<crate::prefix::SharedPrefixExtractor>,
     ) -> impl DoubleEndedIterator<Item = crate::Result<InternalValue>> + 'static {
         use crate::range::{IterState, TreeIter};
         use std::ops::Bound::{self, Excluded, Included, Unbounded};
@@ -691,7 +696,13 @@ impl Tree {
 
         let bounds: (Bound<UserKey>, Bound<UserKey>) = (lo, hi);
 
-        let iter_state = { IterState { version, ephemeral } };
+        let iter_state = {
+            IterState {
+                version,
+                ephemeral,
+                prefix_extractor,
+            }
+        };
 
         TreeIter::create_range(iter_state, bounds, seqno)
     }
@@ -700,6 +711,7 @@ impl Tree {
         super_version: &SuperVersion,
         key: &[u8],
         seqno: SeqNo,
+        config: &Config,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
             return Ok(ignore_tombstone_value(entry));
@@ -713,13 +725,14 @@ impl Tree {
         }
 
         // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+        Self::get_internal_entry_from_tables(&super_version.version, key, seqno, config)
     }
 
     fn get_internal_entry_from_tables(
         version: &Version,
         key: &[u8],
         seqno: SeqNo,
+        config: &Config,
     ) -> crate::Result<Option<InternalValue>> {
         // NOTE: Create key hash for hash sharing
         // https://fjall-rs.github.io/post/bloom-filter-hash-sharing/
@@ -730,7 +743,7 @@ impl Tree {
             .flat_map(|lvl| lvl.iter())
             .filter_map(|run| run.get_for_key(key))
         {
-            if let Some(item) = table.get(key, seqno, key_hash)? {
+            if let Some(item) = Self::point_read_from_table(config, table, key, seqno, key_hash)? {
                 return Ok(ignore_tombstone_value(item));
             }
         }
@@ -840,6 +853,47 @@ impl Tree {
             .is_empty()
     }
 
+    /// Centralized point-read from a single table with prefix-aware pre-checks and
+    /// compatibility gating. Returns Ok(None) if the prefix filter definitively excludes
+    /// the key or if the table lookup returns no match.
+    fn point_read_from_table(
+        config: &Config,
+        table: &Table,
+        key: &[u8],
+        seqno: SeqNo,
+        key_hash: u64,
+    ) -> crate::Result<Option<InternalValue>> {
+        // Determine compatibility of table's stored extractor with current config
+        let current = config.prefix_extractor.as_ref().map(|e| e.name());
+        let allow_filter = table.prefix_filter_allowed(current);
+
+        // If prefix filtering is allowed and an extractor is configured, consult the
+        // prefix-aware filter first and skip on a definite negative.
+        if allow_filter {
+            if let Some(ex) = config.prefix_extractor.as_ref() {
+                if table.maybe_contains_prefix(key, ex.as_ref())? == Some(false) {
+                    return Ok(None);
+                }
+            }
+        }
+
+        let item = if allow_filter {
+            if config.prefix_extractor.is_some() {
+                // Compatible extractor configured: we've consulted the prefix filter;
+                // bypass full-key Bloom.
+                table.get_without_filter(key, seqno)?
+            } else {
+                // No extractor configured: rely on full-key Bloom as usual.
+                table.get(key, seqno, key_hash)?
+            }
+        } else {
+            // Incompatible extractor or mismatch: never trust the filter.
+            table.get_without_filter(key, seqno)?
+        };
+
+        Ok(item)
+    }
+
     fn inner_compact(
         &self,
         strategy: Arc<dyn CompactionStrategy>,
@@ -881,7 +935,14 @@ impl Tree {
             .expect("lock is poisoned")
             .get_version_for_snapshot(seqno);
 
-        Self::create_internal_range(super_version, range, seqno, ephemeral).map(|item| match item {
+        Self::create_internal_range(
+            super_version,
+            range,
+            seqno,
+            ephemeral,
+            self.config.prefix_extractor.clone(),
+        )
+        .map(|item| match item {
             Ok(kv) => Ok((kv.key.user_key, kv.value)),
             Err(e) => Err(e),
         })
