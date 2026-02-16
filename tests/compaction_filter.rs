@@ -1,5 +1,6 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, Context, CompactionFilterFactory, ItemAccessor, Verdict,
+    CompactionFilter, CompactionFilterFactory, Context as CompactionFilterContext, ItemAccessor,
+    Verdict,
 };
 use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
@@ -42,7 +43,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
         fn filter_item(
             &mut self,
             item: ItemAccessor<'_>,
-            _ctx: &Context,
+            _ctx: &CompactionFilterContext,
         ) -> lsm_tree::Result<Verdict> {
             let mut state = self.0.lock().unwrap();
             if state.disable {
@@ -89,7 +90,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
             "Test"
         }
 
-        fn make_filter(&self, ctx: &Context) -> Box<dyn CompactionFilter> {
+        fn make_filter(&self, ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
             {
                 let guard = self.0.lock().unwrap();
                 if let Some(expect_last_level) = guard.expect_last_level {
