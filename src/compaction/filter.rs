@@ -57,7 +57,11 @@ pub trait CompactionFilter: Send {
     ///
     /// Returning an error will abort the running compaction.
     /// This should only be done when **strictly** necessary, such as when fetching a value fails.
-    fn filter_item(&mut self, item: ItemAccessor<'_>) -> crate::Result<Verdict>;
+    fn filter_item(
+        &mut self,
+        item: ItemAccessor<'_>,
+        ctx: &CompactionFilterContext,
+    ) -> crate::Result<Verdict>;
 
     /// Called when compaction is finished.
     fn finish(self: Box<Self>) {}
@@ -74,7 +78,7 @@ pub struct CompactionFilterContext {
 /// Trait that creates compaction filter objects for each compaction
 pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
     /// Returns a new compaction filter.
-    fn make_filter(&self, context: CompactionFilterContext) -> Box<dyn CompactionFilter>;
+    fn make_filter(&self, context: &CompactionFilterContext) -> Box<dyn CompactionFilter>;
 }
 
 struct AccessorShared<'a> {
@@ -163,6 +167,7 @@ pub(crate) struct StreamFilterAdapter<'a, 'b: 'a> {
     shared: AccessorShared<'a>,
     blob_opts: Option<&'a KvSeparationOptions>,
     blob_writer: &'a mut Option<BlobFileWriter>,
+    ctx: &'a CompactionFilterContext,
 }
 
 impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
@@ -172,6 +177,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
         version: &'a Version,
         blobs_folder: &'a Path,
         blob_writer: &'a mut Option<BlobFileWriter>,
+        ctx: &'a CompactionFilterContext,
     ) -> Self {
         Self {
             filter,
@@ -182,6 +188,7 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             },
             blob_opts: opts.config.kv_separation_opts.as_ref(),
             blob_writer,
+            ctx,
         }
     }
 
@@ -238,10 +245,13 @@ impl<'a, 'b: 'a> StreamFilter for StreamFilterAdapter<'a, 'b> {
             return Ok(StreamFilterVerdict::Keep);
         };
 
-        match filter.filter_item(ItemAccessor {
-            item,
-            shared: &self.shared,
-        })? {
+        match filter.filter_item(
+            ItemAccessor {
+                item,
+                shared: &self.shared,
+            },
+            &self.ctx,
+        )? {
             Verdict::Destroy => Ok(StreamFilterVerdict::Drop),
             Verdict::Keep => Ok(StreamFilterVerdict::Keep),
             Verdict::Remove => Ok(StreamFilterVerdict::Replace((

@@ -39,7 +39,11 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct Filter(Arc<Mutex<FilterState>>);
 
     impl CompactionFilter for Filter {
-        fn filter_item(&mut self, item: ItemAccessor<'_>) -> lsm_tree::Result<Verdict> {
+        fn filter_item(
+            &mut self,
+            item: ItemAccessor<'_>,
+            _ctx: &CompactionFilterContext,
+        ) -> lsm_tree::Result<Verdict> {
             let mut state = self.0.lock().unwrap();
             if state.disable {
                 return Ok(Verdict::Keep);
@@ -81,11 +85,11 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     struct FilterFactory(Arc<Mutex<FilterState>>);
 
     impl CompactionFilterFactory for FilterFactory {
-        fn make_filter(&self, context: CompactionFilterContext) -> Box<dyn CompactionFilter> {
+        fn make_filter(&self, ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
             {
                 let guard = self.0.lock().unwrap();
                 if let Some(expect_last_level) = guard.expect_last_level {
-                    assert_eq!(context.is_last_level, expect_last_level)
+                    assert_eq!(ctx.is_last_level, expect_last_level)
                 }
             }
             Box::new(Filter(self.0.clone()))
@@ -180,11 +184,11 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn filter_with_blob() -> lsm_tree::Result<()> {
+fn compaction_filter_with_blob() -> lsm_tree::Result<()> {
     filter_basic(true)
 }
 
 #[test]
-fn filter_no_blob() -> lsm_tree::Result<()> {
+fn compaction_filter_no_blob() -> lsm_tree::Result<()> {
     filter_basic(false)
 }

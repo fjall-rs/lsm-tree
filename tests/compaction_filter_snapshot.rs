@@ -6,7 +6,11 @@ use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
 struct NukeFilter;
 
 impl CompactionFilter for NukeFilter {
-    fn filter_item(&mut self, _: ItemAccessor<'_>) -> lsm_tree::Result<Verdict> {
+    fn filter_item(
+        &mut self,
+        _: ItemAccessor<'_>,
+        _ctx: &CompactionFilterContext,
+    ) -> lsm_tree::Result<Verdict> {
         // data? what data?
         Ok(Verdict::Remove)
     }
@@ -15,13 +19,13 @@ impl CompactionFilter for NukeFilter {
 struct NukeFilterFactory;
 
 impl CompactionFilterFactory for NukeFilterFactory {
-    fn make_filter(&self, _context: CompactionFilterContext) -> Box<dyn CompactionFilter> {
+    fn make_filter(&self, _ctx: &CompactionFilterContext) -> Box<dyn CompactionFilter> {
         Box::new(NukeFilter)
     }
 }
 
 #[test]
-fn filter_snapshot() -> lsm_tree::Result<()> {
+fn compaction_filter_snapshot() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 
     let seqno = SequenceNumberCounter::default();

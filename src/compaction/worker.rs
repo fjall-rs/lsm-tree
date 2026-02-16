@@ -391,12 +391,14 @@ fn merge_tables(
 
     let blobs_folder = opts.config.path.join(BLOBS_FOLDER);
 
+    let filter_ctx = CompactionFilterContext { is_last_level };
+
     // construct the compaction filter
     let mut compaction_filter = opts
         .config
         .compaction_filter_factory
         .as_ref()
-        .map(|f| f.make_filter(CompactionFilterContext { is_last_level }));
+        .map(|f| f.make_filter(&filter_ctx));
 
     // this is used by the compaction filter if it wants to write new blobs
     let mut filter_blob_writer = None;
@@ -406,6 +408,7 @@ fn merge_tables(
         &current_super_version.version,
         &blobs_folder,
         &mut filter_blob_writer,
+        &filter_ctx,
     ));
 
     let table_writer =
