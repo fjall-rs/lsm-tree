@@ -16,8 +16,19 @@ use std::{fs::File, io::BufWriter};
 pub trait FilterWriter<W: std::io::Write> {
     // NOTE: We purposefully use a UserKey instead of &[u8]
     // so we can clone it without heap allocation, if needed
-    /// Registers a key in the block index.
+    /// Registers a key in the filter by hashing it.
     fn register_key(&mut self, key: &UserKey) -> crate::Result<()>;
+
+    /// Registers arbitrary bytes into the filter (used for prefix entries).
+    /// Implementations should hash the bytes identically to full keys.
+    fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()>;
+
+    /// Informs the filter writer about the current user key for partition boundary
+    /// tracking without adding its hash to the filter. This is needed when a prefix
+    /// extractor is configured: only extracted prefixes are hashed (via `register_bytes`),
+    /// but the partitioned filter writer still needs the actual user key to create
+    /// correct top-level index entries. No-op for non-partitioned filters.
+    fn notify_key(&mut self, _key: &UserKey) {}
 
     /// Writes the filter to a file.
     ///

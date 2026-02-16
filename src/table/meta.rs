@@ -50,6 +50,9 @@ pub struct ParsedMeta {
 
     pub data_block_compression: CompressionType,
     pub index_block_compression: CompressionType,
+
+    /// Optional name of the prefix extractor used when this table was created.
+    pub prefix_extractor_name: Option<String>,
 }
 
 macro_rules! read_u8 {
@@ -207,6 +210,10 @@ impl ParsedMeta {
             CompressionType::decode_from(&mut bytes)?
         };
 
+        let prefix_extractor_name = block
+            .point_read(b"prefix_extractor", SeqNo::MAX)
+            .and_then(|v| String::from_utf8(v.value.to_vec()).ok());
+
         Ok(Self {
             id,
             created_at,
@@ -221,6 +228,7 @@ impl ParsedMeta {
             weak_tombstone_reclaimable,
             data_block_compression,
             index_block_compression,
+            prefix_extractor_name,
         })
     }
 }
