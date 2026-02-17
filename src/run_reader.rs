@@ -5,7 +5,7 @@
 use crate::{
     prefix::SharedPrefixExtractor, version::Run, BoxedIterator, InternalValue, Table, UserKey,
 };
-use std::ops::Bound::{self, Excluded, Included, Unbounded};
+use std::ops::Bound::{self};
 use std::{
     ops::{Deref, RangeBounds},
     sync::Arc,
@@ -18,9 +18,11 @@ pub struct RunReader {
     hi: usize,
     lo_reader: Option<BoxedIterator<'static>>,
     hi_reader: Option<BoxedIterator<'static>>,
+
     // Owned range bounds for creating new per-table readers during iteration
-    range_start: std::ops::Bound<UserKey>,
-    range_end: std::ops::Bound<UserKey>,
+    range_start: Bound<UserKey>,
+    range_end: Bound<UserKey>,
+
     // Optional extractor for prefix-aware pruning during lazy advancement
     extractor: Option<SharedPrefixExtractor>,
 }
@@ -132,6 +134,8 @@ impl RunReader {
         (lo, hi): (Option<usize>, Option<usize>),
         extractor: Option<SharedPrefixExtractor>,
     ) -> Self {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+
         let lo = lo.unwrap_or_default();
         let hi = hi.unwrap_or(run.len() - 1);
 
