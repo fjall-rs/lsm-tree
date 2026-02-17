@@ -175,7 +175,7 @@ impl PrefixExtractor for FixedLengthExtractor {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use lsm_tree::prefix::PrefixExtractor;
 /// use std::sync::Arc;
 ///
@@ -235,13 +235,10 @@ impl PrefixExtractor for FixedLengthExtractor {
 ///     }
 /// }
 ///
-/// // Usage:
-/// # let path = tempfile::tempdir()?;
-/// // Example usage (API may vary by version):
-/// // let tree = lsm_tree::Config::new(path, seqno)
-/// //     .prefix_extractor(Arc::new(HierarchicalPrefixExtractor { delimiter: b'/' }))
-/// //     .open()?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// let ex = DomainPrefixExtractor;
+/// assert_eq!(ex.name(), "domain_prefix");
+/// let prefixes: Vec<_> = ex.extract(b"example.com@user").collect();
+/// assert_eq!(prefixes, vec![b"example.com".as_ref(), b"example.com@user"]);
 /// ```
 /// Type alias for a shared prefix extractor
 pub type SharedPrefixExtractor = Arc<dyn PrefixExtractor>;
