@@ -14,6 +14,40 @@ fn generate_test_key(prefix: &str, suffix: &str) -> Vec<u8> {
     format!("{}{}", prefix, suffix).into_bytes()
 }
 
+/// Tests that an empty filter does not crash the partitioned filter writer (found by fuzz testing)
+#[test]
+fn test_prefix_filter_partitioned_filter_fuzz_0() -> lsm_tree::Result<()> {
+    let folder = tempfile::tempdir()?;
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .prefix_extractor(Arc::new(FixedLengthExtractor::new(100)))
+    .filter_block_partitioning_policy(PinningPolicy::all(true))
+    .open()?;
+
+    for i in 0..50u32 {
+        let key = format!("zebra_{:04}", i);
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    for i in 0..50u32 {
+        let key = format!("zulu_{:04}", i);
+        tree.insert(key.as_bytes(), b"v", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    let count = tree
+        .range::<&[u8], std::ops::RangeFrom<&[u8]>>((&b"user1_0000"[..]).., u64::MAX, None)
+        .count();
+    assert_eq!(count, 100);
+
+    Ok(())
+}
+
 #[test]
 fn test_prefix_filter_range_start_only_prefix_no_upfront_prune() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
