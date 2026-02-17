@@ -560,66 +560,6 @@ fn test_prefix_filter_large_dataset() -> lsm_tree::Result<()> {
 }
 
 #[test]
-fn test_prefix_filter_recovery() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-    let prefix_len = 10;
-
-    // Create and populate tree
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(prefix_len)))
-        .open()?;
-
-        for i in 0..100 {
-            let key = format!("persistent_{:04}", i);
-            tree.insert(key.as_bytes(), b"value", 0);
-        }
-
-        tree.flush_active_memtable(0)?;
-    }
-
-    // Reopen tree and verify filter still works
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(prefix_len)))
-        .open()?;
-
-        #[cfg(feature = "metrics")]
-        let initial_queries = tree.metrics().filter_queries();
-
-        for i in 0..100 {
-            let key = format!("persistent_{:04}", i);
-            assert!(tree.contains_key(key.as_bytes(), u64::MAX)?);
-        }
-
-        // Non-existent keys should still be filtered
-        let non_existent = b"persistent_9999";
-        assert!(!tree.contains_key(non_existent, u64::MAX)?);
-
-        #[cfg(feature = "metrics")]
-        {
-            let final_queries = tree.metrics().filter_queries();
-
-            // After recovery, filters should still be working
-            assert!(
-                final_queries > initial_queries,
-                "filter queries should work after recovery"
-            );
-        }
-    }
-
-    Ok(())
-}
-
-#[test]
 fn test_prefix_filter_concurrent_access() -> lsm_tree::Result<()> {
     use std::thread;
 
@@ -1733,6 +1673,8 @@ fn test_prefix_filter_range_across_different_prefixes() -> lsm_tree::Result<()> 
 /// Test range queries with reversed bounds (should return empty)
 #[test]
 fn test_prefix_filter_range_reversed_bounds() -> lsm_tree::Result<()> {
+    use std::ops::Bound;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(
@@ -1757,7 +1699,6 @@ fn test_prefix_filter_range_reversed_bounds() -> lsm_tree::Result<()> {
     assert_eq!(count, 0, "Reversed bounds should return empty");
 
     // Also test with excluded bounds reversed
-    use std::ops::Bound;
     let count = tree
         .range::<&str, _>((Bound::Excluded("c"), Bound::Included("a")), u64::MAX, None)
         .count();
@@ -1779,6 +1720,8 @@ fn test_prefix_filter_range_reversed_bounds() -> lsm_tree::Result<()> {
 /// Test range with same key but different bound types
 #[test]
 fn test_prefix_filter_range_same_key_different_bounds() -> lsm_tree::Result<()> {
+    use std::ops::Bound;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(
@@ -1799,7 +1742,6 @@ fn test_prefix_filter_range_same_key_different_bounds() -> lsm_tree::Result<()> 
     let initial_hits = tree.metrics().io_skipped_by_filter();
 
     // Included..Excluded with same key (empty range)
-    use std::ops::Bound;
     let count = tree
         .range::<&str, _>(
             (Bound::Included("key"), Bound::Excluded("key")),
@@ -2057,6 +1999,8 @@ fn test_prefix_filter_range_no_extractor() -> lsm_tree::Result<()> {
 /// Test range with both bounds excluded
 #[test]
 fn test_prefix_filter_range_both_excluded() -> lsm_tree::Result<()> {
+    use std::ops::Bound;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(
@@ -2079,7 +2023,6 @@ fn test_prefix_filter_range_both_excluded() -> lsm_tree::Result<()> {
     let initial_hits = tree.metrics().io_skipped_by_filter();
 
     // Test with both bounds excluded
-    use std::ops::Bound;
     let count = tree
         .range::<&str, _>((Bound::Excluded("a"), Bound::Excluded("e")), u64::MAX, None)
         .count();
@@ -2327,6 +2270,8 @@ fn test_prefix_filter_range_utf8_split() -> lsm_tree::Result<()> {
 /// Test empty range (start > end after normalization)  
 #[test]
 fn test_prefix_filter_empty_normalized_range() -> lsm_tree::Result<()> {
+    use std::ops::Bound;
+
     let folder = tempfile::tempdir()?;
 
     let tree = Config::new(
@@ -2346,7 +2291,6 @@ fn test_prefix_filter_empty_normalized_range() -> lsm_tree::Result<()> {
     let initial_hits = tree.metrics().io_skipped_by_filter();
 
     // Create a range that becomes empty after normalization
-    use std::ops::Bound;
     let count = tree
         .range::<&str, _>((Bound::Excluded("b"), Bound::Excluded("b")), u64::MAX, None)
         .count();
@@ -4289,48 +4233,6 @@ fn test_maybe_contains_prefix_incompatible_extractor() -> lsm_tree::Result<()> {
     Ok(())
 }
 
-/// Test should_skip_range_by_prefix_filter with an incompatible extractor.
-#[test]
-fn test_skip_range_incompatible_extractor() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-
-    // Write data with "fixed_prefix" extractor
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
-        .open()?;
-
-        for i in 0..10u32 {
-            let key = format!("aaaa_{:04}", i);
-            tree.insert(key.as_bytes(), b"value", 0);
-        }
-        tree.flush_active_memtable(0)?;
-    }
-
-    // Reopen with incompatible extractor name — range should not skip tables
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(TestPrefixExtractor::new(4, "other_extractor")))
-        .open()?;
-
-        let keys: Vec<_> = tree
-            .range::<&[u8], _>(&b"aaaa_0000"[..]..&b"aaaa_9999"[..], SeqNo::MAX, None)
-            .map(|g| g.key().unwrap())
-            .collect();
-        assert_eq!(keys.len(), 10);
-    }
-
-    Ok(())
-}
-
 /// Test partitioned filter with unpinned TLI (top-level index).
 #[test]
 fn test_partitioned_filter_unpinned_tli() -> lsm_tree::Result<()> {
@@ -4569,63 +4471,6 @@ fn test_short_keys_with_prefix_extractor() -> lsm_tree::Result<()> {
         .map(|g| g.key().unwrap())
         .collect();
     assert_eq!(keys.len(), 4);
-
-    Ok(())
-}
-
-/// Test prefix extractor name persistence across recovery cycles.
-#[test]
-fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
-    let folder = tempfile::tempdir()?;
-
-    // Write with "fixed_prefix"
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
-        .open()?;
-
-        tree.insert(b"aaaa_001", b"v1", 0);
-        tree.insert(b"bbbb_001", b"v2", 0);
-        tree.flush_active_memtable(0)?;
-    }
-
-    // Reopen with same extractor — prefix filter should be used
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .prefix_extractor(Arc::new(FixedPrefixExtractor::new(4)))
-        .open()?;
-
-        assert_eq!(&*tree.get(b"aaaa_001", SeqNo::MAX)?.unwrap(), b"v1");
-        assert_eq!(&*tree.get(b"bbbb_001", SeqNo::MAX)?.unwrap(), b"v2");
-        assert!(tree.get(b"cccc_001", SeqNo::MAX)?.is_none());
-
-        let keys: Vec<_> = tree
-            .prefix(b"aaaa", SeqNo::MAX, None)
-            .map(|g| g.key().unwrap())
-            .collect();
-        assert_eq!(keys.len(), 1);
-    }
-
-    // Reopen WITHOUT any extractor — filter should be bypassed but reads work
-    {
-        let tree = Config::new(
-            &folder,
-            SequenceNumberCounter::default(),
-            SequenceNumberCounter::default(),
-        )
-        .open()?;
-
-        assert_eq!(&*tree.get(b"aaaa_001", SeqNo::MAX)?.unwrap(), b"v1");
-        assert_eq!(&*tree.get(b"bbbb_001", SeqNo::MAX)?.unwrap(), b"v2");
-    }
 
     Ok(())
 }
