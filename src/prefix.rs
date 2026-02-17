@@ -7,12 +7,13 @@ use std::sync::Arc;
 /// Trait for extracting prefixes from keys for prefix filters.
 ///
 /// A prefix extractor allows the filter to index prefixes of keys
-/// instead of (or in addition to) the full keys. This enables efficient
-/// filtering for prefix-based queries.
+/// instead of (or in addition to) the full keys.
+/// This enables efficient filtering for prefix-based queries.
 ///
 /// # Examples
 ///
-/// ## Simple fixed-length prefix:
+/// ## Simple fixed-length
+///
 /// ```
 /// use lsm_tree::prefix::PrefixExtractor;
 ///
@@ -34,7 +35,8 @@ use std::sync::Arc;
 /// assert_eq!(ex.extract(b"ab").next(), Some(b"ab".as_ref()));
 /// ```
 ///
-/// ## Segmented prefixes (e.g., `account_id#user_id)`:
+/// ## Segmented prefixes (e.g., `account_id#user_id)`
+///
 /// ```
 /// use lsm_tree::prefix::PrefixExtractor;
 ///
@@ -133,7 +135,8 @@ impl PrefixExtractor for FixedPrefixExtractor {
 /// A prefix extractor that requires keys to be at least a certain length.
 ///
 /// Keys shorter than the required length are considered "out of domain"
-/// and won't be added to the filter. This matches `RocksDB`'s behavior.
+/// and won't be added to the filter.
+/// This matches `RocksDB`'s behavior.
 pub struct FixedLengthExtractor {
     length: usize,
 }
@@ -168,12 +171,10 @@ impl PrefixExtractor for FixedLengthExtractor {
     }
 }
 
-/// Examples of custom multi-prefix extractors.
-///
 /// Users can implement their own prefix extractors that return multiple prefixes.
 /// The filter will include all returned prefixes.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use lsm_tree::prefix::PrefixExtractor;
