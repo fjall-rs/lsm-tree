@@ -111,8 +111,8 @@ fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
         {
             let final_queries = tree.metrics().filter_queries();
 
-            // After recovery, filters should still be working
-            assert!(final_queries > 0, "filter should not be used");
+            // After recovery with matching extractor, filter should still be used
+            assert!(final_queries > 0, "filter should be used");
         }
     }
 
@@ -132,7 +132,7 @@ fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
         {
             let final_queries = tree.metrics().filter_queries();
 
-            // After recovery, filters should still be working
+            // Without an extractor, prefix filter should be bypassed
             assert_eq!(0, final_queries, "filter should not be used");
         }
     }
