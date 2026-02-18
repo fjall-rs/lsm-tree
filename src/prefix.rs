@@ -105,13 +105,17 @@ impl PrefixExtractor for FullKeyExtractor {
 /// If the key is shorter than the prefix length, returns the full key.
 pub struct FixedPrefixExtractor {
     length: usize,
+    name: String,
 }
 
 impl FixedPrefixExtractor {
     /// Creates a new fixed-length prefix extractor.
     #[must_use]
     pub fn new(length: usize) -> Self {
-        Self { length }
+        Self {
+            length,
+            name: format!("fixed_prefix:{length}"),
+        }
     }
 }
 
@@ -127,8 +131,8 @@ impl PrefixExtractor for FixedPrefixExtractor {
         }
     }
 
-    fn name(&self) -> &'static str {
-        "fixed_prefix"
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -139,13 +143,17 @@ impl PrefixExtractor for FixedPrefixExtractor {
 /// This matches `RocksDB`'s behavior.
 pub struct FixedLengthExtractor {
     length: usize,
+    name: String,
 }
 
 impl FixedLengthExtractor {
     /// Creates a new fixed-length extractor.
     #[must_use]
     pub fn new(length: usize) -> Self {
-        Self { length }
+        Self {
+            length,
+            name: format!("fixed_length:{length}"),
+        }
     }
 }
 
@@ -166,8 +174,8 @@ impl PrefixExtractor for FixedLengthExtractor {
         }
     }
 
-    fn name(&self) -> &'static str {
-        "fixed_length"
+    fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -321,7 +329,9 @@ mod tests {
     #[test]
     fn test_extractor_names() {
         assert_eq!(FullKeyExtractor.name(), "full_key");
-        assert_eq!(FixedPrefixExtractor::new(4).name(), "fixed_prefix");
-        assert_eq!(FixedLengthExtractor::new(4).name(), "fixed_length");
+        assert_eq!(FixedPrefixExtractor::new(4).name(), "fixed_prefix:4");
+        assert_eq!(FixedPrefixExtractor::new(3).name(), "fixed_prefix:3");
+        assert_eq!(FixedLengthExtractor::new(4).name(), "fixed_length:4");
+        assert_eq!(FixedLengthExtractor::new(3).name(), "fixed_length:3");
     }
 }
