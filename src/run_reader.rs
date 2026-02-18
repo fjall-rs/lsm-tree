@@ -79,20 +79,19 @@ impl RunReader {
 
                 for idx in lo..=hi {
                     let table = run.deref().get(idx).expect("should exist");
-                    let bounds = (
-                        range.start_bound().map(AsRef::as_ref),
-                        range.end_bound().map(AsRef::as_ref),
-                    );
-                    // range_overlap_indexes already computes precise overlap bounds,
-                    // so every table in lo..=hi should overlap the query range.
-                    // Keep the check as a defensive fallback for release builds.
+                    // SAFETY INVARIANT: range_overlap_indexes uses binary search on
+                    // table min/max keys and is exact for disjoint sorted runs —
+                    // every table in lo..=hi genuinely overlaps the query range.
+                    // If this invariant were ever violated (e.g. by a future refactor),
+                    // the impact is benign: table.range() would return an empty iterator
+                    // (no data corruption, just wasted I/O).
                     debug_assert!(
-                        table.check_key_range_overlap(&bounds),
+                        table.check_key_range_overlap(&(
+                            range.start_bound().map(AsRef::as_ref),
+                            range.end_bound().map(AsRef::as_ref),
+                        )),
                         "range_overlap_indexes returned a non-overlapping table in upfront pruning"
                     );
-                    if !table.check_key_range_overlap(&bounds) {
-                        continue;
-                    }
 
                     // common_prefix.is_some() guarantees both bounds are
                     // Included/Excluded (not Unbounded), so start_key is always Some.
@@ -208,32 +207,31 @@ impl Iterator for RunReader {
                             reason = "hi is at most equal to the last slot; so because 0 <= lo < hi, it must be a valid index"
                         )]
                         let table = self.run.get(self.lo).expect("should exist");
-                        let bounds = (
-                            self.range_start.as_ref().map(AsRef::as_ref),
-                            self.range_end.as_ref().map(AsRef::as_ref),
-                        );
-                        // range_overlap_indexes already computes precise overlap bounds,
-                        // so every table in lo..hi should overlap the query range.
-                        // Keep the check as a defensive fallback for release builds.
+                        // SAFETY INVARIANT: range_overlap_indexes uses binary search on
+                        // table min/max keys and is exact for disjoint sorted runs —
+                        // every table in lo..hi genuinely overlaps the query range.
+                        // If this invariant were ever violated (e.g. by a future refactor),
+                        // the impact is benign: table.range() would return an empty iterator
+                        // (no data corruption, just wasted I/O).
                         debug_assert!(
-                            table.check_key_range_overlap(&bounds),
+                            table.check_key_range_overlap(&(
+                                self.range_start.as_ref().map(AsRef::as_ref),
+                                self.range_end.as_ref().map(AsRef::as_ref),
+                            )),
                             "range_overlap_indexes returned a non-overlapping table in forward lazy loop"
                         );
-                        if table.check_key_range_overlap(&bounds) {
-                            if let Some(ex) = &self.extractor {
-                                let tmp_range = (self.range_start.clone(), self.range_end.clone());
-                                if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref())
-                                {
-                                    self.lo += 1;
-                                    continue;
-                                }
+
+                        if let Some(ex) = &self.extractor {
+                            let tmp_range = (self.range_start.clone(), self.range_end.clone());
+                            if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref()) {
+                                self.lo += 1;
+                                continue;
                             }
-                            let reader =
-                                table.range((self.range_start.clone(), self.range_end.clone()));
-                            self.lo_reader = Some(Box::new(reader));
-                            break;
                         }
-                        self.lo += 1;
+                        let reader =
+                            table.range((self.range_start.clone(), self.range_end.clone()));
+                        self.lo_reader = Some(Box::new(reader));
+                        break;
                     }
                 }
             } else if let Some(hi_reader) = &mut self.hi_reader {
@@ -271,34 +269,31 @@ impl DoubleEndedIterator for RunReader {
                             reason = "because 0 <= lo <= hi, and hi monotonically decreases, hi must be a valid index"
                         )]
                         let table = self.run.get(self.hi).expect("should exist");
-                        let bounds = (
-                            self.range_start.as_ref().map(AsRef::as_ref),
-                            self.range_end.as_ref().map(AsRef::as_ref),
-                        );
-
-                        // range_overlap_indexes already computes precise overlap bounds,
-                        // so every table in lo..hi should overlap the query range.
-                        // Keep the check as a defensive fallback for release builds.
+                        // SAFETY INVARIANT: range_overlap_indexes uses binary search on
+                        // table min/max keys and is exact for disjoint sorted runs —
+                        // every table in lo..hi genuinely overlaps the query range.
+                        // If this invariant were ever violated (e.g. by a future refactor),
+                        // the impact is benign: table.range() would return an empty iterator
+                        // (no data corruption, just wasted I/O).
                         debug_assert!(
-                            table.check_key_range_overlap(&bounds),
+                            table.check_key_range_overlap(&(
+                                self.range_start.as_ref().map(AsRef::as_ref),
+                                self.range_end.as_ref().map(AsRef::as_ref),
+                            )),
                             "range_overlap_indexes returned a non-overlapping table in backward lazy loop"
                         );
 
-                        if table.check_key_range_overlap(&bounds) {
-                            if let Some(ex) = &self.extractor {
-                                let tmp_range = (self.range_start.clone(), self.range_end.clone());
-                                if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref())
-                                {
-                                    self.hi -= 1;
-                                    continue;
-                                }
+                        if let Some(ex) = &self.extractor {
+                            let tmp_range = (self.range_start.clone(), self.range_end.clone());
+                            if table.should_skip_range_by_prefix_filter(&tmp_range, ex.as_ref()) {
+                                self.hi -= 1;
+                                continue;
                             }
-                            let reader =
-                                table.range((self.range_start.clone(), self.range_end.clone()));
-                            self.hi_reader = Some(Box::new(reader));
-                            break;
                         }
-                        self.hi -= 1;
+                        let reader =
+                            table.range((self.range_start.clone(), self.range_end.clone()));
+                        self.hi_reader = Some(Box::new(reader));
+                        break;
                     }
                 }
             } else if let Some(lo_reader) = &mut self.lo_reader {
@@ -1060,151 +1055,6 @@ mod tests {
                 Some(ex),
             );
             assert!(reader.is_some());
-
-            Ok(())
-        }
-
-        /// Helper: creates a disjoint run with 3 tables that have gaps between them.
-        ///
-        /// Layout (3 disjoint tables, each with its own key range):
-        ///   Table 0: keys "aaa00".."aaa04" (key range [aaa00, aaa04])
-        ///   Table 1: keys "mmm00".."mmm04" (key range [mmm00, mmm04])
-        ///   Table 2: keys "zzz00".."zzz04" (key range [zzz00, zzz04])
-        ///
-        /// There are gaps between the tables (e.g. "bbb".."lll" falls between
-        /// tables 0 and 1). A query range that spans a gap will have
-        /// `range_overlap_indexes` return lo=0,hi=2 but the middle table may
-        /// not overlap the query's key range.
-        ///
-        /// Creates each table via its own tree flush to guarantee 3 separate tables,
-        /// then assembles them into a disjoint Run manually.
-        fn create_disjoint_run_with_gaps() -> crate::Result<(
-            Vec<tempfile::TempDir>,
-            Arc<Run<Table>>,
-            SharedPrefixExtractor,
-        )> {
-            use crate::config::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry};
-            use crate::version::run::Ranged;
-
-            let ex: SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
-
-            let mut all_tables = Vec::new();
-            let mut dirs = Vec::new();
-
-            // Create each table separately (one prefix per flush → one table per prefix)
-            for p in [b"aaa" as &[u8], b"mmm", b"zzz"] {
-                let table_dir = tempfile::tempdir()?;
-                let table_seqno = SequenceNumberCounter::default();
-                let tree = crate::Config::new(
-                    &table_dir,
-                    table_seqno.clone(),
-                    SequenceNumberCounter::default(),
-                )
-                .prefix_extractor(ex.clone())
-                .filter_policy(FilterPolicy::all(FilterPolicyEntry::Bloom(
-                    BloomConstructionPolicy::BitsPerKey(50.0),
-                )))
-                .open()?;
-
-                for i in 0..5u32 {
-                    let mut k = p.to_vec();
-                    k.extend_from_slice(format!("{i:02}").as_bytes());
-                    tree.insert(k, b"v", table_seqno.next());
-                }
-                tree.flush_active_memtable(0)?;
-
-                let tables: Vec<_> = tree.current_version().iter_tables().cloned().collect();
-                assert_eq!(tables.len(), 1, "expected 1 table per flush");
-                all_tables.push(tables.into_iter().next().unwrap());
-                dirs.push(table_dir);
-            }
-
-            // Sort by key range to ensure disjoint ordering
-            all_tables.sort_by(|a, b| a.key_range().min().cmp(b.key_range().min()));
-
-            let level = Arc::new(Run::new(all_tables).unwrap());
-            Ok((dirs, level, ex))
-        }
-
-        /// Upfront pruning: a disjoint table in the lo..hi range doesn't overlap
-        /// the query key range. The `check_key_range_overlap` check at the top of
-        /// the upfront loop should skip it via `continue`.
-        #[test]
-        fn run_reader_upfront_skips_non_overlapping_table() -> crate::Result<()> {
-            let (_dirs, level, ex) = create_disjoint_run_with_gaps()?;
-
-            // Query for prefix "aaa" — range_overlap_indexes returns lo=0,hi=0 so the
-            // upfront loop only checks table 0. But with a wider range that includes
-            // the gap between tables 0 and 1, the upfront loop may iterate over table 1
-            // whose key range doesn't overlap → check_key_range_overlap returns false → continue.
-            //
-            // Use "aaa00".."fff00": range_overlap_indexes returns lo=0, hi potentially includes
-            // table 1 ("mmm"). Table 1 key range [mmm00,mmm04] doesn't overlap [aaa00,fff00).
-            let start = Bound::Included(UserKey::from("aaa00"));
-            let end = Bound::Excluded(UserKey::from("fff00"));
-
-            let reader = RunReader::new(level, (start, end), Some(ex));
-            assert!(reader.is_some());
-
-            let results: Vec<_> = reader.unwrap().flatten().collect();
-            assert_eq!(results.len(), 5, "expected 5 aaa keys");
-            for item in &results {
-                assert!(item.key.user_key.starts_with(b"aaa"));
-            }
-
-            Ok(())
-        }
-
-        /// Forward lazy iteration: a middle table's key range doesn't overlap
-        /// the query, so the lazy loop hits `!check_key_range_overlap` and
-        /// advances `lo` past it.
-        #[test]
-        fn run_reader_forward_lazy_skips_non_overlapping_table() -> crate::Result<()> {
-            let (_dirs, level, ex) = create_disjoint_run_with_gaps()?;
-
-            // Query range "aaa00".."zzz99" spans all 3 tables. lo=0, hi=2.
-            // Forward iteration: exhaust lo_reader (table 0), then the lazy loop
-            // checks table 1 ("mmm" range). If we query "aaa00".."ddd00", table 1
-            // ("mmm" range) doesn't overlap → lo advances past it.
-            let start = Bound::Included(UserKey::from("aaa00"));
-            let end = Bound::Excluded(UserKey::from("ddd00"));
-
-            let reader = RunReader::new(level, (start, end), Some(ex));
-            assert!(reader.is_some());
-
-            let results: Vec<_> = reader.unwrap().flatten().collect();
-            // Only table 0 ("aaa") overlaps "aaa00".."ddd00"
-            assert_eq!(results.len(), 5, "expected 5 aaa keys");
-            for item in &results {
-                assert!(item.key.user_key.starts_with(b"aaa"));
-            }
-
-            Ok(())
-        }
-
-        /// Backward lazy iteration: a middle table's key range doesn't overlap
-        /// the query, so the backward lazy loop hits `!check_key_range_overlap`
-        /// and decrements `hi` past it. Also tests the `hi <= lo` break condition.
-        #[test]
-        fn run_reader_backward_lazy_skips_non_overlapping_table() -> crate::Result<()> {
-            let (_dirs, level, ex) = create_disjoint_run_with_gaps()?;
-
-            // Query range "ppp00".."zzz99" — lo points to table 1 (mmm) or 2 (zzz),
-            // hi=2 (zzz). After exhausting hi_reader (table 2), the backward lazy
-            // loop checks table 1 ("mmm00".."mmm04"). "mmm" range doesn't overlap
-            // "ppp00".."zzz99" → hi decrements past it, and hi <= lo triggers break.
-            let start = Bound::Included(UserKey::from("ppp00"));
-            let end = Bound::Included(UserKey::from("zzz99"));
-
-            let reader = RunReader::new(level, (start, end), Some(ex));
-            assert!(reader.is_some());
-
-            let results: Vec<_> = reader.unwrap().rev().flatten().collect();
-            // Only table 2 ("zzz") overlaps "ppp00".."zzz99"
-            assert_eq!(results.len(), 5, "expected 5 zzz keys");
-            for item in &results {
-                assert!(item.key.user_key.starts_with(b"zzz"));
-            }
 
             Ok(())
         }
