@@ -356,6 +356,11 @@ fn run_oracle_test(
                 let s2 = vis_without.get();
                 let _ = tree_with.compact(compaction_strategy.clone(), s1);
                 let _ = tree_without.compact(compaction_strategy.clone(), s2);
+                // Compaction may GC old super versions, invalidating the
+                // raw snapshot seqno we captured (we don't pin it via the
+                // tree's snapshot API, so the version can be purged).
+                snapshot_seqno_with = None;
+                snapshot_seqno_without = None;
             }
 
             Op::MajorCompact => {
@@ -363,6 +368,8 @@ fn run_oracle_test(
                 let s2 = vis_without.get();
                 let _ = tree_with.major_compact(4_096, s1);
                 let _ = tree_without.major_compact(4_096, s2);
+                snapshot_seqno_with = None;
+                snapshot_seqno_without = None;
             }
 
             Op::Reopen => {
@@ -384,6 +391,10 @@ fn run_oracle_test(
                     bloom_bpk,
                     filter_partitioning,
                 );
+                // Reopen rebuilds the super version list from scratch;
+                // old snapshot seqnos are no longer valid.
+                snapshot_seqno_with = None;
+                snapshot_seqno_without = None;
             }
 
             Op::ReopenNewExtractor { new_extractor } => {
@@ -406,6 +417,8 @@ fn run_oracle_test(
                     bloom_bpk,
                     filter_partitioning,
                 );
+                snapshot_seqno_with = None;
+                snapshot_seqno_without = None;
             }
 
             // ----- Point reads -----
