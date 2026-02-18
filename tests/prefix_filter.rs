@@ -3290,7 +3290,6 @@ fn test_prefix_filter_blob_tree_extractor_change() -> lsm_tree::Result<()> {
     let big_value = vec![b'x'; 2_000];
 
     // Use custom extractors with distinct names so the system detects incompatibility.
-    // (FixedPrefixExtractor always returns "fixed_prefix" regardless of length.)
     let extractor_v1 = Arc::new(TestPrefixExtractor::new(4, "extractor_v1"));
     let extractor_v2 = Arc::new(TestPrefixExtractor::new(6, "extractor_v2"));
 
@@ -4223,12 +4222,12 @@ fn test_skip_range_start_prefix_differs_from_min_key() -> lsm_tree::Result<()> {
 }
 
 /// Test maybe_contains_prefix with an incompatible extractor name.
-/// The table was written with "fixed_prefix" but we reopen with a differently-named extractor.
+/// The table was written with "fixed_prefix:4" but we reopen with a differently-named extractor.
 #[test]
 fn test_maybe_contains_prefix_incompatible_extractor() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    // Write data with "fixed_prefix" extractor
+    // Write data with "fixed_prefix:4" extractor
     {
         let tree = Config::new(
             &folder,
