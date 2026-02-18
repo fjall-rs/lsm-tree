@@ -71,7 +71,7 @@ fn test_prefix_filter_recovery() -> lsm_tree::Result<()> {
 fn test_prefix_extractor_name_persistence() -> lsm_tree::Result<()> {
     let folder = tempfile::tempdir()?;
 
-    // Write with "fixed_prefix"
+    // Write with "fixed_prefix:4"
     {
         let tree = Config::new(
             &folder,
@@ -157,7 +157,7 @@ fn test_skip_range_incompatible_extractor() -> lsm_tree::Result<()> {
         }
     }
 
-    // Write data with "fixed_prefix" extractor
+    // Write data with "fixed_prefix:4" extractor
     {
         let tree = Config::new(
             &folder,
