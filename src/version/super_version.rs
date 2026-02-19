@@ -50,7 +50,7 @@ impl SuperVersions {
                 .or_insert_with(|| super_version.active_memtable.size());
 
             for sealed in super_version.sealed_memtables.iter() {
-                set.entry(sealed.id)
+                set.entry(sealed.id())
                     .and_modify(|bytes| *bytes += sealed.size())
                     .or_insert_with(|| sealed.size());
             }

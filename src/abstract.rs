@@ -88,7 +88,7 @@ pub trait AbstractTree {
         let sealed_ids = latest
             .sealed_memtables
             .iter()
-            .map(|mt| mt.id)
+            .map(|mt| mt.id())
             .collect::<Vec<_>>();
 
         let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();

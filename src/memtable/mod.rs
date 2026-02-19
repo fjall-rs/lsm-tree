@@ -67,14 +67,6 @@ impl Memtable {
         }
     }
 
-    /// Creates an iterator over all items.
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = InternalValue> + '_ {
-        self.items.iter().map(|entry| InternalValue {
-            key: entry.key().clone(),
-            value: entry.value().clone(),
-        })
-    }
-
     /// Creates an iterator over a range of items.
     pub(crate) fn range<'a, R: RangeBounds<InternalKey> + 'a>(
         &'a self,
