@@ -32,7 +32,7 @@ impl RunReader {
     /// prefix filter pruning determines that no table in the run may contain keys for the range.
     /// Uses common-prefix pruning only; per-table skipping happens lazily during iteration.
     #[must_use]
-    pub fn new<R: RangeBounds<UserKey> + Clone + Send + 'static>(
+    pub fn new<R: RangeBounds<UserKey>>(
         run: Arc<Run<Table>>,
         range: R,
         extractor: Option<SharedPrefixExtractor>,
@@ -127,7 +127,7 @@ impl RunReader {
     /// indices. It initializes boundary table readers and
     /// performs lazy per-table prefix-filter skipping during iteration.
     #[must_use]
-    pub fn culled<R: RangeBounds<UserKey> + Clone + Send + 'static>(
+    pub fn culled<R: RangeBounds<UserKey>>(
         run: Arc<Run<Table>>,
         range: R,
         (lo, hi): (Option<usize>, Option<usize>),
