@@ -202,11 +202,13 @@ impl Iterator for RunReader {
                         if self.lo >= self.hi {
                             break;
                         }
+
                         #[expect(
                             clippy::expect_used,
                             reason = "hi is at most equal to the last slot; so because 0 <= lo < hi, it must be a valid index"
                         )]
                         let table = self.run.get(self.lo).expect("should exist");
+
                         // SAFETY INVARIANT: range_overlap_indexes uses binary search on
                         // table min/max keys and is exact for disjoint sorted runs —
                         // every table in lo..hi genuinely overlaps the query range.
@@ -228,6 +230,7 @@ impl Iterator for RunReader {
                                 continue;
                             }
                         }
+
                         let reader =
                             table.range((self.range_start.clone(), self.range_end.clone()));
                         self.lo_reader = Some(Box::new(reader));
@@ -264,11 +267,13 @@ impl DoubleEndedIterator for RunReader {
                         if self.hi <= self.lo {
                             break;
                         }
+
                         #[expect(
                             clippy::expect_used,
                             reason = "because 0 <= lo <= hi, and hi monotonically decreases, hi must be a valid index"
                         )]
                         let table = self.run.get(self.hi).expect("should exist");
+
                         // SAFETY INVARIANT: range_overlap_indexes uses binary search on
                         // table min/max keys and is exact for disjoint sorted runs —
                         // every table in lo..hi genuinely overlaps the query range.
@@ -290,6 +295,7 @@ impl DoubleEndedIterator for RunReader {
                                 continue;
                             }
                         }
+
                         let reader =
                             table.range((self.range_start.clone(), self.range_end.clone()));
                         self.hi_reader = Some(Box::new(reader));
