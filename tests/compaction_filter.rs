@@ -1,10 +1,10 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, Context as CompactionFilterContext, ItemAccessor,
-    Verdict,
+    CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
 };
 use lsm_tree::compaction::PullDown;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 use std::sync::{Arc, Mutex};
+use test_log::test;
 
 fn u32_s(n: u32) -> [u8; 4] {
     n.to_be_bytes()
@@ -85,7 +85,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
 
     struct FilterFactory(Arc<Mutex<FilterState>>);
 
-    impl CompactionFilterFactory for FilterFactory {
+    impl Factory for FilterFactory {
         fn name(&self) -> &str {
             "Test"
         }
@@ -113,7 +113,7 @@ fn filter_basic(blob: bool) -> lsm_tree::Result<()> {
     } else {
         None
     })
-    .with_compaction_filter_factory(Some(Box::new(FilterFactory(filter_state.clone()))));
+    .with_compaction_filter_factory(Some(Arc::new(FilterFactory(filter_state.clone()))));
     config.level_count = 3;
     let tree = config.open()?;
 

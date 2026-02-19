@@ -1,6 +1,6 @@
 use lsm_tree::{
     compaction::filter::{
-        CompactionFilter, CompactionFilterFactory, Context as CompactionFilterContext,
+        CompactionFilter, Factory, Context as CompactionFilterContext,
         ItemAccessor, Verdict,
     },
     AbstractTree, Config,
@@ -36,7 +36,7 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     #[derive(Default)]
     struct TtlFilterFactory(Arc<AtomicU64>);
 
-    impl CompactionFilterFactory for TtlFilterFactory {
+    impl Factory for TtlFilterFactory {
         fn name(&self) -> &str {
             "TTL"
         }
@@ -50,7 +50,7 @@ fn compaction_filter_ttl() -> lsm_tree::Result<()> {
     let factory = TtlFilterFactory(watermark.clone());
 
     let tree = Config::new(folder, Default::default(), Default::default())
-        .with_compaction_filter_factory(Some(Box::new(factory)))
+        .with_compaction_filter_factory(Some(Arc::new(factory)))
         .open()?;
 
     tree.insert(1_000u64.to_be_bytes(), "my_value", 0);

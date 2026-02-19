@@ -19,7 +19,7 @@ pub(crate) mod stream;
 pub(crate) mod worker;
 
 pub use fifo::Strategy as Fifo;
-pub use filter::{CompactionFilter, CompactionFilterFactory, ItemAccessor, Verdict};
+pub use filter::{CompactionFilter, Factory, ItemAccessor, Verdict};
 pub use leveled::Strategy as Leveled;
 // pub use tiered::Strategy as SizeTiered;
 

@@ -1,8 +1,9 @@
 use lsm_tree::compaction::filter::{
-    CompactionFilter, CompactionFilterFactory, Context as CompactionFilterContext, ItemAccessor,
-    Verdict,
+    CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
 };
 use lsm_tree::{get_tmp_folder, AbstractTree, SeqNo, SequenceNumberCounter};
+use std::sync::Arc;
+use test_log::test;
 
 struct NukeFilter;
 
@@ -19,7 +20,7 @@ impl CompactionFilter for NukeFilter {
 
 struct NukeFilterFactory;
 
-impl CompactionFilterFactory for NukeFilterFactory {
+impl Factory for NukeFilterFactory {
     fn name(&self) -> &str {
         "Nuke"
     }
@@ -35,7 +36,7 @@ fn compaction_filter_snapshot() -> lsm_tree::Result<()> {
 
     let seqno = SequenceNumberCounter::default();
     let config = lsm_tree::Config::new(&folder, seqno.clone(), SequenceNumberCounter::default())
-        .with_compaction_filter_factory(Some(Box::new(NukeFilterFactory)));
+        .with_compaction_filter_factory(Some(Arc::new(NukeFilterFactory)));
     let tree = config.open()?;
 
     tree.insert("a", "a", seqno.next());

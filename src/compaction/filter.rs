@@ -41,7 +41,7 @@ pub enum Verdict {
     Destroy,
 }
 
-/// Trait for compaction filter objects
+/// Trait to implement custom compaction filters
 pub trait CompactionFilter: Send {
     /// Returns whether an item should be kept during compaction.
     ///
@@ -64,7 +64,7 @@ pub struct Context {
 }
 
 /// Trait that creates compaction filter objects for each compaction
-pub trait CompactionFilterFactory: Send + Sync + RefUnwindSafe {
+pub trait Factory: Send + Sync + RefUnwindSafe {
     /// Returns the compaction filter name.
     ///
     /// This is currently only used for logging purposes.
