@@ -1,7 +1,6 @@
 use lsm_tree::{
     compaction::filter::{
-        CompactionFilter, Factory, Context as CompactionFilterContext,
-        ItemAccessor, Verdict,
+        CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
     },
     AbstractTree, Config,
 };
