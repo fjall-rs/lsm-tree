@@ -45,6 +45,10 @@ pub enum Verdict {
 pub trait CompactionFilter: Send {
     /// Returns whether an item should be kept during compaction.
     ///
+    /// # Panicking
+    ///
+    /// This function should NOT panic.
+    ///
     /// # Errors
     ///
     /// Returning an error will abort the running compaction.
@@ -75,6 +79,10 @@ pub trait Factory: Send + Sync + RefUnwindSafe {
     fn name(&self) -> &str;
 
     /// Returns a new compaction filter.
+    ///
+    /// # Panicking
+    ///
+    /// This function should NOT panic.
     fn make_filter(&self, ctx: &Context) -> Box<dyn CompactionFilter>;
 }
 
@@ -130,7 +138,7 @@ impl<'a> ItemAccessor<'a> {
         match self.item.key.value_type {
             crate::ValueType::Value => Ok(self.item.value.clone()),
             crate::ValueType::Indirection => {
-                // resolve and read the value from a blob
+                // Resolve and read the value from a blob file.
                 let mut reader = &self.item.value[..];
                 let indirection = BlobIndirection::decode_from(&mut reader)?;
                 let vhandle = indirection.vhandle;
@@ -143,8 +151,8 @@ impl<'a> ItemAccessor<'a> {
                     Ok(value)
                 } else {
                     log::error!(
-                        "failed to read referenced blob file during execution of compaction filter. key: {:?}, vptr: {:?}",
-                        self.item.key, indirection
+                        "failed to read referenced blob file during execution of compaction filter. key: {:?}, vptr: {indirection:?}",
+                        self.item.key,
                     );
                     Err(crate::Error::Unrecoverable)
                 }
