@@ -20,8 +20,8 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache, CompressionType,
-    DescriptorTable, SequenceNumberCounter, Tree,
+    compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
+    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -226,6 +226,9 @@ pub struct Config {
     /// Filter construction policy
     pub filter_policy: FilterPolicy,
 
+    /// Compaction filter factory
+    pub compaction_filter_factory: Option<Arc<dyn Factory>>,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -285,6 +288,8 @@ impl Default for Config {
             filter_policy: FilterPolicy::all(FilterPolicyEntry::Bloom(
                 BloomConstructionPolicy::BitsPerKey(10.0),
             )),
+
+            compaction_filter_factory: None,
 
             expect_point_read_hits: false,
 
@@ -452,6 +457,13 @@ impl Config {
     #[must_use]
     pub fn with_kv_separation(mut self, opts: Option<KvSeparationOptions>) -> Self {
         self.kv_separation_opts = opts;
+        self
+    }
+
+    /// Installs a custom compaction filter.
+    #[must_use]
+    pub fn with_compaction_filter_factory(mut self, factory: Option<Arc<dyn Factory>>) -> Self {
+        self.compaction_filter_factory = factory;
         self
     }
 

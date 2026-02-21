@@ -10,9 +10,9 @@ pub mod ingest;
 pub use gc::{FragmentationEntry, FragmentationMap};
 
 use crate::{
+    abstract_tree::{AbstractTree, RangeItem},
     coding::Decode,
     iter_guard::{IterGuard, IterGuardImpl},
-    r#abstract::{AbstractTree, RangeItem},
     table::Table,
     tree::inner::MemtableId,
     value::InternalValue,
