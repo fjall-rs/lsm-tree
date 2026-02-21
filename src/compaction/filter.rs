@@ -51,6 +51,10 @@ pub trait CompactionFilter: Send {
     /// This should only be done when **strictly** necessary, such as when fetching a value fails.
     fn filter_item(&mut self, item: ItemAccessor<'_>, ctx: &Context) -> crate::Result<Verdict>;
 
+    // TODO: how would we go about adding custom properties to tables?
+    // a function that gets called every time a table is cut...? e.g.:
+    // fn on_table_cut(&mut self, ctx: ...) {}
+
     /// Called when compaction is finished.
     fn finish(self: Box<Self>) {}
 }
