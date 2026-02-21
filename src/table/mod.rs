@@ -44,7 +44,6 @@ use block_index::BlockIndexImpl;
 use inner::Inner;
 use iter::Iter;
 use std::{
-    borrow::Cow,
     fs::File,
     ops::{Bound, RangeBounds},
     path::PathBuf,
@@ -88,6 +87,79 @@ impl Table {
     #[must_use]
     pub fn global_seqno(&self) -> SeqNo {
         self.0.global_seqno
+    }
+
+    /// Returns true if the table's stored prefix extractor configuration is compatible
+    /// with the currently configured extractor name. This is used to decide whether
+    /// prefix-aware filtering is allowed.
+    pub(crate) fn prefix_filter_allowed(&self, current_extractor_name: Option<&str>) -> bool {
+        match (
+            self.prefix_extractor_name.as_deref(),
+            current_extractor_name,
+        ) {
+            (Some(a), Some(b)) => a == b,
+            (Some(_), None) | (None, Some(_)) => false,
+            (None, None) => true,
+        }
+    }
+
+    /// Loads the filter block corresponding to `key`, if any. This unifies the logic used by
+    /// both `get()` and `maybe_contains_prefix()`.
+    fn load_filter_block_for_key(
+        &self,
+        key: &[u8],
+    ) -> crate::Result<Option<std::borrow::Cow<'_, FilterBlock>>> {
+        if let Some(block) = &self.pinned_filter_block {
+            return Ok(Some(std::borrow::Cow::Borrowed(block)));
+        }
+
+        if let Some(filter_idx) = &self.pinned_filter_index {
+            let mut iter = filter_idx.iter();
+            // NOTE: For filter block lookup, we use SeqNo::MAX to find the block
+            // that covers this key regardless of sequence number
+            let found = iter.seek(key, SeqNo::MAX);
+
+            let handle = if found {
+                iter.next()
+            } else {
+                // The key is beyond all TLI entries. Fall back to the last filter
+                // partition: since the key exceeds the table's range it was never
+                // inserted, so the Bloom check will correctly report "not present".
+                filter_idx.iter().next_back()
+            };
+
+            if let Some(filter_block_handle) = handle {
+                let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
+
+                let block = self.load_block(
+                    &filter_block_handle.into_inner(),
+                    BlockType::Filter,
+                    CompressionType::None,
+                )?;
+                let block = FilterBlock::new(block);
+
+                return Ok(Some(std::borrow::Cow::Owned(block)));
+            }
+            return Ok(None);
+        }
+
+        if let Some(_filter_tli_handle) = &self.regions.filter_tli {
+            // Unpinned filter TLI not supported yet
+            return Ok(None);
+        }
+
+        if let Some(filter_block_handle) = &self.regions.filter {
+            let block = self.load_block(
+                filter_block_handle,
+                BlockType::Filter,
+                CompressionType::None,
+            )?;
+            let block = FilterBlock::new(block);
+
+            return Ok(Some(std::borrow::Cow::Owned(block)));
+        }
+
+        Ok(None)
     }
 
     pub fn referenced_blob_bytes(&self) -> crate::Result<u64> {
@@ -226,6 +298,23 @@ impl Table {
         self.metadata.file_size
     }
 
+    pub(crate) fn get_without_filter(
+        &self,
+        key: &[u8],
+        seqno: SeqNo,
+    ) -> crate::Result<Option<InternalValue>> {
+        self.point_read(key, seqno)
+    }
+
+    /// Looks up `key` at or below `seqno`, returning the newest visible value if present.
+    ///
+    /// This method performs a hash-based filter check (using `key_hash`) to skip
+    /// data block I/O when possible. It does NOT perform prefix-aware filtering; that is
+    /// handled at a higher level by `Tree::point_read_from_table`.
+    ///
+    /// Returns Ok(None) when the key is not present or shadowed by sequence rules.
+    ///
+    /// Errors reflect I/O or decoding failures when loading index or data blocks.
     pub fn get(
         &self,
         key: &[u8],
@@ -242,40 +331,7 @@ impl Table {
             return Ok(None);
         }
 
-        let filter_block = if let Some(block) = &self.pinned_filter_block {
-            Some(Cow::Borrowed(block))
-        } else if let Some(filter_idx) = &self.pinned_filter_index {
-            let mut iter = filter_idx.iter();
-            iter.seek(key, seqno);
-
-            if let Some(filter_block_handle) = iter.next() {
-                let filter_block_handle = filter_block_handle.materialize(filter_idx.as_slice());
-
-                let block = self.load_block(
-                    &filter_block_handle.into_inner(),
-                    BlockType::Filter,
-                    CompressionType::None, // NOTE: We never write a filter block with compression
-                )?;
-                let block = FilterBlock::new(block);
-
-                Some(Cow::Owned(block))
-            } else {
-                None
-            }
-        } else if let Some(_filter_tli_handle) = &self.regions.filter_tli {
-            unimplemented!("unpinned filter TLI not supported");
-        } else if let Some(filter_block_handle) = &self.regions.filter {
-            let block = self.load_block(
-                filter_block_handle,
-                BlockType::Filter,
-                CompressionType::None, // NOTE: We never write a filter block with compression
-            )?;
-            let block = FilterBlock::new(block);
-
-            Some(Cow::Owned(block))
-        } else {
-            None
-        };
+        let filter_block = self.load_filter_block_for_key(key)?;
 
         if let Some(filter_block) = filter_block {
             #[cfg(feature = "metrics")]
@@ -284,12 +340,54 @@ impl Table {
             if !filter_block.maybe_contains_hash(key_hash)? {
                 #[cfg(feature = "metrics")]
                 self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
-
                 return Ok(None);
             }
         }
 
         self.point_read(key, seqno)
+    }
+
+    /// Checks via the filter whether any extracted prefix of `key` may be present in this table.
+    /// Returns:
+    /// - Ok(Some(true)) if the filter indicates a possible match
+    /// - Ok(Some(false)) if the filter indicates no match
+    /// - Ok(None) if the key is out of the extractor's domain
+    ///   If no filter is available for this table, returns Ok(Some(true)).
+    pub fn maybe_contains_prefix(
+        &self,
+        key: &[u8],
+        extractor: &dyn crate::prefix::PrefixExtractor,
+    ) -> crate::Result<Option<bool>> {
+        // Only consult the prefix-aware filter if the table's stored extractor
+        // configuration is compatible with the current one.
+        if !self.prefix_filter_allowed(Some(extractor.name())) {
+            return Ok(Some(true));
+        }
+
+        self.probe_prefix_filter(key, extractor)
+    }
+
+    /// Core prefix filter probe — assumes the caller already validated extractor compatibility.
+    fn probe_prefix_filter(
+        &self,
+        key: &[u8],
+        extractor: &dyn crate::prefix::PrefixExtractor,
+    ) -> crate::Result<Option<bool>> {
+        let filter_block = self.load_filter_block_for_key(key)?;
+
+        if let Some(filter_block) = filter_block {
+            #[cfg(feature = "metrics")]
+            {
+                use std::sync::atomic::Ordering::Relaxed;
+                self.metrics.filter_queries.fetch_add(1, Relaxed);
+            }
+
+            let res = filter_block.maybe_contains_prefix(key, extractor)?;
+            return Ok(res);
+        }
+
+        // No filter available => cannot exclude
+        Ok(Some(true))
     }
 
     // TODO: maybe we can skip Fuse costs of the user key
@@ -554,6 +652,9 @@ impl Table {
             file_path.display(),
         );
 
+        // Extract optional prefix extractor name for compatibility checks before moving metadata.
+        let recovered_prefix_extractor_name = metadata.prefix_extractor_name.clone();
+
         Ok(Self(Arc::new(Inner {
             path: file_path,
             tree_id,
@@ -570,6 +671,8 @@ impl Table {
             pinned_filter_index,
 
             pinned_filter_block,
+
+            prefix_extractor_name: recovered_prefix_extractor_name,
 
             is_deleted: AtomicBool::default(),
 
@@ -603,6 +706,67 @@ impl Table {
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
         self.metadata.seqnos.1
+    }
+
+    /// Returns the minimum user key in this table's key range.
+    #[must_use]
+    pub fn min_key(&self) -> &UserKey {
+        self.metadata.key_range.min()
+    }
+
+    /// Determines if this table can be skipped for a given user range by consulting the prefix filter.
+    ///
+    /// Behavior:
+    /// - If both bounds share the same extracted prefix, consult once using a bound key.
+    /// - If no common prefix, but the start bound's first extracted prefix matches this table's
+    ///   minimum key prefix, consult once using the start key.
+    /// - A definite negative (Ok(Some(false))) means the table can be skipped; otherwise do not skip.
+    /// - If the table's stored extractor is incompatible with the provided extractor, do not skip.
+    pub(crate) fn should_skip_range_by_prefix_filter<R: RangeBounds<UserKey>>(
+        &self,
+        range: &R,
+        extractor: &dyn crate::prefix::PrefixExtractor,
+    ) -> bool {
+        if !self.prefix_filter_allowed(Some(extractor.name())) {
+            return false;
+        }
+
+        let start_key = match range.start_bound() {
+            std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
+            std::ops::Bound::Unbounded => None,
+        };
+        let end_key = match range.end_bound() {
+            std::ops::Bound::Included(k) | std::ops::Bound::Excluded(k) => Some(k.as_ref()),
+            std::ops::Bound::Unbounded => None,
+        };
+
+        let start_pref = start_key.and_then(|k| extractor.extract(k).next());
+        let end_pref = end_key.and_then(|k| extractor.extract(k).next());
+
+        if let (Some(sp), Some(ep)) = (start_pref, end_pref) {
+            if sp == ep {
+                if let Some(sk) = start_key {
+                    if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        if let Some(sp) = start_pref {
+            if let Some(mp) = extractor.extract(self.min_key().as_ref()).next() {
+                if sp == mp {
+                    if let Some(sk) = start_key {
+                        if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     /// Returns the number of tombstone markers in the `Table`.

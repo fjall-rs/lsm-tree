@@ -122,6 +122,9 @@ pub mod mvcc_stream;
 
 mod path;
 
+/// Prefix extraction for filters
+pub mod prefix;
+
 #[doc(hidden)]
 pub mod range;
 
