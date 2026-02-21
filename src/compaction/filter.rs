@@ -71,7 +71,7 @@ pub trait Factory: Send + Sync + RefUnwindSafe {
     fn name(&self) -> &str;
 
     /// Returns a new compaction filter.
-    fn make_filter(&self, context: &Context) -> Box<dyn CompactionFilter>;
+    fn make_filter(&self, ctx: &Context) -> Box<dyn CompactionFilter>;
 }
 
 struct AccessorShared<'a> {
