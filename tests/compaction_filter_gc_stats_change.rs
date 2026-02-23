@@ -16,8 +16,8 @@ impl CompactionFilter for MyFilter {
         item: ItemAccessor<'_>,
         _ctx: &CompactionFilterContext,
     ) -> lsm_tree::Result<Verdict> {
-        if item.key() == b"removethis" {
-            Ok(Verdict::Destroy)
+        if item.key() == b"changethis" {
+            Ok(Verdict::ReplaceValue(b"winter2".repeat(128_000).into()))
         } else {
             Ok(Verdict::Keep)
         }
@@ -37,7 +37,7 @@ impl Factory for MyFilterFactory {
 }
 
 #[test]
-fn compaction_filter_gc_stats_destroy() -> lsm_tree::Result<()> {
+fn compaction_filter_gc_stats_change() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
@@ -58,7 +58,7 @@ fn compaction_filter_gc_stats_destroy() -> lsm_tree::Result<()> {
 
         assert!(tree.get("big", SeqNo::MAX)?.is_none());
         tree.insert("big", &big_value, 0);
-        tree.insert("removethis", &other_big_value, 0);
+        tree.insert("changethis", &other_big_value, 0);
 
         let value = tree.get("big", SeqNo::MAX)?.expect("should exist");
         assert_eq!(&*value, big_value);
@@ -69,11 +69,12 @@ fn compaction_filter_gc_stats_destroy() -> lsm_tree::Result<()> {
 
         tree.major_compact(64_000_000, 1_000)?;
         assert_eq!(1, tree.table_count());
-        assert_eq!(1, tree.blob_file_count());
+        // Because we are creating a new value, a new blob file is created
+        assert_eq!(2, tree.blob_file_count());
 
         let gc_stats = tree.current_version().gc_stats().clone();
 
-        // "removethis":0 is dropped/destroyed
+        // "changethis":0 is changed
         assert_eq!(
             &{
                 let mut map = lsm_tree::HashMap::default();

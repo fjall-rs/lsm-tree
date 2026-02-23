@@ -17,7 +17,7 @@ impl CompactionFilter for MyFilter {
         _ctx: &CompactionFilterContext,
     ) -> lsm_tree::Result<Verdict> {
         if item.key() == b"removethis" {
-            Ok(Verdict::Destroy)
+            Ok(Verdict::Remove)
         } else {
             Ok(Verdict::Keep)
         }
@@ -37,7 +37,7 @@ impl Factory for MyFilterFactory {
 }
 
 #[test]
-fn compaction_filter_gc_stats_destroy() -> lsm_tree::Result<()> {
+fn compaction_filter_gc_stats_remove() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
     let path = folder.path();
 
@@ -73,7 +73,7 @@ fn compaction_filter_gc_stats_destroy() -> lsm_tree::Result<()> {
 
         let gc_stats = tree.current_version().gc_stats().clone();
 
-        // "removethis":0 is dropped/destroyed
+        // "removethis":0 is removed
         assert_eq!(
             &{
                 let mut map = lsm_tree::HashMap::default();
