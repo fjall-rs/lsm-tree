@@ -741,7 +741,7 @@ impl Table {
     ///   minimum key prefix, consult once using the start key.
     /// - A definite negative (Ok(Some(false))) means the table can be skipped; otherwise do not skip.
     /// - If the table's stored extractor is incompatible with the provided extractor, do not skip.
-    pub(crate) fn should_skip_range_by_prefix_filter<R: RangeBounds<UserKey>>(
+    pub(crate) fn should_skip_range_by_prefix_filter<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
         range: &R,
         extractor: &dyn crate::prefix::PrefixExtractor,
