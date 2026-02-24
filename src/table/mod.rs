@@ -759,8 +759,8 @@ impl Table {
             std::ops::Bound::Unbounded => None,
         };
 
-        let start_pref = start_key.and_then(|k| extractor.extract(k).next());
-        let end_pref = end_key.and_then(|k| extractor.extract(k).next());
+        let start_pref = start_key.and_then(|k| extractor.extract_first(k));
+        let end_pref = end_key.and_then(|k| extractor.extract_first(k));
 
         if let (Some(sp), Some(ep)) = (start_pref, end_pref) {
             if sp == ep {
@@ -774,7 +774,7 @@ impl Table {
         }
 
         if let Some(sp) = start_pref {
-            if let Some(mp) = extractor.extract(self.min_key().as_ref()).next() {
+            if let Some(mp) = extractor.extract_first(self.min_key().as_ref()) {
                 if sp == mp {
                     if let Some(sk) = start_key {
                         if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
