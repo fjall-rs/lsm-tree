@@ -81,6 +81,9 @@ pub trait PrefixExtractor:
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a>;
 
     /// Extracts the first prefix from a key.
+    ///
+    /// By default, this is derived from `extract`, meaning it is equivalent to `extract(key).next()`,
+    /// however it can overridden to skip the Box allocation of `extract`.
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
         self.extract(key).next()
     }
