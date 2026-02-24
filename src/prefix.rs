@@ -83,7 +83,7 @@ pub trait PrefixExtractor:
     /// Extracts the first prefix from a key.
     ///
     /// By default, this is derived from `extract`, meaning it is equivalent to `extract(key).next()`,
-    /// however it can be overridden to skip the Box allocation of `extract`.
+    /// however it can be overridden to skip the Box allocation of `extract` in some cases.
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
         self.extract(key).next()
     }
