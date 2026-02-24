@@ -45,13 +45,13 @@ impl RunReader {
         let common_prefix = if let Some(ex) = extractor.as_ref() {
             let start_first = match range.start_bound() {
                 Bound::Included(uk) | Bound::Excluded(uk) => {
-                    ex.extract(uk.as_ref()).next().map(<[u8]>::to_vec)
+                    ex.extract_first(uk.as_ref()).map(<[u8]>::to_vec)
                 }
                 Bound::Unbounded => None,
             };
             let end_first = match range.end_bound() {
                 Bound::Included(uk) | Bound::Excluded(uk) => {
-                    ex.extract(uk.as_ref()).next().map(<[u8]>::to_vec)
+                    ex.extract_first(uk.as_ref()).map(<[u8]>::to_vec)
                 }
                 Bound::Unbounded => None,
             };

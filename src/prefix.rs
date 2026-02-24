@@ -31,8 +31,8 @@ use std::sync::Arc;
 ///
 /// let ex = FixedPrefixExtractor(3);
 /// assert_eq!(ex.name(), "fixed_prefix");
-/// assert_eq!(ex.extract(b"abcdef").next(), Some(b"abc".as_ref()));
-/// assert_eq!(ex.extract(b"ab").next(), Some(b"ab".as_ref()));
+/// assert_eq!(ex.extract_first(b"abcdef"), Some(b"abc".as_ref()));
+/// assert_eq!(ex.extract_first(b"ab"), Some(b"ab".as_ref()));
 /// ```
 ///
 /// ## Segmented prefixes (e.g., `account_id#user_id)`
@@ -80,6 +80,11 @@ pub trait PrefixExtractor:
     /// An empty iterator means the key is "out of domain" and won't be added to the filter.
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a>;
 
+    /// Extracts the first prefix from a key.
+    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        self.extract(key).next()
+    }
+
     /// Returns a unique name for this prefix extractor.
     fn name(&self) -> &str;
 }
@@ -93,6 +98,10 @@ pub struct FullKeyExtractor;
 impl PrefixExtractor for FullKeyExtractor {
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
         Box::new(std::iter::once(key))
+    }
+
+    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
+        Some(key)
     }
 
     fn name(&self) -> &'static str {
@@ -121,13 +130,14 @@ impl FixedPrefixExtractor {
 
 impl PrefixExtractor for FixedPrefixExtractor {
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        Box::new(self.extract_first(key).into_iter())
+    }
+
+    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
         if key.len() <= self.length {
-            Box::new(std::iter::once(key))
+            Some(key)
         } else {
-            Box::new(std::iter::once(
-                key.get(..self.length)
-                    .expect("prefix slice should be in bounds"),
-            ))
+            key.get(..self.length)
         }
     }
 
@@ -159,18 +169,22 @@ impl FixedLengthExtractor {
 
 impl PrefixExtractor for FixedLengthExtractor {
     fn extract<'a>(&self, key: &'a [u8]) -> Box<dyn Iterator<Item = &'a [u8]> + 'a> {
+        Box::new(self.extract_first(key).into_iter())
+    }
+
+    fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
         if key.len() < self.length {
             // Key is too short - out of domain
-            Box::new(std::iter::empty())
+            None
         } else {
             #[expect(
                 clippy::expect_used,
                 reason = "key.len() >= self.length is checked above"
             )]
-            Box::new(std::iter::once(
+            Some(
                 key.get(..self.length)
                     .expect("prefix slice should be in bounds"),
-            ))
+            )
         }
     }
 
