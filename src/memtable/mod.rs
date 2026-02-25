@@ -98,7 +98,7 @@ impl Memtable {
         // NOTE: This range start deserves some explanation...
         // InternalKeys are multi-sorted by 2 categories: user_key and Reverse(seqno). (tombstone doesn't really matter)
         // We search for the lowest entry that is greater or equal the user's prefix key
-        // and has the seqno (or lower) we want  (because the seqno is stored in reverse order)
+        // and has the seqno (or lower) we want (because the seqno is stored in reverse order)
         //
         // Example: We search for "abc"
         //
