@@ -983,7 +983,7 @@ impl Tree {
 
         let inner = TreeInner {
             id: tree_id,
-            memtable_id_counter: SequenceNumberCounter::default(),
+            memtable_id_counter: SequenceNumberCounter::new(1),
             table_id_counter: SequenceNumberCounter::new(highest_table_id + 1),
             blob_file_id_counter: SequenceNumberCounter::default(),
             version_history: Arc::new(RwLock::new(SuperVersions::new(version))),
