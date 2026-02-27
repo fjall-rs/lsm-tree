@@ -926,16 +926,6 @@ impl Tree {
 
         log::info!("Recovering LSM-tree at {}", config.path.display());
 
-        // let manifest = {
-        //     let manifest_path = config.path.join(MANIFEST_FILE);
-        //     let reader = sfa::Reader::new(&manifest_path)?;
-        //     Manifest::decode_from(&manifest_path, &reader)?
-        // };
-
-        // if manifest.version != FormatVersion::V3 {
-        //     return Err(crate::Error::InvalidVersion(manifest.version.into()));
-        // }
-
         let tree_id = get_next_tree_id();
 
         #[cfg(feature = "metrics")]
