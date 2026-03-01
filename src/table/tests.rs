@@ -1430,6 +1430,87 @@ fn table_global_seqno() -> crate::Result<()> {
     Ok(())
 }
 
+/// Exercises the partition spill inside `PartitionedFilterWriter::register_bytes`.
+/// With a prefix extractor, prefix hashes are registered via `register_bytes`
+/// rather than `register_key`. Using a tiny partition size (1 byte) forces the
+/// filter to spill after every prefix hash.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_partitioned_prefix_filter_spills_during_register_bytes() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table_partitioned_prefix_spill");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()))
+        .use_partitioned_filter()
+        .use_meta_partition_size(1); // Force spills on every prefix hash
+
+    for p in [b"aaa", b"bbb", b"ccc", b"ddd"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Verify the filter was built as a partitioned filter (has a top-level index)
+    assert!(
+        table.pinned_filter_index.is_some(),
+        "expected partitioned filter with top-level index",
+    );
+
+    // Verify data is still readable through the prefix filter.
+    // With a prefix extractor, the filter contains prefix hashes (not full-key
+    // hashes), so we probe via maybe_contains_prefix rather than get().
+    assert_eq!(
+        Some(true),
+        table.maybe_contains_prefix(b"aaa0000", ex.as_ref())?,
+    );
+    assert_eq!(
+        Some(true),
+        table.maybe_contains_prefix(b"ddd0019", ex.as_ref())?,
+    );
+    // Prefix "zzz" was never written — the filter should reject it
+    assert_eq!(
+        Some(false),
+        table.maybe_contains_prefix(b"zzz0000", ex.as_ref())?,
+    );
+
+    // Also verify actual data reads bypass the filter successfully
+    assert!(table.point_read(b"aaa0000", SeqNo::MAX)?.is_some());
+    assert!(table.point_read(b"ddd0019", SeqNo::MAX)?.is_some());
+    assert!(table.point_read(b"zzz0000", SeqNo::MAX)?.is_none());
+
+    Ok(())
+}
+
 #[test]
 #[expect(clippy::unwrap_used)]
 fn table_should_skip_range_by_prefix_filter() -> crate::Result<()> {
