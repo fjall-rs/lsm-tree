@@ -180,6 +180,10 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
         Ok(())
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "last_key is always set by notify_key before register_bytes is called"
+    )]
     fn register_bytes(&mut self, bytes: &[u8]) -> crate::Result<()> {
         self.bloom_hash_buffer.push(Builder::get_hash(bytes));
 
@@ -188,11 +192,11 @@ impl<W: std::io::Write + std::io::Seek> FilterWriter<W> for PartitionedFilterWri
             .estimated_filter_size(self.bloom_hash_buffer.len());
 
         if self.approx_filter_size >= self.partition_size as usize {
-            // last_key is set by either register_key or notify_key.
-            // It should always be set before register_bytes is called.
-            if let Some(key) = self.last_key.clone() {
-                self.spill_filter_partition(&key)?;
-            }
+            let key = self
+                .last_key
+                .clone()
+                .expect("last_key should be set by notify_key before register_bytes is called");
+            self.spill_filter_partition(&key)?;
         }
 
         Ok(())
