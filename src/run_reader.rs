@@ -960,6 +960,7 @@ mod tests {
         /// During backward iteration, after the hi reader (T3) is exhausted,
         /// the inner loop must skip T2 and T1 (both lack "mmm"), decrementing
         /// hi all the way down to lo — exercising the `hi <= lo` break.
+        #[cfg_attr(coverage_nightly, coverage(off))]
         fn create_run_for_backward_hi_meets_lo(
         ) -> crate::Result<(tempfile::TempDir, Arc<Run<Table>>, SharedPrefixExtractor)> {
             use crate::config::{BloomConstructionPolicy, FilterPolicy, FilterPolicyEntry};
