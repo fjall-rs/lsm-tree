@@ -7,7 +7,7 @@ use std::iter::Peekable;
 
 type Item = crate::Result<InternalValue>;
 
-/// A callback that receives all expired KVs
+/// A callback that receives all dropped KVs
 ///
 /// Used for counting blobs that are not referenced anymore because of
 /// vHandles that are being dropped through compaction.
@@ -97,7 +97,7 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I,
         self
     }
 
-    /// Installs a callback that receives all expired KVs.
+    /// Installs a callback that receives all dropped KVs.
     pub fn with_drop_callback(mut self, cb: &'a mut dyn DroppedKvCallback) -> Self {
         self.dropped_callback = Some(cb);
         self
