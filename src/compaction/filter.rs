@@ -60,6 +60,10 @@ pub trait CompactionFilter: Send {
     // fn on_table_cut(&mut self, ctx: ...) {}
 
     /// Called when compaction is finished.
+    ///
+    /// # Panicking
+    ///
+    /// This function should NOT panic.
     fn finish(self: Box<Self>) {}
 }
 
