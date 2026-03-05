@@ -4,6 +4,7 @@ use crate::{
     HashMap,
 };
 
+// TODO: MSRV: [1.91] Replace with BTreeMap + extract_if
 #[derive(Clone, Default)]
 pub struct BlobFileList(HashMap<BlobFileId, BlobFile>);
 
@@ -44,6 +45,7 @@ impl BlobFileList {
         self.0.remove(&key)
     }
 
+    /// Visits all blob files in no particular order.
     pub fn iter(&self) -> impl Iterator<Item = &BlobFile> {
         self.0.values()
     }
