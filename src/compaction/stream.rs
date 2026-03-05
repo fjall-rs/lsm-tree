@@ -103,7 +103,7 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I,
         self
     }
 
-    /// NOTE: Convert sequence number to zero if it is below the snapshot watermark.
+    /// Sets sequence numbers to zero if they are below the snapshot watermark.
     ///
     /// This can save a lot of space, because "0" only takes 1 byte, and sequence numbers are monotonically increasing.
     pub fn zero_seqnos(mut self, b: bool) -> Self {
