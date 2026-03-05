@@ -231,12 +231,13 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             self.blob_writer.insert(writer)
         };
 
+        let blob_file_id = writer.blob_file_id();
         let offset = writer.offset();
         let on_disk_size = writer.write(&prev_key.user_key, prev_key.seqno, &new_value)?;
 
         let indirection = BlobIndirection {
             vhandle: ValueHandle {
-                blob_file_id: writer.blob_file_id(),
+                blob_file_id,
                 offset,
                 on_disk_size,
             },
