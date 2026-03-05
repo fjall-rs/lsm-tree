@@ -121,8 +121,11 @@ pub fn recover(folder: &Path) -> crate::Result<Recovery> {
             blob_file_ids.push((id, checksum));
         }
 
+        blob_file_ids.sort_by_key(|(id, _)| *id);
         blob_file_ids
     };
+
+    debug_assert!(blob_file_ids.is_sorted_by_key(|(id, _)| id));
 
     let gc_stats = {
         let mut reader = toc
