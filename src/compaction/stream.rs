@@ -291,8 +291,8 @@ mod tests {
 
         assert_eq!(
             [
-                InternalValue::from_components("a", "", 998, ValueType::Value),
-                InternalValue::from_components("a", "", 997, ValueType::Value),
+                InternalValue::from_components("a", "", 998, ValueType::Tombstone),
+                InternalValue::from_components("a", "", 997, ValueType::Tombstone),
             ],
             &*my_watcher.items,
         );
