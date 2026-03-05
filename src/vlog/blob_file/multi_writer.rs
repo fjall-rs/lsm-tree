@@ -195,6 +195,8 @@ impl MultiWriter {
 
     /// Writes an item.
     ///
+    /// Returns the number of bytes written to disk.
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
