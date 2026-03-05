@@ -307,11 +307,11 @@ fn pick_blob_files_to_rewrite(
     Ok(linked_blob_files.into_iter().cloned().collect::<Vec<_>>())
 }
 
-fn hidden_guard(
+fn hidden_guard<T>(
     payload: &CompactionPayload,
     opts: &Options,
-    f: impl FnOnce() -> crate::Result<()>,
-) -> crate::Result<()> {
+    f: impl FnOnce() -> crate::Result<T>,
+) -> crate::Result<T> {
     f().inspect_err(|e| {
         log::error!("Compaction failed: {e:?}");
 
@@ -512,10 +512,12 @@ fn merge_tables(
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
-    let extra_blob_files = filter_blob_writer
-        .map(BlobFileWriter::finish)
-        .transpose()?
-        .unwrap_or_default();
+    let extra_blob_files = hidden_guard(payload, opts, || {
+        Ok(filter_blob_writer
+            .map(BlobFileWriter::finish)
+            .transpose()?
+            .unwrap_or_default())
+    })?;
 
     compactor
         .finish(
