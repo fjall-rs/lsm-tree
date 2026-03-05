@@ -235,8 +235,11 @@ impl<'a, 'b: 'a> StreamFilterAdapter<'a, 'b> {
             self.blob_writer.insert(writer)
         };
 
+        // IMPORTANT: Get offset + blob file ID BEFORE writing
+        // because writer may rotate to new blob file
         let blob_file_id = writer.blob_file_id();
         let offset = writer.offset();
+
         let on_disk_size = writer.write(&prev_key.user_key, prev_key.seqno, &new_value)?;
 
         let indirection = BlobIndirection {
