@@ -80,7 +80,7 @@ impl<I: Iterator<Item = Item>> CompactionStream<'_, I, NoFilter> {
 }
 
 impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> CompactionStream<'a, I, F> {
-    /// Installs a filter into this stream
+    /// Installs a filter into this stream.
     pub fn with_filter<NF: StreamFilter>(self, filter: NF) -> CompactionStream<'a, I, NF> {
         CompactionStream {
             inner: self.inner,
