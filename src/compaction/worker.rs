@@ -393,13 +393,15 @@ fn merge_tables(
 
     let filter_ctx = Context { is_last_level };
 
-    // construct the compaction filter
+    // Construct the compaction filter
     let mut compaction_filter = opts.config.compaction_filter_factory.as_ref().map(|f| {
         log::trace!("Installing custom compaction filter {:?}", f.name());
         f.make_filter(&filter_ctx)
     });
 
-    // this is used by the compaction filter if it wants to write new blobs
+    // This is used by the compaction filter if it wants to write new blobs
+    // TODO: the filter should really pipe new blobs into the compaction stream directly,
+    // TODO: but that will probably require to change the protocol between filter <-> compaction stream a bit
     let mut filter_blob_writer = None;
     let mut merge_iter = merge_iter.with_filter(StreamFilterAdapter::new(
         compaction_filter.as_deref_mut(),

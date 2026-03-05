@@ -26,13 +26,13 @@ pub enum StreamFilterVerdict {
     Drop,
 }
 
-/// A callback for modifying KVs in the stream.
+/// A callback for modifying KVs in the stream
 pub trait StreamFilter {
     /// Handle an item, possibly modifying it.
     fn filter_item(&mut self, item: &InternalValue) -> crate::Result<StreamFilterVerdict>;
 }
 
-/// A [`StreamFilter`] that does not modify anything.
+/// A [`StreamFilter`] that does not modify anything
 pub struct NoFilter;
 
 impl StreamFilter for NoFilter {
@@ -146,9 +146,9 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
 
             if !head.is_tombstone() {
                 match fail_iter!(self.filter.filter_item(&head)) {
-                    StreamFilterVerdict::Keep => { /* do nothing */ }
+                    StreamFilterVerdict::Keep => { /* Do nothing */ }
                     StreamFilterVerdict::Replace((new_type, new_value)) => {
-                        // if we are replacing this item's value, call the dropped callback for the previous item
+                        // If we are replacing this item's value, call the dropped callback for the previous item
                         if let Some(watcher) = &mut self.dropped_callback {
                             watcher.on_dropped(&head);
                         }
@@ -159,7 +159,8 @@ impl<'a, I: Iterator<Item = Item>, F: StreamFilter + 'a> Iterator for Compaction
                         if let Some(watcher) = &mut self.dropped_callback {
                             watcher.on_dropped(&head);
                         }
-                        // ignore
+
+                        // Ignore
                         continue;
                     }
                 }
