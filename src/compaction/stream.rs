@@ -51,7 +51,7 @@ pub struct CompactionStream<'a, I: Iterator<Item = Item>, F: StreamFilter = NoFi
     /// MVCC watermark to get rid of old versions
     gc_seqno_threshold: SeqNo,
 
-    /// Event emitter that receives all expired KVs
+    /// Event emitter that receives all dropped KVs
     dropped_callback: Option<&'a mut dyn DroppedKvCallback>,
 
     /// Stream filter
