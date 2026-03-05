@@ -512,12 +512,19 @@ fn merge_tables(
 
     log::trace!("Blob fragmentation diff: {blob_frag_map:#?}");
 
-    let extra_blob_files = hidden_guard(payload, opts, || {
-        Ok(filter_blob_writer
-            .map(BlobFileWriter::finish)
-            .transpose()?
-            .unwrap_or_default())
-    })?;
+    let extra_blob_files = filter_blob_writer
+        .map(BlobFileWriter::finish)
+        .transpose()
+        .inspect_err(|e| {
+            // NOTE: We cannot use hidden_guard here because we already locked the compaction state
+
+            log::error!("Compaction failed while finishing filter blob writer: {e:?}");
+
+            compaction_state
+                .hidden_set_mut()
+                .show(payload.table_ids.iter().copied());
+        })?
+        .unwrap_or_default();
 
     compactor
         .finish(
