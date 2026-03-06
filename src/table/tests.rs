@@ -1428,6 +1428,94 @@ fn table_global_seqno() -> crate::Result<()> {
     Ok(())
 }
 
+/// `get_without_filter` must apply the same `global_seqno` normalization as `Table::get`.
+///
+/// A table with `global_seqno = 7` stores entry "a1" at internal seqno 1
+/// (logical seqno = 1 + 7 = 8). Querying at seqno 8 should NOT see "a1"
+/// because `8 - 7 = 1` and the entry-level check `1 >= 1` filters it out.
+/// Before the fix, `get_without_filter` skipped normalization and would
+/// pass raw seqno 8 to `point_read`, where `1 >= 8` is false — incorrectly
+/// returning the entry.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_get_without_filter_applies_global_seqno() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a0", "a0", 0, Value),
+        InternalValue::from_components("a1", "a1", 1, Value),
+        InternalValue::from_components("b", "b", 8, Value),
+    ];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_gwf_global_seqno");
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+        .unwrap()
+        .use_partitioned_filter()
+        .use_data_block_size(1)
+        .use_meta_partition_size(1);
+
+    for item in items.iter().cloned() {
+        writer.write(item).unwrap();
+    }
+
+    let _trailer = writer.finish().unwrap();
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        7,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        Default::default(),
+    )
+    .unwrap();
+
+    // global_seqno is 7, so "a1" has logical seqno 1+7=8.
+    // Querying at seqno=8 should NOT return "a1" (normalized: 8-7=1, entry seqno 1 >= 1).
+    assert!(
+        table.get_without_filter(b"a1", 8)?.is_none(),
+        "a1 should be invisible at seqno 8 (logical seqno equals query seqno)",
+    );
+
+    // "a0" has logical seqno 0+7=7. Querying at seqno=8: normalized 8-7=1, entry seqno 0 < 1 → visible.
+    assert_eq!(b"a0", &*table.get_without_filter(b"a0", 8)?.unwrap().value,);
+
+    // "b" has logical seqno 8+7=15. Querying at seqno=8: normalized 1, entry seqno 8 >= 1 → invisible.
+    assert!(
+        table.get_without_filter(b"b", 8)?.is_none(),
+        "b should be invisible at seqno 8 (logical seqno 15 > 8)",
+    );
+
+    // Verify consistency: get_without_filter and get agree on every key.
+    for (key, seqno) in [
+        (b"a0" as &[u8], 8),
+        (b"a1", 8),
+        (b"b", 8),
+        (b"a0", 16),
+        (b"a1", 16),
+        (b"b", 16),
+    ] {
+        let hash = BloomBuilder::get_hash(key);
+        let with_filter = table.get(key, seqno, hash)?;
+        let without_filter = table.get_without_filter(key, seqno)?;
+        assert_eq!(
+            with_filter.as_ref().map(|v| &*v.value),
+            without_filter.as_ref().map(|v| &*v.value),
+            "get and get_without_filter must agree for key={:?} seqno={}",
+            std::str::from_utf8(key).unwrap_or("?"),
+            seqno,
+        );
+    }
+
+    Ok(())
+}
+
 /// Exercises the partition spill inside `PartitionedFilterWriter::register_bytes`.
 /// With a prefix extractor, prefix hashes are registered via `register_bytes`
 /// rather than `register_key`. Using a tiny partition size (1 byte) forces the

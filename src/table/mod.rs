@@ -303,6 +303,13 @@ impl Table {
         key: &[u8],
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
+        // Translate seqno to "our" seqno, same as Table::get
+        let seqno = seqno.saturating_sub(self.global_seqno());
+
+        if self.metadata.seqnos.0 >= seqno {
+            return Ok(None);
+        }
+
         self.point_read(key, seqno)
     }
 

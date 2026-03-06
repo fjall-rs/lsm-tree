@@ -214,9 +214,9 @@ struct FuzzInput {
 // ---------------------------------------------------------------------------
 
 fn collect_kv(iter: impl Iterator<Item = IterGuardImpl>) -> Vec<(Vec<u8>, Vec<u8>)> {
-    iter.filter_map(|g| {
-        let (k, v) = g.into_inner().ok()?;
-        Some((k.to_vec(), v.to_vec()))
+    iter.map(|g| {
+        let (k, v) = g.into_inner().expect("iterator item should be readable");
+        (k.to_vec(), v.to_vec())
     })
     .collect()
 }
@@ -478,8 +478,10 @@ fn run_oracle_test(
                         iter_without.next()
                     };
 
-                    let kv_with = item_with.and_then(|g| g.into_inner().ok());
-                    let kv_without = item_without.and_then(|g| g.into_inner().ok());
+                    let kv_with =
+                        item_with.map(|g| g.into_inner().expect("iter item should be readable"));
+                    let kv_without =
+                        item_without.map(|g| g.into_inner().expect("iter item should be readable"));
 
                     match (&kv_with, &kv_without) {
                         (Some((k1, v1)), Some((k2, v2))) => {
@@ -530,12 +532,14 @@ fn run_oracle_test(
             Op::FirstKV => {
                 let s1 = vis_with.get();
                 let s2 = vis_without.get();
-                let r1 = tree_with
-                    .first_key_value(s1, None)
-                    .and_then(|g| g.into_inner().ok());
-                let r2 = tree_without
-                    .first_key_value(s2, None)
-                    .and_then(|g| g.into_inner().ok());
+                let r1 = tree_with.first_key_value(s1, None).map(|g| {
+                    g.into_inner()
+                        .expect("first_key_value item should be readable")
+                });
+                let r2 = tree_without.first_key_value(s2, None).map(|g| {
+                    g.into_inner()
+                        .expect("first_key_value item should be readable")
+                });
                 match (&r1, &r2) {
                     (Some((k1, v1)), Some((k2, v2))) => {
                         assert_eq!(
@@ -554,12 +558,14 @@ fn run_oracle_test(
             Op::LastKV => {
                 let s1 = vis_with.get();
                 let s2 = vis_without.get();
-                let r1 = tree_with
-                    .last_key_value(s1, None)
-                    .and_then(|g| g.into_inner().ok());
-                let r2 = tree_without
-                    .last_key_value(s2, None)
-                    .and_then(|g| g.into_inner().ok());
+                let r1 = tree_with.last_key_value(s1, None).map(|g| {
+                    g.into_inner()
+                        .expect("last_key_value item should be readable")
+                });
+                let r2 = tree_without.last_key_value(s2, None).map(|g| {
+                    g.into_inner()
+                        .expect("last_key_value item should be readable")
+                });
                 match (&r1, &r2) {
                     (Some((k1, v1)), Some((k2, v2))) => {
                         assert_eq!(
