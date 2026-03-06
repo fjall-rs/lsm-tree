@@ -115,13 +115,7 @@ mod tests {
         let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
             .use_target_size(u64::MAX);
 
-        let offset = writer.offset();
-        let on_disk_size = writer.write(b"a", 0, b"abcdef")?;
-        let handle = ValueHandle {
-            blob_file_id: 0,
-            offset,
-            on_disk_size,
-        };
+        let handle = writer.write(b"a", 0, b"abcdef")?;
 
         let blob_file = writer.finish()?;
         let blob_file = blob_file.first().unwrap();

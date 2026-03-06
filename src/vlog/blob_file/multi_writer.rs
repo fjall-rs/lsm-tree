@@ -7,7 +7,7 @@ use crate::{
     file_accessor::FileAccessor,
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
-        BlobFileId,
+        BlobFileId, ValueHandle,
     },
     BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
@@ -97,12 +97,12 @@ impl MultiWriter {
     }
 
     #[must_use]
-    pub fn offset(&self) -> u64 {
+    fn offset(&self) -> u64 {
         self.active_writer.offset()
     }
 
     #[must_use]
-    pub fn blob_file_id(&self) -> BlobFileId {
+    fn blob_file_id(&self) -> BlobFileId {
         self.active_writer.blob_file_id()
     }
 
@@ -200,19 +200,27 @@ impl MultiWriter {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
-    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
+    pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<ValueHandle> {
         let target_size = self.target_size;
 
         // Write actual value into blob file
         let writer = &mut self.active_writer;
-        let bytes_written = writer.write(key, seqno, value)?;
+
+        let offset = writer.offset();
+        let on_disk_value_len = writer.write(key, seqno, value)?;
+
+        let handle = ValueHandle {
+            blob_file_id: writer.blob_file_id(),
+            offset,
+            on_disk_size: on_disk_value_len,
+        };
 
         // Check for blob file size target, maybe rotate to next writer
         if writer.offset() >= target_size {
             self.rotate()?;
         }
 
-        Ok(bytes_written)
+        Ok(handle)
     }
 
     pub(crate) fn write_raw(
@@ -221,19 +229,27 @@ impl MultiWriter {
         seqno: SeqNo,
         value: &[u8],
         uncompressed_len: u32,
-    ) -> crate::Result<u32> {
+    ) -> crate::Result<ValueHandle> {
         let target_size = self.target_size;
 
         // Write actual value into blob file
         let writer = &mut self.active_writer;
-        let bytes_written = writer.write_raw(key, seqno, value, uncompressed_len)?;
+
+        let offset = writer.offset();
+        let on_disk_value_len = writer.write_raw(key, seqno, value, uncompressed_len)?;
+
+        let handle = ValueHandle {
+            blob_file_id: writer.blob_file_id(),
+            offset,
+            on_disk_size: on_disk_value_len,
+        };
 
         // Check for blob file size target, maybe rotate to next writer
         if writer.offset() >= target_size {
             self.rotate()?;
         }
 
-        Ok(bytes_written)
+        Ok(handle)
     }
 
     pub(crate) fn finish(mut self) -> crate::Result<Vec<BlobFile>> {

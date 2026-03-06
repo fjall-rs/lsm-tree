@@ -17,7 +17,7 @@ use crate::{
     tree::inner::MemtableId,
     value::InternalValue,
     version::Version,
-    vlog::{Accessor, BlobFile, BlobFileWriter, ValueHandle},
+    vlog::{Accessor, BlobFile, BlobFileWriter},
     Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
@@ -431,16 +431,10 @@ impl AbstractTree for BlobTree {
             let value_size = value.len() as u32;
 
             if value_size >= separation_threshold {
-                let offset = blob_writer.offset();
-                let blob_file_id = blob_writer.blob_file_id();
-                let on_disk_size = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
+                let vhandle = blob_writer.write(&item.key.user_key, item.key.seqno, &value)?;
 
                 let indirection = BlobIndirection {
-                    vhandle: ValueHandle {
-                        blob_file_id,
-                        offset,
-                        on_disk_size,
-                    },
+                    vhandle,
                     size: value_size,
                 };
 

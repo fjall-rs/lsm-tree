@@ -212,17 +212,16 @@ impl CompactionFlavour for RelocatingCompaction {
                     blob_file_id,
                 );
 
-                indirection.vhandle.blob_file_id = self.blob_writer.blob_file_id();
-                indirection.vhandle.offset = self.blob_writer.offset();
-
                 log::trace!("RELOCATE to {indirection:?}");
 
-                self.blob_writer.write_raw(
+                let handle = self.blob_writer.write_raw(
                     &item.key.user_key,
                     item.key.seqno,
                     &blob_entry.value,
                     blob_entry.uncompressed_len,
                 )?;
+                indirection.vhandle.blob_file_id = handle.blob_file_id;
+                indirection.vhandle.offset = handle.offset;
 
                 self.inner
                     .table_writer
