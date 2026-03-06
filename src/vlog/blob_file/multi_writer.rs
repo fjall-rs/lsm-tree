@@ -185,7 +185,7 @@ impl MultiWriter {
 
     /// Writes an item.
     ///
-    /// ReturnsReturns the [`ValueHandle`] of the written blob.
+    /// Returns the [`ValueHandle`] of the written blob.
     ///
     /// # Errors
     ///
