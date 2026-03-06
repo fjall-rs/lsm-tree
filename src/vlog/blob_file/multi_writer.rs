@@ -96,16 +96,6 @@ impl MultiWriter {
         self
     }
 
-    #[must_use]
-    fn offset(&self) -> u64 {
-        self.active_writer.offset()
-    }
-
-    #[must_use]
-    fn blob_file_id(&self) -> BlobFileId {
-        self.active_writer.blob_file_id()
-    }
-
     /// Sets up a new writer for the next blob file.
     fn rotate(&mut self) -> crate::Result<()> {
         log::debug!("Rotating blob file writer");
