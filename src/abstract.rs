@@ -511,6 +511,35 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
+    /// Returns `true` if the tree contains any key with the specified prefix.
+    ///
+    /// This is more efficient than using `.prefix().next().is_some()` because it avoids
+    /// setting up a full merge iterator and returns as soon as any matching key is found.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// # use lsm_tree::{AbstractTree, Config, Tree};
+    /// #
+    /// let tree = Config::new(folder, Default::default()).open()?;
+    /// assert!(!tree.contains_prefix("prefix", 0)?);
+    ///
+    /// tree.insert("prefix:key1", "value1", 0);
+    /// tree.insert("prefix:key2", "value2", 1);
+    /// tree.insert("other", "value3", 2);
+    ///
+    /// assert!(tree.contains_prefix("prefix", 3)?);
+    /// assert!(!tree.contains_prefix("nonexistent", 3)?);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn contains_prefix<K: AsRef<[u8]>>(&self, prefix: K, seqno: SeqNo) -> crate::Result<bool>;
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.
