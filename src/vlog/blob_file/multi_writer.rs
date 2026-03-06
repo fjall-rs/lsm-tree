@@ -7,7 +7,7 @@ use crate::{
     file_accessor::FileAccessor,
     vlog::{
         blob_file::{Inner as BlobFileInner, Metadata},
-        BlobFileId, ValueHandle,
+        ValueHandle,
     },
     BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
@@ -185,7 +185,7 @@ impl MultiWriter {
 
     /// Writes an item.
     ///
-    /// Returns the number of bytes written to disk.
+    /// ReturnsReturns the [`ValueHandle`] of the written blob.
     ///
     /// # Errors
     ///
