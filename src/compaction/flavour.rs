@@ -168,7 +168,7 @@ impl CompactionFlavour for RelocatingCompaction {
         if item.key.value_type.is_indirection() {
             let mut reader = &item.value[..];
 
-            let Ok(mut indirection) = BlobIndirection::decode_from(&mut reader) else {
+            let Ok(indirection) = BlobIndirection::decode_from(&mut reader) else {
                 log::error!("Failed to deserialize blob indirection: {item:?}");
                 return Ok(());
             };
@@ -179,7 +179,7 @@ impl CompactionFlavour for RelocatingCompaction {
                 item.key.seqno,
             );
 
-            if self
+            let indirection = if self
                 .rewriting_blob_file_ids
                 .contains(&indirection.vhandle.blob_file_id)
             {
@@ -212,32 +212,41 @@ impl CompactionFlavour for RelocatingCompaction {
                     blob_file_id,
                 );
 
-                indirection.vhandle.blob_file_id = self.blob_writer.blob_file_id();
-                indirection.vhandle.offset = self.blob_writer.offset();
-
                 log::trace!("RELOCATE to {indirection:?}");
 
-                self.blob_writer.write_raw(
-                    &item.key.user_key,
-                    item.key.seqno,
-                    &blob_entry.value,
-                    blob_entry.uncompressed_len,
-                )?;
+                let new_indirection = BlobIndirection {
+                    vhandle: self.blob_writer.write_raw(
+                        &item.key.user_key,
+                        item.key.seqno,
+                        &blob_entry.value,
+                        blob_entry.uncompressed_len,
+                    )?,
+                    size: indirection.size,
+                };
+
+                debug_assert_eq!(
+                    new_indirection.vhandle.on_disk_size, indirection.vhandle.on_disk_size,
+                    "redirecting blob should not change its size",
+                );
 
                 self.inner
                     .table_writer
                     .write(InternalValue::from_components(
                         item.key.user_key,
-                        indirection.encode_into_vec(),
+                        new_indirection.encode_into_vec(),
                         item.key.seqno,
                         crate::ValueType::Indirection,
                     ))?;
+
+                new_indirection
             } else {
                 // This blob is not part of the rewritten blob files
                 // So just pass it through
                 log::trace!("Pass through {indirection:?} because it is not being relocated");
                 self.inner.table_writer.write(item)?;
-            }
+
+                indirection
+            };
 
             self.inner.table_writer.register_blob(indirection);
         } else {
