@@ -3,12 +3,8 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::handle::BlobIndirection,
-    file::BLOBS_FOLDER,
-    table::Table,
-    tree::ingest::Ingestion as TableIngestion,
-    vlog::{BlobFileWriter, ValueHandle},
-    SeqNo, UserKey, UserValue,
+    blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table,
+    tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey, UserValue,
 };
 
 /// Bulk ingestion for [`BlobTree`]
@@ -86,16 +82,10 @@ impl<'a> BlobIngestion<'a> {
         let value_size = value.len() as u32;
 
         if value_size >= self.separation_threshold {
-            let offset = self.blob.offset();
-            let blob_file_id = self.blob.blob_file_id();
-            let on_disk_size = self.blob.write(&key, self.seqno, &value)?;
+            let vhandle = self.blob.write(&key, self.seqno, &value)?;
 
             let indirection = BlobIndirection {
-                vhandle: ValueHandle {
-                    blob_file_id,
-                    offset,
-                    on_disk_size,
-                },
+                vhandle,
                 size: value_size,
             };
 

@@ -88,8 +88,6 @@ impl Writer {
     }
 
     /// Returns the current offset in the file.
-    ///
-    /// This can be used to index an item into an external `Index`.
     #[must_use]
     pub(crate) fn offset(&self) -> u64 {
         self.offset

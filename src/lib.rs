@@ -67,7 +67,7 @@ macro_rules! unwrap {
 
 mod any_tree;
 
-mod r#abstract;
+mod abstract_tree;
 
 #[doc(hidden)]
 pub mod blob_tree;
@@ -174,6 +174,7 @@ pub use {
 };
 
 pub use {
+    abstract_tree::AbstractTree,
     any_tree::AnyTree,
     blob_tree::BlobTree,
     cache::Cache,
@@ -185,7 +186,6 @@ pub use {
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},
-    r#abstract::AbstractTree,
     seqno::SequenceNumberCounter,
     slice::Slice,
     tree::Tree,

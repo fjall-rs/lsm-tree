@@ -26,8 +26,8 @@ pub const NAME: &str = "FifoCompaction";
 /// Only use it for specific workloads where:
 ///
 /// 1) You only want to store recent data (unimportant logs, ...)
-/// 2) Your keyspace grows monotonically (e.g. time series)
-/// 3) You only insert new data (no updates)
+/// 2) The key order of inserts is strictly monotonically increasing or decreasing
+/// 3) You only insert new data (no updates/deletes)
 #[derive(Clone)]
 pub struct Strategy {
     /// Data set size limit in bytes

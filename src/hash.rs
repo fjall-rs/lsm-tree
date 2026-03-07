@@ -1,7 +1,9 @@
+/// Generates a 64-bit hash using xxh3.
 pub fn hash64(bytes: &[u8]) -> u64 {
     xxhash_rust::xxh3::xxh3_64(bytes)
 }
 
+/// Generates a 128-bit hash using xxh3.
 pub fn hash128(bytes: &[u8]) -> u128 {
     xxhash_rust::xxh3::xxh3_128(bytes)
 }

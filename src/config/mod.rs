@@ -20,8 +20,9 @@ pub use restart_interval::RestartIntervalPolicy;
 pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
-    path::absolute_path, prefix::SharedPrefixExtractor, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    compaction::filter::Factory as CompactionFilterFactory, path::absolute_path,
+    prefix::SharedPrefixExtractor, version::DEFAULT_LEVEL_COUNT, AnyTree, BlobTree, Cache,
+    CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -231,6 +232,9 @@ pub struct Config {
     /// to filters and persist the extractor name in table metadata for compatibility checks.
     pub prefix_extractor: Option<SharedPrefixExtractor>,
 
+    /// Compaction filter factory
+    pub compaction_filter_factory: Option<Arc<dyn CompactionFilterFactory>>,
+
     #[doc(hidden)]
     pub kv_separation_opts: Option<KvSeparationOptions>,
 
@@ -292,6 +296,8 @@ impl Default for Config {
             )),
 
             prefix_extractor: None,
+
+            compaction_filter_factory: None,
 
             expect_point_read_hits: false,
 
@@ -467,6 +473,16 @@ impl Config {
     #[must_use]
     pub fn with_kv_separation(mut self, opts: Option<KvSeparationOptions>) -> Self {
         self.kv_separation_opts = opts;
+        self
+    }
+
+    /// Installs a custom compaction filter.
+    #[must_use]
+    pub fn with_compaction_filter_factory(
+        mut self,
+        factory: Option<Arc<dyn CompactionFilterFactory>>,
+    ) -> Self {
+        self.compaction_filter_factory = factory;
         self
     }
 
