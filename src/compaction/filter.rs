@@ -17,9 +17,10 @@ use std::{panic::RefUnwindSafe, path::Path};
 
 /// Verdict returned by a [`CompactionFilter`].
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Verdict {
     /// Keeps the item.
+    #[default]
     Keep,
 
     /// Removes the item.
