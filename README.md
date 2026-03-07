@@ -5,7 +5,7 @@
 [![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
-![MSRV](https://img.shields.io/badge/MSRV-1.91.0-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.90.0-blue)
 [![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
@@ -33,6 +33,7 @@ This is the most feature-rich LSM-tree implementation in Rust! It features:
 - Leveled and FIFO compaction
 - Optional key-value separation for large value workloads [[2]](#footnotes), with automatic garbage collection
 - Single deletion tombstones ("weak" deletion)
+- Optional compaction filters to run custom logic during compactions
 
 Keys are limited to 65536 bytes, values are limited to 2^32 bytes.
 As is normal with any kind of storage engine, larger keys and values have a bigger performance impact.
