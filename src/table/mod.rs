@@ -277,13 +277,13 @@ impl Table {
             None
         };
 
-        if let Some(filter_block) = filter_block {
-            #[cfg(feature = "metrics")]
-            self.metrics.filter_queries.fetch_add(1, Relaxed);
-
+        if let Some(filter_block) = &filter_block {
             if !filter_block.maybe_contains_hash(key_hash)? {
                 #[cfg(feature = "metrics")]
-                self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                {
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
+                    self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                }
 
                 return Ok(None);
             }
@@ -298,9 +298,13 @@ impl Table {
 
         #[cfg(feature = "metrics")]
         {
+            // NOTE: Only increment the filter queries when the filter reported a miss
+            // and we actually waste an I/O for a non-existing item.
+            // Otherwise, the filter efficiency decreases whenever an item is hit.
+            // https://github.com/fjall-rs/lsm-tree/issues/246
             item.inspect(|maybe_kv| {
-                if maybe_kv.is_some() {
-                    self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                if maybe_kv.is_none() && filter_block.is_some() {
+                    self.metrics.filter_queries.fetch_add(1, Relaxed);
                 }
             })
         }
