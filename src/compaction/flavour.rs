@@ -168,10 +168,9 @@ impl CompactionFlavour for RelocatingCompaction {
         if item.key.value_type.is_indirection() {
             let mut reader = &item.value[..];
 
-            let Ok(indirection) = BlobIndirection::decode_from(&mut reader) else {
-                log::error!("Failed to deserialize blob indirection: {item:?}");
-                return Ok(());
-            };
+            let indirection = BlobIndirection::decode_from(&mut reader).inspect_err(|e| {
+                log::error!("Failed to deserialize blob indirection {item:?}: {e:?}");
+            })?;
 
             log::trace!(
                 "{:?}:{} => encountered indirection: {indirection:?}",
