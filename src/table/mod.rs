@@ -289,7 +289,21 @@ impl Table {
             }
         }
 
-        self.point_read(key, seqno)
+        let item = self.point_read(key, seqno);
+
+        #[cfg(not(feature = "metrics"))]
+        {
+            item
+        }
+
+        #[cfg(feature = "metrics")]
+        {
+            item.inspect(|maybe_kv| {
+                if maybe_kv.is_some() {
+                    self.metrics.io_skipped_by_filter.fetch_add(1, Relaxed);
+                }
+            })
+        }
     }
 
     // TODO: maybe we can skip Fuse costs of the user key

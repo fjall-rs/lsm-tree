@@ -51,3 +51,38 @@ fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test_log::test]
+#[cfg(feature = "metrics")]
+fn tree_filter_hit_rate_hit() -> lsm_tree::Result<()> {
+    use lsm_tree::{
+        get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+    };
+
+    let folder = get_tmp_folder();
+    let path = folder.path();
+
+    let seqno = SequenceNumberCounter::default();
+
+    let tree = Config::new(path, seqno.clone(), SequenceNumberCounter::default()).open()?;
+
+    tree.insert("a", "a", 0);
+    tree.insert("c", "a", 0);
+    tree.flush_active_memtable(0)?;
+
+    assert!(tree.get("b", SeqNo::MAX)?.is_none());
+    assert_eq!(1, tree.metrics().filter_queries());
+    assert_eq!(1, tree.metrics().io_skipped_by_filter());
+    assert_eq!(1.0, tree.metrics().filter_efficiency());
+
+    assert!(tree.get("a", SeqNo::MAX)?.is_some());
+    assert_eq!(1.0, tree.metrics().filter_efficiency());
+
+    assert!(tree.get("a", SeqNo::MAX)?.is_some());
+    assert_eq!(1.0, tree.metrics().filter_efficiency());
+
+    assert!(tree.get("a", SeqNo::MAX)?.is_some());
+    assert_eq!(1.0, tree.metrics().filter_efficiency());
+
+    Ok(())
+}
