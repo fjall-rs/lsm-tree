@@ -212,7 +212,10 @@ impl ParsedMeta {
 
         let prefix_extractor_name = block
             .point_read(b"prefix_extractor", SeqNo::MAX)
-            .and_then(|v| String::from_utf8(v.value.to_vec()).ok());
+            .map(|v| {
+                String::from_utf8(v.value.to_vec()).map_err(|e| crate::Error::Utf8(e.utf8_error()))
+            })
+            .transpose()?;
 
         Ok(Self {
             id,

@@ -84,11 +84,21 @@ pub trait PrefixExtractor:
     ///
     /// By default, this is derived from `extract`, meaning it is equivalent to `extract(key).next()`,
     /// however it can be overridden to skip the Box allocation of `extract` in some cases.
+    ///
+    /// Implementations that override this method must remain semantically identical to
+    /// `self.extract(key).next()`: return `None` iff `extract` would yield no prefixes,
+    /// and otherwise return the same first prefix. Violating this invariant can cause
+    /// incorrect filter pruning during reads.
     fn extract_first<'a>(&self, key: &'a [u8]) -> Option<&'a [u8]> {
         self.extract(key).next()
     }
 
-    /// Returns a unique name for this prefix extractor.
+    /// Returns a stable compatibility identifier for this prefix extractor.
+    ///
+    /// This value is persisted in table metadata and compared on reopen to determine
+    /// whether the filter is compatible with the current extractor. It must change
+    /// whenever extraction behavior or any behavior-affecting parameter changes
+    /// (e.g. prefix length).
     fn name(&self) -> &str;
 }
 
