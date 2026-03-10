@@ -94,7 +94,7 @@ impl Table {
     /// prefix-aware filtering is allowed.
     pub(crate) fn prefix_filter_allowed(&self, current_extractor_name: Option<&str>) -> bool {
         match (
-            self.prefix_extractor_name.as_deref(),
+            self.metadata.prefix_extractor_name.as_deref(),
             current_extractor_name,
         ) {
             (Some(a), Some(b)) => a == b,
@@ -678,9 +678,6 @@ impl Table {
             file_path.display(),
         );
 
-        // Extract optional prefix extractor name for compatibility checks before moving metadata.
-        let recovered_prefix_extractor_name = metadata.prefix_extractor_name.clone();
-
         Ok(Self(Arc::new(Inner {
             path: file_path,
             tree_id,
@@ -697,8 +694,6 @@ impl Table {
             pinned_filter_index,
 
             pinned_filter_block,
-
-            prefix_extractor_name: recovered_prefix_extractor_name,
 
             is_deleted: AtomicBool::default(),
 
