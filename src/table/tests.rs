@@ -1718,3 +1718,75 @@ fn table_should_skip_range_by_prefix_filter() -> crate::Result<()> {
 
     Ok(())
 }
+
+/// A multi-prefix range (start and end prefixes differ) must never be skipped
+/// by the prefix filter, even when the start prefix matches the table's min key
+/// prefix. The table may contain keys under other prefixes that fall within the
+/// queried range.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_should_skip_range_multi_prefix_start_match_min_key() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table_multi_prefix_skip");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    // Build a table with keys in two prefixes: "aaa" (min key prefix) and "bbb".
+    // Use a tiny data block size and partition size so the two prefixes land in
+    // different filter partitions.
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()))
+        .use_partitioned_filter()
+        .use_data_block_size(1)
+        .use_meta_partition_size(1);
+
+    for p in [b"aaa", b"bbb"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Range: start = "aaa9999" (after all "aaa" keys), end = "ccc0000".
+    // start_pref = "aaa", end_pref = "ccc" → sp != ep (multi-prefix range).
+    // sp == table.min_key_prefix ("aaa") → enters the second optimization block.
+    // The filter partition for "aaa9999" may not contain hash("aaa") because no
+    // "aaa" keys exist near "aaa9999" — but "bbb" keys ARE in the table and in range.
+    // The table must NOT be skipped.
+    let range = (
+        std::ops::Bound::Included(b"aaa9999".to_vec()),
+        std::ops::Bound::Included(b"ccc0000".to_vec()),
+    );
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&range, ex.as_ref()),
+        "must NOT skip: table contains 'bbb' keys within the multi-prefix range"
+    );
+
+    Ok(())
+}
