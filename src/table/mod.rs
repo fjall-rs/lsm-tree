@@ -744,9 +744,7 @@ impl Table {
     ///
     /// Behavior:
     /// - If both bounds share the same extracted prefix, consult once using a bound key.
-    /// - If no common prefix, but the start bound's first extracted prefix matches this table's
-    ///   minimum key prefix, consult once using the start key.
-    /// - A definite negative (Ok(Some(false))) means the table can be skipped; otherwise do not skip.
+    ///   A definite negative (Ok(Some(false))) means the table can be skipped.
     /// - If the table's stored extractor is incompatible with the provided extractor, do not skip.
     pub(crate) fn should_skip_range_by_prefix_filter<K: AsRef<[u8]>, R: RangeBounds<K>>(
         &self,
@@ -777,18 +775,6 @@ impl Table {
                     }
                 }
                 return false;
-            }
-        }
-
-        if let Some(sp) = start_pref {
-            if let Some(mp) = extractor.extract_first(self.min_key().as_ref()) {
-                if sp == mp {
-                    if let Some(sk) = start_key {
-                        if matches!(self.probe_prefix_filter(sk, extractor), Ok(Some(false))) {
-                            return true;
-                        }
-                    }
-                }
             }
         }
 
