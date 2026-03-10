@@ -803,11 +803,6 @@ fn test_no_prefix_extractor() -> lsm_tree::Result<()> {
 
     tree.flush_active_memtable(0)?;
 
-    #[cfg(feature = "metrics")]
-    let initial_queries = tree.metrics().filter_queries();
-    #[cfg(feature = "metrics")]
-    let initial_hits = tree.metrics().io_skipped_by_filter();
-
     // All keys should be found (full key matching)
     for i in 0..100 {
         let key = format!("noprefix_{:04}", i);
@@ -816,19 +811,19 @@ fn test_no_prefix_extractor() -> lsm_tree::Result<()> {
 
     #[cfg(feature = "metrics")]
     {
-        let final_queries = tree.metrics().filter_queries();
-        let final_hits = tree.metrics().io_skipped_by_filter();
+        // Look up a key that does NOT exist but falls within the table's key
+        // range so the filter is actually consulted. Under the current metrics
+        // semantics (issue #246), filter_queries only increments when the filter
+        // definitively excludes a key or when the filter lets a key through but
+        // the key is not found (false positive / wasted I/O).
+        let initial_queries = tree.metrics().filter_queries();
 
-        // Should still have filter queries even without prefix extractor (uses full key)
+        assert!(!tree.contains_key(b"noprefix_0050x", u64::MAX)?);
+
+        let final_queries = tree.metrics().filter_queries();
         assert!(
             final_queries > initial_queries,
-            "filter queries should work without prefix extractor"
-        );
-
-        // All keys exist, so hits should not increase
-        assert_eq!(
-            final_hits, initial_hits,
-            "filter hits should not increase for existing keys"
+            "filter queries should increment for a missing key lookup"
         );
     }
 
