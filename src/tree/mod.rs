@@ -864,34 +864,26 @@ impl Tree {
         key_hash: u64,
     ) -> crate::Result<Option<InternalValue>> {
         // Determine compatibility of table's stored extractor with current config
-        let current = config.prefix_extractor.as_ref().map(|e| e.name());
-        let allow_filter = table.prefix_filter_allowed(current);
+        let allow_filter =
+            table.prefix_filter_allowed(config.prefix_extractor.as_ref().map(|e| e.name()));
 
-        // If prefix filtering is allowed and an extractor is configured, consult the
-        // prefix-aware filter first and skip on a definite negative.
         if allow_filter {
             if let Some(ex) = config.prefix_extractor.as_ref() {
+                // If prefix filtering is allowed and an extractor is configured, consult the
+                // prefix-aware filter first and skip on a definite negative.
                 if table.maybe_contains_prefix(key, ex.as_ref())? == Some(false) {
                     return Ok(None);
                 }
+            } else {
+                // No extractor configured: rely on full-key Bloom as usual.
+                return table.get(key, seqno, key_hash);
             }
         }
 
-        let item = if allow_filter {
-            if config.prefix_extractor.is_some() {
-                // Compatible extractor configured: we've consulted the prefix filter;
-                // bypass full-key Bloom.
-                table.get_without_filter(key, seqno)?
-            } else {
-                // No extractor configured: rely on full-key Bloom as usual.
-                table.get(key, seqno, key_hash)?
-            }
-        } else {
-            // Incompatible extractor or mismatch: never trust the filter.
-            table.get_without_filter(key, seqno)?
-        };
-
-        Ok(item)
+        // Either the prefix filter was already consulted (compatible extractor path),
+        // or the filter is not trustworthy (incompatible/missing extractor): skip
+        // full-key Bloom in both cases.
+        table.get_without_filter(key, seqno)
     }
 
     fn inner_compact(
