@@ -20,8 +20,10 @@ pub trait DroppedKvCallback {
 pub enum StreamFilterVerdict {
     /// Keep the item as is.
     Keep,
+
     /// Replace the item.
     Replace((ValueType, UserValue)),
+
     /// Drop the item without leaving a tombstone.
     Drop,
 }
