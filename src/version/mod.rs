@@ -507,7 +507,14 @@ impl Version {
 
             if level_idx == dest_level {
                 if let Some(run) = Run::new(new_tables.to_vec()) {
-                    runs.insert(0, run);
+                    if dest_level == 0 {
+                        // NOTE: For intra-L0 compaction, append the merged (older) run
+                        // so that any concurrently flushed (newer) runs remain at the front
+                        // and are searched first during point reads
+                        runs.push(run);
+                    } else {
+                        runs.insert(0, run);
+                    }
                 }
             }
 
