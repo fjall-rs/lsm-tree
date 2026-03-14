@@ -141,7 +141,12 @@ impl<'a> Reader<'a> {
 
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
-            CompressionType::None => raw_data,
+            CompressionType::None => {
+                if real_val_len != raw_data.len() {
+                    return Err(crate::Error::InvalidHeader("Blob"));
+                }
+                raw_data
+            }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
