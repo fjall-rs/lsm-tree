@@ -8,7 +8,7 @@ use crate::{
         block::{Decoder, ParsedItem},
         data_block::DataBlockParsedItem,
     },
-    InternalValue,
+    InternalValue, SeqNo,
 };
 
 /// The data block iterator handles double-ended scans over a data block
@@ -32,6 +32,17 @@ impl<'a> Iter<'a> {
     pub fn seek_to_offset(&mut self, offset: usize) -> bool {
         self.decoder.inner_mut().set_lo_offset(offset);
         true
+    }
+
+    /// Seeks to the restart interval containing the target (needle, seqno) pair.
+    ///
+    /// Exploits internal key ordering (user_key ASC, seqno DESC) to skip
+    /// restart intervals containing only versions newer than the target seqno.
+    pub fn seek_to_key_seqno(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.decoder.inner_mut().seek(
+            |head_key, head_seqno| head_key < needle || (head_key == needle && head_seqno >= seqno),
+            false,
+        )
     }
 
     pub fn seek(&mut self, needle: &[u8]) -> bool {
