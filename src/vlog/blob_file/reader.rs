@@ -56,7 +56,14 @@ impl<'a> Reader<'a> {
             });
         }
 
-        let value = crate::file::read_exact(self.file, vhandle.offset, total_read_size as usize)?;
+        let Ok(total_read_usize) = usize::try_from(total_read_size) else {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: total_read_size,
+                limit: usize::MAX as u64,
+            });
+        };
+
+        let value = crate::file::read_exact(self.file, vhandle.offset, total_read_usize)?;
 
         let mut reader = Cursor::new(&value[..]);
 

@@ -177,6 +177,16 @@ impl Block {
 
         let header = Header::decode_from(&mut &buf[..])?;
 
+        let actual_data_len = buf.len().saturating_sub(Header::serialized_len());
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "data_length is u32-length max"
+        )]
+        if header.data_length as usize != actual_data_len {
+            return Err(crate::Error::InvalidHeader("Block"));
+        }
+
         #[expect(clippy::indexing_slicing)]
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
 
@@ -286,8 +296,10 @@ mod tests {
         Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
 
         // Tamper the header: set uncompressed_length to u32::MAX.
-        // The block checksum only covers the compressed payload bytes, so changing
-        // this header field does not require updating any checksum; we just re-encode the header.
+        // The block checksum only covers the compressed payload bytes; it does not include
+        // header fields. The header itself has its own checksum, which we recompute below
+        // by re-encoding the modified header, so the tampered block remains internally
+        // consistent while exercising the DecompressedSizeTooLarge path.
         let mut reader = &buf[..];
         let mut header = Header::decode_from(&mut reader).unwrap();
         let compressed_payload: Vec<u8> = reader.to_vec();
