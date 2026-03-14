@@ -10,8 +10,9 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 
-/// Maximum allowed size for a blob record: caps both the on-disk read
-/// (header + key + value) and the decompressed blob value size (256 MiB).
+/// Maximum allowed size for a blob *value payload* after decompression
+/// (256 MiB). The actual on-disk read may include additional header and key
+/// bytes on top of this payload limit.
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
@@ -37,17 +38,18 @@ impl<'a> Reader<'a> {
 
         // Validate the full on-disk read size (header + key + value) against the limit.
         // Allow header+key overhead on top of the data cap.
+        let max_total_read_size = (MAX_DECOMPRESSION_SIZE as u64).saturating_add(add_size);
+
         let total_read_size = match u64::from(vhandle.on_disk_size).checked_add(add_size) {
             Some(size) => size,
             None => {
+                let attempted = u64::from(vhandle.on_disk_size).saturating_add(add_size);
                 return Err(crate::Error::DecompressedSizeTooLarge {
-                    declared: u64::from(vhandle.on_disk_size),
-                    limit: MAX_DECOMPRESSION_SIZE as u64,
+                    declared: attempted,
+                    limit: max_total_read_size,
                 });
             }
         };
-
-        let max_total_read_size = (MAX_DECOMPRESSION_SIZE as u64).saturating_add(add_size);
 
         if total_read_size > max_total_read_size {
             return Err(crate::Error::DecompressedSizeTooLarge {
