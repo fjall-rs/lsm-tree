@@ -171,11 +171,13 @@ impl SequenceNumberCounter {
 impl SequenceNumberGenerator for SequenceNumberCounter {
     #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     fn next(&self) -> SeqNo {
+        // NOTE: We use fetch_add (not a CAS loop) for performance. The internal
+        // counter may briefly hold a reserved-range value between the fetch_add
+        // and the assert, but this is acceptable because (a) the assert panics
+        // immediately, and (b) set/fetch_max enforce the boundary on input.
         let seqno = self.0.fetch_add(1, AcqRel);
 
-        // The MSB is reserved for transactions.
-        //
-        // This gives us 63-bit sequence numbers technically.
+        // The MSB is reserved for transactions, limiting us to 63-bit seqnos.
         assert!(seqno < 0x8000_0000_0000_0000, "Ran out of sequence numbers");
 
         seqno
