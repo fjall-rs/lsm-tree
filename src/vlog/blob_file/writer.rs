@@ -110,6 +110,20 @@ impl Writer {
         assert!(u16::try_from(key.len()).is_ok());
         assert!(u32::try_from(value.len()).is_ok());
 
+        // Compress before any state mutation or I/O, so a zstd failure
+        // doesn't leave a partial record in the writer.
+        let value = match &self.compression {
+            CompressionType::None => std::borrow::Cow::Borrowed(value),
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => std::borrow::Cow::Owned(
+                zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?,
+            ),
+        };
+
         if self.first_key.is_none() {
             self.first_key = Some(key.into());
         }
@@ -131,18 +145,6 @@ impl Writer {
 
         // Write header
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
-        let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
-
-            #[cfg(feature = "zstd")]
-            CompressionType::Zstd(level) => std::borrow::Cow::Owned(
-                zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?,
-            ),
-        };
 
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
