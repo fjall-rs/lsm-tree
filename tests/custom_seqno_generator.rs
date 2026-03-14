@@ -4,13 +4,10 @@
 
 use lsm_tree::{
     AbstractTree, Config, SeqNo, SequenceNumberCounter, SequenceNumberGenerator,
-    SharedSequenceNumberGenerator,
+    SharedSequenceNumberGenerator, MAX_SEQNO,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
-/// Reserved MSB boundary — sequence numbers must stay below this.
-const RESERVED_MSB: u64 = 0x8000_0000_0000_0000;
 
 /// A custom generator that starts from a configurable offset,
 /// proving the trait-object wiring works end-to-end.
@@ -23,7 +20,7 @@ struct OffsetGenerator {
 
 impl OffsetGenerator {
     fn new(start: u64) -> SharedSequenceNumberGenerator {
-        assert!(start < RESERVED_MSB, "start must be below reserved MSB");
+        assert!(start < MAX_SEQNO, "start must be below reserved MSB");
         Arc::new(Self {
             counter: AtomicU64::new(start),
         })
@@ -35,7 +32,7 @@ impl SequenceNumberGenerator for OffsetGenerator {
         match self
             .counter
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                if current >= RESERVED_MSB - 1 {
+                if current >= MAX_SEQNO - 1 {
                     None
                 } else {
                     Some(current + 1)
@@ -51,12 +48,12 @@ impl SequenceNumberGenerator for OffsetGenerator {
     }
 
     fn set(&self, value: SeqNo) {
-        assert!(value < RESERVED_MSB, "value must be below reserved MSB");
+        assert!(value < MAX_SEQNO, "value must be below reserved MSB");
         self.counter.store(value, Ordering::Release);
     }
 
     fn fetch_max(&self, value: SeqNo) {
-        let clamped = value.min(RESERVED_MSB - 1);
+        let clamped = value.min(MAX_SEQNO - 1);
         self.counter.fetch_max(clamped, Ordering::AcqRel);
     }
 }

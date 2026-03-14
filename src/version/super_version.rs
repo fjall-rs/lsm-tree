@@ -6,7 +6,7 @@ use crate::{
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
-    SeqNo, SharedSequenceNumberGenerator,
+    SeqNo, SharedSequenceNumberGenerator, MAX_SEQNO,
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
@@ -140,8 +140,8 @@ impl SuperVersions {
         persist_version(tree_path, &next_version.version)?;
         self.append_version(next_version);
 
-        // Clamp to stay below the reserved MSB range (0x8000_0000_0000_0000).
-        let next_visible = seqno.saturating_add(1).min(0x7FFF_FFFF_FFFF_FFFF);
+        // Clamp to stay below the reserved MSB range.
+        let next_visible = seqno.saturating_add(1).min(MAX_SEQNO);
         visible_seqno.fetch_max(next_visible);
 
         Ok(())

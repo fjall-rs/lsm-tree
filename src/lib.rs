@@ -183,7 +183,9 @@ pub use {
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},
-    seqno::{SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator},
+    seqno::{
+        SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator, MAX_SEQNO,
+    },
     slice::Slice,
     tree::Tree,
     value::SeqNo,

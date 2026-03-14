@@ -14,6 +14,15 @@ use std::{
     },
 };
 
+/// The maximum allowed sequence number value.
+///
+/// The MSB (`0x8000_0000_0000_0000`) is reserved for internal use by the
+/// transaction layer, so all sequence numbers must be strictly less than
+/// this boundary. Values returned by [`SequenceNumberGenerator::next`]
+/// must be at most `MAX_SEQNO - 1` (`0x7FFF_FFFF_FFFF_FFFE`), leaving
+/// room for `seqno + 1` operations used internally by the engine.
+pub const MAX_SEQNO: SeqNo = 0x7FFF_FFFF_FFFF_FFFF;
+
 /// Trait for custom sequence number generation.
 ///
 /// Implementations must be thread-safe and provide atomic operations
@@ -147,11 +156,11 @@ impl SequenceNumberCounter {
     ///
     /// # Panics
     ///
-    /// Panics if `prev >= 0x8000_0000_0000_0000` (reserved MSB range).
+    /// Panics if `prev > MAX_SEQNO` (reserved MSB range).
     #[must_use]
     pub fn new(prev: SeqNo) -> Self {
         assert!(
-            prev < 0x8000_0000_0000_0000,
+            prev <= MAX_SEQNO,
             "Sequence number must not use the reserved MSB"
         );
         Self(Arc::new(AtomicU64::new(prev)))
@@ -162,7 +171,7 @@ impl SequenceNumberCounter {
     /// # Panics
     ///
     /// Panics if advancing the counter would reach or exceed
-    /// `0x8000_0000_0000_0000`, as the MSB range is reserved.
+    /// [`MAX_SEQNO`], as the MSB range is reserved.
     #[must_use]
     pub fn next(&self) -> SeqNo {
         <Self as SequenceNumberGenerator>::next(self)
@@ -178,7 +187,7 @@ impl SequenceNumberCounter {
     ///
     /// # Panics
     ///
-    /// Panics if `value >= 0x8000_0000_0000_0000` (reserved MSB range).
+    /// Panics if `value > MAX_SEQNO` (reserved MSB range).
     pub fn set(&self, value: SeqNo) {
         <Self as SequenceNumberGenerator>::set(self, value)
     }
@@ -198,8 +207,6 @@ impl SequenceNumberGenerator for SequenceNumberCounter {
         // a caught panic (via catch_unwind, which the trait requires via
         // UnwindSafe) would leave the counter permanently stuck at an invalid
         // value. fetch_update only stores the new value on success.
-        const MAX_SEQNO: u64 = 0x7FFF_FFFF_FFFF_FFFF;
-
         match self.0.fetch_update(AcqRel, Acquire, |current| {
             if current >= MAX_SEQNO {
                 None
@@ -218,7 +225,7 @@ impl SequenceNumberGenerator for SequenceNumberCounter {
 
     fn set(&self, value: SeqNo) {
         assert!(
-            value < 0x8000_0000_0000_0000,
+            value <= MAX_SEQNO,
             "Sequence number must not use the reserved MSB"
         );
         self.0.store(value, Release);
@@ -227,7 +234,7 @@ impl SequenceNumberGenerator for SequenceNumberCounter {
     fn fetch_max(&self, value: SeqNo) {
         // Clamp to the maximum allowed sequence number to avoid storing
         // a value in the reserved MSB range.
-        let clamped = value.min(0x7FFF_FFFF_FFFF_FFFF);
+        let clamped = value.min(MAX_SEQNO);
         self.0.fetch_max(clamped, AcqRel);
     }
 }
