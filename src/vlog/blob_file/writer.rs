@@ -140,8 +140,7 @@ impl Writer {
 
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(level) => std::borrow::Cow::Owned(
-                zstd::bulk::compress(value, *level)
-                    .map_err(|e| std::io::Error::other(e.to_string()))?,
+                zstd::bulk::compress(value, *level).map_err(std::io::Error::other)?,
             ),
         };
 

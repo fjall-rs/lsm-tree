@@ -65,7 +65,7 @@ impl Block {
 
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(level) => &zstd::bulk::compress(data, level)
-                .map_err(|_| crate::Error::Io(std::io::Error::other("zstd compression failed")))?,
+                .map_err(|e| crate::Error::Io(std::io::Error::other(e)))?,
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
@@ -214,7 +214,85 @@ mod tests {
     use super::*;
     use test_log::test;
 
-    // TODO: Block::from_file roundtrips
+    #[test]
+    fn block_from_file_roundtrip_uncompressed() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::None)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::None)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_roundtrip_lz4() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Lz4)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::Lz4)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_from_file_roundtrip_zstd() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Zstd(3))?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::Zstd(3))?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
 
     #[test]
     fn block_roundtrip_uncompressed() -> crate::Result<()> {
