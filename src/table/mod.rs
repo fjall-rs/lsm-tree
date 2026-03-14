@@ -617,10 +617,18 @@ impl Table {
         self.metadata.key_range.overlaps_with_bounds(bounds)
     }
 
-    /// Returns the highest sequence number in the table.
+    /// Returns the highest effective sequence number in the table.
+    ///
+    /// For tables produced by flush/compaction (`global_seqno == 0`), this
+    /// returns the highest item seqno directly.
+    ///
+    /// For tables produced by bulk ingestion (`global_seqno > 0`), items
+    /// are written with local seqno 0 and the table carries a global offset.
+    /// The effective seqno of each item is `global_seqno + local_seqno`,
+    /// which mirrors the translation in [`Table::get`].
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
-        self.metadata.seqnos.1
+        self.0.global_seqno + self.metadata.seqnos.1
     }
 
     /// Returns the number of tombstone markers in the `Table`.
