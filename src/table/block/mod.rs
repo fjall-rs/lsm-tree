@@ -163,10 +163,13 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
-        if handle.size() > MAX_DECOMPRESSION_SIZE {
+        // handle.size() includes Header::serialized_len(), so allow that overhead
+        let max_on_disk_size = u64::from(MAX_DECOMPRESSION_SIZE) + Header::serialized_len() as u64;
+
+        if u64::from(handle.size()) > max_on_disk_size {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: u64::from(handle.size()),
-                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+                limit: max_on_disk_size,
             });
         }
 

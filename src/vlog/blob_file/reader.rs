@@ -36,6 +36,7 @@ impl<'a> Reader<'a> {
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
         // Validate the full on-disk read size (header + key + value) against the limit.
+        // Allow header+key overhead on top of the data cap.
         let total_read_size = match u64::from(vhandle.on_disk_size).checked_add(add_size) {
             Some(size) => size,
             None => {
@@ -46,10 +47,12 @@ impl<'a> Reader<'a> {
             }
         };
 
-        if total_read_size > MAX_DECOMPRESSION_SIZE as u64 {
+        let max_total_read_size = (MAX_DECOMPRESSION_SIZE as u64).saturating_add(add_size);
+
+        if total_read_size > max_total_read_size {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: total_read_size,
-                limit: MAX_DECOMPRESSION_SIZE as u64,
+                limit: max_total_read_size,
             });
         }
 
