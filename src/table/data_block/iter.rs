@@ -46,7 +46,11 @@ impl<'a> Iter<'a> {
     /// resulting position.
     pub fn seek_to_key_seqno(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.decoder.inner_mut().seek(
-            |head_key, head_seqno| head_key < needle || (head_key == needle && head_seqno >= seqno),
+            |head_key, head_seqno| match head_key.cmp(needle) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => head_seqno >= seqno,
+                std::cmp::Ordering::Greater => false,
+            },
             false,
         )
     }
