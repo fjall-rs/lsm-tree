@@ -29,6 +29,10 @@ use std::fs::File;
 ///
 /// Prevents OOM from crafted SST files that declare an absurdly large
 /// size in the block header or block handle.
+///
+/// NOTE: This constant is intentionally duplicated in `vlog::blob_file::reader`
+/// (as `usize`) rather than shared, because blocks and blobs are independent
+/// storage formats that may diverge in the future. Keep values in sync manually.
 const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
 
 /// A block on disk

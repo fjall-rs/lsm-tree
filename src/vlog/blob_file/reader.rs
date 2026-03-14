@@ -13,6 +13,10 @@ use crate::{
 /// Maximum allowed size for a blob *value payload* after decompression
 /// (256 MiB). The actual on-disk read may include additional header and key
 /// bytes on top of this payload limit.
+///
+/// NOTE: This constant is intentionally duplicated in `table::block`
+/// (as `u32`) rather than shared, because blocks and blobs are independent
+/// storage formats that may diverge in the future. Keep values in sync manually.
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
