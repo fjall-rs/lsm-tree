@@ -37,11 +37,19 @@ use std::{
 ///   unique for the lifetime of the generator (modulo wrap-around, which
 ///   must not occur within the reserved MSB range).
 ///
-/// Implementors are also responsible for ensuring that [`get`],
-/// [`set`], and [`fetch_max`] do not violate these invariants (e.g., by
-/// setting the counter to a value at or above `0x8000_0000_0000_0000`,
-/// or by moving the counter backwards such that subsequent calls to
-/// [`next`] would observe non-monotonic sequence numbers).
+/// Implementors are also responsible for ensuring that [`get`] and
+/// [`fetch_max`] do not violate these invariants (e.g., by setting the
+/// counter to a value at or above `0x8000_0000_0000_0000`, or by moving
+/// the counter backwards such that subsequent calls to [`next`] would
+/// observe non-monotonic sequence numbers).
+///
+/// The [`set`] method is a special-case escape hatch intended for use
+/// during initialization or recovery. It may move the counter forwards
+/// or backwards and therefore **may** cause subsequent calls to
+/// [`next`] to observe non-monotonic sequence numbers. This is
+/// permitted; callers are responsible for using [`fetch_max`] (or other
+/// application-level logic) after `set` if they need to reestablish any
+/// monotonicity guarantees.
 ///
 /// # Supertraits
 ///
@@ -79,10 +87,13 @@ pub trait SequenceNumberGenerator:
     /// `0x8000_0000_0000_0000` (the MSB is reserved).
     ///
     /// This method is intended for direct overrides (e.g., during
-    /// initialization or recovery) and is not required to preserve
+    /// initialization or recovery) and is **not** required to preserve
     /// monotonicity with respect to values previously returned by
-    /// [`next`]. Callers that need to advance the sequence number in a
-    /// monotonic fashion should prefer [`fetch_max`].
+    /// [`next`]. In particular, calling `set` with a value lower than a
+    /// previously returned `next` value may cause subsequent calls to
+    /// [`next`] to observe non-monotonic sequence numbers. This is
+    /// allowed; callers that need to advance the sequence number in a
+    /// monotonic fashion should prefer [`fetch_max`] instead of `set`.
     fn set(&self, value: SeqNo);
 
     /// Atomically updates the sequence number to the maximum of
@@ -223,7 +234,7 @@ mod tests {
     #[test]
     fn not_max_seqno() {
         let counter = super::SequenceNumberCounter::default();
-        // One below the boundary: next() returns 0x7FFF_FFFF_FFFF_FFFE,
+        // Two below the boundary: next() returns 0x7FFF_FFFF_FFFF_FFFE,
         // which is valid (< 0x8000_0000_0000_0000).
         counter.set(0x7FFF_FFFF_FFFF_FFFE);
         let _ = counter.next();
