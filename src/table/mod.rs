@@ -628,7 +628,7 @@ impl Table {
     /// which mirrors the translation in [`Table::get`].
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
-        self.0.global_seqno + self.metadata.seqnos.1
+        self.global_seqno().saturating_add(self.metadata.seqnos.1)
     }
 
     /// Returns the number of tombstone markers in the `Table`.
