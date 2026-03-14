@@ -100,7 +100,6 @@ impl<'a> Reader<'a> {
         let _seqno = reader.read_u64::<LittleEndian>()?;
         let key_len = reader.read_u16::<LittleEndian>()?;
 
-        #[allow(unused, reason = "only used in feature flagged branch")]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
         let on_disk_val_len = reader.read_u32::<LittleEndian>()?;
@@ -125,6 +124,11 @@ impl<'a> Reader<'a> {
         let raw_data = value.slice((add_size as usize)..);
 
         {
+            // NOTE: Checksum is computed over the caller-provided key (not the on-disk
+            // key bytes). This matches the writer, which hashes caller key + value.
+            // On-disk key corruption is caught by the key_len cross-check above;
+            // content-level key verification would require changing the checksum
+            // contract and is out of scope for this security hardening.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
                 hasher.update(key);
