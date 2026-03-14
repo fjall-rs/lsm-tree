@@ -511,6 +511,39 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
+    /// Retrieves multiple items from the tree atomically.
+    ///
+    /// All lookups share a single version snapshot, which is more efficient
+    /// than calling [`AbstractTree::get`] in a loop because the version lock
+    /// is only acquired once.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "value_a", 0);
+    /// tree.insert("b", "value_b", 1);
+    ///
+    /// let results = tree.multi_get(["a", "b", "c"], 2)?;
+    /// assert_eq!(results[0], Some("value_a".as_bytes().into()));
+    /// assert_eq!(results[1], Some("value_b".as_bytes().into()));
+    /// assert_eq!(results[2], None);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>>;
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.

@@ -610,6 +610,43 @@ impl AbstractTree for BlobTree {
         Ok(Some(v))
     }
 
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<crate::UserValue>>> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let super_version = self
+            .index
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .get_version_for_snapshot(seqno);
+
+        keys.into_iter()
+            .map(|key| {
+                let Some(item) = crate::Tree::get_internal_entry_from_version(
+                    &super_version,
+                    key.as_ref(),
+                    seqno,
+                )?
+                else {
+                    return Ok(None);
+                };
+
+                let (_, v) = resolve_value_handle(
+                    self.id(),
+                    self.blobs_folder.as_path(),
+                    &self.index.config.cache,
+                    &super_version.version,
+                    item,
+                )?;
+
+                Ok(Some(v))
+            })
+            .collect()
+    }
+
     fn remove<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove(key, seqno)
     }
