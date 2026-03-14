@@ -113,7 +113,7 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
     use std::io::Read;
 
     let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
-    let mut hasher = xxhash_rust::xxh3::Xxh3Default::default();
+    let mut hasher = xxhash_rust::xxh3::Xxh3Default::new();
     let mut buf = [0u8; 8192];
 
     loop {
