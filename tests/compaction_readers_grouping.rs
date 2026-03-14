@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use std::sync::Arc;
 use test_log::test;

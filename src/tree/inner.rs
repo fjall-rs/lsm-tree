@@ -7,7 +7,7 @@ use crate::{
     config::Config,
     stop_signal::StopSignal,
     version::{persist_version, SuperVersions, Version},
-    SequenceNumberCounter, SequenceNumberGenerator, TableId,
+    SequenceNumberCounter, TableId,
 };
 use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 

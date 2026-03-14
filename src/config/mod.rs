@@ -21,7 +21,8 @@ pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, SharedSequenceNumberGenerator, Tree,
+    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter,
+    SharedSequenceNumberGenerator, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -234,7 +235,7 @@ pub struct Config {
 
     /// The global sequence number generator
     ///
-    /// Should be shared between multple trees of a database
+    /// Should be shared between multiple trees of a database
     pub(crate) seqno: SharedSequenceNumberGenerator,
 
     pub(crate) visible_seqno: SharedSequenceNumberGenerator,

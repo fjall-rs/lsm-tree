@@ -9,7 +9,7 @@ use crate::{
         blob_file::{Inner as BlobFileInner, Metadata},
         ValueHandle,
     },
-    BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, SequenceNumberGenerator, TreeId,
+    BlobFile, CompressionType, DescriptorTable, SeqNo, SequenceNumberCounter, TreeId,
 };
 use std::{
     fs::File,

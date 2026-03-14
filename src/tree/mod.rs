@@ -20,7 +20,7 @@ use crate::{
     value::InternalValue,
     version::{recovery::recover, SuperVersion, SuperVersions, Version},
     vlog::BlobFile,
-    AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, SequenceNumberGenerator, TableId, UserKey, UserValue,
+    AbstractTree, Checksum, KvPair, SeqNo, SequenceNumberCounter, TableId, UserKey, UserValue,
     ValueType,
 };
 use inner::{TreeId, TreeInner};

@@ -46,7 +46,7 @@ pub type SharedSequenceNumberGenerator = Arc<dyn SequenceNumberGenerator>;
 /// # Examples
 ///
 /// ```
-/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, SequenceNumberGenerator};
+/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
 /// #
 /// # let path = tempfile::tempdir()?;
 ///
@@ -80,6 +80,30 @@ impl SequenceNumberCounter {
     #[must_use]
     pub fn new(prev: SeqNo) -> Self {
         Self(Arc::new(AtomicU64::new(prev)))
+    }
+
+    /// Gets the next sequence number, atomically incrementing the counter.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
+    pub fn next(&self) -> SeqNo {
+        <Self as SequenceNumberGenerator>::next(self)
+    }
+
+    /// Gets the current sequence number without incrementing.
+    #[must_use]
+    pub fn get(&self) -> SeqNo {
+        <Self as SequenceNumberGenerator>::get(self)
+    }
+
+    /// Sets the sequence number to the given value.
+    pub fn set(&self, value: SeqNo) {
+        <Self as SequenceNumberGenerator>::set(self, value)
+    }
+
+    /// Atomically updates the sequence number to the maximum of
+    /// the current value and the provided value.
+    pub fn fetch_max(&self, value: SeqNo) {
+        <Self as SequenceNumberGenerator>::fetch_max(self, value)
     }
 }
 
@@ -117,7 +141,6 @@ impl From<SequenceNumberCounter> for SharedSequenceNumberGenerator {
 
 #[cfg(test)]
 mod tests {
-    use super::SequenceNumberGenerator;
     use test_log::test;
 
     #[test]
