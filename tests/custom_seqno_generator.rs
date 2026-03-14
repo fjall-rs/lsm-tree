@@ -20,7 +20,7 @@ struct OffsetGenerator {
 
 impl OffsetGenerator {
     fn new(start: u64) -> SharedSequenceNumberGenerator {
-        assert!(start < MAX_SEQNO, "start must be below reserved MSB");
+        assert!(start <= MAX_SEQNO, "start must not exceed MAX_SEQNO");
         Arc::new(Self {
             counter: AtomicU64::new(start),
         })
@@ -32,7 +32,7 @@ impl SequenceNumberGenerator for OffsetGenerator {
         match self
             .counter
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                if current >= MAX_SEQNO - 1 {
+                if current >= MAX_SEQNO {
                     None
                 } else {
                     Some(current + 1)
@@ -48,12 +48,12 @@ impl SequenceNumberGenerator for OffsetGenerator {
     }
 
     fn set(&self, value: SeqNo) {
-        assert!(value < MAX_SEQNO, "value must be below reserved MSB");
+        assert!(value <= MAX_SEQNO, "value must not exceed MAX_SEQNO");
         self.counter.store(value, Ordering::Release);
     }
 
     fn fetch_max(&self, value: SeqNo) {
-        let clamped = value.min(MAX_SEQNO - 1);
+        let clamped = value.min(MAX_SEQNO);
         self.counter.fetch_max(clamped, Ordering::AcqRel);
     }
 }

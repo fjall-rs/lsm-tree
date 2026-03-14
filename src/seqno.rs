@@ -77,8 +77,9 @@ pub trait SequenceNumberGenerator:
     /// This must:
     /// - Return a value strictly greater than any value previously returned
     ///   by `next` on the same generator instance (monotonic increase).
-    /// - Never return a value greater than or equal to
-    ///   `0x8000_0000_0000_0000`, since the MSB is reserved.
+    /// - Never return a value greater than `MAX_SEQNO - 1`, leaving room
+    ///   for internal `seqno + 1` operations that must remain strictly
+    ///   less than [`MAX_SEQNO`].
     #[must_use]
     fn next(&self) -> SeqNo;
 
@@ -170,8 +171,8 @@ impl SequenceNumberCounter {
     ///
     /// # Panics
     ///
-    /// Panics if advancing the counter would reach or exceed
-    /// [`MAX_SEQNO`], as the MSB range is reserved.
+    /// Panics if the current value is already [`MAX_SEQNO`] (i.e., when
+    /// advancing past it would enter the reserved MSB range).
     #[must_use]
     pub fn next(&self) -> SeqNo {
         <Self as SequenceNumberGenerator>::next(self)
