@@ -69,7 +69,14 @@ impl Encode for CompressionType {
 
             #[cfg(feature = "zstd")]
             Self::Zstd(level) => {
+                if !(1..=22).contains(level) {
+                    return Err(crate::Error::Io(std::io::Error::other(format!(
+                        "invalid zstd compression level {level}, expected 1..=22"
+                    ))));
+                }
+
                 writer.write_u8(3)?;
+                #[expect(clippy::cast_possible_truncation, reason = "validated 1..=22 above")]
                 writer.write_i8(*level as i8)?;
             }
         }
@@ -90,7 +97,12 @@ impl Decode for CompressionType {
 
             #[cfg(feature = "zstd")]
             3 => {
-                let level = reader.read_i8()? as i32;
+                let level = i32::from(reader.read_i8()?);
+                if !(1..=22).contains(&level) {
+                    return Err(crate::Error::Io(std::io::Error::other(format!(
+                        "invalid zstd compression level {level}, expected 1..=22"
+                    ))));
+                }
                 Ok(Self::Zstd(level))
             }
 
@@ -147,6 +159,15 @@ mod tests {
         #[test]
         fn compression_display_zstd() {
             assert_eq!(format!("{}", CompressionType::Zstd(3)), "zstd");
+        }
+
+        #[test]
+        fn compression_zstd_rejects_invalid_level() {
+            for invalid_level in [0, 23, -1, 200] {
+                let mut buf = vec![];
+                let result = CompressionType::Zstd(invalid_level).encode_into(&mut buf);
+                assert!(result.is_err(), "level {invalid_level} should be rejected");
+            }
         }
     }
 }
