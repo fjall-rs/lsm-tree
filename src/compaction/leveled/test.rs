@@ -56,7 +56,7 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
     )
     .open()?;
 
-    // Flush 3 overlapping memtables with distinct values (below default l0_threshold=4)
+    // Flush 3 overlapping memtables with distinct values (below configured l0_threshold=4)
     for i in 0..3u8 {
         tree.insert("a", [b'v', i].as_slice(), u64::from(i));
         tree.insert([b'k', i].as_slice(), "v", 0);
@@ -70,7 +70,7 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
         "L0 should have multiple overlapping runs"
     );
 
-    let strategy = Arc::new(Strategy::default());
+    let strategy = Arc::new(Strategy::default().with_l0_threshold(4));
     tree.compact(strategy, 0)?;
 
     // Intra-L0 compaction should consolidate runs within L0
