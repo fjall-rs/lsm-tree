@@ -497,10 +497,7 @@ impl Config {
             AnyTree::Standard(Tree::open(self)?)
         })
     }
-}
 
-// Added as part of feat/#174
-impl Config {
     /// Like [`Config::new`], but accepts pre-built shared generators.
     ///
     /// This is useful when the caller already has `SharedSequenceNumberGenerator`

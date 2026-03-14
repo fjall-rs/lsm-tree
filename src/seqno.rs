@@ -75,11 +75,14 @@ pub trait SequenceNumberGenerator:
 
     /// Sets the sequence number to the given value.
     ///
-    /// Implementations must ensure:
-    /// - `value` is strictly less than `0x8000_0000_0000_0000`.
-    /// - Subsequent calls to [`next`] continue to produce monotonically
-    ///   increasing values, i.e., `next` must not observe a value lower
-    ///   than one it has already returned.
+    /// Implementations must ensure that `value` is strictly less than
+    /// `0x8000_0000_0000_0000` (the MSB is reserved).
+    ///
+    /// This method is intended for direct overrides (e.g., during
+    /// initialization or recovery) and is not required to preserve
+    /// monotonicity with respect to values previously returned by
+    /// [`next`]. Callers that need to advance the sequence number in a
+    /// monotonic fashion should prefer [`fetch_max`].
     fn set(&self, value: SeqNo);
 
     /// Atomically updates the sequence number to the maximum of
@@ -144,8 +147,12 @@ impl SequenceNumberCounter {
     }
 
     /// Gets the next sequence number, atomically incrementing the counter.
+    ///
+    /// # Panics
+    ///
+    /// Panics if advancing the counter would reach or exceed
+    /// `0x8000_0000_0000_0000`, as the MSB range is reserved.
     #[must_use]
-    #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     pub fn next(&self) -> SeqNo {
         <Self as SequenceNumberGenerator>::next(self)
     }
