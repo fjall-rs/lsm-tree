@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{checksum::Checksum, table::TableId, vlog::BlobFileId};
+use crate::{checksum::Checksum, table::TableId};
 use std::path::PathBuf;
 
 /// Describes a single integrity error found during verification.
@@ -24,7 +24,7 @@ pub enum IntegrityError {
     /// Full-file checksum mismatch for a blob file.
     BlobFileCorrupted {
         /// Blob file ID
-        blob_file_id: BlobFileId,
+        blob_file_id: u64,
         /// Path to the corrupted file
         path: PathBuf,
         /// Checksum stored in the manifest
