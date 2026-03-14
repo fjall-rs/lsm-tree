@@ -16,8 +16,10 @@ use std::{
 
 /// Safety cap on blob value size (256 MiB).
 ///
-/// Enforced on both write and read paths to prevent producing or
-/// accepting blobs that are unreasonably large.
+/// Enforced on the write path by this module to prevent producing
+/// blobs that are unreasonably large. The guarded reader API
+/// (`vlog::blob_file::reader`) applies its own copy of this limit;
+/// other internal readers (e.g., scanner) may impose different constraints.
 ///
 /// NOTE: Intentionally duplicated in `table::block` (as `u32`) and
 /// `vlog::blob_file::reader` rather than shared, because blocks and
@@ -163,6 +165,13 @@ impl Writer {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
                 let compressed = lz4_flex::compress(value);
 
                 if compressed.len() > MAX_DECOMPRESSION_SIZE {

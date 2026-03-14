@@ -17,8 +17,10 @@ use std::{
 
 /// Safety cap on blob value size (256 MiB).
 ///
-/// Enforced on both write and read paths to prevent producing or
-/// accepting blobs that are unreasonably large.
+/// Enforced on this reader and on the write path to prevent producing
+/// or accepting blobs that are unreasonably large. Other internal
+/// readers (e.g., scanner used by compaction/GC) may impose different
+/// constraints.
 ///
 /// NOTE: Intentionally duplicated in `vlog::blob_file::writer` and
 /// `table::block` rather than shared, because blocks and blobs are
