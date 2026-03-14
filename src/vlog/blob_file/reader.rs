@@ -34,18 +34,25 @@ impl<'a> Reader<'a> {
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
-        if vhandle.on_disk_size as usize > MAX_DECOMPRESSION_SIZE {
+        // Validate the full on-disk read size (header + key + value) against the limit.
+        let total_read_size = match u64::from(vhandle.on_disk_size).checked_add(add_size) {
+            Some(size) => size,
+            None => {
+                return Err(crate::Error::DecompressedSizeTooLarge {
+                    declared: u64::from(vhandle.on_disk_size),
+                    limit: MAX_DECOMPRESSION_SIZE as u64,
+                });
+            }
+        };
+
+        if total_read_size > MAX_DECOMPRESSION_SIZE as u64 {
             return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: u64::from(vhandle.on_disk_size),
+                declared: total_read_size,
                 limit: MAX_DECOMPRESSION_SIZE as u64,
             });
         }
 
-        let value = crate::file::read_exact(
-            self.file,
-            vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
-        )?;
+        let value = crate::file::read_exact(self.file, vhandle.offset, total_read_size as usize)?;
 
         let mut reader = Cursor::new(&value[..]);
 

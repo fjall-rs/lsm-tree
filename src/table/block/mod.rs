@@ -115,18 +115,18 @@ impl Block {
             );
         })?;
 
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let data = match compression {
             CompressionType::None => raw_data,
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: u64::from(header.uncompressed_length),
-                        limit: u64::from(MAX_DECOMPRESSION_SIZE),
-                    });
-                }
-
                 #[warn(unsafe_code)]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
@@ -176,6 +176,13 @@ impl Block {
             );
         })?;
 
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let buf = match compression {
             CompressionType::None => {
                 let value = buf.slice(Header::serialized_len()..);
@@ -190,13 +197,6 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: u64::from(header.uncompressed_length),
-                        limit: u64::from(MAX_DECOMPRESSION_SIZE),
-                    });
-                }
-
                 // NOTE: We know that a header always exists and data is never empty
                 // So the slice is fine
                 #[expect(clippy::indexing_slicing)]
