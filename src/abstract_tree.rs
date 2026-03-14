@@ -513,8 +513,10 @@ pub trait AbstractTree {
 
     /// Returns `true` if the tree contains any key with the given prefix.
     ///
-    /// This is more efficient than `prefix().next().is_some()` as it avoids
-    /// materializing the full iterator guard and can stop at the first match.
+    /// This is a convenience method that checks whether the corresponding
+    /// prefix iterator yields at least one item, while surfacing any IO
+    /// errors via the `Result` return type. Implementations may override
+    /// this method to provide a more efficient prefix-existence check.
     ///
     /// # Examples
     ///

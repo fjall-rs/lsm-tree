@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
@@ -36,7 +38,8 @@ fn tree_contains_prefix_basic() -> lsm_tree::Result<()> {
     assert!(tree.contains_prefix("abc", 3, None)?);
     assert!(tree.contains_prefix("def", 3, None)?);
     assert!(!tree.contains_prefix("xyz", 3, None)?);
-    assert!(!tree.contains_prefix("ab", 0, None)?);
+    // "ab" is a valid prefix for "abc:*" keys
+    assert!(tree.contains_prefix("ab", 3, None)?);
 
     Ok(())
 }
@@ -131,6 +134,45 @@ fn tree_contains_prefix_after_flush() -> lsm_tree::Result<()> {
 
     assert!(tree.contains_prefix("abc", 2, None)?);
     assert!(!tree.contains_prefix("xyz", 2, None)?);
+
+    Ok(())
+}
+
+#[test]
+fn tree_contains_prefix_blobtree() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(KvSeparationOptions::default()))
+    .open()?;
+
+    assert!(!tree.contains_prefix("abc", SeqNo::MAX, None)?);
+
+    tree.insert("abc:1", "value1", 0);
+    tree.insert("abc:2", "value2", 1);
+    tree.insert("def:1", "value3", 2);
+
+    assert!(tree.contains_prefix("abc", 3, None)?);
+    assert!(tree.contains_prefix("def", 3, None)?);
+    assert!(!tree.contains_prefix("xyz", 3, None)?);
+
+    // MVCC visibility
+    assert!(!tree.contains_prefix("abc", 0, None)?);
+    assert!(tree.contains_prefix("abc", 1, None)?);
+
+    // After delete
+    tree.remove("abc:1", 3);
+    tree.remove("abc:2", 4);
+    assert!(!tree.contains_prefix("abc", 5, None)?);
+
+    // After flush
+    tree.insert("ghi:1", "value", 5);
+    tree.flush_active_memtable(0)?;
+    assert!(tree.contains_prefix("ghi", 6, None)?);
 
     Ok(())
 }
