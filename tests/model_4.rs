@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 // Found by model testing
 
 use lsm_tree::{

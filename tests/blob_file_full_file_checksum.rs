@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SequenceNumberCounter};
 use test_log::test;
 use xxhash_rust::xxh3::xxh3_128;

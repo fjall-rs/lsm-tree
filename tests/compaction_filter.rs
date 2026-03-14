@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::compaction::filter::{
     CompactionFilter, Context as CompactionFilterContext, Factory, ItemAccessor, Verdict,
 };

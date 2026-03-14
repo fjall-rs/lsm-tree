@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{get_tmp_folder, AbstractTree, AnyTree, Config, SeqNo, SequenceNumberCounter};
 use std::ops::Bound::{Excluded, Included, Unbounded};
 

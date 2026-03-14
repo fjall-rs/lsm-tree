@@ -1,4 +1,3 @@
-use lsm_tree::SequenceNumberGenerator;
 #[test_log::test]
 #[cfg(feature = "metrics")]
 fn tree_filter_hit_rate() -> lsm_tree::Result<()> {
