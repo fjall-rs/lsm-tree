@@ -500,9 +500,9 @@ impl Config {
 
     /// Like [`Config::new`], but accepts pre-built shared generators.
     ///
-    /// This is useful when the caller already has `SharedSequenceNumberGenerator`
-    /// instances (e.g., from a higher-level database that shares generators
-    /// across multiple trees).
+    /// This is useful when the caller already has
+    /// [`SharedSequenceNumberGenerator`] instances (e.g., from a higher-level
+    /// database that shares generators across multiple trees).
     pub fn new_with_generators<P: AsRef<Path>>(
         path: P,
         seqno: SharedSequenceNumberGenerator,
