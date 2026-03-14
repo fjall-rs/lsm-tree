@@ -19,6 +19,7 @@ path = "src/lib.rs"
 [features]
 default = []
 lz4 = ["dep:lz4_flex"]
+zstd = ["dep:zstd"]
 bytes_1 = ["dep:bytes"]
 metrics = []
 
@@ -31,6 +32,7 @@ enum_dispatch = "0.3.13"
 interval-heap = "0.0.5"
 log = "0.4.27"
 lz4_flex = { version = "0.11.5", optional = true, default-features = false }
+zstd = { version = "0.13", optional = true, default-features = false }
 quick_cache = { version = "0.6.16", default-features = false, features = [] }
 rustc-hash = "2.1.1"
 self_cell = "1.2.0"

@@ -137,6 +137,12 @@ impl Writer {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => std::borrow::Cow::Owned(
+                zstd::bulk::compress(value, *level)
+                    .map_err(|e| std::io::Error::other(e.to_string()))?,
+            ),
         };
 
         let checksum = {
