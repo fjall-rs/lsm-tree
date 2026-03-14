@@ -100,7 +100,13 @@ impl<'a> Reader<'a> {
         #[allow(unused, reason = "only used in feature flagged branch")]
         let real_val_len = reader.read_u32::<LittleEndian>()? as usize;
 
-        let _on_disk_val_len = reader.read_u32::<LittleEndian>()? as usize;
+        let on_disk_val_len = reader.read_u32::<LittleEndian>()?;
+
+        // Cross-check header fields against caller-provided inputs to catch
+        // corruption or mismatched handles early, before checksum/decompression.
+        if key_len as usize != key.len() || on_disk_val_len != vhandle.on_disk_size {
+            return Err(crate::Error::InvalidHeader("Blob"));
+        }
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
