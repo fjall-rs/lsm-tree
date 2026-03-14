@@ -193,16 +193,23 @@ impl SequenceNumberCounter {
 impl SequenceNumberGenerator for SequenceNumberCounter {
     #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     fn next(&self) -> SeqNo {
-        // NOTE: We use fetch_add (not a CAS loop) for performance. The internal
-        // counter may briefly hold a reserved-range value between the fetch_add
-        // and the assert, but this is acceptable because (a) the assert panics
-        // immediately, and (b) set/fetch_max enforce the boundary on input.
-        let seqno = self.0.fetch_add(1, AcqRel);
+        // We use fetch_update (CAS loop) instead of fetch_add to ensure the
+        // internal counter never enters the reserved MSB range. With fetch_add,
+        // a caught panic (via catch_unwind, which the trait requires via
+        // UnwindSafe) would leave the counter permanently stuck at an invalid
+        // value. fetch_update only stores the new value on success.
+        const MAX_SEQNO: u64 = 0x7FFF_FFFF_FFFF_FFFF;
 
-        // The MSB is reserved for transactions, limiting us to 63-bit seqnos.
-        assert!(seqno < 0x8000_0000_0000_0000, "Ran out of sequence numbers");
-
-        seqno
+        match self.0.fetch_update(AcqRel, Acquire, |current| {
+            if current >= MAX_SEQNO {
+                None
+            } else {
+                Some(current + 1)
+            }
+        }) {
+            Ok(seqno) => seqno,
+            Err(_) => panic!("Ran out of sequence numbers"),
+        }
     }
 
     fn get(&self) -> SeqNo {
@@ -250,11 +257,9 @@ mod tests {
     #[should_panic = "Ran out of sequence numbers"]
     fn max_seqno() {
         let counter = super::SequenceNumberCounter::default();
+        // At MAX_SEQNO, fetch_update sees current >= MAX and returns None → panic.
+        // The counter is never advanced into the reserved range.
         counter.set(0x7FFF_FFFF_FFFF_FFFF);
-        // First call returns 0x7FFF_FFFF_FFFF_FFFF (valid), counter
-        // increments to 0x8000_0000_0000_0000 internally.
-        let _ = counter.next();
-        // Second call returns 0x8000_0000_0000_0000 and panics.
         let _ = counter.next();
     }
 
