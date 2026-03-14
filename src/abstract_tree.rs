@@ -542,7 +542,9 @@ pub trait AbstractTree {
         &self,
         keys: impl IntoIterator<Item = K>,
         seqno: SeqNo,
-    ) -> crate::Result<Vec<Option<UserValue>>>;
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        keys.into_iter().map(|key| self.get(key, seqno)).collect()
+    }
 
     /// Inserts a key-value pair into the tree.
     ///

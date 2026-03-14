@@ -1,4 +1,6 @@
-use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
+use lsm_tree::{
+    get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo, SequenceNumberCounter,
+};
 use test_log::test;
 
 #[test]
@@ -160,6 +162,45 @@ fn multi_get_from_disk() -> lsm_tree::Result<()> {
     assert_eq!(results[2].as_deref(), Some(b"val_c".as_slice()));
     assert_eq!(results[3].as_deref(), Some(b"val_d".as_slice()));
     assert_eq!(results[4], None);
+
+    Ok(())
+}
+
+#[test]
+fn multi_get_blob_tree_with_kv_separation() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .with_kv_separation(Some(KvSeparationOptions {
+        separation_threshold: 1, // separate all values
+        ..Default::default()
+    }))
+    .open()?;
+
+    let big_val_a = b"aaa".repeat(1000);
+    let big_val_b = b"bbb".repeat(1000);
+
+    tree.insert("a", big_val_a.as_slice(), 0);
+    tree.insert("b", big_val_b.as_slice(), 1);
+    tree.insert("c", b"ccc".repeat(1000).as_slice(), 2);
+    tree.remove("c", 3);
+
+    tree.flush_active_memtable(0)?;
+
+    // Verify blob indirections were created
+    assert!(tree.blob_file_count() > 0);
+
+    let results = tree.multi_get(["a", "b", "c", "missing"], SeqNo::MAX)?;
+
+    assert_eq!(results.len(), 4);
+    assert_eq!(results[0].as_deref(), Some(big_val_a.as_slice()));
+    assert_eq!(results[1].as_deref(), Some(big_val_b.as_slice()));
+    assert_eq!(results[2], None); // tombstoned
+    assert_eq!(results[3], None); // never existed
 
     Ok(())
 }
