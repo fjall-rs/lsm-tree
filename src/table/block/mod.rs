@@ -208,6 +208,13 @@ impl Block {
             );
         })?;
 
+        if header.data_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.data_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: u64::from(header.uncompressed_length),
