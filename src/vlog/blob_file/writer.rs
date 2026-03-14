@@ -120,7 +120,6 @@ impl Writer {
     ) -> crate::Result<u32> {
         assert!(!key.is_empty());
         assert!(u16::try_from(key.len()).is_ok());
-        assert!(u32::try_from(value.len()).is_ok());
 
         if uncompressed_len as usize > MAX_DECOMPRESSION_SIZE {
             return Err(crate::Error::DecompressedSizeTooLarge {
