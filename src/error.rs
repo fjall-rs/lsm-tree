@@ -38,7 +38,7 @@ pub enum Error {
     /// Invalid block header
     InvalidHeader(&'static str),
 
-    /// Data size exceeds a configured safety limit.
+    /// Data size exceeds an internal safety limit.
     ///
     /// Used for both decompressed/in-memory size checks and
     /// on-disk/read-buffer size caps (e.g., `handle.size()`, `on_disk_size`).
