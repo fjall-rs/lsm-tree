@@ -123,19 +123,19 @@ impl<'a> Reader<'a> {
             }
         }
 
+        if real_val_len > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: real_val_len as u64,
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
             CompressionType::None => raw_data,
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if real_val_len > MAX_DECOMPRESSION_SIZE {
-                    return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: real_val_len as u64,
-                        limit: MAX_DECOMPRESSION_SIZE as u64,
-                    });
-                }
-
                 #[warn(unsafe_code)]
                 let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len) };
 
