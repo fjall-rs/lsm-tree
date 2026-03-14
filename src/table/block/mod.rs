@@ -253,8 +253,13 @@ mod tests {
         let mut sink = std::io::sink();
         let result = Block::write_into(&mut sink, &data, BlockType::Data, CompressionType::None);
         assert!(
-            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {result:?}",
+            matches!(
+                result,
+                Err(crate::Error::DecompressedSizeTooLarge { declared, limit })
+                    if declared == (MAX_DECOMPRESSION_SIZE as u64 + 1)
+                        && limit == u64::from(MAX_DECOMPRESSION_SIZE)
+            ),
+            "expected DecompressedSizeTooLarge with matching declared/limit, got: {result:?}",
         );
     }
 }
