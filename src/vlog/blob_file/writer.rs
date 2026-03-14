@@ -128,28 +128,8 @@ impl Writer {
             });
         }
 
-        if self.first_key.is_none() {
-            self.first_key = Some(key.into());
-        }
-        self.last_key = Some(key.into());
-
-        self.uncompressed_bytes += u64::from(uncompressed_len);
-
-        // NOTE:
-        // BLOB HEADER LAYOUT
-        //
-        // [MAGIC_BYTES; 4B]
-        // [Checksum; 16B]
-        // [Seqno; 8B]
-        // [key len; 2B]
-        // [real val len; 4B]
-        // [on-disk val len; 4B]
-        // [...key; ?]
-        // [...val; ?]
-
-        // Write header
-        self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
+        // Perform all size validations (including compression) before
+        // mutating writer state, so an error leaves the writer consistent.
         let value = match &self.compression {
             CompressionType::None => {
                 if value.len() > MAX_DECOMPRESSION_SIZE {
@@ -183,6 +163,28 @@ impl Writer {
                 std::borrow::Cow::Owned(compressed)
             }
         };
+
+        if self.first_key.is_none() {
+            self.first_key = Some(key.into());
+        }
+        self.last_key = Some(key.into());
+
+        self.uncompressed_bytes += u64::from(uncompressed_len);
+
+        // NOTE:
+        // BLOB HEADER LAYOUT
+        //
+        // [MAGIC_BYTES; 4B]
+        // [Checksum; 16B]
+        // [Seqno; 8B]
+        // [key len; 2B]
+        // [real val len; 4B]
+        // [on-disk val len; 4B]
+        // [...key; ?]
+        // [...val; ?]
+
+        // Write header
+        self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
