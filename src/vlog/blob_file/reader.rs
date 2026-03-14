@@ -39,6 +39,13 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
+        if vhandle.on_disk_size as usize > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(vhandle.on_disk_size),
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
         let value = crate::file::read_exact(

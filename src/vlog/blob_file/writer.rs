@@ -281,7 +281,9 @@ mod tests {
         let path = folder.path().join("test.blob");
         let mut writer = Writer::new(&path, 0, 0)?;
 
-        // Exactly at the limit should be accepted
+        // Tests the declared-length guard only: write_raw checks
+        // uncompressed_len against MAX_DECOMPRESSION_SIZE, independent
+        // of the actual value slice size.
         let at_limit = MAX_DECOMPRESSION_SIZE as u32;
         let result = writer.write_raw(b"key", 0, b"small-on-disk", at_limit);
         assert!(result.is_ok(), "expected Ok, got: {result:?}");

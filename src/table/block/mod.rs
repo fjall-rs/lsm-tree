@@ -107,9 +107,9 @@ impl Block {
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
 
-        if header.data_length > MAX_DECOMPRESSION_SIZE {
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
             return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: u64::from(header.data_length),
+                declared: u64::from(header.uncompressed_length),
                 limit: u64::from(MAX_DECOMPRESSION_SIZE),
             });
         }
@@ -125,13 +125,6 @@ impl Block {
                 header.checksum,
             );
         })?;
-
-        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
-            return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: u64::from(header.uncompressed_length),
-                limit: u64::from(MAX_DECOMPRESSION_SIZE),
-            });
-        }
 
         let data = match compression {
             CompressionType::None => raw_data,
@@ -165,6 +158,16 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
+        // Cap the read size: header + payload must not exceed the safety limit
+        let max_on_disk = Header::serialized_len() as u64 + u64::from(MAX_DECOMPRESSION_SIZE);
+
+        if u64::from(handle.size()) > max_on_disk {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(handle.size()),
+                limit: max_on_disk,
+            });
+        }
+
         let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
         let header = Header::decode_from(&mut &buf[..])?;
