@@ -15,6 +15,16 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on both write and read paths to prevent producing or
+/// accepting blobs that are unreasonably large.
+///
+/// NOTE: Intentionally duplicated in `vlog::blob_file::writer` and
+/// `table::block` rather than shared, because blocks and blobs are
+/// independent storage formats that may diverge in the future.
+const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
+
 /// Reads a single blob from a blob file
 pub struct Reader<'a> {
     blob_file: &'a BlobFile,
@@ -80,6 +90,13 @@ impl<'a> Reader<'a> {
             }
         }
 
+        if real_val_len > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: real_val_len as u64,
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
             CompressionType::None => raw_data,
@@ -87,7 +104,7 @@ impl<'a> Reader<'a> {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
                 #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;

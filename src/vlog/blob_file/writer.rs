@@ -16,12 +16,12 @@ use std::{
 
 /// Safety cap on blob value size (256 MiB).
 ///
-/// Values whose uncompressed size exceeds this limit will be rejected
-/// at write time to prevent producing blobs that are unreasonably large.
+/// Enforced on both write and read paths to prevent producing or
+/// accepting blobs that are unreasonably large.
 ///
-/// NOTE: Intentionally duplicated in `table::block` (as `u32`) rather
-/// than shared, because blocks and blobs are independent storage formats
-/// that may diverge in the future.
+/// NOTE: Intentionally duplicated in `table::block` (as `u32`) and
+/// `vlog::blob_file::reader` rather than shared, because blocks and
+/// blobs are independent storage formats that may diverge in the future.
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";

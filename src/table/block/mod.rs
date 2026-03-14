@@ -27,10 +27,10 @@ use std::fs::File;
 
 /// Safety cap on block payload size (256 MiB).
 ///
-/// Blocks whose uncompressed payload exceeds this limit will be rejected
-/// at write time to prevent producing blocks that are unreasonably large.
+/// Enforced on both write and read paths to prevent producing or
+/// accepting blocks that are unreasonably large.
 ///
-/// NOTE: Intentionally duplicated in `vlog::blob_file::writer` (as `usize`)
+/// NOTE: Intentionally duplicated in `vlog::blob_file` (as `usize`)
 /// rather than shared, because blocks and blobs are independent storage
 /// formats that may diverge in the future.
 const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
@@ -106,6 +106,14 @@ impl Block {
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
+
+        if header.data_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.data_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&raw_data));
@@ -117,6 +125,13 @@ impl Block {
                 header.checksum,
             );
         })?;
+
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
 
         let data = match compression {
             CompressionType::None => raw_data,
@@ -164,6 +179,13 @@ impl Block {
                 header.checksum,
             );
         })?;
+
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
 
         let buf = match compression {
             CompressionType::None => {
