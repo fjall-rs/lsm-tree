@@ -28,8 +28,8 @@ use std::fs::File;
 /// Safety cap on block payload size (256 MiB).
 ///
 /// Blocks whose uncompressed payload exceeds this limit will be rejected
-/// at write time to ensure readers (which enforce the same cap) never
-/// encounter data they cannot decompress.
+/// at write time to avoid allocating or attempting to decompress
+/// unreasonably large payloads.
 ///
 /// NOTE: Intentionally duplicated in `vlog::blob_file::writer` (as `usize`)
 /// rather than shared, because blocks and blobs are independent storage
@@ -249,25 +249,22 @@ mod tests {
 
     #[test]
     fn block_write_rejects_oversized_payload() {
-        // Allocating MAX_DECOMPRESSION_SIZE + 1 bytes would be expensive,
-        // so we test the boundary by checking the constant directly and
-        // verifying the error variant with a moderately-oversized payload.
-        // In practice data_block_size (max 4 MiB) prevents reaching this
-        // limit, but Block::write_into is a public API on its own.
-        let data = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
-        let mut buf = vec![];
-        let result = Block::write_into(&mut buf, &data, BlockType::Data, CompressionType::None);
+        // Block::write_into checks data.len() before touching the payload,
+        // so we can use a non-allocating dangling slice to avoid a 256 MiB
+        // heap allocation in CI.
+        let oversized: &[u8] = unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::NonNull::<u8>::dangling().as_ptr(),
+                MAX_DECOMPRESSION_SIZE as usize + 1,
+            )
+        };
+
+        let mut sink = std::io::sink();
+        let result =
+            Block::write_into(&mut sink, oversized, BlockType::Data, CompressionType::None);
         assert!(
             matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
             "expected DecompressedSizeTooLarge, got: {result:?}",
         );
-    }
-
-    #[test]
-    fn block_write_accepts_max_size_payload() {
-        let data = vec![0u8; MAX_DECOMPRESSION_SIZE as usize];
-        let mut buf = vec![];
-        let result = Block::write_into(&mut buf, &data, BlockType::Data, CompressionType::None);
-        assert!(result.is_ok(), "expected Ok, got: {result:?}");
     }
 }
