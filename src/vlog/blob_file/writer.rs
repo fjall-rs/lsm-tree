@@ -153,7 +153,18 @@ impl Writer {
             CompressionType::None => std::borrow::Cow::Borrowed(value),
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
+            CompressionType::Lz4 => {
+                let compressed = lz4_flex::compress(value);
+
+                if compressed.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: compressed.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
+                std::borrow::Cow::Owned(compressed)
+            }
         };
 
         let checksum = {

@@ -74,21 +74,39 @@ impl Block {
             uncompressed_length: data.len() as u32,
         };
 
-        let data = match compression {
+        // `compressed_buf` keeps the compressed data alive for the LZ4 branch
+        let mut compressed_buf: Option<Vec<u8>> = None;
+
+        let payload: &[u8] = match compression {
             CompressionType::None => data,
 
             #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => &lz4_flex::compress(data),
+            CompressionType::Lz4 => {
+                let buf = lz4_flex::compress(data);
+
+                if buf.len() > MAX_DECOMPRESSION_SIZE as usize {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: buf.len() as u64,
+                        limit: u64::from(MAX_DECOMPRESSION_SIZE),
+                    });
+                }
+
+                compressed_buf = Some(buf);
+
+                // SAFETY: just set above
+                #[expect(clippy::expect_used, reason = "compressed_buf was just assigned")]
+                compressed_buf.as_ref().expect("just assigned")
+            }
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
         {
-            header.data_length = data.len() as u32;
-            header.checksum = Checksum::from_raw(crate::hash::hash128(data));
+            header.data_length = payload.len() as u32;
+            header.checksum = Checksum::from_raw(crate::hash::hash128(payload));
         }
 
         header.encode_into(&mut writer)?;
-        writer.write_all(data)?;
+        writer.write_all(payload)?;
 
         log::trace!(
             "Writing block with size {}B (compressed: {}B) (excluding header of {}B)",
@@ -110,6 +128,13 @@ impl Block {
         if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
+        if header.data_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.data_length),
                 limit: u64::from(MAX_DECOMPRESSION_SIZE),
             });
         }
