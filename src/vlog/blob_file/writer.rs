@@ -17,8 +17,7 @@ use std::{
 /// Safety cap on blob value size (256 MiB).
 ///
 /// Values whose uncompressed size exceeds this limit will be rejected
-/// at write time to avoid producing blobs with excessively large
-/// uncompressed values that would be unsafe or impractical to decompress.
+/// at write time to prevent producing blobs that are unreasonably large.
 ///
 /// NOTE: Intentionally duplicated in `table::block` (as `u32`) rather
 /// than shared, because blocks and blobs are independent storage formats

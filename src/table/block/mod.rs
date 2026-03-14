@@ -28,8 +28,7 @@ use std::fs::File;
 /// Safety cap on block payload size (256 MiB).
 ///
 /// Blocks whose uncompressed payload exceeds this limit will be rejected
-/// at write time to avoid allocating or attempting to decompress
-/// unreasonably large payloads.
+/// at write time to prevent producing blocks that are unreasonably large.
 ///
 /// NOTE: Intentionally duplicated in `vlog::blob_file::writer` (as `usize`)
 /// rather than shared, because blocks and blobs are independent storage
@@ -248,10 +247,8 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "allocates ~256 MiB; run with `cargo test -- --ignored`"]
     fn block_write_rejects_oversized_payload() {
-        // NOTE: This allocates ~256 MiB. The allocation is necessary because
-        // write_into takes &[u8] and checks data.len() — there is no way to
-        // test the boundary without a real slice of that length.
         let data = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
         let mut sink = std::io::sink();
         let result = Block::write_into(&mut sink, &data, BlockType::Data, CompressionType::None);
