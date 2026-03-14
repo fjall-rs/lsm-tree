@@ -204,3 +204,31 @@ fn multi_get_blob_tree_with_kv_separation() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn multi_get_unsorted_and_duplicate_keys() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    tree.insert("a", "val_a", 0);
+    tree.insert("b", "val_b", 1);
+    tree.insert("c", "val_c", 2);
+
+    // Unsorted keys with a duplicate — results must match input order 1:1
+    let results = tree.multi_get(["c", "a", "b", "a", "missing"], 3)?;
+
+    assert_eq!(results.len(), 5);
+    assert_eq!(results[0].as_deref(), Some(b"val_c".as_slice()));
+    assert_eq!(results[1].as_deref(), Some(b"val_a".as_slice()));
+    assert_eq!(results[2].as_deref(), Some(b"val_b".as_slice()));
+    assert_eq!(results[3].as_deref(), Some(b"val_a".as_slice())); // duplicate
+    assert_eq!(results[4], None);
+
+    Ok(())
+}
