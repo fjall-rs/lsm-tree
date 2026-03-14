@@ -38,6 +38,15 @@ pub enum Error {
     /// Invalid block header
     InvalidHeader(&'static str),
 
+    /// Decompressed size exceeds safety limit
+    DecompressedSizeTooLarge {
+        /// Size declared in header
+        declared: u64,
+
+        /// Maximum allowed size
+        limit: u64,
+    },
+
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
 }

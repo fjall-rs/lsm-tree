@@ -9,6 +9,9 @@ use crate::{
     },
     BlobFile, Checksum, CompressionType, UserValue,
 };
+
+/// Maximum allowed decompressed blob value size (256 MiB).
+const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     fs::File,
@@ -86,6 +89,13 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                if real_val_len == 0 || real_val_len > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: real_val_len as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
                 #[warn(unsafe_code)]
                 let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
 
@@ -151,5 +161,58 @@ mod tests {
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_reader_reject_absurd_real_val_len() {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir().unwrap();
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)
+            .unwrap()
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Lz4);
+
+        // write_raw lets us set an arbitrary uncompressed_len in the header
+        let handle = writer.write_raw(b"k", 0, b"value", u32::MAX).unwrap();
+
+        let blob_file = writer.finish().unwrap();
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path).unwrap();
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"k", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_reader_reject_zero_real_val_len() {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir().unwrap();
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)
+            .unwrap()
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Lz4);
+
+        let handle = writer.write_raw(b"k", 0, b"value", 0).unwrap();
+
+        let blob_file = writer.finish().unwrap();
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path).unwrap();
+        let reader = Reader::new(blob_file, &file);
+
+        let result = reader.get(b"k", &handle);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
     }
 }

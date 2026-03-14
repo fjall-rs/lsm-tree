@@ -25,6 +25,12 @@ use crate::{
 };
 use std::fs::File;
 
+/// Maximum allowed decompressed block size (256 MiB).
+///
+/// Prevents OOM from crafted SST files that declare an absurdly large
+/// `uncompressed_length` in the block header.
+const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
+
 /// A block on disk
 ///
 /// Consists of a fixed-size header and some bytes (the data/payload).
@@ -106,6 +112,15 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                if header.uncompressed_length == 0
+                    || header.uncompressed_length > MAX_DECOMPRESSION_SIZE
+                {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: u64::from(header.uncompressed_length),
+                        limit: u64::from(MAX_DECOMPRESSION_SIZE),
+                    });
+                }
+
                 #[warn(unsafe_code)]
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
@@ -162,6 +177,15 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                if header.uncompressed_length == 0
+                    || header.uncompressed_length > MAX_DECOMPRESSION_SIZE
+                {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: u64::from(header.uncompressed_length),
+                        limit: u64::from(MAX_DECOMPRESSION_SIZE),
+                    });
+                }
+
                 // NOTE: We know that a header always exists and data is never empty
                 // So the slice is fine
                 #[expect(clippy::indexing_slicing)]
@@ -227,5 +251,60 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_reject_absurd_uncompressed_length() {
+        use crate::coding::Encode;
+
+        // Write a valid lz4-compressed block first so we get the right header format
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        // Tamper the header: set uncompressed_length to u32::MAX.
+        // The header is fully checksummed, so we need to re-encode it.
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = u32::MAX;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_reject_zero_uncompressed_length() {
+        use crate::coding::Encode;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = 0;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
     }
 }
