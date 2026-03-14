@@ -136,6 +136,7 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
 ///
 /// Per-file errors (e.g., unreadable files, checksum mismatches) are collected
 /// into [`IntegrityReport::errors`] — the scan always runs to completion.
+#[must_use]
 pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
     let version = tree.current_version();
 
