@@ -72,6 +72,15 @@ impl std::fmt::Display for IntegrityError {
     }
 }
 
+impl std::error::Error for IntegrityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IoError { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
+
 /// Result of an integrity verification scan.
 #[derive(Debug)]
 pub struct IntegrityReport {
