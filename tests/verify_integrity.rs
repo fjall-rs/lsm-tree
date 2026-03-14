@@ -206,7 +206,7 @@ fn verify_integrity_missing_sst_file() -> lsm_tree::Result<()> {
 
     match &report.errors[0] {
         verify::IntegrityError::IoError { path, .. } => {
-            assert_eq!(*path, *table.path);
+            assert_eq!(path, table.path.as_ref());
         }
         other => panic!("expected IoError, got: {other}"),
     }

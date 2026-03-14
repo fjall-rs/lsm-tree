@@ -6,9 +6,6 @@ use crate::{checksum::Checksum, table::TableId};
 use std::path::PathBuf;
 
 /// Describes a single integrity error found during verification.
-///
-/// NOTE: Enum variant fields are public by default in Rust — no accessor methods needed.
-/// Callers can pattern-match directly: `if let IntegrityError::IoError { path, error } = e { ... }`
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum IntegrityError {
@@ -116,8 +113,7 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
     use std::io::Read;
 
     let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
-    // Xxh3 and Xxh3Default produce identical hashes; Xxh3 is used throughout vlog/ for streaming
-    let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+    let mut hasher = xxhash_rust::xxh3::Xxh3Default::default();
     let mut buf = [0u8; 8192];
 
     loop {
