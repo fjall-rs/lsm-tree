@@ -25,10 +25,10 @@ use crate::{
 };
 use std::fs::File;
 
-/// Maximum allowed decompressed block size (256 MiB).
+/// Maximum allowed block size for on-disk reads and decompressed output (256 MiB).
 ///
 /// Prevents OOM from crafted SST files that declare an absurdly large
-/// `uncompressed_length` in the block header.
+/// size in the block header or block handle.
 const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
 
 /// A block on disk
@@ -123,7 +123,16 @@ impl Block {
         }
 
         let data = match compression {
-            CompressionType::None => raw_data,
+            CompressionType::None => {
+                #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+                let actual_len = raw_data.len() as u32;
+
+                if header.uncompressed_length != actual_len {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
+                raw_data
+            }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {

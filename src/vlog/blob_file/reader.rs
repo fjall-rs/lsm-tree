@@ -10,7 +10,8 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 
-/// Maximum allowed decompressed blob value size (256 MiB).
+/// Maximum allowed size for a blob record: caps both the on-disk read
+/// (header + key + value) and the decompressed blob value size (256 MiB).
 const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
