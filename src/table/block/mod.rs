@@ -210,8 +210,10 @@ impl Block {
                 let value = buf.slice(Header::serialized_len()..);
 
                 #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-                {
-                    debug_assert_eq!(header.uncompressed_length, value.len() as u32);
+                let actual_len = value.len() as u32;
+
+                if header.uncompressed_length != actual_len {
+                    return Err(crate::Error::Decompress(compression));
                 }
 
                 value
