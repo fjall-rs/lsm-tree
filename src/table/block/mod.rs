@@ -252,6 +252,9 @@ mod tests {
         // Block::write_into checks data.len() before touching the payload,
         // so we can use a non-allocating dangling slice to avoid a 256 MiB
         // heap allocation in CI.
+        //
+        // SAFETY: The slice is never dereferenced — write_into returns early
+        // when data.len() exceeds MAX_DECOMPRESSION_SIZE.
         let oversized: &[u8] = unsafe {
             std::slice::from_raw_parts(
                 std::ptr::NonNull::<u8>::dangling().as_ptr(),
