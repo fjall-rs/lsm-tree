@@ -19,6 +19,11 @@ use std::{
 /// Implementations must be thread-safe and provide atomic operations
 /// for sequence number management.
 ///
+/// # Supertraits
+///
+/// `UnwindSafe + RefUnwindSafe` are required because generators may be
+/// captured inside `catch_unwind` (e.g., during ingestion error recovery).
+///
 /// The default implementation is [`SequenceNumberCounter`], which uses
 /// an `Arc<AtomicU64>` for lock-free atomic operations.
 pub trait SequenceNumberGenerator:
