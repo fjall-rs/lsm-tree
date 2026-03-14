@@ -249,22 +249,9 @@ mod tests {
 
     #[test]
     fn block_write_rejects_oversized_payload() {
-        // Block::write_into checks data.len() before touching the payload,
-        // so we can use a non-allocating dangling slice to avoid a 256 MiB
-        // heap allocation in CI.
-        //
-        // SAFETY: The slice is never dereferenced — write_into returns early
-        // when data.len() exceeds MAX_DECOMPRESSION_SIZE.
-        let oversized: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                std::ptr::NonNull::<u8>::dangling().as_ptr(),
-                MAX_DECOMPRESSION_SIZE as usize + 1,
-            )
-        };
-
+        let data = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
         let mut sink = std::io::sink();
-        let result =
-            Block::write_into(&mut sink, oversized, BlockType::Data, CompressionType::None);
+        let result = Block::write_into(&mut sink, &data, BlockType::Data, CompressionType::None);
         assert!(
             matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
             "expected DecompressedSizeTooLarge, got: {result:?}",
