@@ -84,16 +84,19 @@ fn tree_highest_seqno_after_ingest() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
     assert_eq!(tree.get_highest_persisted_seqno(), Some(s1));
 
+    // Capture counter before ingestion — ingestion will allocate this
+    // value as global_seqno via seqno.next()
+    let ingest_global_seqno = seqno.get();
+
     // Now bulk-ingest: items get local seqno 0 but the table carries
     // a global_seqno offset equal to the current seqno counter value.
-    // seqno counter is at 2, so ingestion allocates global_seqno = 2.
     let mut ingestion = tree.ingestion()?;
     ingestion.write("a", "a0")?;
     ingestion.write("b", "b0")?;
     ingestion.finish()?;
 
-    // global_seqno = 2, local max seqno = 0 → effective = 2
-    let expected_seqno = seqno.get() - 1;
+    // effective = global_seqno + local_max (0)
+    let expected_seqno = ingest_global_seqno;
 
     // The persisted seqno must reflect the global offset, not raw local 0
     assert_eq!(
@@ -105,7 +108,7 @@ fn tree_highest_seqno_after_ingest() -> lsm_tree::Result<()> {
     // Overall highest must also include the ingested table
     assert_eq!(tree.get_highest_seqno(), Some(expected_seqno));
 
-    // Verify data is visible at visible_seqno (which is > global_seqno)
+    // Verify data is visible at SeqNo::MAX (all data visible)
     assert!(tree.get("a", SeqNo::MAX)?.is_some());
     assert!(tree.get("b", SeqNo::MAX)?.is_some());
 
