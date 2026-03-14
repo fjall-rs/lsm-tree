@@ -19,27 +19,74 @@ use std::{
 /// Implementations must be thread-safe and provide atomic operations
 /// for sequence number management.
 ///
+/// # Invariants
+///
+/// Implementors **must** respect the following invariants, which are
+/// relied upon by the storage engine (e.g., for MVCC and transactions):
+///
+/// - The most-significant bit (MSB) of a sequence number is reserved
+///   for internal use by the transaction layer.
+/// - All sequence numbers produced by this generator **must** therefore
+///   be strictly less than `0x8000_0000_0000_0000`.
+/// - Calls to [`SequenceNumberGenerator::next`] on a given generator
+///   instance must return monotonically increasing values (each `next`
+///   returns a value that is strictly greater than any value previously
+///   returned by `next` on the same instance) until the reserved MSB
+///   boundary is reached.
+/// - In practice, this means `next`-generated sequence numbers are
+///   unique for the lifetime of the generator (modulo wrap-around, which
+///   must not occur within the reserved MSB range).
+///
+/// Implementors are also responsible for ensuring that [`get`],
+/// [`set`], and [`fetch_max`] do not violate these invariants (e.g., by
+/// setting the counter to a value at or above `0x8000_0000_0000_0000`,
+/// or by moving the counter backwards such that subsequent calls to
+/// [`next`] would observe non-monotonic sequence numbers).
+///
 /// # Supertraits
 ///
 /// `UnwindSafe + RefUnwindSafe` are required because generators may be
 /// captured inside `catch_unwind` (e.g., during ingestion error recovery).
 ///
 /// The default implementation is [`SequenceNumberCounter`], which uses
-/// an `Arc<AtomicU64>` for lock-free atomic operations.
+/// an `Arc<AtomicU64>` for lock-free atomic operations and enforces the
+/// invariants described above.
 pub trait SequenceNumberGenerator:
     Send + Sync + Debug + std::panic::UnwindSafe + std::panic::RefUnwindSafe + 'static
 {
     /// Gets the next sequence number, atomically incrementing the counter.
+    ///
+    /// This must:
+    /// - Return a value strictly greater than any value previously returned
+    ///   by `next` on the same generator instance (monotonic increase).
+    /// - Never return a value greater than or equal to
+    ///   `0x8000_0000_0000_0000`, since the MSB is reserved.
+    #[must_use]
     fn next(&self) -> SeqNo;
 
     /// Gets the current sequence number without incrementing.
+    ///
+    /// This should be consistent with the value that will be used as the
+    /// basis for the next call to [`next`], and must not itself alter the
+    /// monotonicity guarantees.
+    #[must_use]
     fn get(&self) -> SeqNo;
 
     /// Sets the sequence number to the given value.
+    ///
+    /// Implementations must ensure:
+    /// - `value` is strictly less than `0x8000_0000_0000_0000`.
+    /// - Subsequent calls to [`next`] continue to produce monotonically
+    ///   increasing values, i.e., `next` must not observe a value lower
+    ///   than one it has already returned.
     fn set(&self, value: SeqNo);
 
     /// Atomically updates the sequence number to the maximum of
     /// the current value and the given value.
+    ///
+    /// The resulting stored value must:
+    /// - Remain strictly less than `0x8000_0000_0000_0000`.
+    /// - Preserve the monotonicity guarantees expected by [`next`].
     fn fetch_max(&self, value: SeqNo);
 }
 
