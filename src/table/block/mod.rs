@@ -424,4 +424,48 @@ mod tests {
             result.err(),
         );
     }
+
+    #[test]
+    fn block_from_reader_reject_absurd_data_length() {
+        use crate::coding::Encode;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::None).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let payload: Vec<u8> = reader.to_vec();
+
+        header.data_length = MAX_DECOMPRESSION_SIZE + 1;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::None);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    fn block_from_file_reject_oversized_handle() {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"dummy").unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), u32::MAX);
+        let result = Block::from_file(&file, handle, CompressionType::None);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
 }
