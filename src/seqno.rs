@@ -221,6 +221,8 @@ impl SequenceNumberGenerator for SequenceNumberCounter {
     }
 }
 
+// Orphan rules satisfied: SequenceNumberGenerator is a local trait,
+// so Arc<dyn SequenceNumberGenerator> is covered by a local type parameter.
 impl From<SequenceNumberCounter> for SharedSequenceNumberGenerator {
     fn from(counter: SequenceNumberCounter) -> Self {
         Arc::new(counter)
