@@ -25,10 +25,11 @@ use crate::{
 };
 use std::fs::File;
 
-/// Maximum allowed block size for on-disk reads and decompressed output (256 MiB).
+/// Safety cap on block size for on-disk reads and decompressed output (256 MiB).
 ///
-/// Prevents OOM from crafted SST files that declare an absurdly large
-/// size in the block header or block handle.
+/// Intentionally stricter than the on-disk format limit (`u32::MAX`) to guard
+/// against decompression bombs and OOM from crafted/malicious SST files.
+/// Write-side enforcement of the same limit is tracked in issue #266.
 ///
 /// NOTE: This constant is intentionally duplicated in `vlog::blob_file::reader`
 /// (as `usize`) rather than shared, because blocks and blobs are independent

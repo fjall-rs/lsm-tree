@@ -10,10 +10,13 @@ use crate::{
     BlobFile, Checksum, CompressionType, UserValue,
 };
 
-/// Maximum allowed size for a blob *value payload* after decompression
-/// (256 MiB). This constant is also used as an upper bound on the total
-/// on-disk read size (e.g., via `max_total_read_size`), which may include
-/// additional header, key, and other metadata bytes on top of the payload.
+/// Safety cap on the maximum blob value size (256 MiB), applied to both
+/// the decompressed output and the total on-disk read (via `max_total_read_size`,
+/// which adds header + key overhead on top).
+///
+/// This is intentionally stricter than the on-disk format limit (`u32::MAX`)
+/// to guard against decompression bombs and OOM from crafted/malicious files.
+/// Write-side enforcement of the same limit is tracked in issue #266.
 ///
 /// NOTE: This constant is intentionally duplicated in `table::block`
 /// (as `u32`) rather than shared, because blocks and blobs are independent
