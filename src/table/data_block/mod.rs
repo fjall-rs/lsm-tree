@@ -1246,8 +1246,9 @@ mod tests {
             InternalValue::from_components(b"a", b"a1", 1, Value),
         ];
 
-        // With restart_interval=1, every item is a restart head,
-        // so seqno-aware binary search can skip directly to the target version
+        // Test across various restart intervals: at restart_interval=1 every item
+        // is a restart head so binary search lands exactly; at larger intervals it
+        // may scan within the restart range but must still return the correct version.
         for restart_interval in 1..=4 {
             let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
 
