@@ -127,7 +127,7 @@ impl Writer {
         // Ensure the compressed value length fits in u32 before we write it
         // to disk as a 32-bit length. This prevents truncation if compression
         // expands the payload (possible for incompressible data near u32 boundary).
-        let _compressed_len_u32 = u32::try_from(value.len())
+        let compressed_len_u32 = u32::try_from(value.len())
             .map_err(|_| std::io::Error::other("compressed value length exceeds u32::MAX"))?;
 
         if self.first_key.is_none() {
@@ -172,8 +172,7 @@ impl Writer {
         self.writer.write_u32::<LittleEndian>(uncompressed_len)?;
 
         // Write compressed (on-disk) value length
-        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-        self.writer.write_u32::<LittleEndian>(value.len() as u32)?;
+        self.writer.write_u32::<LittleEndian>(compressed_len_u32)?;
 
         self.writer.write_all(key)?;
         self.writer.write_all(&value)?;
@@ -197,8 +196,7 @@ impl Writer {
         // TODO: if we store the offset before writing, we can return a vhandle here
         // instead of needing to call offset() and blob_file_id() before write()
 
-        #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-        Ok(value.len() as u32)
+        Ok(compressed_len_u32)
     }
 
     /// Writes an item into the file.

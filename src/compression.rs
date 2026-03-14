@@ -37,6 +37,31 @@ pub enum CompressionType {
     Zstd(i32),
 }
 
+impl CompressionType {
+    /// Validate a zstd compression level.
+    ///
+    /// Accepts levels in the range 1..=22 and returns an error otherwise.
+    #[cfg(feature = "zstd")]
+    fn validate_zstd_level(level: i32) -> crate::Result<()> {
+        if !(1..=22).contains(&level) {
+            return Err(crate::Error::Io(std::io::Error::other(format!(
+                "invalid zstd compression level {level}, expected 1..=22"
+            ))));
+        }
+        Ok(())
+    }
+
+    /// Create a zstd compression configuration with a checked level.
+    ///
+    /// This is the recommended way to construct a `CompressionType::Zstd`
+    /// value, as it validates the level before any I/O occurs.
+    #[cfg(feature = "zstd")]
+    pub fn zstd(level: i32) -> crate::Result<Self> {
+        Self::validate_zstd_level(level)?;
+        Ok(Self::Zstd(level))
+    }
+}
+
 impl std::fmt::Display for CompressionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -69,11 +94,8 @@ impl Encode for CompressionType {
 
             #[cfg(feature = "zstd")]
             Self::Zstd(level) => {
-                if !(1..=22).contains(level) {
-                    return Err(crate::Error::Io(std::io::Error::other(format!(
-                        "invalid zstd compression level {level}, expected 1..=22"
-                    ))));
-                }
+                // Reuse the shared validation logic to ensure consistent checks.
+                Self::validate_zstd_level(*level)?;
 
                 writer.write_u8(3)?;
                 #[expect(clippy::cast_possible_truncation, reason = "validated 1..=22 above")]
@@ -98,11 +120,8 @@ impl Decode for CompressionType {
             #[cfg(feature = "zstd")]
             3 => {
                 let level = i32::from(reader.read_i8()?);
-                if !(1..=22).contains(&level) {
-                    return Err(crate::Error::Io(std::io::Error::other(format!(
-                        "invalid zstd compression level {level}, expected 1..=22"
-                    ))));
-                }
+                // Reuse the shared validation logic to ensure consistent checks.
+                Self::validate_zstd_level(level)?;
                 Ok(Self::Zstd(level))
             }
 
