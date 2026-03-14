@@ -3,13 +3,19 @@
 // (found in the LICENSE-* files in the repository)
 
 use lsm_tree::{
-    AbstractTree, Config, SeqNo, SequenceNumberGenerator, SharedSequenceNumberGenerator,
+    AbstractTree, Config, SeqNo, SequenceNumberCounter, SequenceNumberGenerator,
+    SharedSequenceNumberGenerator,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// Reserved MSB boundary — sequence numbers must stay below this.
+const RESERVED_MSB: u64 = 0x8000_0000_0000_0000;
+
 /// A custom generator that starts from a configurable offset,
 /// proving the trait-object wiring works end-to-end.
+///
+/// Enforces the same MSB invariant as [`SequenceNumberCounter`].
 #[derive(Debug)]
 struct OffsetGenerator {
     counter: AtomicU64,
@@ -17,6 +23,7 @@ struct OffsetGenerator {
 
 impl OffsetGenerator {
     fn new(start: u64) -> SharedSequenceNumberGenerator {
+        assert!(start < RESERVED_MSB, "start must be below reserved MSB");
         Arc::new(Self {
             counter: AtomicU64::new(start),
         })
@@ -25,7 +32,9 @@ impl OffsetGenerator {
 
 impl SequenceNumberGenerator for OffsetGenerator {
     fn next(&self) -> SeqNo {
-        self.counter.fetch_add(1, Ordering::AcqRel)
+        let seqno = self.counter.fetch_add(1, Ordering::AcqRel);
+        assert!(seqno < RESERVED_MSB, "Ran out of sequence numbers");
+        seqno
     }
 
     fn get(&self) -> SeqNo {
@@ -33,11 +42,13 @@ impl SequenceNumberGenerator for OffsetGenerator {
     }
 
     fn set(&self, value: SeqNo) {
+        assert!(value < RESERVED_MSB, "value must be below reserved MSB");
         self.counter.store(value, Ordering::Release);
     }
 
     fn fetch_max(&self, value: SeqNo) {
-        self.counter.fetch_max(value, Ordering::AcqRel);
+        let clamped = value.min(RESERVED_MSB - 1);
+        self.counter.fetch_max(clamped, Ordering::AcqRel);
     }
 }
 
@@ -48,10 +59,14 @@ fn custom_generator_via_builder() -> lsm_tree::Result<()> {
     let seqno = OffsetGenerator::new(1000);
     let visible_seqno = OffsetGenerator::new(1000);
 
-    let tree = Config::new_with_generators(&path, seqno.clone(), visible_seqno.clone())
-        .seqno_generator(seqno.clone())
-        .visible_seqno_generator(visible_seqno.clone())
-        .open()?;
+    let tree = Config::new(
+        &path,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .seqno_generator(seqno.clone())
+    .visible_seqno_generator(visible_seqno.clone())
+    .open()?;
 
     let s = seqno.next();
     assert_eq!(s, 1000);
