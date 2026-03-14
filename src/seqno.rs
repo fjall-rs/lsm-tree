@@ -3,20 +3,48 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::SeqNo;
-use std::sync::{
-    atomic::{
-        AtomicU64,
-        Ordering::{AcqRel, Acquire, Release},
+use std::{
+    fmt::Debug,
+    sync::{
+        atomic::{
+            AtomicU64,
+            Ordering::{AcqRel, Acquire, Release},
+        },
+        Arc,
     },
-    Arc,
 };
+
+/// Trait for custom sequence number generation.
+///
+/// Implementations must be thread-safe and provide atomic operations
+/// for sequence number management.
+///
+/// The default implementation is [`SequenceNumberCounter`], which uses
+/// an `Arc<AtomicU64>` for lock-free atomic operations.
+pub trait SequenceNumberGenerator: Send + Sync + Debug + std::panic::UnwindSafe + std::panic::RefUnwindSafe + 'static {
+    /// Gets the next sequence number, atomically incrementing the counter.
+    fn next(&self) -> SeqNo;
+
+    /// Gets the current sequence number without incrementing.
+    fn get(&self) -> SeqNo;
+
+    /// Sets the sequence number to the given value.
+    fn set(&self, value: SeqNo);
+
+    /// Atomically updates the sequence number to the maximum of
+    /// the current value and the given value.
+    fn fetch_max(&self, value: SeqNo);
+}
+
+/// A shared, cloneable sequence number generator.
+pub type SharedSequenceNumberGenerator = Arc<dyn SequenceNumberGenerator>;
 
 /// Thread-safe sequence number generator
 ///
 /// # Examples
 ///
 /// ```
-/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter};
+/// # use lsm_tree::{AbstractTree, Config, SequenceNumberCounter, SequenceNumberGenerator};
 /// #
 /// # let path = tempfile::tempdir()?;
 ///
@@ -51,19 +79,12 @@ impl SequenceNumberCounter {
     pub fn new(prev: SeqNo) -> Self {
         Self(Arc::new(AtomicU64::new(prev)))
     }
+}
 
-    /// Gets the would-be-next sequence number, without incrementing the counter.
-    ///
-    /// This should only be used when creating a snapshot.
-    #[must_use]
-    pub fn get(&self) -> SeqNo {
-        self.0.load(Acquire)
-    }
-
-    /// Gets the next sequence number.
+impl SequenceNumberGenerator for SequenceNumberCounter {
     #[must_use]
     #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
-    pub fn next(&self) -> SeqNo {
+    fn next(&self) -> SeqNo {
         let seqno = self.0.fetch_add(1, AcqRel);
 
         // The MSB is reserved for transactions.
@@ -74,19 +95,28 @@ impl SequenceNumberCounter {
         seqno
     }
 
-    /// Sets the sequence number.
-    pub fn set(&self, seqno: SeqNo) {
-        self.0.store(seqno, Release);
+    fn get(&self) -> SeqNo {
+        self.0.load(Acquire)
     }
 
-    /// Maximizes the sequence number.
-    pub fn fetch_max(&self, seqno: SeqNo) {
-        self.0.fetch_max(seqno, AcqRel);
+    fn set(&self, value: SeqNo) {
+        self.0.store(value, Release);
+    }
+
+    fn fetch_max(&self, value: SeqNo) {
+        self.0.fetch_max(value, AcqRel);
+    }
+}
+
+impl From<SequenceNumberCounter> for SharedSequenceNumberGenerator {
+    fn from(counter: SequenceNumberCounter) -> Self {
+        Arc::new(counter)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::SequenceNumberGenerator;
     use test_log::test;
 
     #[test]

@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{
     compaction::Fifo, get_tmp_folder, AbstractTree, Config, KvSeparationOptions,
     SequenceNumberCounter,

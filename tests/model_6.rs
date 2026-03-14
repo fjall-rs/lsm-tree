@@ -1,6 +1,7 @@
 // Found by model testing
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
+use lsm_tree::SequenceNumberGenerator;
 
 use lsm_tree::{
     get_tmp_folder,

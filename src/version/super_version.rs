@@ -6,7 +6,7 @@ use crate::{
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
-    SeqNo, SequenceNumberCounter,
+    SeqNo, SequenceNumberGenerator, SharedSequenceNumberGenerator,
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
@@ -114,8 +114,8 @@ impl SuperVersions {
         &mut self,
         tree_path: &Path,
         f: F,
-        seqno: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
+        seqno: &SharedSequenceNumberGenerator,
+        visible_seqno: &SharedSequenceNumberGenerator,
     ) -> crate::Result<()> {
         self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
     }
@@ -131,7 +131,7 @@ impl SuperVersions {
         tree_path: &Path,
         f: F,
         seqno: SeqNo,
-        visible_seqno: &SequenceNumberCounter,
+        visible_seqno: &SharedSequenceNumberGenerator,
     ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
         next_version.seqno = seqno;

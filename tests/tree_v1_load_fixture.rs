@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{Config, SequenceNumberCounter};
 use test_log::test;
 

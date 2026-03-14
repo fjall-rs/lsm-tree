@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 #[test_log::test]
 #[cfg(feature = "lz4")]
 fn blob_tree_compression() -> lsm_tree::Result<()> {

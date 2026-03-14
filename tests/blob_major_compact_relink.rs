@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{get_tmp_folder, AbstractTree, KvSeparationOptions, SeqNo, SequenceNumberCounter};
 use test_log::test;
 

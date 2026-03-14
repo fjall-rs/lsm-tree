@@ -19,7 +19,7 @@ use crate::{
     tree::inner::TreeId,
     version::{Run, SuperVersions, Version},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
-    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, Table, TableId,
+    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator, Table, TableId,
 };
 use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},
@@ -35,9 +35,9 @@ pub type CompactionReader<'a> = Box<dyn Iterator<Item = crate::Result<InternalVa
 pub struct Options {
     pub tree_id: TreeId,
 
-    pub global_seqno: SequenceNumberCounter,
+    pub global_seqno: SharedSequenceNumberGenerator,
 
-    pub visible_seqno: SequenceNumberCounter,
+    pub visible_seqno: SharedSequenceNumberGenerator,
 
     pub table_id_generator: SequenceNumberCounter,
 

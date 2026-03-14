@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 use lsm_tree::{
     config::CompressionPolicy, get_tmp_folder, AbstractTree, Config, KvSeparationOptions, SeqNo,
     SequenceNumberCounter,

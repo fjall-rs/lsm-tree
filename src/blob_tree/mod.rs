@@ -18,7 +18,7 @@ use crate::{
     value::InternalValue,
     version::Version,
     vlog::{Accessor, BlobFile, BlobFileWriter},
-    Cache, Config, Memtable, SeqNo, TableId, TreeId, UserKey, UserValue,
+    Cache, Config, Memtable, SeqNo, SequenceNumberGenerator, TableId, TreeId, UserKey, UserValue,
 };
 use handle::BlobIndirection;
 use std::{

@@ -1,3 +1,4 @@
+use lsm_tree::SequenceNumberGenerator;
 use fs_extra::dir::CopyOptions;
 use lsm_tree::{get_tmp_folder, AbstractTree, Config, SeqNo, SequenceNumberCounter};
 use test_log::test;
