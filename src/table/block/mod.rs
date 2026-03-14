@@ -131,10 +131,8 @@ impl Block {
                 #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
                 let actual_len = raw_data.len() as u32;
 
-                // NOTE: Using Decompress (not InvalidHeader) — the mismatch means the
-                // block cannot be interpreted correctly, same as a decompression failure.
                 if header.uncompressed_length != actual_len {
-                    return Err(crate::Error::Decompress(compression));
+                    return Err(crate::Error::InvalidHeader("Block"));
                 }
 
                 raw_data
@@ -218,10 +216,8 @@ impl Block {
                 #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
                 let actual_len = value.len() as u32;
 
-                // NOTE: Using Decompress (not InvalidHeader) — the mismatch means the
-                // block cannot be interpreted correctly, same as a decompression failure.
                 if header.uncompressed_length != actual_len {
-                    return Err(crate::Error::Decompress(compression));
+                    return Err(crate::Error::InvalidHeader("Block"));
                 }
 
                 value

@@ -38,8 +38,15 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-        // NOTE: key is caller-provided (not read from disk), so key.len() is trusted.
-        // The writer already enforces key.len() <= u16::MAX.
+        // Enforce the same key-length constraint as the writer (u16::MAX)
+        // so that a caller cannot inflate the computed read size.
+        if key.len() > u16::MAX as usize {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: key.len() as u64,
+                limit: u16::MAX as u64,
+            });
+        }
+
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
         // Validate the full on-disk read size (header + key + value) against the limit.
