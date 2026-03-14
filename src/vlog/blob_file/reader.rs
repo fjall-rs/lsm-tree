@@ -111,6 +111,15 @@ impl<'a> Reader<'a> {
             return Err(crate::Error::InvalidHeader("Blob"));
         }
 
+        // Validate real_val_len before checksum/decompression to fail fast
+        // on malformed headers and avoid unnecessary hashing work.
+        if real_val_len > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: real_val_len as u64,
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
         let raw_data = value.slice((add_size as usize)..);
@@ -133,13 +142,6 @@ impl<'a> Reader<'a> {
                     expected: Checksum::from_raw(expected_checksum),
                 });
             }
-        }
-
-        if real_val_len > MAX_DECOMPRESSION_SIZE {
-            return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: real_val_len as u64,
-                limit: MAX_DECOMPRESSION_SIZE as u64,
-            });
         }
 
         #[warn(clippy::match_single_binding)]
