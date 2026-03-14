@@ -249,6 +249,9 @@ mod tests {
 
     #[test]
     fn block_write_rejects_oversized_payload() {
+        // NOTE: This allocates ~256 MiB. The allocation is necessary because
+        // write_into takes &[u8] and checks data.len() — there is no way to
+        // test the boundary without a real slice of that length.
         let data = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
         let mut sink = std::io::sink();
         let result = Block::write_into(&mut sink, &data, BlockType::Data, CompressionType::None);
