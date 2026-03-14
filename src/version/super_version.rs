@@ -6,7 +6,7 @@ use crate::{
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
-    SeqNo, SequenceNumberGenerator, SharedSequenceNumberGenerator,
+    SeqNo, SharedSequenceNumberGenerator,
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 

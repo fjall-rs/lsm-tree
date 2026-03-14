@@ -3,7 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{
-    blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table, SequenceNumberGenerator,
+    blob_tree::handle::BlobIndirection, file::BLOBS_FOLDER, table::Table,
     tree::ingest::Ingestion as TableIngestion, vlog::BlobFileWriter, SeqNo, UserKey, UserValue,
 };
 

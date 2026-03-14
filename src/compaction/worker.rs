@@ -19,7 +19,8 @@ use crate::{
     tree::inner::TreeId,
     version::{Run, SuperVersions, Version},
     vlog::{BlobFileMergeScanner, BlobFileScanner, BlobFileWriter},
-    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator, Table, TableId,
+    BlobFile, Config, HashSet, InternalValue, SeqNo, SequenceNumberCounter,
+    SharedSequenceNumberGenerator, Table, TableId,
 };
 use std::{
     sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard},

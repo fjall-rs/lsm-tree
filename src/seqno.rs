@@ -21,7 +21,9 @@ use std::{
 ///
 /// The default implementation is [`SequenceNumberCounter`], which uses
 /// an `Arc<AtomicU64>` for lock-free atomic operations.
-pub trait SequenceNumberGenerator: Send + Sync + Debug + std::panic::UnwindSafe + std::panic::RefUnwindSafe + 'static {
+pub trait SequenceNumberGenerator:
+    Send + Sync + Debug + std::panic::UnwindSafe + std::panic::RefUnwindSafe + 'static
+{
     /// Gets the next sequence number, atomically incrementing the counter.
     fn next(&self) -> SeqNo;
 
@@ -82,7 +84,6 @@ impl SequenceNumberCounter {
 }
 
 impl SequenceNumberGenerator for SequenceNumberCounter {
-    #[must_use]
     #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     fn next(&self) -> SeqNo {
         let seqno = self.0.fetch_add(1, AcqRel);
