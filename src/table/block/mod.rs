@@ -62,6 +62,10 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => &lz4_flex::compress(data),
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(level) => &zstd::bulk::compress(data, level)
+                .map_err(|_| crate::Error::Io(std::io::Error::other("zstd compression failed")))?,
         };
 
         #[expect(clippy::cast_possible_truncation, reason = "blocks are limited to u32")]
@@ -120,6 +124,15 @@ impl Block {
 
                 Slice::from(buf)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                let decompressed =
+                    zstd::bulk::decompress(&raw_data, header.uncompressed_length as usize)
+                        .map_err(|_| crate::Error::Decompress(compression))?;
+
+                Slice::from(decompressed)
+            }
         };
 
         Ok(Self { header, data })
@@ -175,6 +188,18 @@ impl Block {
                 if bytes_written != header.uncompressed_length as usize {
                     return Err(crate::Error::Decompress(compression));
                 }
+
+                Slice::from(decompressed)
+            }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                #[expect(clippy::indexing_slicing)]
+                let raw_data = &buf[Header::serialized_len()..];
+
+                let decompressed =
+                    zstd::bulk::decompress(raw_data, header.uncompressed_length as usize)
+                        .map_err(|_| crate::Error::Decompress(compression))?;
 
                 Slice::from(decompressed)
             }
@@ -267,5 +292,54 @@ mod tests {
             Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
             Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
         }
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_roundtrip_zstd() -> crate::Result<()> {
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            b"abcdefabcdefabcdef",
+            BlockType::Data,
+            CompressionType::Zstd(3),
+        )?;
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            assert_eq!(b"abcdefabcdefabcdef", &*block.data);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn block_roundtrip_zstd_large_data() -> crate::Result<()> {
+        let data = vec![0xABu8; 64 * 1024]; // 64KB
+        let mut writer = vec![];
+
+        Block::write_into(
+            &mut writer,
+            &data,
+            BlockType::Data,
+            CompressionType::Zstd(3),
+        )?;
+
+        // Verify compression actually reduced size
+        assert!(
+            writer.len() < data.len(),
+            "zstd should compress repeated data"
+        );
+
+        {
+            let mut reader = &writer[..];
+            let block = Block::from_reader(&mut reader, CompressionType::Zstd(3))?;
+            assert_eq!(&*block.data, &data[..]);
+        }
+
+        Ok(())
     }
 }

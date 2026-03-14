@@ -99,6 +99,14 @@ impl<'a> Reader<'a> {
 
                 UserValue::from(buf)
             }
+
+            #[cfg(feature = "zstd")]
+            CompressionType::Zstd(_) => {
+                let decompressed = zstd::bulk::decompress(&raw_data, real_val_len)
+                    .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
+
+                UserValue::from(decompressed)
+            }
         };
 
         Ok(value)
@@ -199,6 +207,31 @@ mod tests {
             Ok(_) => panic!("expected Error::Decompress, but got Ok"),
             Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
         }
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn blob_reader_roundtrip_zstd() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Zstd(3));
+
+        let handle0 = writer.write(b"a", 0, b"abcdef")?;
+        let handle1 = writer.write(b"b", 0, b"ghi")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
+        assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
 
         Ok(())
     }

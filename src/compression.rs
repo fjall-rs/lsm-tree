@@ -20,6 +20,21 @@ pub enum CompressionType {
     /// on speed over compression ratio.
     #[cfg(feature = "lz4")]
     Lz4,
+
+    /// Zstd compression
+    ///
+    /// Provides significantly better compression ratios than LZ4
+    /// with reasonable decompression speed (~1.5 GB/s).
+    ///
+    /// Compression level can be adjusted (1-22, default 3):
+    /// - 1 optimizes for speed
+    /// - 3 is a good default (recommended)
+    /// - 9+ optimizes for compression ratio
+    ///
+    /// Recommended for cold/archival data where compression ratio
+    /// matters more than raw speed.
+    #[cfg(feature = "zstd")]
+    Zstd(i32),
 }
 
 impl std::fmt::Display for CompressionType {
@@ -32,6 +47,9 @@ impl std::fmt::Display for CompressionType {
 
                 #[cfg(feature = "lz4")]
                 Self::Lz4 => "lz4",
+
+                #[cfg(feature = "zstd")]
+                Self::Zstd(_) => "zstd",
             }
         )
     }
@@ -48,6 +66,12 @@ impl Encode for CompressionType {
             Self::Lz4 => {
                 writer.write_u8(1)?;
             }
+
+            #[cfg(feature = "zstd")]
+            Self::Zstd(level) => {
+                writer.write_u8(3)?;
+                writer.write_i8(*level as i8)?;
+            }
         }
 
         Ok(())
@@ -63,6 +87,12 @@ impl Decode for CompressionType {
 
             #[cfg(feature = "lz4")]
             1 => Ok(Self::Lz4),
+
+            #[cfg(feature = "zstd")]
+            3 => {
+                let level = reader.read_i8()? as i32;
+                Ok(Self::Zstd(level))
+            }
 
             tag => Err(crate::Error::InvalidTag(("CompressionType", tag))),
         }
@@ -86,9 +116,37 @@ mod tests {
         use test_log::test;
 
         #[test]
-        fn compression_serialize_none() {
+        fn compression_serialize_lz4() {
             let serialized = CompressionType::Lz4.encode_into_vec();
             assert_eq!(1, serialized.len());
+        }
+    }
+
+    #[cfg(feature = "zstd")]
+    mod zstd {
+        use super::*;
+        use test_log::test;
+
+        #[test]
+        fn compression_serialize_zstd() {
+            let serialized = CompressionType::Zstd(3).encode_into_vec();
+            assert_eq!(2, serialized.len());
+        }
+
+        #[test]
+        fn compression_roundtrip_zstd() {
+            for level in [1, 3, 9, 19] {
+                let original = CompressionType::Zstd(level);
+                let serialized = original.encode_into_vec();
+                let decoded =
+                    CompressionType::decode_from(&mut &serialized[..]).expect("decode failed");
+                assert_eq!(original, decoded);
+            }
+        }
+
+        #[test]
+        fn compression_display_zstd() {
+            assert_eq!(format!("{}", CompressionType::Zstd(3)), "zstd");
         }
     }
 }
