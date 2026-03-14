@@ -116,6 +116,7 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
     use std::io::Read;
 
     let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    // Xxh3 and Xxh3Default produce identical hashes; Xxh3 is used throughout vlog/ for streaming
     let mut hasher = xxhash_rust::xxh3::Xxh3::default();
     let mut buf = [0u8; 8192];
 
