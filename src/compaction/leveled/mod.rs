@@ -415,6 +415,32 @@ impl CompactionStrategy for Strategy {
             }
         }
 
+        // Intra-L0 compaction: consolidate overlapping runs within L0
+        // before they accumulate enough to trigger L0→L1
+        'intra_l0: {
+            let l0 = version.l0();
+
+            if l0.run_count() <= 1 {
+                break 'intra_l0;
+            }
+
+            if l0.table_count() >= usize::from(self.l0_threshold) {
+                // L0 is at or above threshold — fall through to normal L0→L1 compaction
+                break 'intra_l0;
+            }
+
+            if version.level_is_busy(0, state.hidden_set()) {
+                break 'intra_l0;
+            }
+
+            return Choice::Merge(CompactionInput {
+                table_ids: l0.list_ids(),
+                dest_level: 0,
+                canonical_level: 1,
+                target_size: self.target_size,
+            });
+        }
+
         // Scoring
         let mut scores = [(/* score */ 0.0, /* overshoot */ 0u64); 7];
 

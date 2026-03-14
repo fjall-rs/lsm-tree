@@ -47,6 +47,50 @@ fn leveled_l0_below_limit() -> crate::Result<()> {
 }
 
 #[test]
+fn leveled_intra_l0_compaction() -> crate::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let tree = Config::new(
+        dir.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    // Flush 3 overlapping memtables (below default l0_threshold=4)
+    for i in 0..3u8 {
+        tree.insert("a", "v", u64::from(i));
+        tree.insert([b'k', i].as_slice(), "v", 0);
+        tree.insert("z", "v", u64::from(i));
+        tree.flush_active_memtable(0)?;
+    }
+
+    assert_eq!(3, tree.table_count());
+    assert!(
+        tree.l0_run_count() > 1,
+        "L0 should have multiple overlapping runs"
+    );
+
+    let strategy = Arc::new(Strategy::default());
+    tree.compact(strategy, 0)?;
+
+    // Intra-L0 compaction should consolidate runs within L0
+    assert_eq!(
+        1,
+        tree.l0_run_count(),
+        "L0 should have exactly 1 run after intra-L0 compaction"
+    );
+
+    // All data must still be readable
+    for i in 0..3u8 {
+        assert!(tree.get([b'k', i].as_slice(), u64::MAX)?.is_some());
+    }
+    assert!(tree.get("a", u64::MAX)?.is_some());
+    assert!(tree.get("z", u64::MAX)?.is_some());
+
+    Ok(())
+}
+
+#[test]
 fn leveled_l0_reached_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let tree = Config::new(
