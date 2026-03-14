@@ -34,6 +34,13 @@ impl<'a> Reader<'a> {
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
+        if vhandle.on_disk_size as usize > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(vhandle.on_disk_size),
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,
@@ -89,7 +96,7 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if real_val_len == 0 || real_val_len > MAX_DECOMPRESSION_SIZE {
+                if real_val_len > MAX_DECOMPRESSION_SIZE {
                     return Err(crate::Error::DecompressedSizeTooLarge {
                         declared: real_val_len as u64,
                         limit: MAX_DECOMPRESSION_SIZE as u64,
@@ -97,7 +104,7 @@ impl<'a> Reader<'a> {
                 }
 
                 #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
@@ -192,7 +199,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "lz4")]
-    fn blob_reader_reject_zero_real_val_len() {
+    fn blob_reader_zero_real_val_len_with_data_fails_decompress() {
         let id_generator = SequenceNumberCounter::default();
 
         let folder = tempfile::tempdir().unwrap();
@@ -201,6 +208,8 @@ mod tests {
             .use_target_size(u64::MAX)
             .use_compression(CompressionType::Lz4);
 
+        // Zero real_val_len is allowed (valid for empty values), but when
+        // compressed data is present, lz4 decompression fails on the mismatch.
         let handle = writer.write_raw(b"k", 0, b"value", 0).unwrap();
 
         let blob_file = writer.finish().unwrap();
@@ -211,8 +220,8 @@ mod tests {
 
         let result = reader.get(b"k", &handle);
         assert!(
-            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {result:?}",
+            matches!(result, Err(crate::Error::Decompress(_))),
+            "expected Decompress error, got: {result:?}",
         );
     }
 }

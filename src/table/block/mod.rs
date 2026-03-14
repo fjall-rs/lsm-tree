@@ -95,6 +95,14 @@ impl Block {
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
+
+        if header.data_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.data_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&raw_data));
@@ -112,9 +120,7 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if header.uncompressed_length == 0
-                    || header.uncompressed_length > MAX_DECOMPRESSION_SIZE
-                {
+                if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
                     return Err(crate::Error::DecompressedSizeTooLarge {
                         declared: u64::from(header.uncompressed_length),
                         limit: u64::from(MAX_DECOMPRESSION_SIZE),
@@ -148,6 +154,13 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
+        if handle.size() > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(handle.size()),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
         let header = Header::decode_from(&mut &buf[..])?;
@@ -177,9 +190,7 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                if header.uncompressed_length == 0
-                    || header.uncompressed_length > MAX_DECOMPRESSION_SIZE
-                {
+                if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
                     return Err(crate::Error::DecompressedSizeTooLarge {
                         declared: u64::from(header.uncompressed_length),
                         limit: u64::from(MAX_DECOMPRESSION_SIZE),
@@ -263,7 +274,8 @@ mod tests {
         Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
 
         // Tamper the header: set uncompressed_length to u32::MAX.
-        // The header is fully checksummed, so we need to re-encode it.
+        // The block checksum only covers the compressed payload bytes, so changing
+        // this header field does not require updating any checksum; we just re-encode the header.
         let mut reader = &buf[..];
         let mut header = Header::decode_from(&mut reader).unwrap();
         let compressed_payload: Vec<u8> = reader.to_vec();
@@ -284,9 +296,12 @@ mod tests {
 
     #[test]
     #[cfg(feature = "lz4")]
-    fn block_reject_zero_uncompressed_length() {
+    fn block_zero_uncompressed_length_with_data_fails_decompress() {
         use crate::coding::Encode;
 
+        // Zero uncompressed_length is allowed (valid for empty blocks), but when
+        // the compressed payload is non-empty, lz4 decompression will fail because
+        // the output buffer is zero-sized.
         let mut buf = vec![];
         Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
 
@@ -302,8 +317,8 @@ mod tests {
         let result = Block::from_reader(&mut r, CompressionType::Lz4);
 
         assert!(
-            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
-            "expected DecompressedSizeTooLarge, got: {:?}",
+            matches!(&result, Err(crate::Error::Decompress(_))),
+            "expected Decompress error, got: {:?}",
             result.err(),
         );
     }

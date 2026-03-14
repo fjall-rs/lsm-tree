@@ -38,9 +38,9 @@ pub enum Error {
     /// Invalid block header
     InvalidHeader(&'static str),
 
-    /// Decompressed size exceeds safety limit
+    /// Decompressed size is invalid or exceeds safety limit
     DecompressedSizeTooLarge {
-        /// Size declared in header
+        /// Size declared in header (may be zero, invalid, or over the limit)
         declared: u64,
 
         /// Maximum allowed size
