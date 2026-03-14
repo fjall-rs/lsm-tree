@@ -6,6 +6,9 @@ use crate::{checksum::Checksum, table::TableId};
 use std::path::PathBuf;
 
 /// Describes a single integrity error found during verification.
+///
+/// NOTE: Enum variant fields are public by default in Rust — no accessor methods needed.
+/// Callers can pattern-match directly: `if let IntegrityError::IoError { path, error } = e { ... }`
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum IntegrityError {
