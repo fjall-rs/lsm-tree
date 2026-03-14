@@ -175,6 +175,10 @@ impl SequenceNumberCounter {
     }
 
     /// Sets the sequence number to the given value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value >= 0x8000_0000_0000_0000` (reserved MSB range).
     pub fn set(&self, value: SeqNo) {
         <Self as SequenceNumberGenerator>::set(self, value)
     }
