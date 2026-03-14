@@ -27,7 +27,7 @@ fn multi_get_all_existing() -> lsm_tree::Result<()> {
     for (i, result) in results.iter().enumerate() {
         let expected = format!("value_{i}");
         assert_eq!(
-            result.as_ref().map(|v| &**v),
+            result.as_deref(),
             Some(expected.as_bytes()),
             "mismatch at index {i}",
         );

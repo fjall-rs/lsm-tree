@@ -511,11 +511,16 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
-    /// Retrieves multiple items from the tree atomically.
+    /// Reads multiple keys from the tree.
     ///
-    /// All lookups share a single version snapshot, which is more efficient
-    /// than calling [`AbstractTree::get`] in a loop because the version lock
-    /// is only acquired once.
+    /// Implementations may choose to perform all lookups against a single
+    /// version snapshot and acquire the version lock only once, which can be
+    /// more efficient than calling [`AbstractTree::get`] in a loop. The
+    /// default trait implementation, however, is a convenience wrapper that
+    /// simply calls [`AbstractTree::get`] for each key and therefore does not
+    /// guarantee a single-snapshot or single-lock acquisition. Optimized
+    /// implementations (such as [`Tree`] and [`BlobTree`]) provide the
+    /// single-snapshot/one-lock behavior.
     ///
     /// # Examples
     ///
