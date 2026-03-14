@@ -32,9 +32,18 @@ impl OffsetGenerator {
 
 impl SequenceNumberGenerator for OffsetGenerator {
     fn next(&self) -> SeqNo {
-        let seqno = self.counter.fetch_add(1, Ordering::AcqRel);
-        assert!(seqno < RESERVED_MSB, "Ran out of sequence numbers");
-        seqno
+        match self
+            .counter
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                if current >= RESERVED_MSB - 1 {
+                    None
+                } else {
+                    Some(current + 1)
+                }
+            }) {
+            Ok(seqno) => seqno,
+            Err(_) => panic!("Ran out of sequence numbers"),
+        }
     }
 
     fn get(&self) -> SeqNo {
