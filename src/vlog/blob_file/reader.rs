@@ -119,6 +119,9 @@ impl<'a> Reader<'a> {
             });
         }
 
+        // NOTE: This seek is a no-op for the current code path (raw_data is sliced
+        // from `value` by offset, not read via `reader`), but kept to maintain the
+        // cursor position in case future code reads further fields after the key.
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
         let raw_data = value.slice((add_size as usize)..);
