@@ -34,10 +34,16 @@ impl<'a> Iter<'a> {
         true
     }
 
-    /// Seeks to the restart interval containing the target (needle, seqno) pair.
+    /// Seeks to the last restart interval whose head key is strictly below the
+    /// target `needle`, or equal to it with a seqno that is at least the given
+    /// snapshot boundary.
     ///
-    /// Exploits internal key ordering (user_key ASC, seqno DESC) to skip
-    /// restart intervals containing only versions newer than the target seqno.
+    /// Here `seqno` is a snapshot boundary: point reads return the first item
+    /// with `item.seqno < seqno`. Using the internal key ordering
+    /// (user_key ASC, seqno DESC), this skips restart intervals that can only
+    /// contain versions newer than the snapshot, so any visible version for
+    /// `needle` will be found within roughly one restart interval of the
+    /// resulting position.
     pub fn seek_to_key_seqno(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
         self.decoder.inner_mut().seek(
             |head_key, head_seqno| head_key < needle || (head_key == needle && head_seqno >= seqno),

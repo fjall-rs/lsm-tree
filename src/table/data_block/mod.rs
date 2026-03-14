@@ -436,8 +436,8 @@ impl DataBlock {
         } else {
             let mut iter = self.iter();
 
-            // NOTE: Seqno-aware binary search skips restart intervals
-            // containing only versions newer than the target seqno
+            // NOTE: Seqno-aware binary search reduces linear scanning by skipping most
+            // restart intervals that contain only versions newer than the target seqno
             if !iter.seek_to_key_seqno(needle, seqno) {
                 return None;
             }
