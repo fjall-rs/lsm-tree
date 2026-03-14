@@ -352,4 +352,73 @@ mod tests {
             result.err(),
         );
     }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_reject_absurd_uncompressed_length() {
+        use crate::coding::Encode;
+        use std::io::Write;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        // Tamper: set uncompressed_length to u32::MAX.
+        // The block checksum only covers the compressed payload bytes; it does not include
+        // header fields. The header itself has its own checksum, which we recompute below
+        // by re-encoding the modified header, so the tampered block remains internally
+        // consistent while exercising the DecompressedSizeTooLarge path.
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = u32::MAX;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&tampered).unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_zero_uncompressed_length_with_data_fails_decompress() {
+        use crate::coding::Encode;
+        use std::io::Write;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = 0;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&tampered).unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::Decompress(_))),
+            "expected Decompress error, got: {:?}",
+            result.err(),
+        );
+    }
 }
