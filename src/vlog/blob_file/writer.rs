@@ -124,6 +124,12 @@ impl Writer {
             ),
         };
 
+        // Ensure the compressed value length fits in u32 before we write it
+        // to disk as a 32-bit length. This prevents truncation if compression
+        // expands the payload (possible for incompressible data near u32 boundary).
+        let _compressed_len_u32 = u32::try_from(value.len())
+            .map_err(|_| std::io::Error::other("compressed value length exceeds u32::MAX"))?;
+
         if self.first_key.is_none() {
             self.first_key = Some(key.into());
         }
