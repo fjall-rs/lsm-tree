@@ -56,11 +56,11 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
     )
     .open()?;
 
-    // Flush 3 overlapping memtables (below default l0_threshold=4)
+    // Flush 3 overlapping memtables with distinct values (below default l0_threshold=4)
     for i in 0..3u8 {
-        tree.insert("a", "v", u64::from(i));
+        tree.insert("a", [b'v', i].as_slice(), u64::from(i));
         tree.insert([b'k', i].as_slice(), "v", 0);
-        tree.insert("z", "v", u64::from(i));
+        tree.insert("z", [b'v', i].as_slice(), u64::from(i));
         tree.flush_active_memtable(0)?;
     }
 
@@ -79,13 +79,33 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
         tree.l0_run_count(),
         "L0 should have exactly 1 run after intra-L0 compaction"
     );
+    assert_eq!(
+        1,
+        tree.table_count(),
+        "Tables should be merged into 1 after intra-L0 compaction"
+    );
 
-    // All data must still be readable
+    // All data must still be readable with correct values
     for i in 0..3u8 {
         assert!(tree.get([b'k', i].as_slice(), u64::MAX)?.is_some());
     }
-    assert!(tree.get("a", u64::MAX)?.is_some());
-    assert!(tree.get("z", u64::MAX)?.is_some());
+    // Latest visible versions should be the last written values
+    assert_eq!(
+        tree.get("a", u64::MAX)?.as_deref(),
+        Some([b'v', 2].as_slice()),
+    );
+    assert_eq!(
+        tree.get("z", u64::MAX)?.as_deref(),
+        Some([b'v', 2].as_slice()),
+    );
+
+    // Verify data stayed in L0 (not pushed to L1)
+    assert!(
+        tree.current_version()
+            .level(1)
+            .map_or(true, |l| l.is_empty()),
+        "L1 should remain empty after intra-L0 compaction"
+    );
 
     Ok(())
 }

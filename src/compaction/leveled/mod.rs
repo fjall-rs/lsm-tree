@@ -436,7 +436,7 @@ impl CompactionStrategy for Strategy {
             return Choice::Merge(CompactionInput {
                 table_ids: l0.list_ids(),
                 dest_level: 0,
-                canonical_level: 1,
+                canonical_level: 0,
                 target_size: self.target_size,
             });
         }
