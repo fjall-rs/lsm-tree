@@ -11,8 +11,9 @@ use crate::{
 };
 
 /// Maximum allowed size for a blob *value payload* after decompression
-/// (256 MiB). The actual on-disk read may include additional header and key
-/// bytes on top of this payload limit.
+/// (256 MiB). This constant is also used as an upper bound on the total
+/// on-disk read size (e.g., via `max_total_read_size`), which may include
+/// additional header, key, and other metadata bytes on top of the payload.
 ///
 /// NOTE: This constant is intentionally duplicated in `table::block`
 /// (as `u32`) rather than shared, because blocks and blobs are independent
@@ -51,6 +52,8 @@ impl<'a> Reader<'a> {
 
         // Validate the full on-disk read size (header + key + value) against the limit.
         // Allow header+key overhead on top of the data cap.
+        // NOTE: A separate `on_disk_size > MAX` check is mathematically redundant here
+        // because `total > MAX + overhead` already implies `on_disk_size > MAX`.
         let max_total_read_size = (MAX_DECOMPRESSION_SIZE as u64).saturating_add(add_size);
 
         let total_read_size = match u64::from(vhandle.on_disk_size).checked_add(add_size) {
