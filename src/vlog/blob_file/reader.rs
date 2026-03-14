@@ -176,4 +176,36 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn blob_reader_rejects_oversized_on_disk_size() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"a", 0, b"abcdef")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Forge a handle with oversized on_disk_size
+        let bad_handle = crate::vlog::ValueHandle {
+            blob_file_id: handle.blob_file_id,
+            offset: handle.offset,
+            on_disk_size: MAX_DECOMPRESSION_SIZE as u32 + 1,
+        };
+
+        let result = reader.get(b"a", &bad_handle);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+
+        Ok(())
+    }
 }

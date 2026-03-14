@@ -312,4 +312,31 @@ mod tests {
             "expected DecompressedSizeTooLarge with matching declared/limit, got: {result:?}",
         );
     }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_reader_rejects_absurd_uncompressed_length() {
+        use crate::coding::Encode;
+
+        // Write a valid lz4 block, then tamper the header
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        // Set uncompressed_length to exceed the cap
+        header.uncompressed_length = MAX_DECOMPRESSION_SIZE + 1;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
 }

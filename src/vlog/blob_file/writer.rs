@@ -150,7 +150,16 @@ impl Writer {
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
 
         let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
+            CompressionType::None => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
+                std::borrow::Cow::Borrowed(value)
+            }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
@@ -224,7 +233,8 @@ impl Writer {
     ///
     /// Will return `Err` if an IO error occurs.
     /// Will return `Err(Error::DecompressedSizeTooLarge { .. })` if the
-    /// uncompressed value size exceeds 256 MiB.
+    /// value exceeds the 256 MiB limit, either in its uncompressed form
+    /// or in its on-disk/compressed representation.
     ///
     /// # Panics
     ///
