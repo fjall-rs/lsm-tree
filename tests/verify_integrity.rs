@@ -171,3 +171,39 @@ fn verify_integrity_multiple_tables() -> lsm_tree::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn verify_integrity_missing_sst_file() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    for key in ('a'..='z').map(|c| c.to_string()) {
+        tree.insert(key, b"value", 0);
+    }
+    tree.flush_active_memtable(0)?;
+
+    // Delete the SST file to trigger an IoError
+    let version = tree.current_version();
+    let table = version.iter_tables().next().unwrap();
+    std::fs::remove_file(&*table.path)?;
+
+    let report = verify::verify_integrity(&tree);
+
+    assert!(!report.is_ok(), "missing file should produce an error");
+    assert_eq!(1, report.errors.len());
+
+    match &report.errors[0] {
+        verify::IntegrityError::IoError { path, .. } => {
+            assert_eq!(*path, *table.path);
+        }
+        other => panic!("expected IoError, got: {other}"),
+    }
+
+    Ok(())
+}

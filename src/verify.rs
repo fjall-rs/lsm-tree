@@ -2,11 +2,12 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-use crate::{checksum::Checksum, table::TableId};
+use crate::{checksum::Checksum, table::TableId, vlog::BlobFileId};
 use std::path::PathBuf;
 
 /// Describes a single integrity error found during verification.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum IntegrityError {
     /// Full-file checksum mismatch for an SST table.
     SstFileCorrupted {
@@ -23,7 +24,7 @@ pub enum IntegrityError {
     /// Full-file checksum mismatch for a blob file.
     BlobFileCorrupted {
         /// Blob file ID
-        blob_file_id: u64,
+        blob_file_id: BlobFileId,
         /// Path to the corrupted file
         path: PathBuf,
         /// Checksum stored in the manifest
@@ -36,8 +37,8 @@ pub enum IntegrityError {
     IoError {
         /// Path to the file that could not be read
         path: PathBuf,
-        /// Error description
-        error: String,
+        /// The underlying I/O error
+        error: std::io::Error,
     },
 }
 
@@ -65,7 +66,7 @@ impl std::fmt::Display for IntegrityError {
                 path.display()
             ),
             Self::IoError { path, error } => {
-                write!(f, "I/O error reading {}: {error}", path.display())
+                write!(f, "I/O error reading {}: {}", path.display(), error)
             }
         }
     }
@@ -98,6 +99,25 @@ impl IntegrityReport {
     }
 }
 
+/// Computes a streaming XXH3 128-bit checksum for a file without loading it entirely into memory.
+fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
+    use std::io::Read;
+
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut hasher = xxhash_rust::xxh3::Xxh3::default();
+    let mut buf = [0u8; 8192];
+
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+
+    Ok(Checksum::from_raw(hasher.digest128()))
+}
+
 /// Verifies full-file checksums for all SST and blob files in the given tree.
 ///
 /// Each file's content is read from disk and hashed with XXHash-3 128-bit,
@@ -105,10 +125,8 @@ impl IntegrityReport {
 ///
 /// This detects silent bit-rot, partial writes, and other on-disk corruption.
 ///
-/// # Errors
-///
-/// Returns `Err` only for fatal I/O errors that prevent the scan from continuing.
-/// Per-file errors (e.g., unreadable files) are collected into [`IntegrityReport::errors`].
+/// Per-file errors (e.g., unreadable files, checksum mismatches) are collected
+/// into [`IntegrityReport::errors`] — the scan always runs to completion.
 pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
     let version = tree.current_version();
 
@@ -123,22 +141,20 @@ pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
         let path = &*table.path;
         let expected = table.checksum();
 
-        match std::fs::read(path) {
-            Ok(data) => {
-                let got = Checksum::from_raw(crate::hash::hash128(&data));
-                if got != expected {
-                    report.errors.push(IntegrityError::SstFileCorrupted {
-                        table_id: table.id(),
-                        path: path.to_path_buf(),
-                        expected,
-                        got,
-                    });
-                }
+        match stream_checksum(path) {
+            Ok(got) if got != expected => {
+                report.errors.push(IntegrityError::SstFileCorrupted {
+                    table_id: table.id(),
+                    path: path.to_path_buf(),
+                    expected,
+                    got,
+                });
             }
+            Ok(_) => {}
             Err(e) => {
                 report.errors.push(IntegrityError::IoError {
                     path: path.to_path_buf(),
-                    error: e.to_string(),
+                    error: e,
                 });
             }
         }
@@ -151,22 +167,20 @@ pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
         let path = blob_file.path();
         let expected = blob_file.checksum();
 
-        match std::fs::read(path) {
-            Ok(data) => {
-                let got = Checksum::from_raw(crate::hash::hash128(&data));
-                if got != expected {
-                    report.errors.push(IntegrityError::BlobFileCorrupted {
-                        blob_file_id: blob_file.id(),
-                        path: path.to_path_buf(),
-                        expected,
-                        got,
-                    });
-                }
+        match stream_checksum(path) {
+            Ok(got) if got != expected => {
+                report.errors.push(IntegrityError::BlobFileCorrupted {
+                    blob_file_id: blob_file.id(),
+                    path: path.to_path_buf(),
+                    expected,
+                    got,
+                });
             }
+            Ok(_) => {}
             Err(e) => {
                 report.errors.push(IntegrityError::IoError {
                     path: path.to_path_buf(),
-                    error: e.to_string(),
+                    error: e,
                 });
             }
         }
