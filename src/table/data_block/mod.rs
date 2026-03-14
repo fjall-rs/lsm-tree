@@ -1236,7 +1236,8 @@ mod tests {
 
     #[test]
     fn data_block_point_read_seqno_aware_seek() -> crate::Result<()> {
-        // Key "a" with seqno 5,4,3,2,1 — point_read("a", seqno=3) should return v3
+        // Key "a" with seqno 5,4,3,2,1 — point_read("a", seqno=3)
+        // returns the first version with seqno < 3, i.e., v2 ("a2")
         let items = [
             InternalValue::from_components(b"a", b"a5", 5, Value),
             InternalValue::from_components(b"a", b"a4", 4, Value),
