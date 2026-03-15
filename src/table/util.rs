@@ -59,7 +59,10 @@ pub fn load_block(
             BlockType::Data | BlockType::Meta => {
                 metrics.data_block_load_cached.fetch_add(1, Relaxed);
             }
-            #[allow(unreachable_patterns)]
+            #[expect(
+                unreachable_patterns,
+                reason = "Filter variant has no metrics counter yet, see issue #13"
+            )]
             _ => {}
         }
 

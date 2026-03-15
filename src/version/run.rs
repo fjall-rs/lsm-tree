@@ -12,7 +12,7 @@ pub trait Ranged {
 /// Item inside a run
 ///
 /// May point to an interval [min, max] of tables in the next run.
-#[allow(dead_code)] // struct is part of planned cascading index optimization
+#[expect(dead_code, reason = "planned for cascading index optimization")]
 pub struct Indexed<T: Ranged> {
     inner: T,
     // cascade_indexes: (u32, u32),
