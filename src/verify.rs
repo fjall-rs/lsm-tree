@@ -82,12 +82,18 @@ impl std::error::Error for IntegrityError {
 }
 
 /// Result of an integrity verification scan.
+///
+/// The `sst_files_checked` and `blob_files_checked` counters reflect
+/// the number of files *attempted* — including those that produced I/O
+/// errors. This lets callers reconcile the total against the manifest
+/// even when some files were unreadable.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct IntegrityReport {
-    /// Number of SST table files checked.
+    /// Number of SST table files checked (includes I/O errors).
     pub sst_files_checked: usize,
 
-    /// Number of blob files checked.
+    /// Number of blob files checked (includes I/O errors).
     pub blob_files_checked: usize,
 
     /// Integrity errors found during verification.
@@ -114,7 +120,7 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
 
     let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut hasher = xxhash_rust::xxh3::Xxh3Default::new();
-    let mut buf = [0u8; 8192];
+    let mut buf = [0u8; 64 * 1024];
 
     loop {
         let n = reader.read(&mut buf)?;
