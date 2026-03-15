@@ -101,6 +101,9 @@ fn multi_get_snapshot_isolation() -> lsm_tree::Result<()> {
     tree.insert("b", "v2", 3);
 
     // Read at snapshot seqno=2: should see a=v1, b=v1
+    // Snapshot semantics: entry visible iff entry.seqno < snapshot_seqno
+    // (memtable lookup uses `seqno - 1` as upper bound, see Memtable::get).
+    // So a@2 (v2) is NOT visible at seqno=2, only a@0 (v1) is.
     let results = tree.multi_get(["a", "b"], 2)?;
     assert_eq!(results[0].as_deref(), Some(b"v1".as_slice()));
     assert_eq!(results[1].as_deref(), Some(b"v1".as_slice()));
