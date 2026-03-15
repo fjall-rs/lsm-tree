@@ -40,7 +40,7 @@ impl<'a> Iter<'a> {
     ///
     /// Here `seqno` is a snapshot boundary: point reads return the first item
     /// with `item.seqno < seqno`. Using the internal key ordering
-    /// (user_key ASC, seqno DESC), this skips restart intervals that can only
+    /// (`user_key` ASC, `seqno` DESC), this skips restart intervals that can only
     /// contain versions newer than the snapshot, so any visible version for
     /// `needle` will be found within roughly one restart interval of the
     /// resulting position.
