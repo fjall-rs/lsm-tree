@@ -440,10 +440,10 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
-    #[warn(
+    #[expect(
         clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "TODO: refactor"
+        reason = "recovery requires many context parameters and is inherently complex"
     )]
     pub fn recover(
         file_path: PathBuf,
@@ -620,7 +620,7 @@ impl Table {
     /// Returns the highest sequence number in the table.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
-        self.metadata.seqnos.1
+        self.metadata.seqnos.1 + self.global_seqno()
     }
 
     /// Returns the number of tombstone markers in the `Table`.

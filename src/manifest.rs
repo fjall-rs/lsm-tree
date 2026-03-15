@@ -8,6 +8,10 @@ use std::{io::Read, path::Path};
 
 pub struct Manifest {
     pub version: FormatVersion,
+    #[expect(
+        dead_code,
+        reason = "deserialized from on-disk manifest, retained for validation"
+    )]
     pub tree_type: TreeType,
     pub level_count: u8,
 }
