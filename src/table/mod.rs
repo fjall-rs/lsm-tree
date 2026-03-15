@@ -620,7 +620,7 @@ impl Table {
     /// Returns the highest sequence number in the table.
     #[must_use]
     pub fn get_highest_seqno(&self) -> SeqNo {
-        self.metadata.seqnos.1
+        self.metadata.seqnos.1 + self.global_seqno()
     }
 
     /// Returns the number of tombstone markers in the `Table`.
