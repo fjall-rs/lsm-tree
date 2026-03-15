@@ -106,23 +106,21 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder =
-                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                // NOTE: size cap validation for uncompressed_length is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
+                let mut buf = vec![0u8; header.uncompressed_length as usize];
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                builder.freeze().into()
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
+                Slice::from(buf)
             }
         };
-
-        debug_assert_eq!(header.uncompressed_length, {
-            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-            {
-                data.len() as u32
-            }
-        });
 
         Ok(Self { header, data })
     }
@@ -167,14 +165,18 @@ impl Block {
                 #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                #[warn(unsafe_code)]
-                let mut builder =
-                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                // NOTE: size cap validation for uncompressed_length is in PR #7
+                let mut decompressed = vec![0u8; header.uncompressed_length as usize];
 
-                lz4_flex::decompress_into(raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(raw_data, &mut decompressed)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                builder.freeze().into()
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
+                Slice::from(decompressed)
             }
         };
 
@@ -227,5 +229,43 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn lz4_corrupted_uncompressed_length_triggers_decompress_error() {
+        use crate::coding::Encode;
+        use std::io::Cursor;
+
+        let payload: &[u8] = b"hello world";
+
+        // Compress with lz4 using the block format
+        let compressed = lz4_flex::compress(payload);
+
+        // Build a header with corrupted uncompressed_length (1 byte too large)
+        let data_length = compressed.len() as u32;
+        let uncompressed_length_correct = payload.len() as u32;
+        let uncompressed_length_corrupted = uncompressed_length_correct + 1;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&compressed));
+
+        let header = Header {
+            data_length,
+            uncompressed_length: uncompressed_length_corrupted,
+            checksum,
+            block_type: BlockType::Data,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = Cursor::new(buf);
+        let result = Block::from_reader(&mut cursor, CompressionType::Lz4);
+
+        match result {
+            Err(crate::Error::Decompress(CompressionType::Lz4)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
+            Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
+        }
     }
 }

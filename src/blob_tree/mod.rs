@@ -332,6 +332,7 @@ impl AbstractTree for BlobTree {
         self.index.get_flush_lock()
     }
 
+    #[expect(clippy::too_many_lines, reason = "flush logic is inherently complex")]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,

@@ -279,18 +279,31 @@ impl CompactionStrategy for Strategy {
 
         // Trivial move into Lmax
         'trivial_lmax: {
+            #[expect(
+                clippy::expect_used,
+                reason = "level 0 is guaranteed to exist in a valid version"
+            )]
             let l0 = version.level(0).expect("first level should exist");
 
             if !l0.is_empty() && l0.is_disjoint() {
                 let lmax_index = version.level_count() - 1;
 
-                if (1..lmax_index)
-                    .any(|idx| !version.level(idx).expect("level should exist").is_empty())
-                {
+                if (1..lmax_index).any(|idx| {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "levels within level_count are guaranteed to exist"
+                    )]
+                    let level = version.level(idx).expect("level should exist");
+                    !level.is_empty()
+                }) {
                     // There are intermediary levels with data, cannot trivially move to Lmax
                     break 'trivial_lmax;
                 }
 
+                #[expect(
+                    clippy::expect_used,
+                    reason = "lmax_index is derived from level_count so level is guaranteed to exist"
+                )]
                 let lmax = version.level(lmax_index).expect("last level should exist");
 
                 if !lmax
@@ -299,6 +312,10 @@ impl CompactionStrategy for Strategy {
                 {
                     return Choice::Move(CompactionInput {
                         table_ids: l0.list_ids(),
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "level count is at most 7, fits in u8"
+                        )]
                         dest_level: lmax_index as u8,
                         canonical_level: 1,
                         target_size: self.target_size,
