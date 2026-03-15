@@ -123,7 +123,11 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
     let mut buf = vec![0u8; 64 * 1024];
 
     loop {
-        let n = reader.read(&mut buf)?;
+        let n = match reader.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
         if n == 0 {
             break;
         }
