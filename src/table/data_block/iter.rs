@@ -56,18 +56,9 @@ impl<'a> Iter<'a> {
     }
 
     pub fn seek(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
-        // Find the last restart interval whose head precedes (needle, seqno) in
-        // internal key order (user_key ASC, seqno DESC).  This lets us skip
-        // restart intervals that contain only versions newer than the snapshot,
-        // reducing the subsequent linear scan.
-        if !self.decoder.inner_mut().seek(
-            |head_key, head_seqno| match head_key.cmp(needle) {
-                std::cmp::Ordering::Less => true,
-                std::cmp::Ordering::Equal => head_seqno >= seqno,
-                std::cmp::Ordering::Greater => false,
-            },
-            false,
-        ) {
+        // Reuse the seqno-aware binary search from `seek_to_key_seqno`, then
+        // follow up with a linear scan to position at the exact key.
+        if !self.seek_to_key_seqno(needle, seqno) {
             return false;
         }
 
@@ -145,17 +136,9 @@ impl<'a> Iter<'a> {
     }
 
     pub fn seek_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
-        // Exclusive lower bound: identical to `seek`, except we must not yield
-        // entries equal to `needle`.  The seqno-aware binary search still helps
-        // by landing closer to the target position in the restart index.
-        if !self.decoder.inner_mut().seek(
-            |head_key, head_seqno| match head_key.cmp(needle) {
-                std::cmp::Ordering::Less => true,
-                std::cmp::Ordering::Equal => head_seqno >= seqno,
-                std::cmp::Ordering::Greater => false,
-            },
-            false,
-        ) {
+        // Exclusive lower bound: same seqno-aware binary search, but the linear
+        // scan below skips entries equal to `needle`.
+        if !self.seek_to_key_seqno(needle, seqno) {
             return false;
         }
 

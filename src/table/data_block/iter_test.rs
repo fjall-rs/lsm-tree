@@ -1316,18 +1316,31 @@ mod tests {
                 assert_eq!(materialized.key.seqno, 10);
             }
 
-            // With a specific snapshot seqno, the binary search skips restart
-            // intervals that only contain newer versions, but the linear scan
-            // still finds the first entry with key == needle.
+            // With a specific snapshot seqno, the binary search lands on the
+            // restart interval containing (or nearest to) the target seqno.
+            // The first entry returned is the head of that interval.
             {
                 let mut iter = data_block.iter();
                 assert!(iter.seek(b"b", 5), "should find key with snapshot seqno 5");
                 let entry = iter.next().expect("should have entry");
                 let materialized = entry.materialize(&data_block.inner.data);
                 assert_eq!(materialized.key.user_key.as_ref(), b"b");
-                // seek returns the first entry with key >= needle; that's still
-                // the newest version in the landing interval.  The seqno-aware
-                // predicate only narrows which restart interval we land on.
+                // The landing entry's seqno must be >= the snapshot boundary,
+                // proving the seqno-aware predicate skipped past older intervals.
+                assert!(
+                    materialized.key.seqno >= 5,
+                    "restart_interval={restart_interval}: landing seqno {} should be >= snapshot 5",
+                    materialized.key.seqno,
+                );
+                // With restart_interval=1 each entry is its own interval, so
+                // the predicate lands exactly on the target seqno — a key-only
+                // seek would land on seqno 10 instead.
+                if restart_interval == 1 {
+                    assert_eq!(
+                        materialized.key.seqno, 5,
+                        "with restart_interval=1, seqno-aware seek must land exactly on target"
+                    );
+                }
             }
         }
 
@@ -1366,6 +1379,18 @@ mod tests {
                 let entry = iter.next().expect("should have entry");
                 let mat = entry.materialize(&data_block.inner.data);
                 assert_eq!(mat.key.user_key.as_ref(), b"b");
+                // Landing seqno must be >= snapshot boundary.
+                assert!(
+                    mat.key.seqno >= 5,
+                    "restart_interval={restart_interval}: seqno {} should be >= 5",
+                    mat.key.seqno,
+                );
+                // With restart_interval=1, seqno-aware seek lands on (b,7) —
+                // the last head with seqno >= 5 — whereas key-only would land
+                // on (b,10).
+                if restart_interval == 1 {
+                    assert_eq!(mat.key.seqno, 7);
+                }
             }
 
             // Exclusive forward seek with seqno.
