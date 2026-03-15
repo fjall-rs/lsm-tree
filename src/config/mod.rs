@@ -21,7 +21,8 @@ pub type PartitioningPolicy = PinningPolicy;
 
 use crate::{
     compaction::filter::Factory, path::absolute_path, version::DEFAULT_LEVEL_COUNT, AnyTree,
-    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter, Tree,
+    BlobTree, Cache, CompressionType, DescriptorTable, SequenceNumberCounter,
+    SharedSequenceNumberGenerator, Tree,
 };
 use std::{
     path::{Path, PathBuf},
@@ -234,10 +235,10 @@ pub struct Config {
 
     /// The global sequence number generator
     ///
-    /// Should be shared between multple trees of a database
-    pub(crate) seqno: SequenceNumberCounter,
+    /// Should be shared between multiple trees of a database
+    pub(crate) seqno: SharedSequenceNumberGenerator,
 
-    pub(crate) visible_seqno: SequenceNumberCounter,
+    pub(crate) visible_seqno: SharedSequenceNumberGenerator,
 }
 
 // TODO: remove default?
@@ -246,8 +247,8 @@ impl Default for Config {
         Self {
             path: absolute_path(Path::new(DEFAULT_FILE_FOLDER)),
             descriptor_table: Some(Arc::new(DescriptorTable::new(256))),
-            seqno: SequenceNumberCounter::default(),
-            visible_seqno: SequenceNumberCounter::default(),
+            seqno: SharedSequenceNumberGenerator::from(SequenceNumberCounter::default()),
+            visible_seqno: SharedSequenceNumberGenerator::from(SequenceNumberCounter::default()),
 
             cache: Arc::new(Cache::with_capacity_bytes(
                 /* 16 MiB */ 16 * 1_024 * 1_024,
@@ -307,10 +308,27 @@ impl Config {
     ) -> Self {
         Self {
             path: absolute_path(path.as_ref()),
-            seqno,
-            visible_seqno,
+            seqno: Arc::new(seqno),
+            visible_seqno: Arc::new(visible_seqno),
             ..Default::default()
         }
+    }
+
+    /// Overrides the sequence number generator.
+    ///
+    /// By default, [`SequenceNumberCounter`] is used. This allows plugging in
+    /// a custom generator (e.g., HLC for distributed databases).
+    #[must_use]
+    pub fn seqno_generator(mut self, generator: SharedSequenceNumberGenerator) -> Self {
+        self.seqno = generator;
+        self
+    }
+
+    /// Overrides the visible sequence number generator.
+    #[must_use]
+    pub fn visible_seqno_generator(mut self, generator: SharedSequenceNumberGenerator) -> Self {
+        self.visible_seqno = generator;
+        self
     }
 
     /// Sets the global cache.
@@ -478,5 +496,23 @@ impl Config {
         } else {
             AnyTree::Standard(Tree::open(self)?)
         })
+    }
+
+    /// Like [`Config::new`], but accepts pre-built shared generators.
+    ///
+    /// This is useful when the caller already has
+    /// [`SharedSequenceNumberGenerator`] instances (e.g., from a higher-level
+    /// database that shares generators across multiple trees).
+    pub fn new_with_generators<P: AsRef<Path>>(
+        path: P,
+        seqno: SharedSequenceNumberGenerator,
+        visible_seqno: SharedSequenceNumberGenerator,
+    ) -> Self {
+        Self {
+            path: absolute_path(path.as_ref()),
+            seqno,
+            visible_seqno,
+            ..Default::default()
+        }
     }
 }
