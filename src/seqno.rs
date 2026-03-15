@@ -158,6 +158,9 @@ impl SequenceNumberCounter {
     /// # Panics
     ///
     /// Panics if `prev > MAX_SEQNO` (reserved MSB range).
+    ///
+    /// Note: `prev == MAX_SEQNO` is allowed but means the counter is
+    /// exhausted — any subsequent call to [`next()`](Self::next) will panic.
     #[must_use]
     pub fn new(prev: SeqNo) -> Self {
         assert!(
@@ -201,7 +204,6 @@ impl SequenceNumberCounter {
 }
 
 impl SequenceNumberGenerator for SequenceNumberCounter {
-    #[allow(clippy::missing_panics_doc, reason = "we should never run out of u64s")]
     fn next(&self) -> SeqNo {
         // We use fetch_update (CAS loop) instead of fetch_add to ensure the
         // internal counter never enters the reserved MSB range. With fetch_add,
