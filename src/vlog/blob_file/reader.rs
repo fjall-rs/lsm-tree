@@ -29,13 +29,12 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        let add_size = BLOB_HEADER_LEN + key.len();
+        let read_len = (vhandle.on_disk_size as usize)
+            .checked_add(add_size)
+            .ok_or(crate::Error::Unrecoverable)?;
 
-        let value = crate::file::read_exact(
-            self.file,
-            vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
-        )?;
+        let value = crate::file::read_exact(self.file, vhandle.offset, read_len)?;
 
         let mut reader = Cursor::new(&value[..]);
 
@@ -58,7 +57,7 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
-        let raw_data = value.slice((add_size as usize)..);
+        let raw_data = value.slice(add_size..);
 
         {
             let checksum = {
@@ -86,13 +85,19 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                // NOTE: size cap validation for real_val_len is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
+                let mut buf = vec![0u8; real_val_len];
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
 
-                builder.freeze().into()
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != real_val_len {
+                    return Err(crate::Error::Decompress(self.blob_file.0.meta.compression));
+                }
+
+                UserValue::from(buf)
             }
         };
 
@@ -149,6 +154,51 @@ mod tests {
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn blob_reader_lz4_corrupted_real_val_len_triggers_decompress_error() -> crate::Result<()> {
+        use byteorder::WriteBytesExt;
+
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX)
+            .use_compression(CompressionType::Lz4);
+
+        let handle = writer.write(b"a", 0, b"abcdef")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        // Tamper the real_val_len field in the blob file.
+        // Header layout: MAGIC(4) + Checksum(16) + SeqNo(8) + KeyLen(2) + RealValLen(4) + ...
+        // RealValLen is at offset 30 from the blob start.
+        let real_val_len_offset = handle.offset + 4 + 16 + 8 + 2;
+
+        {
+            use std::io::{Seek, Write};
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&blob_file.0.path)?;
+            file.seek(std::io::SeekFrom::Start(real_val_len_offset))?;
+            // Write a corrupted value: original len + 1
+            file.write_u32::<LittleEndian>(b"abcdef".len() as u32 + 1)?;
+            file.flush()?;
+        }
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        match reader.get(b"a", &handle) {
+            Err(crate::Error::Decompress(_)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok"),
+            Err(other) => panic!("expected Error::Decompress, got: {other:?}"),
+        }
 
         Ok(())
     }
