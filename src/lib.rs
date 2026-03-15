@@ -144,6 +144,10 @@ pub mod util;
 
 mod value;
 mod value_type;
+
+/// Integrity verification for SST and blob files.
+pub mod verify;
+
 mod version;
 mod vlog;
 
@@ -183,7 +187,9 @@ pub use {
     ingestion::AnyIngestion,
     iter_guard::IterGuard as Guard,
     memtable::{Memtable, MemtableId},
-    seqno::SequenceNumberCounter,
+    seqno::{
+        SequenceNumberCounter, SequenceNumberGenerator, SharedSequenceNumberGenerator, MAX_SEQNO,
+    },
     slice::Slice,
     tree::Tree,
     value::SeqNo,
