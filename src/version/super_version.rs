@@ -6,7 +6,7 @@ use crate::{
     memtable::Memtable,
     tree::sealed::SealedMemtables,
     version::{persist_version, Version},
-    SeqNo, SequenceNumberCounter,
+    SeqNo, SharedSequenceNumberGenerator, MAX_SEQNO,
 };
 use std::{collections::VecDeque, path::Path, sync::Arc};
 
@@ -110,12 +110,14 @@ impl SuperVersions {
     /// and returns a new version.
     ///
     /// The function takes care of persisting the version changes on disk.
+    // Takes &SharedSequenceNumberGenerator (not &dyn SequenceNumberGenerator)
+    // because Config stores Arc<dyn ...> and all callers already have that type.
     pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
         &mut self,
         tree_path: &Path,
         f: F,
-        seqno: &SequenceNumberCounter,
-        visible_seqno: &SequenceNumberCounter,
+        seqno: &SharedSequenceNumberGenerator,
+        visible_seqno: &SharedSequenceNumberGenerator,
     ) -> crate::Result<()> {
         self.upgrade_version_with_seqno(tree_path, f, seqno.next(), visible_seqno)
     }
@@ -131,7 +133,7 @@ impl SuperVersions {
         tree_path: &Path,
         f: F,
         seqno: SeqNo,
-        visible_seqno: &SequenceNumberCounter,
+        visible_seqno: &SharedSequenceNumberGenerator,
     ) -> crate::Result<()> {
         let mut next_version = f(&self.latest_version())?;
         next_version.seqno = seqno;
@@ -140,7 +142,9 @@ impl SuperVersions {
         persist_version(tree_path, &next_version.version)?;
         self.append_version(next_version);
 
-        visible_seqno.fetch_max(seqno + 1);
+        // Clamp to stay below the reserved MSB range.
+        let next_visible = seqno.saturating_add(1).min(MAX_SEQNO);
+        visible_seqno.fetch_max(next_visible);
 
         Ok(())
     }
