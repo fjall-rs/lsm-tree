@@ -29,17 +29,10 @@ impl<'a> Reader<'a> {
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
-        let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
+        let add_size = BLOB_HEADER_LEN + key.len();
+        let read_len = vhandle.on_disk_size as usize + add_size;
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "blob sizes are bounded well within usize on supported 64-bit platforms"
-        )]
-        let value = crate::file::read_exact(
-            self.file,
-            vhandle.offset,
-            (u64::from(vhandle.on_disk_size) + add_size) as usize,
-        )?;
+        let value = crate::file::read_exact(self.file, vhandle.offset, read_len)?;
 
         let mut reader = Cursor::new(&value[..]);
 
@@ -62,11 +55,7 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "add_size is header_len + key_len, both bounded well within usize"
-        )]
-        let raw_data = value.slice((add_size as usize)..);
+        let raw_data = value.slice(add_size..);
 
         {
             let checksum = {
