@@ -190,13 +190,13 @@ impl SequenceNumberCounter {
     ///
     /// Panics if `value > MAX_SEQNO` (reserved MSB range).
     pub fn set(&self, value: SeqNo) {
-        <Self as SequenceNumberGenerator>::set(self, value)
+        <Self as SequenceNumberGenerator>::set(self, value);
     }
 
     /// Atomically updates the sequence number to the maximum of
     /// the current value and the provided value.
     pub fn fetch_max(&self, value: SeqNo) {
-        <Self as SequenceNumberGenerator>::fetch_max(self, value)
+        <Self as SequenceNumberGenerator>::fetch_max(self, value);
     }
 }
 
@@ -216,7 +216,7 @@ impl SequenceNumberGenerator for SequenceNumberCounter {
             }
         }) {
             Ok(seqno) => seqno,
-            Err(_) => panic!("Ran out of sequence numbers"),
+            Err(current) => panic!("Ran out of sequence numbers (current: {current})"),
         }
     }
 
