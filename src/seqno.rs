@@ -252,40 +252,36 @@ impl From<SequenceNumberCounter> for SharedSequenceNumberGenerator {
 
 #[cfg(test)]
 mod tests {
+    use super::MAX_SEQNO;
     use test_log::test;
 
     #[test]
-    fn not_max_seqno() {
+    fn next_below_max_returns_valid_seqno() {
         let counter = super::SequenceNumberCounter::default();
-        // Two below the boundary: next() returns 0x7FFF_FFFF_FFFF_FFFE,
-        // which is valid (< 0x8000_0000_0000_0000).
-        counter.set(0x7FFF_FFFF_FFFF_FFFE);
+        counter.set(MAX_SEQNO - 1);
         let _ = counter.next();
     }
 
     #[test]
     #[should_panic = "Ran out of sequence numbers"]
-    fn max_seqno() {
+    fn next_at_max_panics() {
         let counter = super::SequenceNumberCounter::default();
-        // At MAX_SEQNO, fetch_update sees current >= MAX and returns None → panic.
-        // The counter is never advanced into the reserved range.
-        counter.set(0x7FFF_FFFF_FFFF_FFFF);
+        counter.set(MAX_SEQNO);
         let _ = counter.next();
     }
 
     #[test]
     #[should_panic = "Sequence number must not use the reserved MSB"]
-    fn set_reserved_range() {
+    fn set_reserved_range_panics() {
         let counter = super::SequenceNumberCounter::default();
-        counter.set(0x8000_0000_0000_0000);
+        counter.set(MAX_SEQNO + 1);
     }
 
     #[test]
-    fn fetch_max_clamps_reserved() {
+    fn fetch_max_clamps_reserved_to_max() {
         let counter = super::SequenceNumberCounter::default();
         counter.set(100);
-        counter.fetch_max(0x8000_0000_0000_0000);
-        // Should be clamped to MAX allowed value
-        assert_eq!(counter.get(), 0x7FFF_FFFF_FFFF_FFFF);
+        counter.fetch_max(MAX_SEQNO + 1);
+        assert_eq!(counter.get(), MAX_SEQNO);
     }
 }
