@@ -26,6 +26,7 @@ impl Slice {
     }
 
     #[doc(hidden)]
+    #[must_use]
     pub unsafe fn builder_unzeroed(len: usize) -> Builder {
         // Use `with_capacity` & `set_len`` to avoid zeroing the buffer
         let mut builder = Builder::with_capacity(len);
@@ -57,7 +58,15 @@ impl Slice {
         {
             let mut writer = &mut builder[..];
 
+            #[expect(
+                clippy::expect_used,
+                reason = "writing into a pre-allocated buffer of exact size cannot fail"
+            )]
             writer.write_all(left).expect("should write");
+            #[expect(
+                clippy::expect_used,
+                reason = "writing into a pre-allocated buffer of exact size cannot fail"
+            )]
             writer.write_all(right).expect("should write");
         }
 

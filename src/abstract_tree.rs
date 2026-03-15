@@ -511,6 +511,84 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
+    /// Returns `true` if the tree contains any key with the given prefix.
+    ///
+    /// This is a convenience method that checks whether the corresponding
+    /// prefix iterator yields at least one item, while surfacing any IO
+    /// errors via the `Result` return type. Implementations may override
+    /// this method to provide a more efficient prefix-existence check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// assert!(!tree.contains_prefix("abc", 0, None)?);
+    ///
+    /// tree.insert("abc:1", "value", 0);
+    /// assert!(tree.contains_prefix("abc", 1, None)?);
+    /// assert!(!tree.contains_prefix("xyz", 1, None)?);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn contains_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<(Arc<Memtable>, SeqNo)>,
+    ) -> crate::Result<bool> {
+        match self.prefix(prefix, seqno, index).next() {
+            Some(guard) => guard.key().map(|_| true),
+            None => Ok(false),
+        }
+    }
+
+    /// Reads multiple keys from the tree.
+    ///
+    /// Implementations may choose to perform all lookups against a single
+    /// version snapshot and acquire the version lock only once, which can be
+    /// more efficient than calling [`AbstractTree::get`] in a loop. The
+    /// default trait implementation, however, is a convenience wrapper that
+    /// simply calls [`AbstractTree::get`] for each key and therefore does not
+    /// guarantee a single-snapshot or single-lock acquisition. Optimized
+    /// implementations (such as [`Tree`] and [`BlobTree`]) provide the
+    /// single-snapshot/one-lock behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// tree.insert("a", "value_a", 0);
+    /// tree.insert("b", "value_b", 1);
+    ///
+    /// let results = tree.multi_get(["a", "b", "c"], 2)?;
+    /// assert_eq!(results[0], Some("value_a".as_bytes().into()));
+    /// assert_eq!(results[1], Some("value_b".as_bytes().into()));
+    /// assert_eq!(results[2], None);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        keys.into_iter().map(|key| self.get(key, seqno)).collect()
+    }
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.

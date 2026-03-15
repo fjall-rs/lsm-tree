@@ -37,20 +37,20 @@ self_cell!(
 );
 
 impl OwnedDataBlockIter {
-    fn seek_lower_inclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        self.with_dependent_mut(|_, m| m.seek(needle /* TODO: , seqno */))
+    fn seek_lower_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek(needle, seqno))
     }
 
-    fn seek_upper_inclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        self.with_dependent_mut(|_, m| m.seek_upper(needle /* TODO: , seqno */))
+    fn seek_upper_inclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_upper(needle, seqno))
     }
 
-    fn seek_lower_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        self.with_dependent_mut(|_, m| m.seek_exclusive(needle /* TODO: , seqno */))
+    fn seek_lower_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_exclusive(needle, seqno))
     }
 
-    fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        self.with_dependent_mut(|_, m| m.seek_upper_exclusive(needle /* TODO: , seqno */))
+    fn seek_upper_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        self.with_dependent_mut(|_, m| m.seek_upper_exclusive(needle, seqno))
     }
 
     pub fn seek_lower_bound(&mut self, bound: &Bound, seqno: SeqNo) -> bool {
@@ -119,6 +119,10 @@ pub struct Iter {
 }
 
 impl Iter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "iterator requires full context for block loading"
+    )]
     pub fn new(
         table_id: GlobalTableId,
         global_seqno: SeqNo,
