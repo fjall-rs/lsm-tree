@@ -30,7 +30,9 @@ impl<'a> Reader<'a> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
 
         let add_size = BLOB_HEADER_LEN + key.len();
-        let read_len = vhandle.on_disk_size as usize + add_size;
+        let read_len = (vhandle.on_disk_size as usize)
+            .checked_add(add_size)
+            .ok_or(crate::Error::Unrecoverable)?;
 
         let value = crate::file::read_exact(self.file, vhandle.offset, read_len)?;
 
@@ -83,6 +85,8 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                // NOTE: size cap validation for real_val_len is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
                 let mut buf = vec![0u8; real_val_len];
 
                 let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)

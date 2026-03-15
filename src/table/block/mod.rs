@@ -106,6 +106,8 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
+                // NOTE: size cap validation for uncompressed_length is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
                 let mut buf = vec![0u8; header.uncompressed_length as usize];
 
                 let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
@@ -163,6 +165,7 @@ impl Block {
                 #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
+                // NOTE: size cap validation for uncompressed_length is in PR #7
                 let mut decompressed = vec![0u8; header.uncompressed_length as usize];
 
                 let bytes_written = lz4_flex::decompress_into(raw_data, &mut decompressed)
