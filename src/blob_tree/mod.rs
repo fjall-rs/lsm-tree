@@ -332,6 +332,7 @@ impl AbstractTree for BlobTree {
         self.index.get_flush_lock()
     }
 
+    #[expect(clippy::too_many_lines, reason = "flush logic is inherently complex")]
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
@@ -553,6 +554,18 @@ impl AbstractTree for BlobTree {
     // data from the value log, so we get much faster key reads
     fn contains_key<K: AsRef<[u8]>>(&self, key: K, seqno: SeqNo) -> crate::Result<bool> {
         self.index.contains_key(key, seqno)
+    }
+
+    // NOTE: Override the default implementation to delegate directly
+    // to the index tree, avoiding extra iterator/guard overhead for
+    // prefix checks
+    fn contains_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<(Arc<Memtable>, SeqNo)>,
+    ) -> crate::Result<bool> {
+        self.index.contains_prefix(prefix, seqno, index)
     }
 
     // NOTE: Override the default implementation to not fetch
