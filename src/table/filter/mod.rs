@@ -45,7 +45,9 @@ impl BloomConstructionPolicy {
     pub fn estimated_filter_size(&self, n: usize) -> usize {
         #[expect(
             clippy::cast_precision_loss,
-            reason = "truncation is fine because this is an estimation"
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "truncation and precision loss are fine because this is an estimation"
         )]
         match self {
             Self::BitsPerKey(bpk) => (*bpk * (n as f32)) as usize / 8,

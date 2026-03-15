@@ -106,14 +106,14 @@ impl Block {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder =
-                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                let mut buf = vec![0u8; header.uncompressed_length as usize];
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                builder.freeze().into()
+                debug_assert_eq!(bytes_written, header.uncompressed_length as usize);
+
+                Slice::from(buf)
             }
         };
 
@@ -167,14 +167,14 @@ impl Block {
                 #[expect(clippy::indexing_slicing)]
                 let raw_data = &buf[Header::serialized_len()..];
 
-                #[warn(unsafe_code)]
-                let mut builder =
-                    unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
+                let mut decompressed = vec![0u8; header.uncompressed_length as usize];
 
-                lz4_flex::decompress_into(raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(raw_data, &mut decompressed)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                builder.freeze().into()
+                debug_assert_eq!(bytes_written, header.uncompressed_length as usize);
+
+                Slice::from(decompressed)
             }
         };
 

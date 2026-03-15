@@ -90,6 +90,10 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "metadata section length is bounded well within usize on 64-bit platforms"
+                )]
                 let metadata_slice = crate::file::read_exact(
                     &file,
                     metadata_section.pos(),

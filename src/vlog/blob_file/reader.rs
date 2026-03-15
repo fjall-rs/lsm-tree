@@ -31,6 +31,10 @@ impl<'a> Reader<'a> {
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "blob sizes are bounded well within usize on supported 64-bit platforms"
+        )]
         let value = crate::file::read_exact(
             self.file,
             vhandle.offset,
@@ -58,6 +62,10 @@ impl<'a> Reader<'a> {
 
         reader.seek(std::io::SeekFrom::Current(key_len.into()))?;
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "add_size is header_len + key_len, both bounded well within usize"
+        )]
         let raw_data = value.slice((add_size as usize)..);
 
         {
@@ -86,13 +94,14 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
-                #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                let mut buf = vec![0u8; real_val_len];
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
 
-                builder.freeze().into()
+                debug_assert_eq!(bytes_written, real_val_len);
+
+                UserValue::from(buf)
             }
         };
 
