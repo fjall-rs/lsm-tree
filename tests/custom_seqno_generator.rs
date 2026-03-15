@@ -39,7 +39,7 @@ impl SequenceNumberGenerator for OffsetGenerator {
                 }
             }) {
             Ok(seqno) => seqno,
-            Err(_) => panic!("Ran out of sequence numbers"),
+            Err(current) => panic!("Ran out of sequence numbers (current: {current})"),
         }
     }
 

@@ -110,6 +110,8 @@ impl SuperVersions {
     /// and returns a new version.
     ///
     /// The function takes care of persisting the version changes on disk.
+    // Takes &SharedSequenceNumberGenerator (not &dyn SequenceNumberGenerator)
+    // because Config stores Arc<dyn ...> and all callers already have that type.
     pub(crate) fn upgrade_version<F: FnOnce(&SuperVersion) -> crate::Result<SuperVersion>>(
         &mut self,
         tree_path: &Path,

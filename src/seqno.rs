@@ -46,11 +46,12 @@ pub const MAX_SEQNO: SeqNo = 0x7FFF_FFFF_FFFF_FFFF;
 ///   unique for the lifetime of the generator (modulo wrap-around, which
 ///   must not occur within the reserved MSB range).
 ///
-/// Implementors are also responsible for ensuring that [`get`] and
-/// [`fetch_max`] do not violate these invariants (e.g., by setting the
-/// counter to a value at or above `0x8000_0000_0000_0000`, or by moving
-/// the counter backwards such that subsequent calls to [`next`] would
-/// observe non-monotonic sequence numbers).
+/// Implementors are also responsible for ensuring that [`get`] does not
+/// return values that violate these invariants, and that [`set`] and
+/// [`fetch_max`] do not violate them (e.g., by setting the counter to a
+/// value at or above `0x8000_0000_0000_0000`, or by moving the counter
+/// backwards such that subsequent calls to [`next`] would observe
+/// non-monotonic sequence numbers).
 ///
 /// The [`set`] method is a special-case escape hatch intended for use
 /// during initialization or recovery. It may move the counter forwards
@@ -270,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Ran out of sequence numbers"]
+    #[should_panic(expected = "Ran out of sequence numbers")]
     fn next_at_max_panics() {
         let counter = super::SequenceNumberCounter::default();
         counter.set(MAX_SEQNO);
@@ -278,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Sequence number must not use the reserved MSB"]
+    #[should_panic(expected = "Sequence number must not use the reserved MSB")]
     fn set_reserved_range_panics() {
         let counter = super::SequenceNumberCounter::default();
         counter.set(MAX_SEQNO + 1);
