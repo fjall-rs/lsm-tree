@@ -59,7 +59,7 @@ impl Block {
 
         // `compressed_buf` keeps the compressed data alive for compressed branches
         #[cfg(any(feature = "lz4", feature = "zstd"))]
-        let mut compressed_buf: Option<Vec<u8>> = None;
+        let compressed_buf: Option<Vec<u8>>;
 
         let payload: &[u8] = match compression {
             CompressionType::None => data,

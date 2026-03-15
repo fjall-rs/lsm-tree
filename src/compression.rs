@@ -55,6 +55,10 @@ impl CompressionType {
     ///
     /// This is the recommended way to construct a `CompressionType::Zstd`
     /// value, as it validates the level before any I/O occurs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `level` is outside the valid range `1..=22`.
     #[cfg(feature = "zstd")]
     pub fn zstd(level: i32) -> crate::Result<Self> {
         Self::validate_zstd_level(level)?;
