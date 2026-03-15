@@ -55,15 +55,19 @@ impl<'a> Iter<'a> {
         )
     }
 
-    pub fn seek(&mut self, needle: &[u8]) -> bool {
-        // Find the restart interval whose head key is the last one strictly below `needle`.
-        // The decoder then performs a linear scan within that interval; we stop as soon as we
-        // reach a key ≥ needle. This minimizes parsing work while preserving correctness.
-        if !self
-            .decoder
-            .inner_mut()
-            .seek(|head_key, _| head_key < needle, false)
-        {
+    pub fn seek(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        // Find the last restart interval whose head precedes (needle, seqno) in
+        // internal key order (user_key ASC, seqno DESC).  This lets us skip
+        // restart intervals that contain only versions newer than the snapshot,
+        // reducing the subsequent linear scan.
+        if !self.decoder.inner_mut().seek(
+            |head_key, head_seqno| match head_key.cmp(needle) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => head_seqno >= seqno,
+                std::cmp::Ordering::Greater => false,
+            },
+            false,
+        ) {
             return false;
         }
 
@@ -96,9 +100,16 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_upper(&mut self, needle: &[u8]) -> bool {
-        // Reverse-bound seek: position the high scanner at the first restart whose head key is
-        // ≤ needle, then walk backwards inside the interval until we find a key ≤ needle.
+    pub fn seek_upper(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
+        // Reverse-bound seek: position the high scanner at the last restart whose
+        // head key is ≤ needle, then walk backwards inside the interval until we
+        // find a key ≤ needle.
+        //
+        // Note: seqno cannot narrow the backward binary search.  Backward
+        // iteration visits intervals from the selected one toward index 0, so a
+        // tighter predicate would cause later intervals (higher index, older
+        // versions of the same key) to be skipped entirely — potentially missing
+        // the visible version.
         if !self
             .decoder
             .inner_mut()
@@ -133,15 +144,18 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_exclusive(&mut self, needle: &[u8]) -> bool {
-        // Exclusive lower bound: identical to `seek`, except we must not yield entries equal to
-        // `needle`. We therefore keep consuming while keys compare equal and only stop once we
-        // observe a strictly greater key.
-        if !self
-            .decoder
-            .inner_mut()
-            .seek(|head_key, _| head_key < needle, false)
-        {
+    pub fn seek_exclusive(&mut self, needle: &[u8], seqno: SeqNo) -> bool {
+        // Exclusive lower bound: identical to `seek`, except we must not yield
+        // entries equal to `needle`.  The seqno-aware binary search still helps
+        // by landing closer to the target position in the restart index.
+        if !self.decoder.inner_mut().seek(
+            |head_key, head_seqno| match head_key.cmp(needle) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => head_seqno >= seqno,
+                std::cmp::Ordering::Greater => false,
+            },
+            false,
+        ) {
             return false;
         }
 
@@ -165,9 +179,9 @@ impl<'a> Iter<'a> {
         }
     }
 
-    pub fn seek_upper_exclusive(&mut self, needle: &[u8]) -> bool {
-        // Exclusive upper bound: mirror of `seek_upper`. We must not include entries equal to
-        // `needle`, so we consume equals from the high end until we see a strictly smaller key.
+    pub fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
+        // Exclusive upper bound: mirror of `seek_upper`.  Same backward-search
+        // limitation applies — seqno cannot narrow the binary search here.
         if !self
             .decoder
             .inner_mut()

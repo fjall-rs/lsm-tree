@@ -5,7 +5,7 @@ mod tests {
             block::{BlockType, Header, ParsedItem},
             Block, DataBlock,
         },
-        Checksum, InternalValue, Slice,
+        Checksum, InternalValue, SeqNo, Slice,
         ValueType::{Tombstone, Value},
     };
     use test_log::test;
@@ -71,8 +71,8 @@ mod tests {
 
             {
                 let mut iter = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&110u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
 
                 assert_eq!(
@@ -83,8 +83,8 @@ mod tests {
 
             {
                 let mut iter: crate::table::data_block::Iter<'_> = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&110u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
 
                 assert_eq!(
@@ -95,8 +95,8 @@ mod tests {
 
             {
                 let mut iter = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&110u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&110u64.to_be_bytes(), SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
                 let mut count = 0;
@@ -145,8 +145,8 @@ mod tests {
 
             {
                 let mut iter = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&109u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
 
                 assert_eq!(
@@ -157,8 +157,8 @@ mod tests {
 
             {
                 let mut iter: crate::table::data_block::Iter<'_> = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&109u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
                 let iter = iter.map(|x| x.materialize(data_block.as_slice()));
 
                 assert_eq!(
@@ -169,8 +169,8 @@ mod tests {
 
             {
                 let mut iter = data_block.iter();
-                iter.seek(&10u64.to_be_bytes());
-                iter.seek_upper(&109u64.to_be_bytes());
+                iter.seek(&10u64.to_be_bytes(), SeqNo::MAX);
+                iter.seek_upper(&109u64.to_be_bytes(), SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
                 let mut count = 0;
@@ -218,8 +218,8 @@ mod tests {
             });
 
             let mut iter = data_block.iter();
-            iter.seek(&5u64.to_be_bytes());
-            iter.seek_upper(&9u64.to_be_bytes());
+            iter.seek(&5u64.to_be_bytes(), SeqNo::MAX);
+            iter.seek_upper(&9u64.to_be_bytes(), SeqNo::MAX);
 
             let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
             let mut count = 0;
@@ -345,7 +345,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek_upper(b"d"), "should seek");
+            assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -386,7 +386,7 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(!iter.seek(b"a"), "should not seek");
+                assert!(!iter.seek(b"a", SeqNo::MAX), "should not seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -398,7 +398,7 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(!iter.seek_upper(b"g"), "should not seek");
+                assert!(!iter.seek_upper(b"g", SeqNo::MAX), "should not seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -410,7 +410,7 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek_upper(b"b"), "should seek");
+                assert!(iter.seek_upper(b"b", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -425,7 +425,7 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek(b"f"), "should seek");
+                assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -466,8 +466,8 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek(b"c"), "should seek");
-            assert!(iter.seek_upper(b"d"), "should seek");
+            assert!(iter.seek(b"c", SeqNo::MAX), "should seek");
+            assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -507,7 +507,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek_upper(b"b"), "should seek");
+            assert!(iter.seek_upper(b"b", SeqNo::MAX), "should seek");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -548,8 +548,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek(b"d"), "should seek");
-                assert!(iter.seek_upper(b"d"), "should seek");
+                assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
+                assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -564,8 +564,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek_upper(b"d"), "should seek");
-                assert!(iter.seek(b"d"), "should seek");
+                assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
+                assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -580,8 +580,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek(b"d"), "should seek");
-                assert!(iter.seek_upper(b"d"), "should seek");
+                assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
+                assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -602,8 +602,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek_upper(b"d"), "should seek");
-                assert!(iter.seek(b"d"), "should seek");
+                assert!(iter.seek_upper(b"d", SeqNo::MAX), "should seek");
+                assert!(iter.seek(b"d", SeqNo::MAX), "should seek");
 
                 let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -651,8 +651,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek(b"f"), "should seek");
-                iter.seek_upper(b"e");
+                assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
+                iter.seek_upper(b"e", SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -662,8 +662,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek(b"f"), "should seek");
-                iter.seek_upper(b"e");
+                assert!(iter.seek(b"f", SeqNo::MAX), "should seek");
+                iter.seek_upper(b"e", SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -673,8 +673,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek_upper(b"e"), "should seek");
-                iter.seek(b"f");
+                assert!(iter.seek_upper(b"e", SeqNo::MAX), "should seek");
+                iter.seek(b"f", SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -684,8 +684,8 @@ mod tests {
             {
                 let mut iter = data_block.iter();
 
-                assert!(iter.seek_upper(b"e"), "should seek");
-                iter.seek(b"f");
+                assert!(iter.seek_upper(b"e", SeqNo::MAX), "should seek");
+                iter.seek(b"f", SeqNo::MAX);
 
                 let mut iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -721,7 +721,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek(b"b"), "should seek correctly");
+            assert!(iter.seek(b"b", SeqNo::MAX), "should seek correctly");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -758,7 +758,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek(b"d"), "should seek correctly");
+            assert!(iter.seek(b"d", SeqNo::MAX), "should seek correctly");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -798,7 +798,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(iter.seek(b"f"), "should seek correctly");
+            assert!(iter.seek(b"f", SeqNo::MAX), "should seek correctly");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -838,7 +838,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(!iter.seek(b"a"), "should not find exact match");
+            assert!(!iter.seek(b"a", SeqNo::MAX), "should not find exact match");
 
             let iter = iter.map(|item| item.materialize(&data_block.inner.data));
 
@@ -875,7 +875,7 @@ mod tests {
 
             let mut iter = data_block.iter();
 
-            assert!(!iter.seek(b"g"), "should not find exact match");
+            assert!(!iter.seek(b"g", SeqNo::MAX), "should not find exact match");
 
             assert!(iter.next().is_none(), "should not collect any items");
         }
@@ -1270,10 +1270,125 @@ mod tests {
         assert_eq!(data_block.iter().count(), items.len());
 
         let mut iter = data_block.iter();
-        iter.seek(&[0]);
-        iter.seek_upper(&[0]);
+        iter.seek(&[0], SeqNo::MAX);
+        iter.seek_upper(&[0], SeqNo::MAX);
 
         assert_eq!(0, iter.count());
+
+        Ok(())
+    }
+
+    /// Verifies that `seek(needle, seqno)` with a seqno-aware predicate still
+    /// positions the iterator correctly when a key has many versions spanning
+    /// multiple restart intervals.
+    #[test]
+    fn data_block_seek_seqno_aware() -> crate::Result<()> {
+        // Build a block where key "b" has 10 versions (seqno 10..1) with
+        // restart_interval=2, so versions span 5 restart intervals.
+        let mut items = Vec::new();
+        for seqno in (1..=10).rev() {
+            items.push(InternalValue::from_components(b"b", b"", seqno, Value));
+        }
+
+        for restart_interval in [1, 2, 3, 5] {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // With SeqNo::MAX, seek behaves like key-only (no seqno filtering).
+            {
+                let mut iter = data_block.iter();
+                assert!(
+                    iter.seek(b"b", SeqNo::MAX),
+                    "should find key with MAX seqno"
+                );
+                let entry = iter.next().expect("should have entry");
+                let materialized = entry.materialize(&data_block.inner.data);
+                assert_eq!(materialized.key.user_key.as_ref(), b"b");
+                // First version returned is the newest (seqno 10).
+                assert_eq!(materialized.key.seqno, 10);
+            }
+
+            // With a specific snapshot seqno, the binary search skips restart
+            // intervals that only contain newer versions, but the linear scan
+            // still finds the first entry with key == needle.
+            {
+                let mut iter = data_block.iter();
+                assert!(iter.seek(b"b", 5), "should find key with snapshot seqno 5");
+                let entry = iter.next().expect("should have entry");
+                let materialized = entry.materialize(&data_block.inner.data);
+                assert_eq!(materialized.key.user_key.as_ref(), b"b");
+                // seek returns the first entry with key >= needle; that's still
+                // the newest version in the landing interval.  The seqno-aware
+                // predicate only narrows which restart interval we land on.
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Verifies that `seek` with seqno still works correctly when the block
+    /// contains multiple distinct keys with versions.
+    #[test]
+    fn data_block_seek_seqno_aware_mixed_keys() -> crate::Result<()> {
+        let items = vec![
+            InternalValue::from_components(b"a", b"", 10, Value),
+            InternalValue::from_components(b"a", b"", 5, Value),
+            InternalValue::from_components(b"b", b"", 10, Value),
+            InternalValue::from_components(b"b", b"", 7, Value),
+            InternalValue::from_components(b"b", b"", 3, Value),
+            InternalValue::from_components(b"c", b"", 10, Value),
+        ];
+
+        for restart_interval in [1, 2, 3] {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 0.0)?;
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // Forward seek with seqno narrows restart interval selection.
+            {
+                let mut iter = data_block.iter();
+                assert!(iter.seek(b"b", 5), "should find b at snapshot 5");
+                let entry = iter.next().expect("should have entry");
+                let mat = entry.materialize(&data_block.inner.data);
+                assert_eq!(mat.key.user_key.as_ref(), b"b");
+            }
+
+            // Exclusive forward seek with seqno.
+            {
+                let mut iter = data_block.iter();
+                assert!(
+                    iter.seek_exclusive(b"b", 5),
+                    "should find entry > b at snapshot 5"
+                );
+                let entry = iter.next().expect("should have entry");
+                let mat = entry.materialize(&data_block.inner.data);
+                assert_eq!(mat.key.user_key.as_ref(), b"c");
+            }
+
+            // Upper seek still works with seqno (predicate unchanged for backward).
+            {
+                let mut iter = data_block.iter();
+                assert!(iter.seek_upper(b"b", 5), "should find upper bound b");
+                let entry = iter.next_back().expect("should have entry");
+                let mat = entry.materialize(&data_block.inner.data);
+                assert_eq!(mat.key.user_key.as_ref(), b"b");
+            }
+        }
 
         Ok(())
     }
