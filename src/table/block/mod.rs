@@ -111,18 +111,14 @@ impl Block {
                 let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                debug_assert_eq!(bytes_written, header.uncompressed_length as usize);
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 Slice::from(buf)
             }
         };
-
-        debug_assert_eq!(header.uncompressed_length, {
-            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-            {
-                data.len() as u32
-            }
-        });
 
         Ok(Self { header, data })
     }
@@ -172,7 +168,10 @@ impl Block {
                 let bytes_written = lz4_flex::decompress_into(raw_data, &mut decompressed)
                     .map_err(|_| crate::Error::Decompress(compression))?;
 
-                debug_assert_eq!(bytes_written, header.uncompressed_length as usize);
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 Slice::from(decompressed)
             }

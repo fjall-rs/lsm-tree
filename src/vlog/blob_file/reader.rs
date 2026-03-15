@@ -99,7 +99,10 @@ impl<'a> Reader<'a> {
                 let bytes_written = lz4_flex::decompress_into(&raw_data, &mut buf)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
 
-                debug_assert_eq!(bytes_written, real_val_len);
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != real_val_len {
+                    return Err(crate::Error::Decompress(self.blob_file.0.meta.compression));
+                }
 
                 UserValue::from(buf)
             }
