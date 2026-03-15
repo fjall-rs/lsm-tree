@@ -91,16 +91,14 @@ impl<'a> Iter<'a> {
         }
     }
 
+    /// Reverse inclusive seek: position at the last key `<= needle`.
+    ///
+    /// `seqno` is accepted for API uniformity with the forward seek methods
+    /// ([`seek`], [`seek_exclusive`]) but is **intentionally unused** here.
+    /// Backward binary search cannot leverage seqno because intervals are
+    /// visited from the selected one toward index 0 — a tighter predicate
+    /// would skip intervals that may contain the visible version.
     pub fn seek_upper(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        // Reverse-bound seek: position the high scanner at the last restart whose
-        // head key is ≤ needle, then walk backwards inside the interval until we
-        // find a key ≤ needle.
-        //
-        // Note: seqno cannot narrow the backward binary search.  Backward
-        // iteration visits intervals from the selected one toward index 0, so a
-        // tighter predicate would cause later intervals (higher index, older
-        // versions of the same key) to be skipped entirely — potentially missing
-        // the visible version.
         if !self
             .decoder
             .inner_mut()
@@ -162,9 +160,11 @@ impl<'a> Iter<'a> {
         }
     }
 
+    /// Reverse exclusive seek: position at the last key `< needle`.
+    ///
+    /// See [`seek_upper`] for why `seqno` is accepted but unused in reverse
+    /// seeks.
     pub fn seek_upper_exclusive(&mut self, needle: &[u8], _seqno: SeqNo) -> bool {
-        // Exclusive upper bound: mirror of `seek_upper`.  Same backward-search
-        // limitation applies — seqno cannot narrow the binary search here.
         if !self
             .decoder
             .inner_mut()
