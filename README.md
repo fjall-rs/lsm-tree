@@ -2,11 +2,14 @@
   <img src="/logo.png" height="160">
 </p>
 
-[![CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
+[![CI](https://github.com/structured-world/lsm-tree/actions/workflows/coordinode-ci.yml/badge.svg)](https://github.com/structured-world/lsm-tree/actions/workflows/coordinode-ci.yml)
+[![Upstream CI](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml/badge.svg)](https://github.com/fjall-rs/lsm-tree/actions/workflows/test.yml)
 [![docs.rs](https://img.shields.io/docsrs/lsm-tree?color=green)](https://docs.rs/lsm-tree)
 [![Crates.io](https://img.shields.io/crates/v/lsm-tree?color=blue)](https://crates.io/crates/lsm-tree)
 ![MSRV](https://img.shields.io/badge/MSRV-1.90.0-blue)
-[![dependency status](https://deps.rs/repo/github/fjall-rs/lsm-tree/status.svg)](https://deps.rs/repo/github/fjall-rs/lsm-tree)
+
+> **Maintained fork** by [Structured World Foundation](https://sw.foundation) for the [CoordiNode](https://github.com/structured-world/coordinode) database engine.
+> Based on [fjall-rs/lsm-tree](https://github.com/fjall-rs/lsm-tree). We contribute patches upstream and maintain additional features needed for CoordiNode (zstd compression, custom sequence number generators, batch get, intra-L0 compaction, security hardening).
 
 A K.I.S.S. implementation of log-structured merge trees (LSM-trees/LSMTs) in Rust.
 
@@ -68,11 +71,23 @@ Uses [`bytes`](https://github.com/tokio-rs/bytes) as the underlying `Slice` type
 cargo bench --features lz4
 ```
 
+## Support the Project
+
+<div align="center">
+
+![USDT TRC-20 Donation QR Code](assets/usdt-qr.svg)
+
+USDT (TRC-20): `TFDsezHa1cBkoeZT5q2T49Wp66K8t2DmdA`
+
+</div>
+
 ## License
 
 All source code is licensed under MIT OR Apache-2.0.
 
 All contributions are to be licensed as MIT OR Apache-2.0.
+
+Original project by [fjall-rs](https://github.com/fjall-rs/lsm-tree). This fork is maintained by [Structured World Foundation](https://sw.foundation).
 
 ## Footnotes
 
