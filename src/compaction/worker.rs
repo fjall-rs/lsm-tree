@@ -182,6 +182,10 @@ fn create_compaction_stream<'a>(
     })
 }
 
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "version_history_lock must be held across upgrade_version and maintenance"
+)]
 fn move_tables(
     compaction_state: &MutexGuard<'_, CompactionState>,
     opts: &Options,
