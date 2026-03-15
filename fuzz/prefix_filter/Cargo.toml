@@ -1,0 +1,10 @@
+[package]
+name = "prefix_filter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+afl = "*"
+arbitrary = { version = "1", features = ["derive"] }
+lsm-tree = { path = "../.." }
+tempfile = "3.23.0"

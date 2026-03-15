@@ -1429,3 +1429,323 @@ fn table_global_seqno() -> crate::Result<()> {
 
     Ok(())
 }
+
+/// `get_without_filter` must apply the same `global_seqno` normalization as `Table::get`.
+///
+/// A table with `global_seqno = 7` stores entry "a1" at internal seqno 1
+/// (logical seqno = 1 + 7 = 8). Querying at seqno 8 should NOT see "a1"
+/// because `8 - 7 = 1` and the entry-level check `1 >= 1` filters it out.
+/// Before the fix, `get_without_filter` skipped normalization and would
+/// pass raw seqno 8 to `point_read`, where `1 >= 8` is false — incorrectly
+/// returning the entry.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_get_without_filter_applies_global_seqno() -> crate::Result<()> {
+    use crate::ValueType::Value;
+
+    let items = [
+        InternalValue::from_components("a0", "a0", 0, Value),
+        InternalValue::from_components("a1", "a1", 1, Value),
+        InternalValue::from_components("b", "b", 8, Value),
+    ];
+
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("table_gwf_global_seqno");
+
+    let mut writer = crate::table::Writer::new(file.clone(), 0, 0)
+        .unwrap()
+        .use_partitioned_filter()
+        .use_data_block_size(1)
+        .use_meta_partition_size(1);
+
+    for item in items.iter().cloned() {
+        writer.write(item).unwrap();
+    }
+
+    let _trailer = writer.finish().unwrap();
+
+    let table = crate::Table::recover(
+        file,
+        crate::Checksum::from_raw(0),
+        7,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(0)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        Default::default(),
+    )
+    .unwrap();
+
+    // global_seqno is 7, so "a1" has logical seqno 1+7=8.
+    // Querying at seqno=8 should NOT return "a1" (normalized: 8-7=1, entry seqno 1 >= 1).
+    assert!(
+        table.get_without_filter(b"a1", 8)?.is_none(),
+        "a1 should be invisible at seqno 8 (logical seqno equals query seqno)",
+    );
+
+    // "a0" has logical seqno 0+7=7. Querying at seqno=8: normalized 8-7=1, entry seqno 0 < 1 → visible.
+    assert_eq!(b"a0", &*table.get_without_filter(b"a0", 8)?.unwrap().value,);
+
+    // "b" has logical seqno 8+7=15. Querying at seqno=8: normalized 1, entry seqno 8 >= 1 → invisible.
+    assert!(
+        table.get_without_filter(b"b", 8)?.is_none(),
+        "b should be invisible at seqno 8 (logical seqno 15 > 8)",
+    );
+
+    // Verify consistency: get_without_filter and get agree on every key.
+    for (key, seqno) in [
+        (b"a0" as &[u8], 8),
+        (b"a1", 8),
+        (b"b", 8),
+        (b"a0", 16),
+        (b"a1", 16),
+        (b"b", 16),
+    ] {
+        let hash = BloomBuilder::get_hash(key);
+        let with_filter = table.get(key, seqno, hash)?;
+        let without_filter = table.get_without_filter(key, seqno)?;
+        assert_eq!(
+            with_filter.as_ref().map(|v| &*v.value),
+            without_filter.as_ref().map(|v| &*v.value),
+            "get and get_without_filter must agree for key={:?} seqno={}",
+            std::str::from_utf8(key).unwrap_or("?"),
+            seqno,
+        );
+    }
+
+    Ok(())
+}
+
+/// Exercises the partition spill inside `PartitionedFilterWriter::register_bytes`.
+/// With a prefix extractor, prefix hashes are registered via `register_bytes`
+/// rather than `register_key`. Using a tiny partition size (1 byte) forces the
+/// filter to spill after every prefix hash.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_partitioned_prefix_filter_spills_during_register_bytes() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table_partitioned_prefix_spill");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()))
+        .use_partitioned_filter()
+        .use_meta_partition_size(1); // Force spills on every prefix hash
+
+    for p in [b"aaa", b"bbb", b"ccc", b"ddd"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Verify the filter was built as a partitioned filter (has a top-level index)
+    assert!(
+        table.pinned_filter_index.is_some(),
+        "expected partitioned filter with top-level index",
+    );
+
+    // Verify data is still readable through the prefix filter.
+    // With a prefix extractor, the filter contains prefix hashes (not full-key
+    // hashes), so we probe via maybe_contains_prefix rather than get().
+    assert_eq!(
+        Some(true),
+        table.maybe_contains_prefix(b"aaa0000", ex.as_ref())?,
+    );
+    assert_eq!(
+        Some(true),
+        table.maybe_contains_prefix(b"ddd0019", ex.as_ref())?,
+    );
+    // Prefix "zzz" was never written — the filter should reject it
+    assert_eq!(
+        Some(false),
+        table.maybe_contains_prefix(b"zzz0000", ex.as_ref())?,
+    );
+
+    // Also verify actual data reads bypass the filter successfully
+    assert!(table.point_read(b"aaa0000", SeqNo::MAX)?.is_some());
+    assert!(table.point_read(b"ddd0019", SeqNo::MAX)?.is_some());
+    assert!(table.point_read(b"zzz0000", SeqNo::MAX)?.is_none());
+
+    Ok(())
+}
+
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_should_skip_range_by_prefix_filter() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+    use crate::range::prefix_upper_range;
+    use std::ops::Bound;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    // Write a table containing keys with prefixes "aaa" and "bbb" only
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()));
+
+    for p in [b"aaa", b"bbb"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Absent prefix "zzz": filter should say skip
+    let prefix = b"zzz00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        table.should_skip_range_by_prefix_filter(&(start, end), ex.as_ref()),
+        "should skip: table does not contain prefix zzz"
+    );
+
+    // Present prefix "aaa": filter should NOT say skip
+    let prefix = b"aaa00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&(start, end), ex.as_ref()),
+        "should NOT skip: table contains prefix aaa"
+    );
+
+    // Incompatible extractor name: should not skip (conservative)
+    let other_ex: crate::prefix::SharedPrefixExtractor =
+        Arc::new(crate::prefix::FixedPrefixExtractor::new(3));
+    let prefix = b"zzz00".to_vec();
+    let start = Bound::Included(crate::UserKey::from(prefix.clone()));
+    let end = prefix_upper_range(&prefix);
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&(start, end), other_ex.as_ref()),
+        "should NOT skip: extractor name mismatch"
+    );
+
+    Ok(())
+}
+
+/// A multi-prefix range (start and end prefixes differ) must never be skipped
+/// by the prefix filter, even when the start prefix matches the table's min key
+/// prefix. The table may contain keys under other prefixes that fall within the
+/// queried range.
+#[test]
+#[expect(clippy::unwrap_used)]
+fn table_should_skip_range_multi_prefix_start_match_min_key() -> crate::Result<()> {
+    use crate::prefix::FixedLengthExtractor;
+
+    let dir = tempdir()?;
+    let file = dir.path().join("table_multi_prefix_skip");
+    let ex: crate::prefix::SharedPrefixExtractor = Arc::new(FixedLengthExtractor::new(3));
+
+    // Build a table with keys in two prefixes: "aaa" (min key prefix) and "bbb".
+    // Use a tiny data block size and partition size so the two prefixes land in
+    // different filter partitions.
+    let mut writer = Writer::new(file.clone(), 0, 0)?;
+    writer = writer
+        .use_bloom_policy(BloomConstructionPolicy::BitsPerKey(50.0))
+        .use_prefix_extractor(Some(ex.clone()))
+        .use_partitioned_filter()
+        .use_data_block_size(1)
+        .use_meta_partition_size(1);
+
+    for p in [b"aaa", b"bbb"] {
+        for i in 0..20u32 {
+            let mut k = p.to_vec();
+            k.extend_from_slice(format!("{i:04}").as_bytes());
+            writer.write(InternalValue::from_components(
+                &k,
+                &[],
+                0,
+                crate::ValueType::Value,
+            ))?;
+        }
+    }
+    let (_, checksum) = writer.finish()?.unwrap();
+
+    #[cfg(feature = "metrics")]
+    let metrics = Arc::new(crate::Metrics::default());
+
+    let table = Table::recover(
+        file,
+        checksum,
+        0,
+        0,
+        Arc::new(crate::Cache::with_capacity_bytes(1_000_000)),
+        Some(Arc::new(crate::DescriptorTable::new(10))),
+        true,
+        true,
+        #[cfg(feature = "metrics")]
+        metrics,
+    )?;
+
+    // Range: start = "aaa9999" (after all "aaa" keys), end = "ccc0000".
+    // start_pref = "aaa", end_pref = "ccc" → sp != ep (multi-prefix range).
+    // sp == table.min_key_prefix ("aaa") → enters the second optimization block.
+    // The filter partition for "aaa9999" may not contain hash("aaa") because no
+    // "aaa" keys exist near "aaa9999" — but "bbb" keys ARE in the table and in range.
+    // The table must NOT be skipped.
+    let range = (
+        std::ops::Bound::Included(b"aaa9999".to_vec()),
+        std::ops::Bound::Included(b"ccc0000".to_vec()),
+    );
+    assert!(
+        !table.should_skip_range_by_prefix_filter(&range, ex.as_ref()),
+        "must NOT skip: table contains 'bbb' keys within the multi-prefix range"
+    );
+
+    Ok(())
+}
