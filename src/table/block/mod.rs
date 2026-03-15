@@ -227,4 +227,42 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn lz4_corrupted_uncompressed_length_triggers_decompress_error() {
+        use crate::coding::Encode;
+        use std::io::Cursor;
+
+        let payload: &[u8] = b"hello world";
+
+        // Compress with lz4 using the block format
+        let compressed = lz4_flex::compress_prepend_size(payload);
+
+        // Build a header with corrupted uncompressed_length (1 byte too large)
+        let data_length = compressed.len() as u32;
+        let uncompressed_length_correct = payload.len() as u32;
+        let uncompressed_length_corrupted = uncompressed_length_correct + 1;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&compressed));
+
+        let header = Header {
+            data_length,
+            uncompressed_length: uncompressed_length_corrupted,
+            checksum,
+            block_type: BlockType::Data,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = Cursor::new(buf);
+        let result = Block::from_reader(&mut cursor, CompressionType::Lz4);
+
+        match result {
+            Err(crate::Error::Decompress(CompressionType::Lz4)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
+            Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
+        }
+    }
 }
