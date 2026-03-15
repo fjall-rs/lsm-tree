@@ -118,7 +118,7 @@ impl IntegrityReport {
 fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
     use std::io::Read;
 
-    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut reader = std::fs::File::open(path)?;
     let mut hasher = xxhash_rust::xxh3::Xxh3Default::new();
     let mut buf = vec![0u8; 64 * 1024];
 
@@ -127,6 +127,9 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
         if n == 0 {
             break;
         }
+        // Safety: Read::read guarantees n <= buf.len(), so get(..n) always
+        // returns Some. We use .get() instead of direct indexing to satisfy
+        // the crate-wide #[deny(clippy::indexing_slicing)] lint.
         if let Some(chunk) = buf.get(..n) {
             hasher.update(chunk);
         }
