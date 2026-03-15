@@ -120,14 +120,16 @@ fn stream_checksum(path: &std::path::Path) -> std::io::Result<Checksum> {
 
     let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
     let mut hasher = xxhash_rust::xxh3::Xxh3Default::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; 64 * 1024];
 
     loop {
         let n = reader.read(&mut buf)?;
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        if let Some(chunk) = buf.get(..n) {
+            hasher.update(chunk);
+        }
     }
 
     Ok(Checksum::from_raw(hasher.digest128()))
@@ -161,7 +163,7 @@ pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
             Ok(got) if got != expected => {
                 report.errors.push(IntegrityError::SstFileCorrupted {
                     table_id: table.id(),
-                    path: path.to_path_buf(),
+                    path: (*table.path).clone(),
                     expected,
                     got,
                 });
@@ -169,7 +171,7 @@ pub fn verify_integrity(tree: &impl crate::AbstractTree) -> IntegrityReport {
             Ok(_) => {}
             Err(e) => {
                 report.errors.push(IntegrityError::IoError {
-                    path: path.to_path_buf(),
+                    path: (*table.path).clone(),
                     error: e,
                 });
             }
