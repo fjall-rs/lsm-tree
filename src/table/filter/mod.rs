@@ -43,6 +43,10 @@ impl BloomConstructionPolicy {
     /// Returns the estimated filter size in bytes.
     #[must_use]
     pub fn estimated_filter_size(&self, n: usize) -> usize {
+        if n == 0 {
+            return 0;
+        }
+
         #[expect(
             clippy::cast_precision_loss,
             clippy::cast_possible_truncation,
