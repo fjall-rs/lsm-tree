@@ -3,6 +3,7 @@
 // (found in the LICENSE-* files in the repository)
 
 use crate::{SeqNo, UserKey, ValueType};
+use equivalent::{Comparable, Equivalent};
 use std::cmp::Reverse;
 
 #[derive(Clone, Eq)]
@@ -69,5 +70,65 @@ impl PartialOrd for InternalKey {
 impl Ord for InternalKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+    }
+}
+
+impl Equivalent<InternalKeyRef<'_>> for InternalKey {
+    fn equivalent(&self, other: &InternalKeyRef<'_>) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl Comparable<InternalKeyRef<'_>> for InternalKey {
+    fn compare(&self, other: &InternalKeyRef<'_>) -> std::cmp::Ordering {
+        (&*self.user_key, Reverse(self.seqno)).cmp(&(other.user_key, Reverse(other.seqno)))
+    }
+}
+
+/// Temporary internal key without heap allocation
+#[derive(Debug, Eq)]
+pub struct InternalKeyRef<'a> {
+    pub user_key: &'a [u8],
+    pub seqno: SeqNo,
+    pub value_type: ValueType,
+}
+
+impl<'a> InternalKeyRef<'a> {
+    pub fn new(user_key: &'a [u8], seqno: u64, value_type: ValueType) -> Self {
+        InternalKeyRef {
+            user_key,
+            seqno,
+            value_type,
+        }
+    }
+}
+
+impl<'a> PartialEq for InternalKeyRef<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl<'a> PartialOrd for InternalKeyRef<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> Ord for InternalKeyRef<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (&self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
+    }
+}
+
+impl Equivalent<InternalKey> for InternalKeyRef<'_> {
+    fn equivalent(&self, other: &InternalKey) -> bool {
+        self.user_key == other.user_key && self.seqno == other.seqno
+    }
+}
+
+impl Comparable<InternalKey> for InternalKeyRef<'_> {
+    fn compare(&self, other: &InternalKey) -> std::cmp::Ordering {
+        (self.user_key, Reverse(self.seqno)).cmp(&(&other.user_key, Reverse(other.seqno)))
     }
 }
