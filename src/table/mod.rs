@@ -440,10 +440,10 @@ impl Table {
     }
 
     /// Tries to recover a table from a file.
-    #[warn(
+    #[expect(
         clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "TODO: refactor"
+        reason = "recovery requires many context parameters and is inherently complex"
     )]
     pub fn recover(
         file_path: PathBuf,

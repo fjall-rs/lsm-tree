@@ -90,11 +90,10 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let metadata_slice = crate::file::read_exact(
-                    &file,
-                    metadata_section.pos(),
-                    metadata_section.len() as usize,
-                )?;
+                let metadata_len = usize::try_from(metadata_section.len())
+                    .map_err(|_| crate::Error::Unrecoverable)?;
+                let metadata_slice =
+                    crate::file::read_exact(&file, metadata_section.pos(), metadata_len)?;
 
                 Metadata::from_slice(&metadata_slice)?
             };
