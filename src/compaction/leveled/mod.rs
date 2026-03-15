@@ -310,6 +310,10 @@ impl CompactionStrategy for Strategy {
                     .aggregate_key_range()
                     .overlaps_with_key_range(&l0.aggregate_key_range())
                 {
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        reason = "level count is at most 7"
+                    )]
                     return Choice::Move(CompactionInput {
                         table_ids: l0.list_ids(),
                         #[expect(
