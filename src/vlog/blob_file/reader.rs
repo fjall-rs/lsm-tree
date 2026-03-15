@@ -15,6 +15,18 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on this reader and on the write path to prevent producing
+/// or accepting blobs that are unreasonably large. Other internal
+/// readers (e.g., scanner used by compaction/GC) may impose different
+/// constraints.
+///
+/// NOTE: Intentionally duplicated in `vlog::blob_file::writer` and
+/// `table::block` rather than shared, because blocks and blobs are
+/// independent storage formats that may diverge in the future.
+const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
+
 /// Reads a single blob from a blob file
 pub struct Reader<'a> {
     blob_file: &'a BlobFile,
@@ -28,6 +40,13 @@ impl<'a> Reader<'a> {
 
     pub fn get(&self, key: &'a [u8], vhandle: &'a ValueHandle) -> crate::Result<UserValue> {
         debug_assert_eq!(vhandle.blob_file_id, self.blob_file.id());
+
+        if vhandle.on_disk_size as usize > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(vhandle.on_disk_size),
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
 
         let add_size = (BLOB_HEADER_LEN as u64) + (key.len() as u64);
 
@@ -80,6 +99,13 @@ impl<'a> Reader<'a> {
             }
         }
 
+        if real_val_len > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: real_val_len as u64,
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
         #[warn(clippy::match_single_binding)]
         let value = match &self.blob_file.0.meta.compression {
             CompressionType::None => raw_data,
@@ -87,7 +113,7 @@ impl<'a> Reader<'a> {
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
                 #[warn(unsafe_code)]
-                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len as usize) };
+                let mut builder = unsafe { UserValue::builder_unzeroed(real_val_len) };
 
                 lz4_flex::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
@@ -149,6 +175,38 @@ mod tests {
 
         assert_eq!(reader.get(b"a", &handle0)?, b"abcdef");
         assert_eq!(reader.get(b"b", &handle1)?, b"ghi");
+
+        Ok(())
+    }
+
+    #[test]
+    fn blob_reader_rejects_oversized_on_disk_size() -> crate::Result<()> {
+        let id_generator = SequenceNumberCounter::default();
+
+        let folder = tempfile::tempdir()?;
+        let mut writer = crate::vlog::BlobFileWriter::new(id_generator, folder.path(), 0, None)?
+            .use_target_size(u64::MAX);
+
+        let handle = writer.write(b"a", 0, b"abcdef")?;
+
+        let blob_file = writer.finish()?;
+        let blob_file = blob_file.first().unwrap();
+
+        let file = File::open(&blob_file.0.path)?;
+        let reader = Reader::new(blob_file, &file);
+
+        // Forge a handle with oversized on_disk_size
+        let bad_handle = crate::vlog::ValueHandle {
+            blob_file_id: handle.blob_file_id,
+            offset: handle.offset,
+            on_disk_size: MAX_DECOMPRESSION_SIZE as u32 + 1,
+        };
+
+        let result = reader.get(b"a", &bad_handle);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
 
         Ok(())
     }

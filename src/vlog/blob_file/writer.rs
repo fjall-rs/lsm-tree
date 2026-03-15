@@ -14,6 +14,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Safety cap on blob value size (256 MiB).
+///
+/// Enforced on the write path by this module to prevent producing
+/// blobs that are unreasonably large. The guarded reader API
+/// (`vlog::blob_file::reader`) applies its own copy of this limit;
+/// other internal readers (e.g., scanner) may impose different constraints.
+///
+/// NOTE: Intentionally duplicated in `table::block` (as `u32`) and
+/// `vlog::blob_file::reader` rather than shared, because blocks and
+/// blobs are independent storage formats that may diverge in the future.
+const MAX_DECOMPRESSION_SIZE: usize = 256 * 1024 * 1024;
+
 pub const BLOB_HEADER_MAGIC: &[u8] = b"BLOB";
 
 pub const BLOB_HEADER_LEN: usize = BLOB_HEADER_MAGIC.len()
@@ -108,7 +120,49 @@ impl Writer {
     ) -> crate::Result<u32> {
         assert!(!key.is_empty());
         assert!(u16::try_from(key.len()).is_ok());
-        assert!(u32::try_from(value.len()).is_ok());
+
+        if uncompressed_len as usize > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(uncompressed_len),
+                limit: MAX_DECOMPRESSION_SIZE as u64,
+            });
+        }
+
+        // Perform all size validations (including compression) before
+        // mutating writer state, so an error leaves the writer consistent.
+        let value = match &self.compression {
+            CompressionType::None => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
+                std::borrow::Cow::Borrowed(value)
+            }
+
+            #[cfg(feature = "lz4")]
+            CompressionType::Lz4 => {
+                if value.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: value.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
+                let compressed = lz4_flex::compress(value);
+
+                if compressed.len() > MAX_DECOMPRESSION_SIZE {
+                    return Err(crate::Error::DecompressedSizeTooLarge {
+                        declared: compressed.len() as u64,
+                        limit: MAX_DECOMPRESSION_SIZE as u64,
+                    });
+                }
+
+                std::borrow::Cow::Owned(compressed)
+            }
+        };
 
         if self.first_key.is_none() {
             self.first_key = Some(key.into());
@@ -131,13 +185,6 @@ impl Writer {
 
         // Write header
         self.writer.write_all(BLOB_HEADER_MAGIC)?;
-
-        let value = match &self.compression {
-            CompressionType::None => std::borrow::Cow::Borrowed(value),
-
-            #[cfg(feature = "lz4")]
-            CompressionType::Lz4 => std::borrow::Cow::Owned(lz4_flex::compress(value)),
-        };
 
         let checksum = {
             let mut hasher = xxhash_rust::xxh3::Xxh3::default();
@@ -195,10 +242,13 @@ impl Writer {
     /// # Errors
     ///
     /// Will return `Err` if an IO error occurs.
+    /// Will return `Err(Error::DecompressedSizeTooLarge { .. })` if the
+    /// value exceeds the 256 MiB limit, either in its uncompressed form
+    /// or in its on-disk/compressed representation.
     ///
     /// # Panics
     ///
-    /// Panics if the key length is empty or greater than 2^16, or the value length is greater than 2^32.
+    /// Panics if the key length is empty or greater than 2^16.
     pub fn write(&mut self, key: &[u8], seqno: SeqNo, value: &[u8]) -> crate::Result<u32> {
         #[expect(clippy::cast_possible_truncation, reason = "values are u32 max")]
         self.write_raw(key, seqno, value, value.len() as u32)
@@ -232,5 +282,43 @@ impl Writer {
         let checksum = checksum.checksum();
 
         Ok((metadata, checksum))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blob_write_rejects_oversized_value() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?;
+
+        // uncompressed_len exceeds 256 MiB cap
+        let oversize = MAX_DECOMPRESSION_SIZE as u32 + 1;
+        let result = writer.write_raw(b"key", 0, b"small-on-disk", oversize);
+        assert!(
+            matches!(result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {result:?}",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_accepts_max_size_value() -> crate::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("test.blob");
+        let mut writer = Writer::new(&path, 0, 0)?;
+
+        // Tests the declared-length guard only: write_raw checks
+        // uncompressed_len against MAX_DECOMPRESSION_SIZE, independent
+        // of the actual value slice size.
+        let at_limit = MAX_DECOMPRESSION_SIZE as u32;
+        let result = writer.write_raw(b"key", 0, b"small-on-disk", at_limit);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+
+        Ok(())
     }
 }
