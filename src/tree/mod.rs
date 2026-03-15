@@ -645,6 +645,23 @@ impl AbstractTree for Tree {
             .map(|x| x.value))
     }
 
+    fn multi_get<K: AsRef<[u8]>>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        seqno: SeqNo,
+    ) -> crate::Result<Vec<Option<UserValue>>> {
+        let super_version = self.get_version_for_snapshot(seqno);
+
+        keys.into_iter()
+            .map(|key| {
+                Ok(
+                    Self::get_internal_entry_from_version(&super_version, key.as_ref(), seqno)?
+                        .map(|x| x.value),
+                )
+            })
+            .collect()
+    }
+
     fn insert<K: Into<UserKey>, V: Into<UserValue>>(
         &self,
         key: K,
