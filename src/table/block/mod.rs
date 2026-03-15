@@ -94,7 +94,7 @@ impl Block {
 
                 compressed_buf = Some(buf);
 
-                // SAFETY: just set above
+                // Invariant: compressed_buf was just assigned above
                 #[expect(clippy::expect_used, reason = "compressed_buf was just assigned")]
                 compressed_buf.as_ref().expect("just assigned")
             }
