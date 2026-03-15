@@ -419,30 +419,23 @@ impl CompactionStrategy for Strategy {
             }
         }
 
-        // Intra-L0 compaction: consolidate overlapping runs within L0
-        // before they accumulate enough to trigger L0→L1
-        'intra_l0: {
-            let l0 = version.l0();
+        // Intra-L0 compaction: merge overlapping L0 runs into a single run within L0
+        // when table count is below the L0→L1 threshold
+        {
+            let first_level = version.l0();
 
-            if l0.run_count() <= 1 {
-                break 'intra_l0;
+            if first_level.run_count() > 1
+                && first_level.table_count() < usize::from(self.l0_threshold)
+                && !first_level.is_disjoint()
+                && !version.level_is_busy(0, state.hidden_set())
+            {
+                return Choice::Merge(CompactionInput {
+                    table_ids: first_level.list_ids(),
+                    dest_level: 0,
+                    canonical_level: 0,
+                    target_size: self.target_size,
+                });
             }
-
-            if l0.table_count() >= usize::from(self.l0_threshold) {
-                // L0 is at or above threshold — fall through to normal L0→L1 compaction
-                break 'intra_l0;
-            }
-
-            if version.level_is_busy(0, state.hidden_set()) {
-                break 'intra_l0;
-            }
-
-            return Choice::Merge(CompactionInput {
-                table_ids: l0.list_ids(),
-                dest_level: 0,
-                canonical_level: 0,
-                target_size: self.target_size,
-            });
         }
 
         // Scoring
