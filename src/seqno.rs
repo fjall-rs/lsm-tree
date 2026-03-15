@@ -170,7 +170,11 @@ impl SequenceNumberCounter {
         Self(Arc::new(AtomicU64::new(prev)))
     }
 
-    /// Gets the next sequence number, atomically incrementing the counter.
+    /// Allocates and returns the next sequence number, atomically
+    /// incrementing the internal counter.
+    ///
+    /// The returned value is the counter's value **before** the increment
+    /// (i.e., pre-increment / fetch-then-add semantics).
     ///
     /// # Panics
     ///
@@ -181,7 +185,10 @@ impl SequenceNumberCounter {
         <Self as SequenceNumberGenerator>::next(self)
     }
 
-    /// Gets the current sequence number without incrementing.
+    /// Returns the current internal counter value without incrementing.
+    ///
+    /// This is the value that the next call to [`next()`](Self::next) will
+    /// return (and then advance past).
     #[must_use]
     pub fn get(&self) -> SeqNo {
         <Self as SequenceNumberGenerator>::get(self)
