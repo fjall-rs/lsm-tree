@@ -21,6 +21,35 @@ fn tree_contains_prefix_empty_tree() -> lsm_tree::Result<()> {
 }
 
 #[test]
+fn tree_contains_prefix_empty_prefix_nonempty_tree() -> lsm_tree::Result<()> {
+    let folder = get_tmp_folder();
+
+    let tree = Config::new(
+        &folder,
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    tree.insert("abc:1", "value1", 0);
+    tree.insert("def:1", "value2", 1);
+
+    // Empty prefix matches all keys
+    assert!(tree.contains_prefix("", 2, None)?);
+
+    // Still respects MVCC visibility
+    assert!(!tree.contains_prefix("", 0, None)?);
+    assert!(tree.contains_prefix("", 1, None)?);
+
+    // After deleting all keys, empty prefix should not match
+    tree.remove("abc:1", 2);
+    tree.remove("def:1", 3);
+    assert!(!tree.contains_prefix("", 4, None)?);
+
+    Ok(())
+}
+
+#[test]
 fn tree_contains_prefix_basic() -> lsm_tree::Result<()> {
     let folder = get_tmp_folder();
 

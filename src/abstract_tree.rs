@@ -543,12 +543,10 @@ pub trait AbstractTree {
         seqno: SeqNo,
         index: Option<(Arc<Memtable>, SeqNo)>,
     ) -> crate::Result<bool> {
-        Ok(self
-            .prefix(prefix, seqno, index)
-            .next()
-            .map(crate::Guard::key)
-            .transpose()?
-            .is_some())
+        match self.prefix(prefix, seqno, index).next() {
+            Some(guard) => guard.key().map(|_| true),
+            None => Ok(false),
+        }
     }
 
     /// Inserts a key-value pair into the tree.
