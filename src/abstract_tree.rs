@@ -511,6 +511,44 @@ pub trait AbstractTree {
         self.get(key, seqno).map(|x| x.is_some())
     }
 
+    /// Returns `true` if the tree contains any key with the given prefix.
+    ///
+    /// This is a convenience method that checks whether the corresponding
+    /// prefix iterator yields at least one item, while surfacing any IO
+    /// errors via the `Result` return type. Implementations may override
+    /// this method to provide a more efficient prefix-existence check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let folder = tempfile::tempdir()?;
+    /// use lsm_tree::{AbstractTree, Config, Tree};
+    ///
+    /// let tree = Config::new(folder, Default::default(), Default::default()).open()?;
+    /// assert!(!tree.contains_prefix("abc", 0, None)?);
+    ///
+    /// tree.insert("abc:1", "value", 0);
+    /// assert!(tree.contains_prefix("abc", 1, None)?);
+    /// assert!(!tree.contains_prefix("xyz", 1, None)?);
+    /// #
+    /// # Ok::<(), lsm_tree::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
+    fn contains_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<(Arc<Memtable>, SeqNo)>,
+    ) -> crate::Result<bool> {
+        match self.prefix(prefix, seqno, index).next() {
+            Some(guard) => guard.key().map(|_| true),
+            None => Ok(false),
+        }
+    }
+
     /// Inserts a key-value pair into the tree.
     ///
     /// If the key already exists, the item will be overwritten.
