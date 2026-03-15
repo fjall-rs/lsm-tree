@@ -94,11 +94,14 @@ impl Encode for CompressionType {
 
             #[cfg(feature = "zstd")]
             Self::Zstd(level) => {
-                // Reuse the shared validation logic to ensure consistent checks.
-                Self::validate_zstd_level(*level)?;
-
                 writer.write_u8(3)?;
-                #[expect(clippy::cast_possible_truncation, reason = "validated 1..=22 above")]
+                // Level is validated at construction (CompressionType::zstd()) or
+                // deserialization (Decode::decode_from). Encoding in-memory values
+                // must remain infallible for encode_into_vec() safety.
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "level range 1..=22 fits i8"
+                )]
                 writer.write_i8(*level as i8)?;
             }
         }
@@ -183,8 +186,7 @@ mod tests {
         #[test]
         fn compression_zstd_rejects_invalid_level() {
             for invalid_level in [0, 23, -1, 200] {
-                let mut buf = vec![];
-                let result = CompressionType::Zstd(invalid_level).encode_into(&mut buf);
+                let result = CompressionType::zstd(invalid_level);
                 assert!(result.is_err(), "level {invalid_level} should be rejected");
             }
         }
