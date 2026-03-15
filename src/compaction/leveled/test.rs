@@ -79,6 +79,8 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
         tree.l0_run_count(),
         "L0 should have exactly 1 run after intra-L0 compaction"
     );
+    // NOTE: 9 keys total (3 iterations × 3 inserts) is well below the default target_size
+    // (64 MiB), so the compaction writer always produces exactly 1 SSTable here
     assert_eq!(
         1,
         tree.table_count(),
