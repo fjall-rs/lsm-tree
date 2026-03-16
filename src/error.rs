@@ -38,6 +38,18 @@ pub enum Error {
     /// Invalid block header
     InvalidHeader(&'static str),
 
+    /// Data size (decompressed, on-disk, or requested) is invalid or exceeds a safety limit
+    DecompressedSizeTooLarge {
+        /// Size associated with the data being processed. This may come from
+        /// on-disk/in-memory metadata (e.g., header, block/value handle) or be
+        /// derived from caller input (e.g., a requested key or value length),
+        /// and may be zero, invalid, or over the configured limit.
+        declared: u64,
+
+        /// Maximum allowed size for the data or request being processed
+        limit: u64,
+    },
+
     /// UTF-8 error
     Utf8(std::str::Utf8Error),
 }
