@@ -135,8 +135,10 @@ impl Writer {
         }
 
         // Perform compression before mutating writer state, so an error
-        // leaves the writer consistent. Post-compression size is also
-        // checked against the cap.
+        // leaves the writer consistent. Post-compression output is also
+        // checked against the cap (reuses DecompressedSizeTooLarge since
+        // the cap applies uniformly to all blob data regardless of
+        // compression state).
         let value = match &self.compression {
             CompressionType::None => std::borrow::Cow::Borrowed(value),
 
