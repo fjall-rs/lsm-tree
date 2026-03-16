@@ -114,6 +114,16 @@ impl Writer {
         value: &[u8],
         uncompressed_len: u32,
     ) -> crate::Result<u32> {
+        // Validate the declared uncompressed size — compaction passes this from
+        // source blob metadata, so it may differ from value.len() (which holds
+        // the already-compressed bytes in that path).
+        if uncompressed_len as usize > MAX_BLOB_VALUE_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(uncompressed_len),
+                limit: MAX_BLOB_VALUE_SIZE as u64,
+            });
+        }
+
         if value.len() > MAX_BLOB_VALUE_SIZE {
             return Err(crate::Error::DecompressedSizeTooLarge {
                 declared: value.len() as u64,
