@@ -154,28 +154,34 @@ fn balance(mut node: Box<Node>) -> Box<Node> {
     node
 }
 
+/// Returns `(node, was_new)` — `was_new` is false when a duplicate was replaced.
 #[allow(clippy::unnecessary_box_returns)]
-fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> Box<Node> {
+fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> (Box<Node>, bool) {
     let Some(mut node) = node else {
-        return Box::new(Node::new(tombstone));
+        return (Box::new(Node::new(tombstone)), true);
     };
 
+    let was_new;
     match tombstone.cmp(&node.tombstone) {
         Ordering::Less => {
-            node.left = Some(insert_node(node.left.take(), tombstone));
+            let (child, new) = insert_node(node.left.take(), tombstone);
+            node.left = Some(child);
+            was_new = new;
         }
         Ordering::Greater => {
-            node.right = Some(insert_node(node.right.take(), tombstone));
+            let (child, new) = insert_node(node.right.take(), tombstone);
+            node.right = Some(child);
+            was_new = new;
         }
         Ordering::Equal => {
             // Duplicate — replace (shouldn't normally happen)
             node.tombstone = tombstone;
             node.update_augmentation();
-            return node;
+            return (node, false);
         }
     }
 
-    balance(node)
+    (balance(node), was_new)
 }
 
 /// Collects all overlapping tombstones: those where `start <= key < end`
@@ -271,8 +277,11 @@ impl IntervalTree {
 
     /// Inserts a range tombstone into the tree. O(log n).
     pub fn insert(&mut self, tombstone: RangeTombstone) {
-        self.root = Some(insert_node(self.root.take(), tombstone));
-        self.len += 1;
+        let (root, was_new) = insert_node(self.root.take(), tombstone);
+        self.root = Some(root);
+        if was_new {
+            self.len += 1;
+        }
     }
 
     /// Returns `true` if the given key at the given seqno is suppressed by

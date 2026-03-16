@@ -114,8 +114,17 @@ pub trait AbstractTree {
         drop(version_history);
 
         if let Some((tables, blob_files)) =
-            self.flush_to_tables_with_rt(stream, range_tombstones)?
+            self.flush_to_tables_with_rt(stream, range_tombstones.clone())?
         {
+            // If no tables were produced (RT-only memtable), re-insert RTs
+            // into active memtable so they aren't lost
+            if tables.is_empty() && !range_tombstones.is_empty() {
+                let active = self.active_memtable();
+                for rt in &range_tombstones {
+                    active.insert_range_tombstone(rt.start.clone(), rt.end.clone(), rt.seqno);
+                }
+            }
+
             self.register_tables(
                 &tables,
                 blob_files.as_deref(),
@@ -723,6 +732,7 @@ pub trait AbstractTree {
     /// This is sugar over [`AbstractTree::remove_range`] using prefix bounds.
     ///
     /// Returns the approximate size added to the memtable.
+    /// Returns 0 for empty prefixes or all-`0xFF` prefixes (cannot form valid half-open range).
     fn remove_prefix<K: AsRef<[u8]>>(&self, prefix: K, seqno: SeqNo) -> u64 {
         use crate::range::prefix_to_range;
         use std::ops::Bound;
@@ -731,15 +741,9 @@ pub trait AbstractTree {
 
         let Bound::Included(start) = lo else { return 0 };
 
-        let end = match hi {
-            Bound::Excluded(k) => k,
-            Bound::Unbounded => {
-                // Prefix is all 0xFF — can't form exclusive upper bound.
-                // Fall back to unbounded end = [prefix + 0x00] (next after prefix)
-                crate::range_tombstone::upper_bound_exclusive(prefix.as_ref())
-            }
-            Bound::Included(_) => return 0,
-        };
+        // Bound::Unbounded means the prefix is all 0xFF — no representable
+        // exclusive upper bound exists, so we cannot form a valid range tombstone.
+        let Bound::Excluded(end) = hi else { return 0 };
 
         self.remove_range(start, end, seqno)
     }

@@ -385,33 +385,12 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No KV items and no range tombstones — delete the empty table file
-        if self.meta.item_count == 0 && self.range_tombstones.is_empty() {
+        // No items written — delete the empty table file.
+        // Range tombstones without KV data can't form a valid table (no index).
+        // They'll be re-inserted into the active memtable by the flush path.
+        if self.meta.item_count == 0 {
             std::fs::remove_file(&self.path)?;
             return Ok(None);
-        }
-
-        // If we have range tombstones but no KV items, derive key range from tombstones
-        if self.meta.item_count == 0 {
-            let min_key = self
-                .range_tombstones
-                .iter()
-                .map(|rt| &rt.start)
-                .min()
-                .cloned();
-            let max_key = self
-                .range_tombstones
-                .iter()
-                .map(|rt| &rt.end)
-                .max()
-                .cloned();
-
-            if self.meta.first_key.is_none() {
-                self.meta.first_key = min_key;
-            }
-            if self.meta.last_key.is_none() {
-                self.meta.last_key = max_key;
-            }
         }
 
         // Write index

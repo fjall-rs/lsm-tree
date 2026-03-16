@@ -82,14 +82,14 @@ Both maintainer and author reference this paper as potentially superior:
 ## Fork Divergence Analysis
 
 ### Our fork vs upstream main
-```
+```text
 origin/main vs upstream/main:
   45 files changed, 224 insertions(+), 3,789 deletions(-)
 ```
 Our fork has ~100+ commits with: zstd compression, intra-L0 compaction, size cap enforcement, verify_integrity, SequenceNumberGenerator trait, multi_get, contains_prefix, seqno-aware seek, copilot CI, release-plz.
 
 ### Our fork vs PR #242 branch
-```
+```text
 origin/main vs upstream-pr-242:
   97 files changed, 4,568 insertions(+), 6,096 deletions(-)
 ```

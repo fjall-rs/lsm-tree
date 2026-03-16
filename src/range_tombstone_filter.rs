@@ -36,7 +36,10 @@ impl<I> RangeTombstoneFilter<I> {
     /// `fwd_tombstones` must be sorted by `(start asc, seqno desc, end asc)` (the natural Ord).
     /// Internally, a second copy sorted by `(end desc, seqno desc)` is created for reverse.
     #[must_use]
-    pub fn new(inner: I, fwd_tombstones: Vec<RangeTombstone>, read_seqno: SeqNo) -> Self {
+    pub fn new(inner: I, mut fwd_tombstones: Vec<RangeTombstone>, read_seqno: SeqNo) -> Self {
+        // Ensure forward tombstones are sorted by natural order (start asc, seqno desc, end asc)
+        fwd_tombstones.sort();
+
         // Build reverse-sorted copy: (end desc, seqno desc)
         let mut rev_tombstones = fwd_tombstones.clone();
         rev_tombstones.sort_by(|a, b| (&b.end, Reverse(b.seqno)).cmp(&(&a.end, Reverse(a.seqno))));

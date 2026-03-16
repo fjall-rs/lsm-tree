@@ -167,7 +167,11 @@ fn range_tombstone_in_sealed_memtable() -> lsm_tree::Result<()> {
 
     // Insert range tombstone then seal the memtable
     tree.remove_range("a", "z", 10);
-    tree.rotate_memtable();
+    assert!(
+        tree.rotate_memtable().is_some(),
+        "memtable with RT should seal"
+    );
+    assert!(tree.sealed_memtable_count() > 0);
 
     // Insert new data in active memtable (lower seqno)
     tree.insert("b", "val_b", 5);
@@ -365,10 +369,12 @@ fn range_tombstone_only_flush() -> lsm_tree::Result<()> {
     tree.flush_active_memtable(0)?;
 
     // Second: insert only a range tombstone and flush
+    // RT-only memtable can't produce a valid SST (no index), so RTs are re-inserted
+    // into the active memtable to preserve them
     tree.remove_range("a", "c", 10);
     tree.flush_active_memtable(0)?;
 
-    // The RT-only table should have been created and the tombstone should suppress
+    // The tombstone (now in active memtable) should still suppress
     assert_eq!(None, tree.get("a", 11)?);
     assert_eq!(None, tree.get("b", 11)?);
     assert_eq!(Some("3".as_bytes().into()), tree.get("c", 11)?);

@@ -657,11 +657,16 @@ impl Table {
                 .read_u64::<LE>()
                 .map_err(|_| crate::Error::Unrecoverable)?;
 
-            tombstones.push(RangeTombstone::new(
-                UserKey::from(start_buf),
-                UserKey::from(end_buf),
-                seqno,
-            ));
+            let start = UserKey::from(start_buf);
+            let end = UserKey::from(end_buf);
+
+            // Validate invariant: start < end (reject corrupted data)
+            if start >= end {
+                log::error!("Range tombstone block: invalid interval (start >= end)");
+                return Err(crate::Error::Unrecoverable);
+            }
+
+            tombstones.push(RangeTombstone::new(start, end, seqno));
         }
 
         Ok(tombstones)

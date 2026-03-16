@@ -146,10 +146,10 @@ impl Memtable {
         self.items.len()
     }
 
-    /// Returns `true` if the memtable is empty.
+    /// Returns `true` if the memtable has no KV items and no range tombstones.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.items.is_empty() && self.range_tombstone_count() == 0
     }
 
     /// Inserts an item into the memtable
@@ -185,6 +185,11 @@ impl Memtable {
     ///
     /// Panics if the internal mutex is poisoned.
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
+        // Reject invalid intervals in release builds (debug_assert is not enough)
+        if start >= end {
+            return 0;
+        }
+
         let size = (start.len() + end.len() + std::mem::size_of::<RangeTombstone>()) as u64;
 
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]

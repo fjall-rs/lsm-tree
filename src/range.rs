@@ -148,34 +148,52 @@ impl TreeIter {
 
             let range = (lo, hi);
 
-            // Collect range tombstones from all layers (needed for both table-skip and filtering)
-            let mut all_range_tombstones: Vec<RangeTombstone> = Vec::new();
+            // Cheap pre-check: count total range tombstones before cloning
+            let rt_count = lock.version.active_memtable.range_tombstone_count()
+                + lock
+                    .version
+                    .sealed_memtables
+                    .iter()
+                    .map(|mt| mt.range_tombstone_count())
+                    .sum::<usize>()
+                + lock
+                    .ephemeral
+                    .as_ref()
+                    .map_or(0, |(mt, _)| mt.range_tombstone_count())
+                + lock
+                    .version
+                    .version
+                    .iter_levels()
+                    .flat_map(|lvl| lvl.iter())
+                    .flat_map(|run| run.iter())
+                    .map(|t| t.range_tombstones().len())
+                    .sum::<usize>();
 
-            // Active memtable range tombstones
-            all_range_tombstones.extend(lock.version.active_memtable.range_tombstones_sorted());
+            // Only collect/clone tombstones when the total count is non-zero
+            let all_range_tombstones = if rt_count > 0 {
+                let mut rts: Vec<RangeTombstone> = Vec::with_capacity(rt_count);
 
-            // Sealed memtable range tombstones
-            for mt in lock.version.sealed_memtables.iter() {
-                all_range_tombstones.extend(mt.range_tombstones_sorted());
-            }
-
-            // Ephemeral memtable range tombstones
-            if let Some((mt, _)) = &lock.ephemeral {
-                all_range_tombstones.extend(mt.range_tombstones_sorted());
-            }
-
-            // SST table range tombstones
-            for table in lock
-                .version
-                .version
-                .iter_levels()
-                .flat_map(|lvl| lvl.iter())
-                .flat_map(|run| run.iter())
-            {
-                all_range_tombstones.extend(table.range_tombstones().iter().cloned());
-            }
-
-            all_range_tombstones.sort();
+                rts.extend(lock.version.active_memtable.range_tombstones_sorted());
+                for mt in lock.version.sealed_memtables.iter() {
+                    rts.extend(mt.range_tombstones_sorted());
+                }
+                if let Some((mt, _)) = &lock.ephemeral {
+                    rts.extend(mt.range_tombstones_sorted());
+                }
+                for table in lock
+                    .version
+                    .version
+                    .iter_levels()
+                    .flat_map(|lvl| lvl.iter())
+                    .flat_map(|run| run.iter())
+                {
+                    rts.extend(table.range_tombstones().iter().cloned());
+                }
+                rts.sort();
+                rts
+            } else {
+                Vec::new()
+            };
 
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
