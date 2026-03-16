@@ -58,8 +58,9 @@ impl Block {
         };
 
         // `compressed_buf` keeps the compressed data alive so `payload` can borrow it.
-        // Only declared when a compression feature is enabled; the match arms below
-        // always initialize it before use, so the lack of a default value is safe.
+        // NOTE: Uses Option<Vec<u8>> (not Cow) to match upstream's lz4 pattern and
+        // minimize merge conflict surface. Only declared when a compression feature
+        // is enabled; the match arms always initialize it before use.
         #[cfg(any(feature = "lz4", feature = "zstd"))]
         let compressed_buf: Option<Vec<u8>>;
 

@@ -33,6 +33,9 @@ pub enum CompressionType {
     ///
     /// Recommended for cold/archival data where compression ratio
     /// matters more than raw speed.
+    // NOTE: Uses i32 (not a validated newtype) to match upstream's public API and
+    // the zstd crate's compress(data, level: i32) signature. Validation happens at
+    // construction (CompressionType::zstd()) and deserialization (Decode::decode_from).
     #[cfg(feature = "zstd")]
     Zstd(i32),
 }
@@ -44,6 +47,8 @@ impl CompressionType {
     #[cfg(feature = "zstd")]
     fn validate_zstd_level(level: i32) -> crate::Result<()> {
         if !(1..=22).contains(&level) {
+            // NOTE: Uses Error::other (not ErrorKind::InvalidInput) to match
+            // upstream's error style and minimize fork divergence.
             return Err(crate::Error::Io(std::io::Error::other(format!(
                 "invalid zstd compression level {level}, expected 1..=22"
             ))));
