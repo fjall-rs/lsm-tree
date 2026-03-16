@@ -194,5 +194,22 @@ mod tests {
                 assert!(result.is_err(), "level {invalid_level} should be rejected");
             }
         }
+
+        #[test]
+        fn compression_zstd_decode_rejects_invalid_level() {
+            // Serialize a valid zstd value, then corrupt the level byte
+            let valid = CompressionType::Zstd(3).encode_into_vec();
+            assert_eq!(valid.len(), 2);
+
+            // Flip level byte to 0 (out of range 1..=22)
+            let corrupted = vec![valid[0], 0];
+            let result = CompressionType::decode_from(&mut &corrupted[..]);
+            assert!(result.is_err(), "level 0 should be rejected on decode");
+
+            // Flip level byte to 23 (out of range)
+            let corrupted = vec![valid[0], 23];
+            let result = CompressionType::decode_from(&mut &corrupted[..]);
+            assert!(result.is_err(), "level 23 should be rejected on decode");
+        }
     }
 }
