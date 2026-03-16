@@ -222,6 +222,13 @@ impl Block {
             return Err(crate::Error::InvalidHeader("Block"));
         }
 
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         #[expect(clippy::indexing_slicing)]
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
 
@@ -232,13 +239,6 @@ impl Block {
                 header.checksum,
             );
         })?;
-
-        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
-            return Err(crate::Error::DecompressedSizeTooLarge {
-                declared: u64::from(header.uncompressed_length),
-                limit: u64::from(MAX_DECOMPRESSION_SIZE),
-            });
-        }
 
         let buf = match compression {
             CompressionType::None => {

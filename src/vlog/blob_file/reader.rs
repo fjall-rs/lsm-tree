@@ -116,7 +116,7 @@ impl<'a> Reader<'a> {
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "add_size = BLOB_HEADER_LEN + key.len(), both bounded to u16::MAX"
+            reason = "add_size = BLOB_HEADER_LEN + key.len(); key.len() <= u16::MAX and BLOB_HEADER_LEN is a small constant, so add_size fits in usize"
         )]
         let raw_data = value.slice((add_size as usize)..);
 
