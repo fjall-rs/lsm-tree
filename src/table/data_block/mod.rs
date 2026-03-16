@@ -1351,4 +1351,76 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn data_block_point_read_seqno_aware_seek_hash_conflict() -> crate::Result<()> {
+        // Multiple versions of the same key with a hash index enabled.
+        // Duplicate user keys hash to the same bucket, producing MARKER_CONFLICT,
+        // which forces point_read through the seek_to_key_seqno fallback path.
+        let items = [
+            InternalValue::from_components(b"a", b"a5", 5, Value),
+            InternalValue::from_components(b"a", b"a4", 4, Value),
+            InternalValue::from_components(b"a", b"a3", 3, Value),
+            InternalValue::from_components(b"a", b"a2", 2, Value),
+            InternalValue::from_components(b"a", b"a1", 1, Value),
+        ];
+
+        for restart_interval in 1..=4 {
+            let bytes = DataBlock::encode_into_vec(&items, restart_interval, 1.33)?;
+
+            let data_block = DataBlock::new(Block {
+                data: bytes.into(),
+                header: Header {
+                    block_type: BlockType::Data,
+                    checksum: Checksum::from_raw(0),
+                    data_length: 0,
+                    uncompressed_length: 0,
+                },
+            });
+
+            // Verify hash index is present and the duplicate key triggers conflict
+            assert!(
+                data_block
+                    .hash_bucket_count()
+                    .expect("should have built hash index")
+                    > 0,
+                "restart_interval={restart_interval}: hash index should be built",
+            );
+
+            // seqno=4 -> first version with seqno < 4, i.e. seqno=3
+            assert_eq!(
+                Some(items[2].clone()),
+                data_block.point_read(b"a", 4),
+                "restart_interval={restart_interval}: seqno=4 should return v3 via conflict fallback",
+            );
+
+            // seqno=3 -> seqno=2
+            assert_eq!(
+                Some(items[3].clone()),
+                data_block.point_read(b"a", 3),
+                "restart_interval={restart_interval}: seqno=3 should return v2 via conflict fallback",
+            );
+
+            // seqno=6 -> latest (seqno=5)
+            assert_eq!(
+                Some(items[0].clone()),
+                data_block.point_read(b"a", 6),
+                "restart_interval={restart_interval}: seqno=6 should return v5 via conflict fallback",
+            );
+
+            // seqno=1 -> no visible version
+            assert!(
+                data_block.point_read(b"a", 1).is_none(),
+                "restart_interval={restart_interval}: seqno=1 should return None via conflict fallback",
+            );
+
+            // Non-existent key
+            assert!(
+                data_block.point_read(b"z", SeqNo::MAX).is_none(),
+                "restart_interval={restart_interval}: key 'z' should not exist",
+            );
+        }
+
+        Ok(())
+    }
 }
