@@ -52,7 +52,7 @@ impl<I> RangeTombstoneFilter<I> {
         }
     }
 
-    /// Activates forward tombstones whose start <= current_key.
+    /// Activates forward tombstones whose start <= `current_key`.
     fn fwd_activate_up_to(&mut self, key: &[u8]) {
         while let Some(rt) = self.fwd_tombstones.get(self.fwd_idx) {
             if rt.start.as_ref() <= key {
@@ -64,7 +64,7 @@ impl<I> RangeTombstoneFilter<I> {
         }
     }
 
-    /// Activates reverse tombstones whose end > current_key.
+    /// Activates reverse tombstones whose end > `current_key`.
     fn rev_activate_up_to(&mut self, key: &[u8]) {
         while let Some(rt) = self.rev_tombstones.get(self.rev_idx) {
             if rt.end.as_ref() > key {
@@ -84,10 +84,7 @@ impl<I: Iterator<Item = crate::Result<InternalValue>>> Iterator for RangeTombsto
         loop {
             let item = self.inner.next()?;
 
-            let kv = match &item {
-                Ok(kv) => kv,
-                Err(_) => return Some(item),
-            };
+            let Ok(kv) = &item else { return Some(item) };
 
             let key = kv.key.user_key.as_ref();
             let kv_seqno = kv.key.seqno;
@@ -115,10 +112,7 @@ impl<I: DoubleEndedIterator<Item = crate::Result<InternalValue>>> DoubleEndedIte
         loop {
             let item = self.inner.next_back()?;
 
-            let kv = match &item {
-                Ok(kv) => kv,
-                Err(_) => return Some(item),
-            };
+            let Ok(kv) = &item else { return Some(item) };
 
             let key = kv.key.user_key.as_ref();
             let kv_seqno = kv.key.seqno;

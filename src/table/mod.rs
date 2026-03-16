@@ -571,7 +571,7 @@ impl Table {
         let range_tombstones = if let Some(rt_handle) = regions.range_tombstones {
             log::trace!("Loading range tombstone block, with rt_ptr={rt_handle:?}");
             let block = Block::from_file(&file, rt_handle, crate::CompressionType::None)?;
-            Self::decode_range_tombstones(block)?
+            Self::decode_range_tombstones(&block)?
         } else {
             Vec::new()
         };
@@ -619,8 +619,12 @@ impl Table {
 
     /// Decodes range tombstones from a raw block.
     ///
-    /// Wire format (repeated): [start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]
-    fn decode_range_tombstones(block: Block) -> crate::Result<Vec<RangeTombstone>> {
+    /// Wire format (repeated): `[start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]`
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the block data is malformed.
+    fn decode_range_tombstones(block: &Block) -> crate::Result<Vec<RangeTombstone>> {
         use byteorder::{ReadBytesExt, LE};
         use std::io::{Cursor, Read};
 
@@ -628,6 +632,10 @@ impl Table {
         let data = block.data.as_ref();
         let mut cursor = Cursor::new(data);
 
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "block size always fits in usize"
+        )]
         while (cursor.position() as usize) < data.len() {
             let start_len = cursor
                 .read_u16::<LE>()

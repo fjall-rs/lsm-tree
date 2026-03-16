@@ -7,7 +7,9 @@
 //! Keyed by `start`, augmented with `subtree_max_end`, `subtree_max_seqno`,
 //! and `subtree_min_seqno` for pruning during queries.
 
-use crate::range_tombstone::{CoveringRt, RangeTombstone};
+#[allow(unused_imports)]
+use crate::range_tombstone::CoveringRt;
+use crate::range_tombstone::RangeTombstone;
 use crate::{SeqNo, UserKey};
 use std::cmp::Ordering;
 
@@ -23,8 +25,8 @@ struct Node {
 
     // AVL metadata
     height: i32,
-    left: Option<Box<Node>>,
-    right: Option<Box<Node>>,
+    left: Option<Box<Self>>,
+    right: Option<Box<Self>>,
 
     // Augmented metadata
     subtree_max_end: UserKey,
@@ -94,6 +96,7 @@ impl Node {
     clippy::expect_used,
     reason = "rotation invariant: left child must exist"
 )]
+#[allow(clippy::unnecessary_box_returns)]
 fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.left.take().expect("rotate_right requires left child");
     node.left = new_root.right.take();
@@ -107,6 +110,7 @@ fn rotate_right(mut node: Box<Node>) -> Box<Node> {
     clippy::expect_used,
     reason = "rotation invariant: right child must exist"
 )]
+#[allow(clippy::unnecessary_box_returns)]
 fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     let mut new_root = node.right.take().expect("rotate_left requires right child");
     node.right = new_root.left.take();
@@ -120,6 +124,7 @@ fn rotate_left(mut node: Box<Node>) -> Box<Node> {
     clippy::expect_used,
     reason = "balance factor guarantees child existence"
 )]
+#[allow(clippy::unnecessary_box_returns)]
 fn balance(mut node: Box<Node>) -> Box<Node> {
     node.update_augmentation();
     let bf = node.balance_factor();
@@ -149,6 +154,7 @@ fn balance(mut node: Box<Node>) -> Box<Node> {
     node
 }
 
+#[allow(clippy::unnecessary_box_returns)]
 fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> Box<Node> {
     let Some(mut node) = node else {
         return Box::new(Node::new(tombstone));
@@ -175,7 +181,7 @@ fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> Box<Node> 
 /// Collects all overlapping tombstones: those where `start <= key < end`
 /// and `seqno <= read_seqno`.
 fn collect_overlapping(
-    node: &Option<Box<Node>>,
+    node: Option<&Node>,
     key: &[u8],
     read_seqno: SeqNo,
     result: &mut Vec<RangeTombstone>,
@@ -193,7 +199,7 @@ fn collect_overlapping(
     }
 
     // Recurse left (may have tombstones with start <= key)
-    collect_overlapping(&n.left, key, read_seqno, result);
+    collect_overlapping(n.left.as_deref(), key, read_seqno, result);
 
     // Check current node
     if n.tombstone.start.as_ref() <= key {
@@ -201,22 +207,23 @@ fn collect_overlapping(
             result.push(n.tombstone.clone());
         }
         // Recurse right (may also have tombstones with start <= key, up to key)
-        collect_overlapping(&n.right, key, read_seqno, result);
+        collect_overlapping(n.right.as_deref(), key, read_seqno, result);
     }
     // If start > key, no need to go right (all entries there have start > key too)
 }
 
 /// In-order traversal to produce sorted output.
-fn inorder(node: &Option<Box<Node>>, result: &mut Vec<RangeTombstone>) {
+fn inorder(node: Option<&Node>, result: &mut Vec<RangeTombstone>) {
     let Some(n) = node else { return };
-    inorder(&n.left, result);
+    inorder(n.left.as_deref(), result);
     result.push(n.tombstone.clone());
-    inorder(&n.right, result);
+    inorder(n.right.as_deref(), result);
 }
 
 /// Collects tombstones that fully cover `[min, max]` and are visible at `read_seqno`.
+#[allow(dead_code)]
 fn collect_covering(
-    node: &Option<Box<Node>>,
+    node: Option<&Node>,
     min: &[u8],
     max: &[u8],
     read_seqno: SeqNo,
@@ -236,7 +243,7 @@ fn collect_covering(
     }
 
     // Recurse left
-    collect_covering(&n.left, min, max, read_seqno, best);
+    collect_covering(n.left.as_deref(), min, max, read_seqno, best);
 
     // Check current node: must have start <= min AND max < end
     if n.tombstone.start.as_ref() <= min
@@ -251,7 +258,7 @@ fn collect_covering(
 
     // Only go right if some right-subtree entry might have start <= min
     if n.tombstone.start.as_ref() <= min {
-        collect_covering(&n.right, min, max, read_seqno, best);
+        collect_covering(n.right.as_deref(), min, max, read_seqno, best);
     }
 }
 
@@ -274,7 +281,7 @@ impl IntervalTree {
     /// O(log n + k) where k is the number of overlapping tombstones.
     pub fn query_suppression(&self, key: &[u8], key_seqno: SeqNo, read_seqno: SeqNo) -> bool {
         let mut result = Vec::new();
-        collect_overlapping(&self.root, key, read_seqno, &mut result);
+        collect_overlapping(self.root.as_deref(), key, read_seqno, &mut result);
         result.iter().any(|rt| rt.seqno > key_seqno)
     }
 
@@ -284,7 +291,7 @@ impl IntervalTree {
     /// and `seqno <= read_seqno`.
     pub fn overlapping_tombstones(&self, key: &[u8], read_seqno: SeqNo) -> Vec<RangeTombstone> {
         let mut result = Vec::new();
-        collect_overlapping(&self.root, key, read_seqno, &mut result);
+        collect_overlapping(self.root.as_deref(), key, read_seqno, &mut result);
         result
     }
 
@@ -292,6 +299,7 @@ impl IntervalTree {
     /// or `None` if no such tombstone exists.
     ///
     /// Used for table-skip decisions.
+    #[allow(dead_code)]
     pub fn query_covering_rt_for_range(
         &self,
         min: &[u8],
@@ -299,7 +307,7 @@ impl IntervalTree {
         read_seqno: SeqNo,
     ) -> Option<CoveringRt> {
         let mut best = None;
-        collect_covering(&self.root, min, max, read_seqno, &mut best);
+        collect_covering(self.root.as_deref(), min, max, read_seqno, &mut best);
         best
     }
 
@@ -308,7 +316,7 @@ impl IntervalTree {
     /// Used for flush.
     pub fn iter_sorted(&self) -> Vec<RangeTombstone> {
         let mut result = Vec::with_capacity(self.len);
-        inorder(&self.root, &mut result);
+        inorder(self.root.as_deref(), &mut result);
         result
     }
 
@@ -319,6 +327,7 @@ impl IntervalTree {
     }
 
     /// Returns `true` if the tree is empty.
+    #[allow(dead_code)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0

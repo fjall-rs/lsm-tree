@@ -236,6 +236,10 @@ pub trait AbstractTree {
     }
 
     /// Like [`AbstractTree::flush_to_tables`], but also writes range tombstones.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an IO error occurs.
     #[warn(clippy::type_complexity)]
     fn flush_to_tables_with_rt(
         &self,
@@ -725,10 +729,7 @@ pub trait AbstractTree {
 
         let (lo, hi) = prefix_to_range(prefix.as_ref());
 
-        let start = match lo {
-            Bound::Included(k) => k,
-            _ => return 0,
-        };
+        let Bound::Included(start) = lo else { return 0 };
 
         let end = match hi {
             Bound::Excluded(k) => k,
@@ -737,7 +738,7 @@ pub trait AbstractTree {
                 // Fall back to unbounded end = [prefix + 0x00] (next after prefix)
                 crate::range_tombstone::upper_bound_exclusive(prefix.as_ref())
             }
-            _ => return 0,
+            Bound::Included(_) => return 0,
         };
 
         self.remove_range(start, end, seqno)

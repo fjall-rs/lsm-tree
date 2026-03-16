@@ -688,13 +688,14 @@ impl AbstractTree for Tree {
 
     fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64 {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
-        let memtable = self
-            .version_history
-            .read()
-            .expect("lock is poisoned")
-            .latest_version()
-            .active_memtable
-            .clone();
+        let memtable = Arc::clone(
+            &self
+                .version_history
+                .read()
+                .expect("lock is poisoned")
+                .latest_version()
+                .active_memtable,
+        );
 
         memtable.insert_range_tombstone(start.into(), end.into(), seqno)
     }
@@ -736,9 +737,8 @@ impl Tree {
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            let entry = match ignore_tombstone_value(entry) {
-                Some(v) => v,
-                None => return Ok(None),
+            let Some(entry) = ignore_tombstone_value(entry) else {
+                return Ok(None);
             };
 
             // Check if any range tombstone suppresses this entry
@@ -752,9 +752,8 @@ impl Tree {
         if let Some(entry) =
             Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
         {
-            let entry = match ignore_tombstone_value(entry) {
-                Some(v) => v,
-                None => return Ok(None),
+            let Some(entry) = ignore_tombstone_value(entry) else {
+                return Ok(None);
             };
 
             if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {

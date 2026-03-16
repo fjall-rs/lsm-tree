@@ -116,6 +116,7 @@ impl ActiveTombstoneSet {
     /// Seek prefill must collect truly overlapping tombstones
     /// (`start <= key < end`); `expire_until` immediately enforces the
     /// `end` bound.
+    #[allow(dead_code)]
     pub fn initialize_from(&mut self, tombstones: impl IntoIterator<Item = RangeTombstone>) {
         for rt in tombstones {
             self.activate(&rt);
@@ -123,6 +124,7 @@ impl ActiveTombstoneSet {
     }
 
     /// Returns `true` if there are no active tombstones.
+    #[allow(dead_code)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()
@@ -224,6 +226,7 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Bulk-activates tombstones at a seek position (for reverse).
+    #[allow(dead_code)]
     pub fn initialize_from(&mut self, tombstones: impl IntoIterator<Item = RangeTombstone>) {
         for rt in tombstones {
             self.activate(&rt);
@@ -231,6 +234,7 @@ impl ActiveTombstoneSetReverse {
     }
 
     /// Returns `true` if there are no active tombstones.
+    #[allow(dead_code)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.seqno_counts.is_empty()

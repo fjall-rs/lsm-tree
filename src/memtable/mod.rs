@@ -2,7 +2,7 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
-pub(crate) mod interval_tree;
+pub mod interval_tree;
 
 use crate::key::InternalKey;
 use crate::range_tombstone::RangeTombstone;
@@ -30,7 +30,7 @@ pub struct Memtable {
 
     /// Range tombstones stored in an interval tree.
     ///
-    /// Protected by a Mutex since IntervalTree is not lock-free.
+    /// Protected by a Mutex since `IntervalTree` is not lock-free.
     /// Contention is expected to be low — range deletes are infrequent.
     pub(crate) range_tombstones: Mutex<interval_tree::IntervalTree>,
 
@@ -180,6 +180,10 @@ impl Memtable {
     /// Inserts a range tombstone covering `[start, end)` at the given seqno.
     ///
     /// Returns the approximate size added to the memtable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned.
     pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
         let size = (start.len() + end.len() + std::mem::size_of::<RangeTombstone>()) as u64;
 
@@ -200,6 +204,10 @@ impl Memtable {
 
     /// Returns `true` if the key at `key_seqno` is suppressed by a range tombstone
     /// visible at `read_seqno`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned.
     pub fn is_key_suppressed_by_range_tombstone(
         &self,
         key: &[u8],
@@ -214,6 +222,10 @@ impl Memtable {
     }
 
     /// Returns all range tombstones overlapping with `key` visible at `read_seqno`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned.
     pub fn overlapping_range_tombstones(
         &self,
         key: &[u8],
@@ -227,6 +239,10 @@ impl Memtable {
     }
 
     /// Returns all range tombstones in sorted order (for flush).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned.
     pub fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
@@ -236,6 +252,10 @@ impl Memtable {
     }
 
     /// Returns the number of range tombstones.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned.
     pub fn range_tombstone_count(&self) -> usize {
         #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
         self.range_tombstones
