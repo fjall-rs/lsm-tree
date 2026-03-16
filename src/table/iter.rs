@@ -119,8 +119,13 @@ pub struct Iter {
 }
 
 impl Iter {
-    // NOTE: #[allow] not #[expect] because arg count changes with cfg(feature = "metrics")
-    #[allow(clippy::too_many_arguments)]
+    #[cfg_attr(
+        feature = "metrics",
+        expect(
+            clippy::too_many_arguments,
+            reason = "metrics adds the extra parameter; without that feature this stays at the lint threshold"
+        )
+    )]
     pub fn new(
         table_id: GlobalTableId,
         global_seqno: SeqNo,
