@@ -25,6 +25,16 @@ use crate::{
 };
 use std::fs::File;
 
+/// Safety cap on block size for on-disk reads and decompressed output (256 MiB).
+///
+/// Intentionally stricter than the on-disk format limit (`u32::MAX`) to guard
+/// against decompression bombs and OOM from crafted/malicious SST files.
+///
+/// NOTE: This constant is intentionally duplicated in `vlog::blob_file::reader`
+/// (as `usize`) rather than shared, because blocks and blobs are independent
+/// storage formats that may diverge in the future. Keep values in sync manually.
+const MAX_DECOMPRESSION_SIZE: u32 = 256 * 1024 * 1024;
+
 /// A block on disk
 ///
 /// Consists of a fixed-size header and some bytes (the data/payload).
@@ -89,6 +99,23 @@ impl Block {
         compression: CompressionType,
     ) -> crate::Result<Self> {
         let header = Header::decode_from(reader)?;
+
+        // Validate both size fields before any I/O or hashing to fail fast
+        // on malformed headers.
+        if header.data_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.data_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
+
         let raw_data = Slice::from_reader(reader, header.data_length as usize)?;
 
         let checksum = Checksum::from_raw(crate::hash::hash128(&raw_data));
@@ -102,7 +129,16 @@ impl Block {
         })?;
 
         let data = match compression {
-            CompressionType::None => raw_data,
+            CompressionType::None => {
+                #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
+                let actual_len = raw_data.len() as u32;
+
+                if header.uncompressed_length != actual_len {
+                    return Err(crate::Error::InvalidHeader("Block"));
+                }
+
+                raw_data
+            }
 
             #[cfg(feature = "lz4")]
             CompressionType::Lz4 => {
@@ -110,19 +146,17 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                lz4_flex::decompress_into(&raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(&raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(compression))?;
+
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 builder.freeze().into()
             }
         };
-
-        debug_assert_eq!(header.uncompressed_length, {
-            #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-            {
-                data.len() as u32
-            }
-        });
 
         Ok(Self { header, data })
     }
@@ -133,9 +167,32 @@ impl Block {
         handle: BlockHandle,
         compression: CompressionType,
     ) -> crate::Result<Self> {
+        // handle.size() includes Header::serialized_len(), so allow that overhead
+        let max_on_disk_size = u64::from(MAX_DECOMPRESSION_SIZE) + Header::serialized_len() as u64;
+
+        if u64::from(handle.size()) > max_on_disk_size {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(handle.size()),
+                limit: max_on_disk_size,
+            });
+        }
+
         let buf = crate::file::read_exact(file, *handle.offset(), handle.size() as usize)?;
 
         let header = Header::decode_from(&mut &buf[..])?;
+
+        let actual_data_len = buf.len().saturating_sub(Header::serialized_len());
+
+        if header.data_length as usize != actual_data_len {
+            return Err(crate::Error::InvalidHeader("Block"));
+        }
+
+        if header.uncompressed_length > MAX_DECOMPRESSION_SIZE {
+            return Err(crate::Error::DecompressedSizeTooLarge {
+                declared: u64::from(header.uncompressed_length),
+                limit: u64::from(MAX_DECOMPRESSION_SIZE),
+            });
+        }
 
         #[expect(clippy::indexing_slicing)]
         let checksum = Checksum::from_raw(crate::hash::hash128(&buf[Header::serialized_len()..]));
@@ -153,8 +210,10 @@ impl Block {
                 let value = buf.slice(Header::serialized_len()..);
 
                 #[expect(clippy::cast_possible_truncation, reason = "values are u32 length max")]
-                {
-                    debug_assert_eq!(header.uncompressed_length, value.len() as u32);
+                let actual_len = value.len() as u32;
+
+                if header.uncompressed_length != actual_len {
+                    return Err(crate::Error::InvalidHeader("Block"));
                 }
 
                 value
@@ -171,8 +230,13 @@ impl Block {
                 let mut builder =
                     unsafe { Slice::builder_unzeroed(header.uncompressed_length as usize) };
 
-                lz4_flex::decompress_into(raw_data, &mut builder)
+                let bytes_written = lz4_flex::decompress_into(raw_data, &mut builder)
                     .map_err(|_| crate::Error::Decompress(compression))?;
+
+                // Runtime validation: corrupted data may decompress to fewer bytes
+                if bytes_written != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 builder.freeze().into()
             }
@@ -187,7 +251,58 @@ mod tests {
     use super::*;
     use test_log::test;
 
-    // TODO: Block::from_file roundtrips
+    #[test]
+    fn block_from_file_roundtrip_uncompressed() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::None)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::None)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_roundtrip_lz4() -> crate::Result<()> {
+        use std::io::Write;
+
+        let data = b"abcdefabcdefabcdef";
+        let mut buf = vec![];
+        let header = Block::write_into(&mut buf, data, BlockType::Data, CompressionType::Lz4)?;
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("block");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+        drop(file);
+
+        let file = std::fs::File::open(&path)?;
+        let handle = crate::table::BlockHandle::new(
+            BlockOffset(0),
+            header.data_length + Header::serialized_len() as u32,
+        );
+        let block = Block::from_file(&file, handle, CompressionType::Lz4)?;
+        assert_eq!(data, &*block.data);
+
+        Ok(())
+    }
 
     #[test]
     fn block_roundtrip_uncompressed() -> crate::Result<()> {
@@ -208,6 +323,7 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     #[cfg(feature = "lz4")]
     fn block_roundtrip_lz4() -> crate::Result<()> {
@@ -227,5 +343,205 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_reject_absurd_uncompressed_length() {
+        use crate::coding::Encode;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        // Tamper the header: set uncompressed_length to u32::MAX.
+        // The block checksum only covers the compressed payload bytes, not
+        // header fields. Re-encoding the modified header keeps the block
+        // internally consistent while exercising the DecompressedSizeTooLarge path.
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = u32::MAX;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_zero_uncompressed_length_with_data_fails_decompress() {
+        use crate::coding::Encode;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = 0;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::Decompress(_))),
+            "expected Decompress error, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn lz4_corrupted_uncompressed_length_triggers_decompress_error() {
+        use crate::coding::Encode;
+        use std::io::Cursor;
+
+        let payload: &[u8] = b"hello world";
+
+        let compressed = lz4_flex::compress(payload);
+
+        // Build a header with corrupted uncompressed_length (1 byte too large)
+        let data_length = compressed.len() as u32;
+        let uncompressed_length_corrupted = payload.len() as u32 + 1;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&compressed));
+
+        let header = Header {
+            data_length,
+            uncompressed_length: uncompressed_length_corrupted,
+            checksum,
+            block_type: BlockType::Data,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = Cursor::new(buf);
+        let result = Block::from_reader(&mut cursor, CompressionType::Lz4);
+
+        match result {
+            Err(crate::Error::Decompress(CompressionType::Lz4)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
+            Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_reject_absurd_uncompressed_length() {
+        use crate::coding::Encode;
+        use std::io::Write;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = u32::MAX;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&tampered).unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "lz4")]
+    fn block_from_file_zero_uncompressed_length_with_data_fails_decompress() {
+        use crate::coding::Encode;
+        use std::io::Write;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::Lz4).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let compressed_payload: Vec<u8> = reader.to_vec();
+
+        header.uncompressed_length = 0;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&compressed_payload);
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(&tampered).unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), tampered.len() as u32);
+        let result = Block::from_file(&file, handle, CompressionType::Lz4);
+
+        assert!(
+            matches!(&result, Err(crate::Error::Decompress(_))),
+            "expected Decompress error, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    fn block_from_reader_reject_absurd_data_length() {
+        use crate::coding::Encode;
+
+        let mut buf = vec![];
+        Block::write_into(&mut buf, b"hello", BlockType::Data, CompressionType::None).unwrap();
+
+        let mut reader = &buf[..];
+        let mut header = Header::decode_from(&mut reader).unwrap();
+        let payload: Vec<u8> = reader.to_vec();
+
+        header.data_length = MAX_DECOMPRESSION_SIZE + 1;
+        let mut tampered = header.encode_into_vec();
+        tampered.extend_from_slice(&payload);
+
+        let mut r = &tampered[..];
+        let result = Block::from_reader(&mut r, CompressionType::None);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
+    }
+
+    #[test]
+    fn block_from_file_reject_oversized_handle() {
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"dummy").unwrap();
+        tmp.flush().unwrap();
+        let file = std::fs::File::open(tmp.path()).unwrap();
+
+        let handle = crate::table::BlockHandle::new(BlockOffset(0), u32::MAX);
+        let result = Block::from_file(&file, handle, CompressionType::None);
+
+        assert!(
+            matches!(&result, Err(crate::Error::DecompressedSizeTooLarge { .. })),
+            "expected DecompressedSizeTooLarge, got: {:?}",
+            result.err(),
+        );
     }
 }
