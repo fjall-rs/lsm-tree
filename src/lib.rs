@@ -125,6 +125,10 @@ mod path;
 #[doc(hidden)]
 pub mod range;
 
+pub(crate) mod active_tombstone_set;
+pub(crate) mod range_tombstone;
+pub(crate) mod range_tombstone_filter;
+
 #[doc(hidden)]
 pub mod table;
 

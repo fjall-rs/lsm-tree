@@ -338,9 +338,10 @@ impl AbstractTree for Tree {
             .len()
     }
 
-    fn flush_to_tables(
+    fn flush_to_tables_with_rt(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::{file::TABLES_FOLDER, table::multi_writer::MultiWriter};
         use std::time::Instant;
@@ -399,6 +400,9 @@ impl AbstractTree for Tree {
         for item in stream {
             table_writer.write(item?)?;
         }
+
+        // Set range tombstones for distribution across output tables
+        table_writer.set_range_tombstones(range_tombstones);
 
         let result = table_writer.finish()?;
 
@@ -681,6 +685,19 @@ impl AbstractTree for Tree {
         let value = InternalValue::new_weak_tombstone(key, seqno);
         self.append_entry(value)
     }
+
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64 {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        let memtable = self
+            .version_history
+            .read()
+            .expect("lock is poisoned")
+            .latest_version()
+            .active_memtable
+            .clone();
+
+        memtable.insert_range_tombstone(start.into(), end.into(), seqno)
+    }
 }
 
 impl Tree {
@@ -719,18 +736,84 @@ impl Tree {
         seqno: SeqNo,
     ) -> crate::Result<Option<InternalValue>> {
         if let Some(entry) = super_version.active_memtable.get(key, seqno) {
-            return Ok(ignore_tombstone_value(entry));
+            let entry = match ignore_tombstone_value(entry) {
+                Some(v) => v,
+                None => return Ok(None),
+            };
+
+            // Check if any range tombstone suppresses this entry
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
         }
 
         // Now look in sealed memtables
         if let Some(entry) =
             Self::get_internal_entry_from_sealed_memtables(super_version, key, seqno)
         {
-            return Ok(ignore_tombstone_value(entry));
+            let entry = match ignore_tombstone_value(entry) {
+                Some(v) => v,
+                None => return Ok(None),
+            };
+
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
         }
 
         // Now look in tables... this may involve disk I/O
-        Self::get_internal_entry_from_tables(&super_version.version, key, seqno)
+        let entry = Self::get_internal_entry_from_tables(&super_version.version, key, seqno)?;
+
+        if let Some(entry) = entry {
+            if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
+                return Ok(None);
+            }
+            return Ok(Some(entry));
+        }
+
+        Ok(None)
+    }
+
+    /// Checks if a key at `key_seqno` is suppressed by any range tombstone
+    /// in the active memtable, sealed memtables, or SST tables, visible at `read_seqno`.
+    fn is_suppressed_by_range_tombstones(
+        super_version: &SuperVersion,
+        key: &[u8],
+        key_seqno: SeqNo,
+        read_seqno: SeqNo,
+    ) -> bool {
+        // Check active memtable range tombstones
+        if super_version
+            .active_memtable
+            .is_key_suppressed_by_range_tombstone(key, key_seqno, read_seqno)
+        {
+            return true;
+        }
+
+        // Check sealed memtable range tombstones
+        for mt in super_version.sealed_memtables.iter().rev() {
+            if mt.is_key_suppressed_by_range_tombstone(key, key_seqno, read_seqno) {
+                return true;
+            }
+        }
+
+        // Check SST table range tombstones
+        for table in super_version
+            .version
+            .iter_levels()
+            .flat_map(|lvl| lvl.iter())
+            .flat_map(|run| run.iter())
+        {
+            for rt in table.range_tombstones() {
+                if rt.should_suppress(key, key_seqno, read_seqno) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn get_internal_entry_from_tables(

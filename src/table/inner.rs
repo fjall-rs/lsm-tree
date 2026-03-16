@@ -9,6 +9,7 @@ use super::{block_index::BlockIndexImpl, meta::ParsedMeta, regions::ParsedRegion
 use crate::{
     cache::Cache,
     file_accessor::FileAccessor,
+    range_tombstone::RangeTombstone,
     table::{filter::block::FilterBlock, IndexBlock},
     tree::inner::TreeId,
     Checksum, GlobalTableId, SeqNo,
@@ -65,6 +66,9 @@ pub struct Inner {
     /// Cached sum of referenced blob file bytes for this table.
     /// Lazily computed on first access to avoid repeated I/O in compaction decisions.
     pub(crate) cached_blob_bytes: OnceLock<u64>,
+
+    /// Range tombstones stored in this table. Loaded on open.
+    pub(crate) range_tombstones: Vec<RangeTombstone>,
 }
 
 impl Inner {

@@ -76,7 +76,9 @@ pub trait AbstractTree {
         _lock: &MutexGuard<'_, ()>,
         seqno_threshold: SeqNo,
     ) -> crate::Result<Option<u64>> {
-        use crate::{compaction::stream::CompactionStream, merge::Merger};
+        use crate::{
+            compaction::stream::CompactionStream, merge::Merger, range_tombstone::RangeTombstone,
+        };
 
         let version_history = self.get_version_history_lock();
         let latest = version_history.latest_version();
@@ -93,6 +95,13 @@ pub trait AbstractTree {
 
         let flushed_size = latest.sealed_memtables.iter().map(|mt| mt.size()).sum();
 
+        // Collect range tombstones from sealed memtables
+        let mut range_tombstones: Vec<RangeTombstone> = Vec::new();
+        for mt in latest.sealed_memtables.iter() {
+            range_tombstones.extend(mt.range_tombstones_sorted());
+        }
+        range_tombstones.sort();
+
         let merger = Merger::new(
             latest
                 .sealed_memtables
@@ -104,7 +113,9 @@ pub trait AbstractTree {
 
         drop(version_history);
 
-        if let Some((tables, blob_files)) = self.flush_to_tables(stream)? {
+        if let Some((tables, blob_files)) =
+            self.flush_to_tables_with_rt(stream, range_tombstones)?
+        {
             self.register_tables(
                 &tables,
                 blob_files.as_deref(),
@@ -220,6 +231,16 @@ pub trait AbstractTree {
     fn flush_to_tables(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+    ) -> crate::Result<Option<FlushToTablesResult>> {
+        self.flush_to_tables_with_rt(stream, Vec::new())
+    }
+
+    /// Like [`AbstractTree::flush_to_tables`], but also writes range tombstones.
+    #[warn(clippy::type_complexity)]
+    fn flush_to_tables_with_rt(
+        &self,
+        stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<FlushToTablesResult>>;
 
     /// Atomically registers flushed tables into the tree, removing their associated sealed memtables.
@@ -680,4 +701,45 @@ pub trait AbstractTree {
     /// Will return `Err` if an IO error occurs.
     #[doc(hidden)]
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64);
+
+    /// Deletes all keys in the range `[start, end)` by inserting a range tombstone.
+    ///
+    /// This is much more efficient than deleting keys individually when
+    /// removing a contiguous range of keys.
+    ///
+    /// Returns the approximate size added to the memtable.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Debug-asserts that `start < end`.
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64;
+
+    /// Deletes all keys with the given prefix by inserting a range tombstone.
+    ///
+    /// This is sugar over [`AbstractTree::remove_range`] using prefix bounds.
+    ///
+    /// Returns the approximate size added to the memtable.
+    fn remove_prefix<K: AsRef<[u8]>>(&self, prefix: K, seqno: SeqNo) -> u64 {
+        use crate::range::prefix_to_range;
+        use std::ops::Bound;
+
+        let (lo, hi) = prefix_to_range(prefix.as_ref());
+
+        let start = match lo {
+            Bound::Included(k) => k,
+            _ => return 0,
+        };
+
+        let end = match hi {
+            Bound::Excluded(k) => k,
+            Bound::Unbounded => {
+                // Prefix is all 0xFF — can't form exclusive upper bound.
+                // Fall back to unbounded end = [prefix + 0x00] (next after prefix)
+                crate::range_tombstone::upper_bound_exclusive(prefix.as_ref())
+            }
+            _ => return 0,
+        };
+
+        self.remove_range(start, end, seqno)
+    }
 }

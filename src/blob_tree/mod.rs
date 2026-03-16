@@ -356,9 +356,10 @@ impl AbstractTree for BlobTree {
     }
 
     #[expect(clippy::too_many_lines, reason = "flush logic is inherently complex")]
-    fn flush_to_tables(
+    fn flush_to_tables_with_rt(
         &self,
         stream: impl Iterator<Item = crate::Result<InternalValue>>,
+        range_tombstones: Vec<crate::range_tombstone::RangeTombstone>,
     ) -> crate::Result<Option<(Vec<Table>, Option<Vec<BlobFile>>)>> {
         use crate::{
             coding::Encode, file::BLOBS_FOLDER, file::TABLES_FOLDER,
@@ -476,6 +477,9 @@ impl AbstractTree for BlobTree {
         }
 
         let blob_files = blob_writer.finish()?;
+
+        // Set range tombstones for distribution across output tables
+        table_writer.set_range_tombstones(range_tombstones);
 
         let result = table_writer.finish()?;
 
@@ -642,5 +646,9 @@ impl AbstractTree for BlobTree {
 
     fn remove_weak<K: Into<UserKey>>(&self, key: K, seqno: SeqNo) -> (u64, u64) {
         self.index.remove_weak(key, seqno)
+    }
+
+    fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64 {
+        self.index.remove_range(start, end, seqno)
     }
 }

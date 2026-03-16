@@ -369,6 +369,12 @@ fn merge_tables(
         return Ok(());
     };
 
+    // Collect range tombstones from input tables before they are moved
+    let input_range_tombstones: Vec<crate::range_tombstone::RangeTombstone> = tables
+        .iter()
+        .flat_map(|t| t.range_tombstones().iter().cloned())
+        .collect();
+
     let mut blob_frag_map = FragmentationMap::default();
 
     let Some(mut merge_iter) = create_compaction_stream(
@@ -497,6 +503,27 @@ fn merge_tables(
             if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
                 log::debug!("Stopping amidst compaction because of stop signal");
                 return Ok(());
+            }
+        }
+
+        // Propagate range tombstones to output tables
+        // At last level, evict tombstones below GC watermark
+        if !input_range_tombstones.is_empty() {
+            let surviving: Vec<_> = if is_last_level {
+                input_range_tombstones
+                    .into_iter()
+                    .filter(|rt| rt.seqno >= opts.mvcc_gc_watermark)
+                    .collect()
+            } else {
+                input_range_tombstones
+            };
+
+            if !surviving.is_empty() {
+                log::debug!(
+                    "Propagating {} range tombstones to compaction output",
+                    surviving.len(),
+                );
+                compactor.write_range_tombstones(&surviving);
             }
         }
 

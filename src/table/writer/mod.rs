@@ -14,6 +14,7 @@ use crate::{
     checksum::{ChecksumType, ChecksummedWriter},
     coding::Encode,
     file::fsync_directory,
+    range_tombstone::RangeTombstone,
     table::{
         writer::{
             filter::{FilterWriter, FullFilterWriter},
@@ -91,6 +92,9 @@ pub struct Writer {
 
     linked_blob_files: Vec<LinkedFile>,
 
+    /// Range tombstones to be written as a separate block
+    range_tombstones: Vec<RangeTombstone>,
+
     initial_level: u8,
 }
 
@@ -140,6 +144,7 @@ impl Writer {
             previous_item: None,
 
             linked_blob_files: Vec::new(),
+            range_tombstones: Vec::new(),
         })
     }
 
@@ -231,6 +236,13 @@ impl Writer {
         self.bloom_policy = bloom_policy;
         self.filter_writer = self.filter_writer.set_filter_policy(bloom_policy);
         self
+    }
+
+    /// Adds a range tombstone to be written into this table's RT block.
+    pub fn write_range_tombstone(&mut self, rt: RangeTombstone) {
+        self.meta.lowest_seqno = self.meta.lowest_seqno.min(rt.seqno);
+        self.meta.highest_seqno = self.meta.highest_seqno.max(rt.seqno);
+        self.range_tombstones.push(rt);
     }
 
     /// Writes an item.
@@ -373,10 +385,33 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No items written! Just delete table file and return nothing
-        if self.meta.item_count == 0 {
+        // No KV items and no range tombstones — delete the empty table file
+        if self.meta.item_count == 0 && self.range_tombstones.is_empty() {
             std::fs::remove_file(&self.path)?;
             return Ok(None);
+        }
+
+        // If we have range tombstones but no KV items, derive key range from tombstones
+        if self.meta.item_count == 0 {
+            let min_key = self
+                .range_tombstones
+                .iter()
+                .map(|rt| &rt.start)
+                .min()
+                .cloned();
+            let max_key = self
+                .range_tombstones
+                .iter()
+                .map(|rt| &rt.end)
+                .max()
+                .cloned();
+
+            if self.meta.first_key.is_none() {
+                self.meta.first_key = min_key;
+            }
+            if self.meta.last_key.is_none() {
+                self.meta.last_key = max_key;
+            }
         }
 
         // Write index
@@ -386,6 +421,36 @@ impl Writer {
         // Write filter
         log::trace!("Finishing filter writer");
         let filter_block_count = self.filter_writer.finish(&mut self.file_writer)?;
+
+        // Write range tombstones block (if any)
+        if !self.range_tombstones.is_empty() {
+            use byteorder::{WriteBytesExt, LE};
+
+            self.file_writer.start("range_tombstones")?;
+
+            // Wire format (repeated): [start_len:u16_le][start][end_len:u16_le][end][seqno:u64_le]
+            self.block_buffer.clear();
+            for rt in &self.range_tombstones {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "keys are limited to 16-bit length"
+                )]
+                {
+                    self.block_buffer.write_u16::<LE>(rt.start.len() as u16)?;
+                    self.block_buffer.extend_from_slice(&rt.start);
+                    self.block_buffer.write_u16::<LE>(rt.end.len() as u16)?;
+                    self.block_buffer.extend_from_slice(&rt.end);
+                    self.block_buffer.write_u64::<LE>(rt.seqno)?;
+                }
+            }
+
+            Block::write_into(
+                &mut self.file_writer,
+                &self.block_buffer,
+                crate::table::block::BlockType::RangeTombstone,
+                CompressionType::None,
+            )?;
+        }
 
         if !self.linked_blob_files.is_empty() {
             use byteorder::{WriteBytesExt, LE};
@@ -466,6 +531,10 @@ impl Writer {
                 meta("key_count", &(self.meta.key_count as u64).to_le_bytes()),
                 meta("prefix_truncation#data", &[1]), // NOTE: currently prefix truncation can not be disabled
                 meta("prefix_truncation#index", &[1]), // NOTE: currently prefix truncation can not be disabled
+                meta(
+                    "range_tombstone_count",
+                    &(self.range_tombstones.len() as u64).to_le_bytes(),
+                ),
                 meta(
                     "restart_interval#data",
                     &self.data_block_restart_interval.to_le_bytes(),

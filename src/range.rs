@@ -7,6 +7,8 @@ use crate::{
     memtable::Memtable,
     merge::Merger,
     mvcc_stream::MvccStream,
+    range_tombstone::RangeTombstone,
+    range_tombstone_filter::RangeTombstoneFilter,
     run_reader::RunReader,
     value::{SeqNo, UserKey},
     version::SuperVersion,
@@ -145,6 +147,35 @@ impl TreeIter {
 
             let range = (lo, hi);
 
+            // Collect range tombstones from all layers (needed for both table-skip and filtering)
+            let mut all_range_tombstones: Vec<RangeTombstone> = Vec::new();
+
+            // Active memtable range tombstones
+            all_range_tombstones.extend(lock.version.active_memtable.range_tombstones_sorted());
+
+            // Sealed memtable range tombstones
+            for mt in lock.version.sealed_memtables.iter() {
+                all_range_tombstones.extend(mt.range_tombstones_sorted());
+            }
+
+            // Ephemeral memtable range tombstones
+            if let Some((mt, _)) = &lock.ephemeral {
+                all_range_tombstones.extend(mt.range_tombstones_sorted());
+            }
+
+            // SST table range tombstones
+            for table in lock
+                .version
+                .version
+                .iter_levels()
+                .flat_map(|lvl| lvl.iter())
+                .flat_map(|run| run.iter())
+            {
+                all_range_tombstones.extend(table.range_tombstones().iter().cloned());
+            }
+
+            all_range_tombstones.sort();
+
             let mut iters: Vec<BoxedIterator<'_>> = Vec::with_capacity(5);
 
             for run in lock
@@ -161,10 +192,23 @@ impl TreeIter {
                         #[expect(clippy::expect_used, reason = "we checked for length")]
                         let table = run.first().expect("should exist");
 
-                        if table.check_key_range_overlap(&(
-                            range.start_bound().map(|x| &*x.user_key),
-                            range.end_bound().map(|x| &*x.user_key),
-                        )) {
+                        // Table-skip: if a range tombstone fully covers this table
+                        // with a higher seqno, skip it entirely (avoid I/O)
+                        let is_covered = all_range_tombstones.iter().any(|rt| {
+                            rt.visible_at(seqno)
+                                && rt.fully_covers(
+                                    table.metadata.key_range.min(),
+                                    table.metadata.key_range.max(),
+                                )
+                                && rt.seqno > table.get_highest_seqno()
+                        });
+
+                        if !is_covered
+                            && table.check_key_range_overlap(&(
+                                range.start_bound().map(|x| &*x.user_key),
+                                range.end_bound().map(|x| &*x.user_key),
+                            ))
+                        {
                             let reader = table
                                 .range((
                                     range.start_bound().map(|x| &x.user_key).cloned(),
@@ -227,10 +271,17 @@ impl TreeIter {
             let merged = Merger::new(iters);
             let iter = MvccStream::new(merged);
 
-            Box::new(iter.filter(|x| match x {
+            let iter = iter.filter(|x| match x {
                 Ok(value) => !value.key.is_tombstone(),
                 Err(_) => true,
-            }))
+            });
+
+            // Fast path: skip filter wrapping when no range tombstones exist
+            if all_range_tombstones.is_empty() {
+                Box::new(iter)
+            } else {
+                Box::new(RangeTombstoneFilter::new(iter, all_range_tombstones, seqno))
+            }
         })
     }
 }

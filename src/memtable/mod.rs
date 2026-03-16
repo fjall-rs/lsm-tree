@@ -2,14 +2,18 @@
 // This source code is licensed under both the Apache 2.0 and MIT License
 // (found in the LICENSE-* files in the repository)
 
+pub(crate) mod interval_tree;
+
 use crate::key::InternalKey;
+use crate::range_tombstone::RangeTombstone;
 use crate::{
     value::{InternalValue, SeqNo, UserValue},
-    ValueType,
+    UserKey, ValueType,
 };
 use crossbeam_skiplist::SkipMap;
 use std::ops::RangeBounds;
 use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::Mutex;
 
 pub use crate::tree::inner::MemtableId;
 
@@ -23,6 +27,12 @@ pub struct Memtable {
     /// The actual content, stored in a lock-free skiplist.
     #[doc(hidden)]
     pub items: SkipMap<InternalKey, UserValue>,
+
+    /// Range tombstones stored in an interval tree.
+    ///
+    /// Protected by a Mutex since IntervalTree is not lock-free.
+    /// Contention is expected to be low — range deletes are infrequent.
+    pub(crate) range_tombstones: Mutex<interval_tree::IntervalTree>,
 
     /// Approximate active memtable size.
     ///
@@ -61,6 +71,7 @@ impl Memtable {
         Self {
             id,
             items: SkipMap::default(),
+            range_tombstones: Mutex::new(interval_tree::IntervalTree::new()),
             approximate_size: AtomicU64::default(),
             highest_seqno: AtomicU64::default(),
             requested_rotation: AtomicBool::default(),
@@ -164,6 +175,73 @@ impl Memtable {
             .fetch_max(item.key.seqno, std::sync::atomic::Ordering::AcqRel);
 
         (item_size, size_before + item_size)
+    }
+
+    /// Inserts a range tombstone covering `[start, end)` at the given seqno.
+    ///
+    /// Returns the approximate size added to the memtable.
+    pub fn insert_range_tombstone(&self, start: UserKey, end: UserKey, seqno: SeqNo) -> u64 {
+        let size = (start.len() + end.len() + std::mem::size_of::<RangeTombstone>()) as u64;
+
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        self.range_tombstones
+            .lock()
+            .expect("lock is poisoned")
+            .insert(RangeTombstone::new(start, end, seqno));
+
+        self.approximate_size
+            .fetch_add(size, std::sync::atomic::Ordering::AcqRel);
+
+        self.highest_seqno
+            .fetch_max(seqno, std::sync::atomic::Ordering::AcqRel);
+
+        size
+    }
+
+    /// Returns `true` if the key at `key_seqno` is suppressed by a range tombstone
+    /// visible at `read_seqno`.
+    pub fn is_key_suppressed_by_range_tombstone(
+        &self,
+        key: &[u8],
+        key_seqno: SeqNo,
+        read_seqno: SeqNo,
+    ) -> bool {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        self.range_tombstones
+            .lock()
+            .expect("lock is poisoned")
+            .query_suppression(key, key_seqno, read_seqno)
+    }
+
+    /// Returns all range tombstones overlapping with `key` visible at `read_seqno`.
+    pub fn overlapping_range_tombstones(
+        &self,
+        key: &[u8],
+        read_seqno: SeqNo,
+    ) -> Vec<RangeTombstone> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        self.range_tombstones
+            .lock()
+            .expect("lock is poisoned")
+            .overlapping_tombstones(key, read_seqno)
+    }
+
+    /// Returns all range tombstones in sorted order (for flush).
+    pub fn range_tombstones_sorted(&self) -> Vec<RangeTombstone> {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        self.range_tombstones
+            .lock()
+            .expect("lock is poisoned")
+            .iter_sorted()
+    }
+
+    /// Returns the number of range tombstones.
+    pub fn range_tombstone_count(&self) -> usize {
+        #[expect(clippy::expect_used, reason = "lock is expected to not be poisoned")]
+        self.range_tombstones
+            .lock()
+            .expect("lock is poisoned")
+            .len()
     }
 
     /// Returns the highest sequence number in the memtable.

@@ -4,8 +4,9 @@
 
 use super::{filter::BloomConstructionPolicy, writer::Writer};
 use crate::{
-    blob_tree::handle::BlobIndirection, table::writer::LinkedFile, value::InternalValue,
-    vlog::BlobFileId, Checksum, CompressionType, HashMap, SequenceNumberCounter, TableId, UserKey,
+    blob_tree::handle::BlobIndirection, range_tombstone::RangeTombstone, table::writer::LinkedFile,
+    value::InternalValue, vlog::BlobFileId, Checksum, CompressionType, HashMap,
+    SequenceNumberCounter, TableId, UserKey,
 };
 use std::path::PathBuf;
 
@@ -45,6 +46,9 @@ pub struct MultiWriter {
     current_key: Option<UserKey>,
 
     linked_blobs: HashMap<BlobFileId, LinkedFile>,
+
+    /// Range tombstones to distribute across output tables (clipped to each table's key range)
+    range_tombstones: Vec<RangeTombstone>,
 
     /// Level the tables are written to
     initial_level: u8,
@@ -91,7 +95,14 @@ impl MultiWriter {
             current_key: None,
 
             linked_blobs: HashMap::default(),
+            range_tombstones: Vec::new(),
         })
+    }
+
+    /// Sets range tombstones to be distributed across output tables.
+    /// Each tombstone will be clipped to the key range of each output table.
+    pub fn set_range_tombstones(&mut self, tombstones: Vec<RangeTombstone>) {
+        self.range_tombstones = tombstones;
     }
 
     pub fn register_blob(&mut self, indirection: BlobIndirection) {
@@ -202,6 +213,24 @@ impl MultiWriter {
 
         let mut old_writer = std::mem::replace(&mut self.writer, new_writer);
 
+        // Clip and write range tombstones to the finishing writer
+        if !self.range_tombstones.is_empty() {
+            if let (Some(first_key), Some(last_key)) = (
+                old_writer.meta.first_key.clone(),
+                old_writer.meta.last_key.clone(),
+            ) {
+                let max_exclusive =
+                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref());
+                for rt in &self.range_tombstones {
+                    if let Some(clipped) =
+                        rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
+                    {
+                        old_writer.write_range_tombstone(clipped);
+                    }
+                }
+            }
+        }
+
         for linked in self.linked_blobs.values() {
             old_writer.link_blob_file(
                 linked.blob_file_id,
@@ -240,6 +269,29 @@ impl MultiWriter {
     ///
     /// Returns the metadata of created tables
     pub fn finish(mut self) -> crate::Result<Vec<(TableId, Checksum)>> {
+        // Clip and write range tombstones to the last writer
+        if !self.range_tombstones.is_empty() {
+            if let (Some(first_key), Some(last_key)) = (
+                self.writer.meta.first_key.clone(),
+                self.writer.meta.last_key.clone(),
+            ) {
+                let max_exclusive =
+                    crate::range_tombstone::upper_bound_exclusive(last_key.as_ref());
+                for rt in &self.range_tombstones {
+                    if let Some(clipped) =
+                        rt.intersect_opt(first_key.as_ref(), max_exclusive.as_ref())
+                    {
+                        self.writer.write_range_tombstone(clipped);
+                    }
+                }
+            } else {
+                // RT-only table (no KV items yet) — write all tombstones unclipped
+                for rt in &self.range_tombstones {
+                    self.writer.write_range_tombstone(rt.clone());
+                }
+            }
+        }
+
         for linked in self.linked_blobs.values() {
             self.writer.link_blob_file(
                 linked.blob_file_id,
