@@ -555,6 +555,18 @@ impl AbstractTree for BlobTree {
         self.index.contains_key(key, seqno)
     }
 
+    // NOTE: Override the default implementation to delegate directly
+    // to the index tree, avoiding extra iterator/guard overhead for
+    // prefix checks
+    fn contains_prefix<K: AsRef<[u8]>>(
+        &self,
+        prefix: K,
+        seqno: SeqNo,
+        index: Option<(Arc<Memtable>, SeqNo)>,
+    ) -> crate::Result<bool> {
+        self.index.contains_prefix(prefix, seqno, index)
+    }
+
     // NOTE: Override the default implementation to not fetch
     // data from the value log, so we get much faster scans
     fn len(&self, seqno: SeqNo, index: Option<(Arc<Memtable>, SeqNo)>) -> crate::Result<usize> {
