@@ -122,9 +122,8 @@ impl<'a> Reader<'a> {
         {
             // NOTE: Checksum is computed over the caller-provided key (not the on-disk
             // key bytes). This matches the writer, which hashes caller key + value.
-            // The key_len cross-check above catches length mismatches (truncation or
-            // wrong-handle reads), but not length-preserving key corruption.
-            // Full content-level key verification would require changing the checksum
+            // On-disk key corruption is caught by the key_len cross-check above;
+            // content-level key verification would require changing the checksum
             // contract and is out of scope for this security hardening.
             let checksum = {
                 let mut hasher = xxhash_rust::xxh3::Xxh3::default();
