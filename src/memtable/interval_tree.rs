@@ -7,7 +7,7 @@
 //! Keyed by `start`, augmented with `subtree_max_end`, `subtree_max_seqno`,
 //! and `subtree_min_seqno` for pruning during queries.
 
-#[allow(unused_imports)]
+
 use crate::range_tombstone::CoveringRt;
 use crate::range_tombstone::RangeTombstone;
 use crate::{SeqNo, UserKey};
@@ -195,7 +195,7 @@ fn collect_overlapping(
     let Some(n) = node else { return };
 
     // Prune: no tombstone in subtree is visible at this read_seqno
-    if n.subtree_min_seqno > read_seqno {
+    if n.subtree_min_seqno >= read_seqno {
         return;
     }
 
@@ -227,7 +227,6 @@ fn inorder(node: Option<&Node>, result: &mut Vec<RangeTombstone>) {
 }
 
 /// Collects tombstones that fully cover `[min, max]` and are visible at `read_seqno`.
-#[allow(dead_code)]
 fn collect_covering(
     node: Option<&Node>,
     min: &[u8],
@@ -238,7 +237,7 @@ fn collect_covering(
     let Some(n) = node else { return };
 
     // Prune: no tombstone visible at this read_seqno
-    if n.subtree_min_seqno > read_seqno {
+    if n.subtree_min_seqno >= read_seqno {
         return;
     }
 
@@ -308,7 +307,7 @@ impl IntervalTree {
     /// or `None` if no such tombstone exists.
     ///
     /// Used for table-skip decisions.
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "used for table-skip decisions")]
     pub fn query_covering_rt_for_range(
         &self,
         min: &[u8],
@@ -336,7 +335,7 @@ impl IntervalTree {
     }
 
     /// Returns `true` if the tree is empty.
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "tree may have tombstones but is_empty not called in all paths")]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0

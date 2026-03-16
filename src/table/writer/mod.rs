@@ -385,18 +385,28 @@ impl Writer {
 
         self.spill_block()?;
 
-        // No items written — delete the empty table file.
-        // Range tombstones without KV data can't form a valid table (no index).
-        // For the flush path, RTs are re-inserted into the active memtable.
-        // For the compaction path, if all KVs are GC'd but RTs survive, those
-        // RTs will be lost. Supporting RT-only SSTs would require an index-less
-        // table format, which is a larger change. This is a known limitation —
-        // in practice it only matters when GC evicts every KV in a compaction
-        // run while range tombstones are still live (rare: RTs are typically
-        // evicted at the same watermark as the KVs they suppress).
-        if self.meta.item_count == 0 {
+        // No items and no range tombstones — delete the empty table file.
+        if self.meta.item_count == 0 && self.range_tombstones.is_empty() {
             std::fs::remove_file(&self.path)?;
             return Ok(None);
+        }
+
+        // If we have range tombstones but no KV items, write a synthetic
+        // weak tombstone at the first RT's start key to produce a valid index.
+        // Use WeakTombstone at seqno 0 to minimize side effects — it will be
+        // GC'd immediately on next compaction.
+        if self.meta.item_count == 0 {
+            let min_start = self
+                .range_tombstones
+                .iter()
+                .map(|rt| &rt.start)
+                .min()
+                .cloned();
+
+            if let Some(start) = min_start {
+                self.write(InternalValue::new_weak_tombstone(start, 0))?;
+                self.spill_block()?;
+            }
         }
 
         // Write index

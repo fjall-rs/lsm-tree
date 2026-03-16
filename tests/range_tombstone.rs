@@ -368,13 +368,19 @@ fn range_tombstone_only_flush() -> lsm_tree::Result<()> {
     tree.insert("c", "3", 3);
     tree.flush_active_memtable(0)?;
 
+    let tables_before = tree.table_count();
+
     // Second: insert only a range tombstone and flush
-    // RT-only memtable can't produce a valid SST (no index), so RTs are re-inserted
-    // into the active memtable to preserve them
+    // RT-only flush writes synthetic sentinel tombstones to create a valid SST
     tree.remove_range("a", "c", 10);
     tree.flush_active_memtable(0)?;
 
-    // The tombstone (now in active memtable) should still suppress
+    assert!(
+        tree.table_count() > tables_before,
+        "RT-only flush should produce a table with sentinel tombstones"
+    );
+
+    // The range tombstone in the SST should suppress
     assert_eq!(None, tree.get("a", 11)?);
     assert_eq!(None, tree.get("b", 11)?);
     assert_eq!(Some("3".as_bytes().into()), tree.get("c", 11)?);

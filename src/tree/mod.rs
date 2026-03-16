@@ -809,14 +809,16 @@ impl Tree {
             }
         }
 
-        // Check SST table range tombstones (skip tables whose key range doesn't contain key)
+        // Check SST table range tombstones
+        // NOTE: We cannot filter by key_range.contains_key here because RT-only
+        // tables may have a key range narrower than their tombstone coverage.
+        // RangeTombstone::should_suppress already checks contains_key internally.
         for table in super_version
             .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| run.iter())
             .filter(|t| !t.range_tombstones().is_empty())
-            .filter(|t| t.metadata.key_range.contains_key(key))
         {
             for rt in table.range_tombstones() {
                 if rt.should_suppress(key, key_seqno, read_seqno) {
