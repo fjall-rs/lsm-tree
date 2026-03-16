@@ -98,7 +98,10 @@ impl DoubleEndedIterator for TreeIter {
 }
 
 impl TreeIter {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "create_range wires up multiple iterator sources, filters, and tombstone handling; splitting further would reduce clarity"
+    )]
     pub fn create_range<K: AsRef<[u8]>, R: RangeBounds<K>>(
         guard: IterState,
         range: R,

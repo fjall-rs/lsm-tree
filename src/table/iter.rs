@@ -119,6 +119,7 @@ pub struct Iter {
 }
 
 impl Iter {
+    // NOTE: #[allow] not #[expect] because arg count changes with cfg(feature = "metrics")
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         table_id: GlobalTableId,

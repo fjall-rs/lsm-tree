@@ -40,10 +40,11 @@ impl RangeTombstone {
 
     /// Returns `true` if this tombstone is visible at the given read seqno.
     ///
-    /// A tombstone is visible when `self.seqno <= read_seqno`.
+    /// Uses exclusive boundary (`self.seqno < read_seqno`) consistent with
+    /// the codebase convention where `seqno` is an exclusive snapshot boundary.
     #[must_use]
     pub fn visible_at(&self, read_seqno: SeqNo) -> bool {
-        self.seqno <= read_seqno
+        self.seqno < read_seqno
     }
 
     /// Returns `true` if this tombstone should suppress a KV with the given seqno
@@ -198,9 +199,10 @@ mod tests {
     }
 
     #[test]
-    fn visible_at_equal() {
+    fn not_visible_at_equal() {
+        // Exclusive boundary: tombstone@10 is NOT visible at read_seqno=10
         let t = rt(b"a", b"z", 10);
-        assert!(t.visible_at(10));
+        assert!(!t.visible_at(10));
     }
 
     #[test]
@@ -218,7 +220,15 @@ mod tests {
     #[test]
     fn should_suppress_yes() {
         let t = rt(b"b", b"d", 10);
-        assert!(t.should_suppress(b"c", 5, 10));
+        // read_seqno=11 (exclusive: tombstone@10 visible at 11)
+        assert!(t.should_suppress(b"c", 5, 11));
+    }
+
+    #[test]
+    fn should_suppress_no_at_equal_seqno() {
+        let t = rt(b"b", b"d", 10);
+        // read_seqno=10: tombstone@10 NOT visible (exclusive boundary)
+        assert!(!t.should_suppress(b"c", 5, 10));
     }
 
     #[test]
@@ -236,7 +246,7 @@ mod tests {
     #[test]
     fn should_suppress_no_outside_range() {
         let t = rt(b"b", b"d", 10);
-        assert!(!t.should_suppress(b"e", 5, 10));
+        assert!(!t.should_suppress(b"e", 5, 11));
     }
 
     #[test]

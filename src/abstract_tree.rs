@@ -721,10 +721,7 @@ pub trait AbstractTree {
     /// removing a contiguous range of keys.
     ///
     /// Returns the approximate size added to the memtable.
-    ///
-    /// # Panics (debug only)
-    ///
-    /// Debug-asserts that `start < end`.
+    /// Returns 0 if `start >= end` (invalid interval is silently ignored).
     fn remove_range<K: Into<UserKey>>(&self, start: K, end: K, seqno: SeqNo) -> u64;
 
     /// Deletes all keys with the given prefix by inserting a range tombstone.

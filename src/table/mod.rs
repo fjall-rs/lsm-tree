@@ -648,6 +648,16 @@ impl Table {
             let start_len = cursor
                 .read_u16::<LE>()
                 .map_err(|_| crate::Error::Unrecoverable)? as usize;
+
+            // Validate length against remaining data before allocating
+            let remaining = data.len() - cursor.position() as usize;
+            if start_len > remaining {
+                log::error!(
+                    "Range tombstone block: start_len {start_len} exceeds remaining {remaining}"
+                );
+                return Err(crate::Error::Unrecoverable);
+            }
+
             let mut start_buf = vec![0u8; start_len];
             cursor
                 .read_exact(&mut start_buf)
@@ -656,6 +666,15 @@ impl Table {
             let end_len = cursor
                 .read_u16::<LE>()
                 .map_err(|_| crate::Error::Unrecoverable)? as usize;
+
+            let remaining = data.len() - cursor.position() as usize;
+            if end_len > remaining {
+                log::error!(
+                    "Range tombstone block: end_len {end_len} exceeds remaining {remaining}"
+                );
+                return Err(crate::Error::Unrecoverable);
+            }
+
             let mut end_buf = vec![0u8; end_len];
             cursor
                 .read_exact(&mut end_buf)

@@ -798,12 +798,14 @@ impl Tree {
             }
         }
 
-        // Check SST table range tombstones
+        // Check SST table range tombstones (skip tables whose key range doesn't contain key)
         for table in super_version
             .version
             .iter_levels()
             .flat_map(|lvl| lvl.iter())
             .flat_map(|run| run.iter())
+            .filter(|t| !t.range_tombstones().is_empty())
+            .filter(|t| t.metadata.key_range.contains_key(key))
         {
             for rt in table.range_tombstones() {
                 if rt.should_suppress(key, key_seqno, read_seqno) {
