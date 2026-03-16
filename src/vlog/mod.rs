@@ -94,15 +94,15 @@ pub fn recover_blob_files(
                     log::error!("meta section in blob file #{blob_file_id} is missing - maybe the file is corrupted?");
                 })?;
 
-                let metadata_len = usize::try_from(metadata_section.len())
-                    .map_err(|_| crate::Error::Unrecoverable)?;
-
-                if metadata_len > MAX_METADATA_SIZE {
+                let declared_metadata_len = metadata_section.len();
+                if declared_metadata_len > MAX_METADATA_SIZE as u64 {
                     return Err(crate::Error::DecompressedSizeTooLarge {
-                        declared: metadata_len as u64,
+                        declared: declared_metadata_len,
                         limit: MAX_METADATA_SIZE as u64,
                     });
                 }
+                let metadata_len = usize::try_from(declared_metadata_len)
+                    .map_err(|_| crate::Error::Unrecoverable)?;
 
                 let metadata_slice =
                     crate::file::read_exact(&file, metadata_section.pos(), metadata_len)?;
