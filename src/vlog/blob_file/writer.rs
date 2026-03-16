@@ -348,7 +348,7 @@ mod tests {
         // Exercise the LZ4 compression arm with a value that passes
         // the pre-compression check and compresses successfully.
         let value = b"hello world lz4 test data";
-        #[expect(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "test value is 25 bytes")]
         let result = writer.write_raw(b"key", 0, value, value.len() as u32);
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         Ok(())

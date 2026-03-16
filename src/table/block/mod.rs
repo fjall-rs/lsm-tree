@@ -697,7 +697,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "allocates > MAX_DECOMPRESSION_SIZE, intended for manual runs"]
     fn block_write_rejects_oversized_payload() {
         let oversized = vec![0u8; MAX_DECOMPRESSION_SIZE as usize + 1];
         let mut sink = std::io::sink();
