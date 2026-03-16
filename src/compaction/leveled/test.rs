@@ -116,6 +116,14 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
 
 #[test]
 fn leveled_intra_l0_preserves_newer_run_ordering() -> crate::Result<()> {
+    // This test exercises the `with_merge` ordering fix directly: when an intra-L0
+    // merge produces a result, any L0 run NOT in `old_ids` (i.e., concurrently flushed
+    // during compaction) must remain at the front of L0 so it is searched first.
+    //
+    // We simulate the concurrent-flush scenario by:
+    // 1. Creating 3 L0 runs (newest at front)
+    // 2. Calling `Version::with_merge` with only the 2 older runs' IDs in `old_ids`
+    // 3. Verifying the newest run (not in old_ids) stays at position 0 in L0
     let dir = tempfile::tempdir()?;
     let tree = Config::new(
         dir.path(),
@@ -124,34 +132,72 @@ fn leveled_intra_l0_preserves_newer_run_ordering() -> crate::Result<()> {
     )
     .open()?;
 
-    // Flush 2 overlapping memtables (below l0_threshold=4)
-    tree.insert("key", "old_1", 0);
+    // Flush 3 overlapping memtables into L0
+    tree.insert("key", "oldest", 0);
     tree.flush_active_memtable(0)?;
-    tree.insert("key", "old_2", 1);
+    tree.insert("key", "middle", 1);
     tree.flush_active_memtable(0)?;
-
-    assert_eq!(2, tree.l0_run_count());
-
-    // Intra-L0 compaction merges the 2 runs
-    let strategy = Arc::new(
-        Strategy::default()
-            .with_l0_threshold(4)
-            .with_table_target_size(128 * 1024 * 1024),
-    );
-    tree.compact(strategy, 0)?;
-    assert_eq!(1, tree.l0_run_count());
-
-    // Flush a newer memtable AFTER compaction — this run must be searched first
     tree.insert("key", "newest", 2);
     tree.flush_active_memtable(0)?;
 
-    assert_eq!(2, tree.l0_run_count());
+    assert_eq!(3, tree.l0_run_count());
 
-    // The newest flush must win: merged (older) run is appended, newer run is at front
+    let version = tree.current_version();
+    let l0 = version.l0();
+    // L0 runs are ordered newest-first: [newest_run, middle_run, oldest_run]
+    assert_eq!(3, l0.run_count());
+
+    // Collect table IDs from the 2 OLDER runs (index 1 and 2) — these are the ones
+    // that would have been selected for intra-L0 compaction before the newest flush
+    let older_ids: Vec<_> = l0
+        .iter()
+        .skip(1) // skip the newest run
+        .flat_map(|run| run.iter())
+        .map(|t| t.id())
+        .collect();
+
+    // Use the tables from the oldest run as the "merged output" (simulating the
+    // compaction result — in reality it would be a newly written table, but for
+    // ordering verification any table works)
+    let merged_tables: Vec<_> = l0.iter().last().unwrap().iter().cloned().collect();
+
+    // Record the newest run's table IDs (the "concurrently flushed" run)
+    let newest_run_ids: Vec<_> = l0.iter().next().unwrap().iter().map(|t| t.id()).collect();
+
+    // Call with_merge targeting L0 — this is the code path that previously used
+    // `runs.insert(0, run)` which would incorrectly place the merged (older) run
+    // BEFORE the concurrently flushed newer run
+    let new_version = version.with_merge(
+        &older_ids,
+        &merged_tables,
+        0, // dest_level = 0 (intra-L0)
+        None,
+        vec![],
+        &Default::default(),
+    );
+
+    let new_l0 = new_version.l0();
+    // Should have 2 runs: the untouched newest run + the merged older run
     assert_eq!(
-        tree.get("key", SeqNo::MAX)?.as_deref(),
-        Some(b"newest".as_slice()),
-        "newer L0 run must be found before merged (older) run"
+        2,
+        new_l0.run_count(),
+        "L0 should have 2 runs: newest (untouched) + merged (older)"
+    );
+
+    // The FIRST run in L0 must be the newest (concurrently flushed) run, not the
+    // merged run. This is what the `runs.push(run)` fix ensures — without it,
+    // `runs.insert(0, run)` would place the merged run first, causing stale reads.
+    let first_run_ids: Vec<_> = new_l0
+        .iter()
+        .next()
+        .unwrap()
+        .iter()
+        .map(|t| t.id())
+        .collect();
+
+    assert_eq!(
+        newest_run_ids, first_run_ids,
+        "newest (concurrently flushed) L0 run must remain at front after intra-L0 merge"
     );
 
     Ok(())
