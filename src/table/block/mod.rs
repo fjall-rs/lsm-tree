@@ -57,7 +57,9 @@ impl Block {
             uncompressed_length: data.len() as u32,
         };
 
-        // `compressed_buf` keeps the compressed data alive for compressed branches
+        // `compressed_buf` keeps the compressed data alive so `payload` can borrow it.
+        // Only declared when a compression feature is enabled; the match arms below
+        // always initialize it before use, so the lack of a default value is safe.
         #[cfg(any(feature = "lz4", feature = "zstd"))]
         let compressed_buf: Option<Vec<u8>>;
 
@@ -147,6 +149,10 @@ impl Block {
                     zstd::bulk::decompress(&raw_data, header.uncompressed_length as usize)
                         .map_err(|_| crate::Error::Decompress(compression))?;
 
+                if decompressed.len() != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
+
                 Slice::from(decompressed)
             }
         };
@@ -216,6 +222,10 @@ impl Block {
                 let decompressed =
                     zstd::bulk::decompress(raw_data, header.uncompressed_length as usize)
                         .map_err(|_| crate::Error::Decompress(compression))?;
+
+                if decompressed.len() != header.uncompressed_length as usize {
+                    return Err(crate::Error::Decompress(compression));
+                }
 
                 Slice::from(decompressed)
             }
@@ -383,6 +393,41 @@ mod tests {
 
         match result {
             Err(crate::Error::Decompress(CompressionType::Lz4)) => { /* expected */ }
+            Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
+            Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "zstd")]
+    fn zstd_corrupted_uncompressed_length_triggers_decompress_error() {
+        use crate::coding::Encode;
+        use std::io::Cursor;
+
+        let payload: &[u8] = b"hello world";
+
+        let compressed = zstd::bulk::compress(payload, 3).expect("zstd compress failed");
+
+        let data_length = compressed.len() as u32;
+        let uncompressed_length_corrupted = payload.len() as u32 + 1;
+
+        let checksum = Checksum::from_raw(crate::hash::hash128(&compressed));
+
+        let header = Header {
+            data_length,
+            uncompressed_length: uncompressed_length_corrupted,
+            checksum,
+            block_type: BlockType::Data,
+        };
+
+        let mut buf = header.encode_into_vec();
+        buf.extend_from_slice(&compressed);
+
+        let mut cursor = Cursor::new(buf);
+        let result = Block::from_reader(&mut cursor, CompressionType::Zstd(3));
+
+        match result {
+            Err(crate::Error::Decompress(CompressionType::Zstd(_))) => { /* expected */ }
             Ok(_) => panic!("expected Error::Decompress, but got Ok(Block)"),
             Err(other) => panic!("expected Error::Decompress, got different error: {other:?}"),
         }
