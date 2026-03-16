@@ -513,6 +513,12 @@ pub trait AbstractTree {
 
     /// Reads multiple keys from the tree.
     ///
+    /// Returns a `Vec` with exactly one entry per input key, in the same order
+    /// as the input. Each entry is `Some(value)` if the key was found, or
+    /// `None` if it was missing. Duplicate keys in the input produce duplicate
+    /// entries in the output. This contract is guaranteed for all
+    /// implementations, including optimized ones.
+    ///
     /// Implementations may choose to perform all lookups against a single
     /// version snapshot and acquire the version lock only once, which can be
     /// more efficient than calling [`AbstractTree::get`] in a loop. The
