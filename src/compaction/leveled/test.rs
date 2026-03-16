@@ -47,6 +47,72 @@ fn leveled_l0_below_limit() -> crate::Result<()> {
 }
 
 #[test]
+fn leveled_intra_l0_compaction() -> crate::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let tree = Config::new(
+        dir.path(),
+        SequenceNumberCounter::default(),
+        SequenceNumberCounter::default(),
+    )
+    .open()?;
+
+    // Flush 3 overlapping memtables with distinct values (below configured l0_threshold=4)
+    for i in 0..3u8 {
+        tree.insert("a", [b'v', i].as_slice(), u64::from(i));
+        tree.insert([b'k', i].as_slice(), "v", 0);
+        tree.insert("z", [b'v', i].as_slice(), u64::from(i));
+        tree.flush_active_memtable(0)?;
+    }
+
+    assert_eq!(3, tree.table_count());
+    assert!(
+        tree.l0_run_count() > 1,
+        "L0 should have multiple overlapping runs"
+    );
+
+    let strategy = Arc::new(Strategy::default().with_l0_threshold(4));
+    tree.compact(strategy, 0)?;
+
+    // Intra-L0 compaction should consolidate runs within L0
+    assert_eq!(
+        1,
+        tree.l0_run_count(),
+        "L0 should have exactly 1 run after intra-L0 compaction"
+    );
+    // NOTE: 9 keys total (3 iterations × 3 inserts) is well below the default target_size
+    // (64 MiB), so the compaction writer always produces exactly 1 SSTable here
+    assert_eq!(
+        1,
+        tree.table_count(),
+        "Tables should be merged into 1 after intra-L0 compaction"
+    );
+
+    // All data must still be readable with correct values
+    for i in 0..3u8 {
+        assert!(tree.get([b'k', i].as_slice(), u64::MAX)?.is_some());
+    }
+    // Latest visible versions should be the last written values
+    assert_eq!(
+        tree.get("a", u64::MAX)?.as_deref(),
+        Some([b'v', 2].as_slice()),
+    );
+    assert_eq!(
+        tree.get("z", u64::MAX)?.as_deref(),
+        Some([b'v', 2].as_slice()),
+    );
+
+    // Verify data stayed in L0 (not pushed to L1)
+    assert!(
+        tree.current_version()
+            .level(1)
+            .map_or(true, |l| l.is_empty()),
+        "L1 should remain empty after intra-L0 compaction"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn leveled_l0_reached_limit() -> crate::Result<()> {
     let dir = tempfile::tempdir()?;
     let tree = Config::new(

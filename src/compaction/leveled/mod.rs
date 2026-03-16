@@ -279,18 +279,31 @@ impl CompactionStrategy for Strategy {
 
         // Trivial move into Lmax
         'trivial_lmax: {
+            #[expect(
+                clippy::expect_used,
+                reason = "level 0 is guaranteed to exist in a valid version"
+            )]
             let l0 = version.level(0).expect("first level should exist");
 
             if !l0.is_empty() && l0.is_disjoint() {
                 let lmax_index = version.level_count() - 1;
 
-                if (1..lmax_index)
-                    .any(|idx| !version.level(idx).expect("level should exist").is_empty())
-                {
+                if (1..lmax_index).any(|idx| {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "levels within level_count are guaranteed to exist"
+                    )]
+                    let level = version.level(idx).expect("level should exist");
+                    !level.is_empty()
+                }) {
                     // There are intermediary levels with data, cannot trivially move to Lmax
                     break 'trivial_lmax;
                 }
 
+                #[expect(
+                    clippy::expect_used,
+                    reason = "lmax_index is derived from level_count so level is guaranteed to exist"
+                )]
                 let lmax = version.level(lmax_index).expect("last level should exist");
 
                 if !lmax
@@ -299,6 +312,10 @@ impl CompactionStrategy for Strategy {
                 {
                     return Choice::Move(CompactionInput {
                         table_ids: l0.list_ids(),
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "level count is at most 7, fits in u8"
+                        )]
                         dest_level: lmax_index as u8,
                         canonical_level: 1,
                         target_size: self.target_size,
@@ -395,6 +412,25 @@ impl CompactionStrategy for Strategy {
                         target_size: self.target_size,
                     });
                 }
+            }
+        }
+
+        // Intra-L0 compaction: merge overlapping L0 runs into a single run within L0
+        // when table count is below the L0→L1 threshold
+        {
+            let first_level = version.l0();
+
+            if first_level.run_count() > 1
+                && first_level.table_count() < usize::from(self.l0_threshold)
+                && !first_level.is_disjoint()
+                && !version.level_is_busy(0, state.hidden_set())
+            {
+                return Choice::Merge(CompactionInput {
+                    table_ids: first_level.list_ids(),
+                    dest_level: 0,
+                    canonical_level: 0,
+                    target_size: self.target_size,
+                });
             }
         }
 
