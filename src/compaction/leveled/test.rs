@@ -70,7 +70,11 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
         "L0 should have multiple overlapping runs"
     );
 
-    let strategy = Arc::new(Strategy::default().with_l0_threshold(4));
+    let strategy = Arc::new(
+        Strategy::default()
+            .with_l0_threshold(4)
+            .with_table_target_size(128 * 1024 * 1024),
+    );
     tree.compact(strategy, 0)?;
 
     // Intra-L0 compaction should consolidate runs within L0
@@ -79,8 +83,6 @@ fn leveled_intra_l0_compaction() -> crate::Result<()> {
         tree.l0_run_count(),
         "L0 should have exactly 1 run after intra-L0 compaction"
     );
-    // NOTE: 9 keys total (3 iterations × 3 inserts) is well below the default target_size
-    // (64 MiB), so the compaction writer always produces exactly 1 SSTable here
     assert_eq!(
         1,
         tree.table_count(),
