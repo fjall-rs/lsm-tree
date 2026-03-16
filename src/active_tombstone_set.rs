@@ -33,7 +33,7 @@ pub struct ActiveTombstoneSet {
 impl ActiveTombstoneSet {
     /// Creates a new forward active tombstone set.
     ///
-    /// Only tombstones with `seqno <= cutoff_seqno` will be activated.
+    /// Only tombstones with `seqno < cutoff_seqno` will be activated.
     #[must_use]
     pub fn new(cutoff_seqno: SeqNo) -> Self {
         Self {
@@ -47,7 +47,7 @@ impl ActiveTombstoneSet {
     /// Activates a range tombstone, adding it to the active set.
     ///
     /// The tombstone is only activated if it is visible at the cutoff seqno
-    /// (i.e., `rt.seqno <= cutoff_seqno`). Duplicate activations (same seqno
+    /// (i.e., `rt.seqno < cutoff_seqno`). Duplicate activations (same seqno
     /// from different sources) are handled correctly via multiset accounting.
     pub fn activate(&mut self, rt: &RangeTombstone) {
         if !rt.visible_at(self.cutoff_seqno) {
@@ -149,7 +149,7 @@ pub struct ActiveTombstoneSetReverse {
 impl ActiveTombstoneSetReverse {
     /// Creates a new reverse active tombstone set.
     ///
-    /// Only tombstones with `seqno <= cutoff_seqno` will be activated.
+    /// Only tombstones with `seqno < cutoff_seqno` will be activated.
     #[must_use]
     pub fn new(cutoff_seqno: SeqNo) -> Self {
         Self {
@@ -163,7 +163,7 @@ impl ActiveTombstoneSetReverse {
     /// Activates a range tombstone, adding it to the active set.
     ///
     /// The tombstone is only activated if it is visible at the cutoff seqno
-    /// (i.e., `rt.seqno <= cutoff_seqno`). Duplicate activations (same seqno
+    /// (i.e., `rt.seqno < cutoff_seqno`). Duplicate activations (same seqno
     /// from different sources) are handled correctly via multiset accounting.
     ///
     /// For reverse iteration, activation uses strict `>`: tombstones with

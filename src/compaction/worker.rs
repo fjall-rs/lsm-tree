@@ -495,19 +495,10 @@ fn merge_tables(
     drop(compaction_state);
 
     hidden_guard(payload, opts, || {
-        for (idx, item) in merge_iter.enumerate() {
-            let item = item?;
-
-            compactor.write(item)?;
-
-            if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
-                log::debug!("Stopping amidst compaction because of stop signal");
-                return Ok(());
-            }
-        }
-
-        // Propagate range tombstones to output tables
-        // At last level, evict tombstones below GC watermark
+        // Propagate range tombstones to output tables BEFORE writing KV items,
+        // so that if the compactor rotates tables during the merge loop,
+        // earlier tables already carry the RT metadata.
+        // At last level, evict tombstones below GC watermark.
         if !input_range_tombstones.is_empty() {
             let surviving: Vec<_> = if is_last_level {
                 input_range_tombstones
@@ -524,6 +515,17 @@ fn merge_tables(
                     surviving.len(),
                 );
                 compactor.write_range_tombstones(&surviving);
+            }
+        }
+
+        for (idx, item) in merge_iter.enumerate() {
+            let item = item?;
+
+            compactor.write(item)?;
+
+            if idx % 1_000_000 == 0 && opts.stop_signal.is_stopped() {
+                log::debug!("Stopping amidst compaction because of stop signal");
+                return Ok(());
             }
         }
 

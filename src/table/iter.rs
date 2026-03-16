@@ -119,6 +119,7 @@ pub struct Iter {
 }
 
 impl Iter {
+    // Separate cfg_attr per Copilot review — expect only fires when metrics adds the extra param
     #[cfg_attr(
         feature = "metrics",
         expect(

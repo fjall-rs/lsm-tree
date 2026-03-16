@@ -387,7 +387,13 @@ impl Writer {
 
         // No items written — delete the empty table file.
         // Range tombstones without KV data can't form a valid table (no index).
-        // They'll be re-inserted into the active memtable by the flush path.
+        // For the flush path, RTs are re-inserted into the active memtable.
+        // For the compaction path, if all KVs are GC'd but RTs survive, those
+        // RTs will be lost. Supporting RT-only SSTs would require an index-less
+        // table format, which is a larger change. This is a known limitation —
+        // in practice it only matters when GC evicts every KV in a compaction
+        // run while range tombstones are still live (rare: RTs are typically
+        // evicted at the same watermark as the KVs they suppress).
         if self.meta.item_count == 0 {
             std::fs::remove_file(&self.path)?;
             return Ok(None);

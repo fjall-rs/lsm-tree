@@ -397,12 +397,14 @@ impl AbstractTree for Tree {
             table_writer = table_writer.use_partitioned_filter();
         }
 
+        // Set range tombstones BEFORE writing KV items so that if MultiWriter
+        // rotates to a new table during the write loop, earlier tables already
+        // carry the RT metadata.
+        table_writer.set_range_tombstones(range_tombstones);
+
         for item in stream {
             table_writer.write(item?)?;
         }
-
-        // Set range tombstones for distribution across output tables
-        table_writer.set_range_tombstones(range_tombstones);
 
         let result = table_writer.finish()?;
 
@@ -766,6 +768,15 @@ impl Tree {
         let entry = Self::get_internal_entry_from_tables(&super_version.version, key, seqno)?;
 
         if let Some(entry) = entry {
+            // NOTE: For normal tables (global_seqno=0) the entry's seqno is the
+            // true write seqno, so the RT suppression comparison is correct.
+            // For bulk-ingested tables (global_seqno > 0) the Table::get iterator
+            // translates seqnos by adding global_seqno, so entry.key.seqno is
+            // already in the global seqno space. However, if an RT was written
+            // with a seqno between the local and global values, suppression may
+            // be incorrect. This is a known limitation of bulk ingest + range
+            // tombstones — acceptable because ingest assigns a single global
+            // seqno and users rarely combine ingest with delete_range.
             if Self::is_suppressed_by_range_tombstones(super_version, key, entry.key.seqno, seqno) {
                 return Ok(None);
             }

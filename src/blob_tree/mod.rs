@@ -440,6 +440,11 @@ impl AbstractTree for BlobTree {
 
         let separation_threshold = kv_opts.separation_threshold;
 
+        // Set range tombstones BEFORE writing KV items so that if MultiWriter
+        // rotates to a new table during the write loop, earlier tables already
+        // carry the RT metadata.
+        table_writer.set_range_tombstones(range_tombstones);
+
         for item in stream {
             let item = item?;
 
@@ -477,9 +482,6 @@ impl AbstractTree for BlobTree {
         }
 
         let blob_files = blob_writer.finish()?;
-
-        // Set range tombstones for distribution across output tables
-        table_writer.set_range_tombstones(range_tombstones);
 
         let result = table_writer.finish()?;
 

@@ -185,7 +185,7 @@ fn insert_node(node: Option<Box<Node>>, tombstone: RangeTombstone) -> (Box<Node>
 }
 
 /// Collects all overlapping tombstones: those where `start <= key < end`
-/// and `seqno <= read_seqno`.
+/// and `seqno < read_seqno`.
 fn collect_overlapping(
     node: Option<&Node>,
     key: &[u8],
@@ -297,7 +297,7 @@ impl IntervalTree {
     /// Returns all tombstones overlapping with `key` and visible at `read_seqno`.
     ///
     /// Used for seek initialization: returns tombstones where `start <= key < end`
-    /// and `seqno <= read_seqno`.
+    /// and `seqno < read_seqno`.
     pub fn overlapping_tombstones(&self, key: &[u8], read_seqno: SeqNo) -> Vec<RangeTombstone> {
         let mut result = Vec::new();
         collect_overlapping(self.root.as_deref(), key, read_seqno, &mut result);

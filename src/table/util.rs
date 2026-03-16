@@ -28,6 +28,7 @@ pub struct SliceIndexes(pub usize, pub usize);
 /// Loads a block from disk or block cache, if cached.
 ///
 /// Also handles file descriptor opening and caching.
+// Separate cfg_attr per Copilot review — expect only fires when metrics adds the extra param
 #[cfg_attr(
     feature = "metrics",
     expect(

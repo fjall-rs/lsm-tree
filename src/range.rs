@@ -192,7 +192,7 @@ impl TreeIter {
                 {
                     rts.extend(table.range_tombstones().iter().cloned());
                 }
-                rts.sort();
+                // No sort needed here — RangeTombstoneFilter::new sorts internally
                 rts
             } else {
                 Vec::new()
@@ -299,8 +299,8 @@ impl TreeIter {
                 Err(_) => true,
             });
 
-            // Fast path: skip filter wrapping when no range tombstones exist
-            if all_range_tombstones.is_empty() {
+            // Fast path: skip filter wrapping when no tombstone is visible at this read seqno
+            if all_range_tombstones.iter().all(|rt| !rt.visible_at(seqno)) {
                 Box::new(iter)
             } else {
                 Box::new(RangeTombstoneFilter::new(iter, all_range_tombstones, seqno))
