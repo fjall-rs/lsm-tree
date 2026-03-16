@@ -102,6 +102,8 @@ impl<'a> Reader<'a> {
 
             #[cfg(feature = "zstd")]
             CompressionType::Zstd(_) => {
+                // NOTE: size cap validation for real_val_len is in PR #7
+                // (feat/#258-security-validate-uncompressedlength-before-decomp)
                 let decompressed = zstd::bulk::decompress(&raw_data, real_val_len)
                     .map_err(|_| crate::Error::Decompress(self.blob_file.0.meta.compression))?;
 
