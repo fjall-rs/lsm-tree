@@ -26,8 +26,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --features lz4
+      - name: Clippy (strict)
+        run: cargo clippy --all-features -- -D warnings
 
   test:
     # Full matrix — only on push to main/feature branches (not on PRs)
